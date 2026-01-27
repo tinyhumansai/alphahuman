@@ -1,15 +1,16 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { openUrl } from '../utils/openUrl';
 import { TELEGRAM_BOT_USERNAME } from '../utils/config';
 import ConnectionIndicator from '../components/ConnectionIndicator';
 import { useAppDispatch } from '../store/hooks';
 import { clearToken } from '../store/authSlice';
+import { useUser } from '../hooks/useUser';
 
 const Home = () => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const [userName] = useState('Cyrus');
+  const { user } = useUser();
+  const userName = user?.firstName || 'User';
 
   // Get current date
   const getCurrentDate = () => {

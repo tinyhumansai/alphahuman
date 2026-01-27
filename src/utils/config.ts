@@ -6,3 +6,6 @@ export const TELEGRAM_BOT_USERNAME =
 
 export const TELEGRAM_BOT_ID =
   import.meta.env.VITE_TELEGRAM_BOT_ID || "8043922470";
+
+export const IS_DEV =
+  Boolean(import.meta.env.DEV) || import.meta.env.MODE === "development";

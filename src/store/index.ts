@@ -1,31 +1,30 @@
-import { configureStore, Middleware } from '@reduxjs/toolkit';
-import { persistStore, persistReducer, FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER } from 'redux-persist';
-import storage from 'redux-persist/lib/storage';
-import authReducer from './authSlice';
-import socketReducer from './socketSlice';
-import userReducer from './userSlice';
+import { configureStore } from "@reduxjs/toolkit";
+import {
+  persistStore,
+  persistReducer,
+  FLUSH,
+  REHYDRATE,
+  PAUSE,
+  PERSIST,
+  PURGE,
+  REGISTER,
+} from "redux-persist";
+import storage from "redux-persist/lib/storage";
+import authReducer from "./authSlice";
+import socketReducer from "./socketSlice";
+import userReducer from "./userSlice";
+import createLogger from "redux-logger";
+import { IS_DEV } from "../utils/config";
 
 // Persist config for auth only
 const authPersistConfig = {
-  key: 'auth',
+  key: "auth",
   storage,
   // Persist token and onboarding status
-  whitelist: ['token', 'isOnboarded'],
+  whitelist: ["token", "isOnboarded"],
 };
 
 const persistedAuthReducer = persistReducer(authPersistConfig, authReducer);
-
-// Get logger only in dev mode
-let loggerMiddleware: Middleware | undefined = undefined;
-if (import.meta.env.DEV) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const createLogger = require('redux-logger');
-    loggerMiddleware = createLogger.createLogger() as Middleware;
-  } catch {
-    // Logger not available, continue without it
-  }
-}
 
 export const store = configureStore({
   reducer: {
@@ -39,12 +38,9 @@ export const store = configureStore({
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
     });
-    
+
     // Add redux-logger in development
-    if (loggerMiddleware) {
-      return middleware.concat(loggerMiddleware);
-    }
-    
+    if (IS_DEV) return middleware.concat(createLogger);
     return middleware;
   },
 });
