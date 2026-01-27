@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { BACKEND_URL } from '../utils/config';
 import { useAuthStore } from '../store/authStore';
+import { useSocketStore } from '../store/socketStore';
 
 class SocketService {
   private socket: Socket | null = null;
@@ -16,6 +17,7 @@ class SocketService {
 
     if (!token) {
       console.warn('[SocketService] No token available, cannot connect');
+      useSocketStore.getState().setStatus('disconnected');
       return;
     }
 
@@ -25,6 +27,7 @@ class SocketService {
     }
 
     console.log('[SocketService] Connecting to socket server...');
+    useSocketStore.getState().setStatus('connecting');
 
     this.socket = io(BACKEND_URL, {
       auth: {
@@ -50,6 +53,8 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.reconnectAttempts = 0;
+      useSocketStore.getState().setStatus('disconnected');
+      useSocketStore.getState().setSocketId(null);
     }
   }
 
@@ -125,19 +130,35 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('[SocketService] Connected to socket server:', this.socket?.id);
       this.reconnectAttempts = 0;
+      useSocketStore.getState().setStatus('connected');
+      useSocketStore.getState().setSocketId(this.socket?.id || null);
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log('[SocketService] Disconnected from socket server:', reason);
+      useSocketStore.getState().setStatus('disconnected');
+      useSocketStore.getState().setSocketId(null);
+      
+      // If disconnected due to error, set status to connecting if we're trying to reconnect
+      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+        // Manual disconnect, keep as disconnected
+      } else {
+        // Network error or other, might be reconnecting
+        if (this.socket && !this.socket.disconnected) {
+          useSocketStore.getState().setStatus('connecting');
+        }
+      }
     });
 
     this.socket.on('connect_error', (error) => {
       console.error('[SocketService] Connection error:', error.message);
       this.reconnectAttempts++;
+      useSocketStore.getState().setStatus('connecting');
 
       // If max attempts reached, try reconnecting with fresh token
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         console.log('[SocketService] Max reconnection attempts reached, reconnecting with fresh token...');
+        useSocketStore.getState().setStatus('disconnected');
         setTimeout(() => {
           this.connect();
         }, this.reconnectDelay * 2);
@@ -146,10 +167,12 @@ class SocketService {
 
     this.socket.on('ready', () => {
       console.log('[SocketService] Server ready');
+      useSocketStore.getState().setStatus('connected');
     });
 
     this.socket.on('error', (error: { message?: string; status?: number; requestId?: string }) => {
       console.error('[SocketService] Server error:', error);
+      // Don't change status on server errors, connection might still be active
     });
   }
 }

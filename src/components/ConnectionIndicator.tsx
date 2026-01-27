@@ -1,3 +1,5 @@
+import { useSocketStore } from '../store/socketStore';
+
 interface ConnectionIndicatorProps {
   status?: 'connected' | 'disconnected' | 'connecting';
   description?: string;
@@ -5,10 +7,13 @@ interface ConnectionIndicatorProps {
 }
 
 const ConnectionIndicator = ({
-  status = 'connected',
+  status: overrideStatus,
   description = 'Your browser is now connected to the AlphaHuman AI. Keep this tab open to keep the connection alive. You can message your assistant with the button below.',
   className = '',
 }: ConnectionIndicatorProps) => {
+  // Use socket store status, but allow override via props
+  const storeStatus = useSocketStore((state) => state.status);
+  const status = overrideStatus || storeStatus;
   const statusConfig = {
     connected: {
       color: 'bg-sage-500',
