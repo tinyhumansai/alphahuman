@@ -1,21 +1,20 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import TypewriterGreeting from '../components/TypewriterGreeting';
 
 const Welcome = () => {
   const navigate = useNavigate();
-  const [greeting] = useState(() => {
-    const greetings = [
-      "Hello Satoshi! 👋",
-      "Got Crypto, Anon? 👀",
-      // "Welcome to the exclusive club of crypto degenerates! 🎪🚀",
-      // "Let's get you richer than a Nigerian prince's email! 👑💸",
-      // "Ready to HODL like your life depends on it? 🤝💀",
-      // "Welcome, future crypto millionaire (results not guaranteed)! 🎰💎",
-      // "Time to make Wall Street bros jealous AF! 📈🔥",
-      // "Ready to go to the moon? Pack light! 🌙🚀"
-    ];
-    return greetings[Math.floor(Math.random() * greetings.length)];
-  });
+  const greetings = [
+    "Hello Satoshi! 👋",
+    "Got Crypto, Anon? 👀",
+    "Let's cook! 🔥",
+    "Let's Ape Together! 👊",
+    // "Welcome to the exclusive club of crypto degenerates! 🎪🚀",
+    // "Let's get you richer than a Nigerian prince's email! 👑💸",
+    // "Ready to HODL like your life depends on it? 🤝💀",
+    // "Welcome, future crypto millionaire (results not guaranteed)! 🎰💎",
+    // "Time to make Wall Street bros jealous AF! 📈🔥",
+    // "Ready to go to the moon? Pack light! 🌙🚀"
+  ];
 
   const handleTelegramLogin = () => {
     navigate('/onboarding/step1');
@@ -28,9 +27,7 @@ const Welcome = () => {
         {/* Welcome card */}
         <div className="glass rounded-3xl p-8 text-center animate-fade-up shadow-large">
           {/* Greeting */}
-          <h1 className="text-2xl font-bold mb-4">
-            {greeting}
-          </h1>
+          <TypewriterGreeting greetings={greetings} />
 
           {/* <br /> */}
 
