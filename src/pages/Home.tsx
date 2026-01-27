@@ -79,11 +79,11 @@ const Home = () => {
             </div>
 
             {/* Action buttons */}
-            <div className="glass rounded-3xl p-6 shadow-large animate-fade-up mt-4 space-y-3">
+            <div className="glass rounded-3xl p-0 shadow-large animate-fade-up mt-4 overflow-hidden">
               {/* Manage Connections */}
               <button
                 onClick={handleManageConnections}
-                className="w-full flex items-start justify-between p-3 bg-black/50 border border-stone-700 rounded-xl hover:border-stone-600 hover:shadow-medium transition-all duration-200 text-left"
+                className="w-full flex items-start justify-between p-3 bg-black/50 border-b border-stone-700 hover:bg-stone-800/30 transition-all duration-200 text-left first:rounded-t-3xl"
               >
                 <div className="flex-1">
                   <div className="font-medium text-sm mb-1">Manage Connections</div>
@@ -98,7 +98,7 @@ const Home = () => {
               {/* View Encryption Key */}
               <button
                 onClick={handleViewEncryptionKey}
-                className="w-full flex items-start justify-between p-3 bg-black/50 border border-stone-700 rounded-xl hover:border-stone-600 hover:shadow-medium transition-all duration-200 text-left"
+                className="w-full flex items-start justify-between p-3 bg-black/50 border-b border-stone-700 hover:bg-stone-800/30 transition-all duration-200 text-left"
               >
                 <div className="flex-1">
                   <div className="font-medium text-sm mb-1">View Encryption Key</div>
@@ -112,7 +112,7 @@ const Home = () => {
               {/* Delete All Data */}
               <button
                 onClick={handleDeleteAllData}
-                className="w-full flex items-start justify-between p-3 bg-black/50 border border-coral-500/30 rounded-xl hover:border-coral-500/50 hover:shadow-medium transition-all duration-200 text-left"
+                className="w-full flex items-start justify-between p-3 bg-black/50 border-b border-coral-500/30 hover:bg-stone-800/30 transition-all duration-200 text-left"
               >
                 <div className="flex-1">
                   <div className="font-medium text-sm mb-1 text-coral-400">Delete All Data</div>
@@ -126,7 +126,7 @@ const Home = () => {
               {/* Logout */}
               <button
                 onClick={handleLogout}
-                className="w-full flex items-start justify-between p-3 bg-black/50 border border-amber-500/30 rounded-xl hover:border-amber-500/50 hover:shadow-medium transition-all duration-200 text-left"
+                className="w-full flex items-start justify-between p-3 bg-black/50 hover:bg-stone-800/30 transition-all duration-200 text-left last:rounded-b-3xl"
               >
                 <div className="flex-1">
                   <div className="font-medium text-sm mb-1 text-amber-400">Logout</div>

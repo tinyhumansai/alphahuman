@@ -6,7 +6,7 @@ interface ConnectionIndicatorProps {
 
 const ConnectionIndicator = ({
   status = 'connected',
-  description = 'Your browser is now connected to the AlphaHuman AI. Keep this tab open to keep the connection alive. You can message the assistant with the button below.',
+  description = 'Your browser is now connected to the AlphaHuman AI. Keep this tab open to keep the connection alive. You can message your assistant with the button below.',
   className = '',
 }: ConnectionIndicatorProps) => {
   const statusConfig = {
