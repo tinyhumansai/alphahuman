@@ -1,6 +1,6 @@
 /* Import Google Fonts for trust and professionalism */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap");
 
 /* Tailwind CSS imports */
 @tailwind base;
@@ -11,33 +11,81 @@
 @layer base {
   /* Set default font and improve text rendering */
   html {
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* background-color: #000000; */
+    color: #ffffff;
   }
 
   body {
-    @apply bg-canvas-50 text-stone-900;
+    @apply text-white;
     @apply font-sans;
     line-height: 1.6;
+
+    background-color: #0f0f0f;
+    color: #ffffff;
+    z-index: -1;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    &::after {
+      content: "";
+      background-image: url("/bg-dark.png");
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-repeat: repeat;
+      background-position: top right;
+      background-size: 510px auto;
+    }
+  }
+
+  * {
+    color: #ffffff;
   }
 
   /* Heading hierarchy for clear information architecture */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-display font-semibold;
-    @apply text-stone-900;
+    @apply text-white;
     line-height: 1.2;
   }
 
-  h1 { @apply text-3xl lg:text-4xl; }
-  h2 { @apply text-2xl lg:text-3xl; }
-  h3 { @apply text-xl lg:text-2xl; }
-  h4 { @apply text-lg lg:text-xl; }
+  h1 {
+    @apply text-3xl lg:text-4xl;
+  }
+  h2 {
+    @apply text-2xl lg:text-3xl;
+  }
+  h3 {
+    @apply text-xl lg:text-2xl;
+  }
+  h4 {
+    @apply text-lg lg:text-xl;
+  }
 
   /* Enhanced focus styles for accessibility and trust */
   *:focus {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-canvas-50;
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-black;
   }
 
   /* Smooth scrolling */
@@ -60,9 +108,9 @@
   }
 
   .btn-secondary {
-    @apply bg-canvas-100 hover:bg-canvas-200 active:bg-canvas-300;
-    @apply text-stone-700 font-medium;
-    @apply px-4 py-2 rounded-lg border border-canvas-200;
+    @apply bg-stone-800 hover:bg-stone-700 active:bg-stone-600;
+    @apply text-white font-medium;
+    @apply px-4 py-2 rounded-lg border border-stone-600;
     @apply transition-all duration-200 ease-in-out;
     @apply focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
   }
@@ -85,8 +133,8 @@
 
   /* Card components for content organization */
   .card {
-    @apply bg-white rounded-xl shadow-soft border border-canvas-200;
-    @apply p-6;
+    @apply bg-black rounded-xl shadow-soft border border-stone-700;
+    @apply p-6 text-white;
     @apply transition-shadow duration-200;
   }
 
@@ -97,8 +145,8 @@
   /* Input components with consistent styling */
   .input-primary {
     @apply w-full px-4 py-3 rounded-lg;
-    @apply border border-stone-300 focus:border-primary-500;
-    @apply bg-white text-stone-900 placeholder-stone-500;
+    @apply border border-stone-600 focus:border-primary-500;
+    @apply bg-black text-white placeholder-stone-400;
     @apply transition-colors duration-200;
     @apply focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:outline-none;
   }
@@ -106,28 +154,28 @@
   /* Status indicators */
   .status-online {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-sage-100 text-sage-800;
+    @apply bg-sage-800 text-white;
   }
 
   .status-offline {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-stone-100 text-stone-600;
+    @apply bg-stone-800 text-white;
   }
 
   .status-warning {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-amber-100 text-amber-800;
+    @apply bg-amber-800 text-white;
   }
 
   /* Navigation styles */
   .nav-item {
     @apply flex items-center px-4 py-2 text-sm font-medium rounded-lg;
-    @apply text-stone-600 hover:text-stone-900 hover:bg-canvas-100;
+    @apply text-white hover:text-white hover:bg-canvas-100;
     @apply transition-colors duration-150;
   }
 
   .nav-item-active {
-    @apply nav-item bg-primary-50 text-primary-700;
+    @apply nav-item bg-primary-600 text-white;
   }
 
   /* Message/chat specific styles */
@@ -141,12 +189,12 @@
   }
 
   .message-received {
-    @apply message-bubble bg-canvas-100 text-stone-900;
+    @apply message-bubble bg-stone-800 text-white;
   }
 
   /* Loading states */
   .loading-pulse {
-    @apply animate-pulse bg-canvas-200 rounded;
+    @apply animate-pulse bg-stone-800 rounded;
   }
 
   /* Crypto price styling */
@@ -190,15 +238,16 @@
 
   /* Text selection styling */
   .select-primary::selection {
-    @apply bg-primary-100 text-primary-900;
+    @apply bg-primary-600 text-white;
   }
 
   /* Enhanced glass effect for better visibility */
   .glass {
-    backdrop-filter: blur(16px);
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(1px);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    /* box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); */
+    color: #ffffff;
   }
 
   /* Animation utilities */
