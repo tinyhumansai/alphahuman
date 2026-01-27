@@ -1,6 +1,7 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import type { UserAuthParams, BotAuthParams } from 'telegram/client/auth';
+import { TELEGRAM_API_ID, TELEGRAM_API_HASH } from '../utils/config';
 
 type LoginOptions = UserAuthParams | BotAuthParams;
 
@@ -10,9 +11,17 @@ class MTProtoService {
   private isInitialized = false;
   private isConnected = false;
   private sessionString = '';
+  private readonly apiId: number;
+  private readonly apiHash: string;
 
   private constructor() {
     // Private constructor to enforce singleton
+    // Load API credentials from config once
+    if (!TELEGRAM_API_ID || !TELEGRAM_API_HASH) {
+      throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH must be configured');
+    }
+    this.apiId = TELEGRAM_API_ID;
+    this.apiHash = TELEGRAM_API_HASH;
   }
 
   static getInstance(): MTProtoService {
@@ -31,19 +40,13 @@ class MTProtoService {
       return;
     }
 
-    const apiId = import.meta.env.VITE_TELEGRAM_API_ID;
-    const apiHash = import.meta.env.VITE_TELEGRAM_API_HASH;
     const sessionString = this.loadSession() || '';
-
-    if (!apiId || !apiHash) {
-      throw new Error('VITE_TELEGRAM_API_ID and VITE_TELEGRAM_API_HASH must be configured');
-    }
 
     try {
       const stringSession = new StringSession(sessionString);
       this.sessionString = sessionString;
 
-      this.client = new TelegramClient(stringSession, Number(apiId), String(apiHash), {
+      this.client = new TelegramClient(stringSession, this.apiId, this.apiHash, {
         connectionRetries: 5,
       });
 
@@ -106,6 +109,51 @@ class MTProtoService {
       }
     } catch (error) {
       console.error('Authentication failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sign in using QR code
+   */
+  async signInWithQrCode(
+    qrCodeCallback: (qrCode: { token: Buffer; expires: number }) => void,
+    passwordCallback?: (hint?: string) => Promise<string>,
+    onError?: (err: Error) => Promise<boolean> | void
+  ): Promise<unknown> {
+    if (!this.client) {
+      throw new Error('MTProto client not initialized. Call initialize() first.');
+    }
+
+    try {
+      const user = await this.client.signInUserWithQrCode(
+        {
+          apiId: this.apiId,
+          apiHash: this.apiHash,
+        },
+        {
+          qrCode: async (qrCode) => {
+            qrCodeCallback(qrCode);
+          },
+          password: passwordCallback,
+          onError: onError || ((err: Error) => {
+            console.error('QR code auth error:', err);
+            return false;
+          }),
+        }
+      );
+
+      // Save session after successful login
+      const newSessionString = this.client.session.save();
+      if (newSessionString && newSessionString !== this.sessionString) {
+        this.sessionString = newSessionString;
+        this.saveSession(newSessionString);
+        console.log('QR code authentication successful, session saved');
+      }
+
+      return user;
+    } catch (error) {
+      console.error('QR code authentication failed:', error);
       throw error;
     }
   }
