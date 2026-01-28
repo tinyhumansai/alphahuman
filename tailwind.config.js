@@ -202,6 +202,7 @@ module.exports = {
         'fade-in': 'fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
         'fade-up': 'fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
         'slide-in': 'slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        'slide-right': 'slideRight 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
         'scale-in': 'scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         'shimmer': 'shimmer 2s linear infinite',
         'glow-pulse': 'glowPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -221,6 +222,10 @@ module.exports = {
         slideIn: {
           '0%': { transform: 'translateX(-100%)' },
           '100%': { transform: 'translateX(0)' },
+        },
+        slideRight: {
+          '0%': { opacity: '0', transform: 'translateX(100%)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
         },
         scaleIn: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
@@ -261,6 +266,12 @@ module.exports = {
         'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
         'gradient-mesh': 'linear-gradient(to right, #5B9BF3 0%, #9B8AFB 25%, #6EE7B7 50%, #7DD3FC 75%, #5B9BF3 100%)',
         'noise': "url('data:image/svg+xml,%3Csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\"%3E%3Cfilter id=\"noise\"%3E%3CfeTurbulence type=\"fractalNoise\" baseFrequency=\"0.9\" numOctaves=\"4\" /%3E%3C/filter%3E%3Crect width=\"100\" height=\"100\" filter=\"url(%23noise)\" opacity=\"0.03\" /%3E%3C/svg%3E')",
+      },
+
+      // Extended transition duration for smooth animations
+      transitionDuration: {
+        '300': '300ms',
+        '400': '400ms',
       },
     },
   },

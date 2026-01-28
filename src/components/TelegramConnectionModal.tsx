@@ -354,7 +354,7 @@ const TelegramConnectionModal = ({ isOpen, onClose, onComplete }: TelegramConnec
       }}
     >
       <div
-        className="bg-black/90 shadow-large animate-fade-up max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col items-center justify-center rounded-3xl"
+        className="bg-black/90 shadow-large animate-fade-up max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col items-center justify-center rounded-3xl focus:outline-none"
         style={{
           maxWidth: '56rem',
           maxHeight: '90vh',

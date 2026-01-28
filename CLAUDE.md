@@ -146,6 +146,12 @@ Production defaults are in `src/utils/config.ts`.
 Key updates from recent commits:
 
 ### Major Additions
+- **Settings Modal System** (`60054d8`): Complete URL-based settings modal with clean white design
+  - Modal infrastructure with backdrop blur and center positioning
+  - User profile integration with Redux state management
+  - Connection management panel reusing onboarding components
+  - URL routing for `/settings` and `/settings/connections` paths
+  - Mobile responsive design with accessibility features
 - **Type Casting Helpers**: Added for Telegram MTProto API (`5a0425c`)
 - **Onboarding Refactor**: Updated connection logic and steps (`bd1d240`)
 - **MCP Tools Enhancement**: Improved type safety and consistency across Telegram tools (`d0e1191`, `86cc53a`)
@@ -153,19 +159,30 @@ Key updates from recent commits:
 - **Big Integer Support**: Consistent handling across all Telegram MCP tools (`0abed4d`)
 
 ### Design System Updates
+- **Settings Modal UI**: Clean 520px white modal contrasting with glass morphism theme
+- **Animations**: 200ms entry animations, 250ms panel transitions, chevron hover effects
 - **Lottie Animations**: Integrated into onboarding flow (`334673e`)
 - **Connection Components**: Added Telegram and Gmail connection indicators
 - **Routing**: Switched to HashRouter for better desktop app compatibility
 - **Theme**: Implemented sophisticated color system with premium crypto aesthetic
 
 ### Component Structure
-- **153 TypeScript files** across `src/` directory
+- **165+ TypeScript files** across `src/` directory (added settings modal system)
+- **Settings Modal System**: Complete modal infrastructure in `src/components/settings/`
+  - SettingsModal.tsx - Main container with URL routing
+  - SettingsLayout.tsx - Modal wrapper with createPortal
+  - SettingsHome.tsx - Main menu with profile and navigation
+  - ConnectionsPanel.tsx - Connection management with status indicators
+  - Hooks: useSettingsNavigation.ts, useSettingsAnimation.ts
 - **Onboarding Flow**: Multi-step process with privacy, analytics, and connection steps
 - **Authentication**: Web-to-desktop handoff using `outsourced://` scheme
 - **Connection Management**: Telegram MTProto and Socket.io integration
 
 ## Key Patterns
 
+- **Modal System**: Settings modal uses `createPortal` pattern with URL-based routing. Clean white design (not glass morphism) for system settings. Navigate with `/settings` and `/settings/connections` paths.
+- **Component Reuse**: Connection management reuses `connectOptions` array and components from onboarding flow. Maintains consistent UX patterns across features.
+- **Redux Integration**: Settings modal integrates with existing slices - auth for logout, user for profile display, telegram for connection status. No new state management needed.
 - **Node polyfills**: Vite config (`vite.config.ts`) polyfills `buffer`, `process`, `util`, `os`, `crypto`, `stream` for the `telegram` npm package which requires Node APIs.
 - **Telegram IDs**: Use `big-integer` library, not native JS numbers (Telegram IDs exceed `Number.MAX_SAFE_INTEGER`).
 - **MCP tool files**: Each tool in `src/lib/mcp/telegram/tools/` exports a handler conforming to `TelegramMCPToolHandler` interface. Tool names are typed in `src/lib/mcp/telegram/types.ts`.

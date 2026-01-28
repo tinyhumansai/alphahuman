@@ -83,9 +83,30 @@
     @apply text-lg lg:text-xl;
   }
 
-  /* Enhanced focus styles for accessibility and trust */
+  /* Complete focus outline suppression - no borders, no rings, no outlines */
+  * {
+    outline: none !important;
+    -webkit-tap-highlight-color: transparent !important;
+  }
+
   *:focus {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-black;
+    outline: none !important;
+    box-shadow: none !important;
+    border: inherit !important;
+    border-color: inherit !important;
+  }
+
+  /* Specific overrides for common elements that might show blue outlines */
+  button:focus,
+  a:focus,
+  input:focus,
+  textarea:focus,
+  select:focus,
+  [role="button"]:focus,
+  [tabindex]:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: inherit !important;
   }
 
   /* Smooth scrolling */
@@ -103,7 +124,7 @@
     @apply px-4 py-2 rounded-lg;
     @apply transition-all duration-200 ease-in-out;
     @apply shadow-soft hover:shadow-medium;
-    @apply focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-black;
     @apply disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
@@ -112,7 +133,7 @@
     @apply text-white font-medium;
     @apply px-4 py-2 rounded-lg border border-stone-600;
     @apply transition-all duration-200 ease-in-out;
-    @apply focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-black;
   }
 
   .btn-success {
@@ -121,6 +142,7 @@
     @apply px-4 py-2 rounded-lg;
     @apply transition-all duration-200 ease-in-out;
     @apply shadow-soft hover:shadow-medium;
+    @apply focus:outline-none focus:ring-2 focus:ring-sage-500 focus:ring-offset-2 focus:ring-offset-black;
   }
 
   .btn-danger {
@@ -129,6 +151,7 @@
     @apply px-4 py-2 rounded-lg;
     @apply transition-all duration-200 ease-in-out;
     @apply shadow-soft hover:shadow-medium;
+    @apply focus:outline-none focus:ring-2 focus:ring-coral-500 focus:ring-offset-2 focus:ring-offset-black;
   }
 
   /* Card components for content organization */

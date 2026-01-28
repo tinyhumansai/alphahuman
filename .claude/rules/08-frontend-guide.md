@@ -53,15 +53,26 @@ src/
 │   ├── TelegramLoginButton.tsx   # OAuth login integration
 │   ├── ProtectedRoute.tsx        # Auth-gated routes
 │   ├── PublicRoute.tsx           # Guest-only routes
-│   └── ConnectionIndicator.tsx   # Status indicators
+│   ├── ConnectionIndicator.tsx   # Status indicators
+│   └── settings/                 # Settings modal system
+│       ├── SettingsModal.tsx     # Main container with routing
+│       ├── SettingsLayout.tsx    # Modal wrapper with portal
+│       ├── SettingsHome.tsx      # Main menu with profile
+│       ├── panels/ConnectionsPanel.tsx # Connection management
+│       ├── components/           # Menu items, header, back button
+│       └── hooks/                # Navigation and animation hooks
 └── utils/                         # Utilities and config
     ├── config.ts                 # Environment variables
     └── desktopDeepLinkListener.ts # Deep link handling
 ```
 
 ### Recent Architecture Changes
+- **Settings Modal System**: Complete URL-based modal system with clean white design
+  - Modal routes: `/settings`, `/settings/connections` overlaying existing content
+  - Component structure: SettingsModal, SettingsLayout, ConnectionsPanel, hooks
+  - Redux integration: auth, user, telegram state for profile and connection management
 - **HashRouter**: Switched from BrowserRouter for better desktop app compatibility
-- **153 TypeScript files**: Comprehensive component library
+- **165+ TypeScript files**: Comprehensive component library with settings modal system
 - **Provider chain**: Redux → PersistGate → Socket → Telegram → HashRouter → Routes
 - **MCP Integration**: 99 Telegram tools for AI-driven interactions
 - **Deep Link Auth**: Web-to-desktop handoff using `outsourced://` scheme
