@@ -197,7 +197,8 @@ jobs:
         with:
           script: |
             const workspacePath = process.env.GITHUB_WORKSPACE.replace(/\\/g, '/');
-            const moduleUrl = `file:///${workspacePath}/deploy/prepareTauriConfig.js`;
+            const prefix = workspacePath.startsWith('/') ? 'file://' : 'file:///';
+            const moduleUrl = `${prefix}${workspacePath}/deploy/prepareTauriConfig.js`;
             const { default: prepareTauriConfig } = await import(moduleUrl)
             const config = prepareTauriConfig();
 
