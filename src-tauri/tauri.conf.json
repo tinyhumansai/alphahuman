@@ -41,7 +41,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["outsourced"]
+        "schemes": ["alphahuman"]
       }
     }
   }

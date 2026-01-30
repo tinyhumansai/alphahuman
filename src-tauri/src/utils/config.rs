@@ -15,7 +15,7 @@ pub const APP_IDENTIFIER: &str = "com.megamind.tauri-app";
 pub const KEYCHAIN_SERVICE: &str = "AlphaHuman";
 
 /// Deep link scheme
-pub const DEEP_LINK_SCHEME: &str = "outsourced";
+pub const DEEP_LINK_SCHEME: &str = "alphahuman";
 
 /// Socket.io reconnection settings
 pub const SOCKET_RECONNECT_ATTEMPTS: u32 = 5;
