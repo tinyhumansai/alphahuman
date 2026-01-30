@@ -23,7 +23,7 @@ pub async fn start_telegram_login_with_url(
     backend_url: String,
 ) -> Result<(), String> {
     let url = format!(
-        "{}/auth/telegram-widget?redirect=outsourced://auth",
+        "{}/auth/telegram-widget?redirect=alphahuman://auth",
         backend_url
     );
 

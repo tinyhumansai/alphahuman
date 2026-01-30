@@ -6,7 +6,7 @@ import { setToken } from "../store/authSlice";
 
 /**
  * Handle a list of deep link URLs delivered by the Tauri deep-link plugin.
- * Parses `outsourced://auth?token=...` URLs and exchanges the token for a
+ * Parses `alphahuman://auth?token=...` URLs and exchanges the token for a
  * desktop session via the backend.
  */
 const handleDeepLinkUrls = async (urls: string[] | null | undefined) => {
@@ -18,7 +18,7 @@ const handleDeepLinkUrls = async (urls: string[] | null | undefined) => {
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "outsourced:") {
+    if (parsed.protocol !== "alphahuman:") {
       return;
     }
     // Harden: ensure this deep link is intended for auth handoff
@@ -66,7 +66,7 @@ const handleDeepLinkUrls = async (urls: string[] | null | undefined) => {
 
 /**
  * Set up listeners for deep links so that when the desktop app is opened
- * via a URL like `outsourced://auth?token=...`, we can react to it.
+ * via a URL like `alphahuman://auth?token=...`, we can react to it.
  * Only works in Tauri desktop app environment.
  */
 export const setupDesktopDeepLinkListener = async () => {

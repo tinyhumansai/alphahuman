@@ -108,7 +108,7 @@ listen("socket:should_connect", (event) => {
 | Plugin | Version | Purpose |
 |--------|---------|---------|
 | `tauri-plugin-opener` | 2 | Open URLs in browser |
-| `tauri-plugin-deep-link` | 2.0.0 | Handle `outsourced://` URLs |
+| `tauri-plugin-deep-link` | 2.0.0 | Handle `alphahuman://` URLs |
 | `tauri-plugin-autostart` | 2 | Launch at login |
 | `tauri-plugin-notification` | 2 | Native notifications |
 
