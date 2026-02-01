@@ -12,6 +12,7 @@ import type {
   SetupStep,
   SetupResult,
   SkillToolDefinition,
+  SkillOptionDefinition,
 } from "./types";
 import { store } from "../../store";
 import {
@@ -20,6 +21,7 @@ import {
   setSkillError,
   setSkillSetupComplete,
   setSkillTools,
+  setSkillState,
 } from "../../store/skillsSlice";
 import { TELEGRAM_API_ID, TELEGRAM_API_HASH } from "../../utils/config";
 
@@ -199,6 +201,30 @@ class SkillManager {
   }
 
   /**
+   * List runtime-configurable options for a running skill.
+   */
+  async listOptions(skillId: string): Promise<SkillOptionDefinition[]> {
+    const runtime = this.runtimes.get(skillId);
+    if (!runtime) {
+      throw new Error(`Skill ${skillId} is not running`);
+    }
+    return runtime.listOptions();
+  }
+
+  /**
+   * Set a single option on a running skill.
+   */
+  async setOption(skillId: string, name: string, value: unknown): Promise<void> {
+    const runtime = this.runtimes.get(skillId);
+    if (!runtime) {
+      throw new Error(`Skill ${skillId} is not running`);
+    }
+    await runtime.setOption(name, value);
+    // Refresh tools list since tool_filter options can change available tools
+    await this.activateSkill(skillId);
+  }
+
+  /**
    * Forward session start to all ready skills.
    */
   async sessionStart(sessionId: string): Promise<void> {
@@ -226,6 +252,15 @@ class SkillManager {
         }
       }
     }
+  }
+
+  /**
+   * Disconnect a skill — stop it and reset setup state.
+   */
+  async disconnectSkill(skillId: string): Promise<void> {
+    await this.stopSkill(skillId);
+    store.dispatch(setSkillSetupComplete({ skillId, complete: false }));
+    store.dispatch(setSkillState({ skillId, state: {} }));
   }
 
   /**

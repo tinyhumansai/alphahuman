@@ -233,6 +233,11 @@ pub fn run() {
             skill_list_manifests,
             skill_cwd,
             skill_venv_site_packages,
+            skill_read_catalog,
+            skill_sync_repo,
+            skill_catalog_exists,
+            skill_check_for_updates,
+            skill_read_icon,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

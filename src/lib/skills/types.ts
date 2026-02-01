@@ -106,6 +106,23 @@ export interface SkillToolResult {
 }
 
 // ---------------------------------------------------------------------------
+// Skill Options
+// ---------------------------------------------------------------------------
+
+export interface SkillOptionDefinition {
+  name: string;
+  type: "boolean" | "text" | "number" | "select";
+  label: string;
+  description?: string | null;
+  default?: string | number | boolean | null;
+  options?: SetupFieldOption[] | null;
+  group?: string | null;
+  toolFilter?: string[] | null;
+  /** Current value (returned by options/list) */
+  value?: string | number | boolean | null;
+}
+
+// ---------------------------------------------------------------------------
 // Skill Status
 // ---------------------------------------------------------------------------
 

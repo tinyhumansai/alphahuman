@@ -16,3 +16,9 @@ export const TELEGRAM_API_HASH =
 
 export const IS_DEV =
   Boolean(import.meta.env.DEV) || import.meta.env.MODE === "development";
+
+export const SKILLS_GITHUB_REPO =
+  import.meta.env.VITE_SKILLS_GITHUB_REPO || "alphahumanxyz/skills";
+
+export const SKILLS_GITHUB_TOKEN =
+  import.meta.env.VITE_SKILLS_GITHUB_TOKEN || undefined;

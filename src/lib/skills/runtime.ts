@@ -10,6 +10,7 @@ import type {
   SetupStep,
   SetupResult,
   SkillToolDefinition,
+  SkillOptionDefinition,
 } from "./types";
 import { getSkillModulePath } from "./paths";
 
@@ -144,6 +145,23 @@ export class SkillRuntime {
       tools: SkillToolDefinition[];
     }>("tools/list");
     return result.tools;
+  }
+
+  /**
+   * List runtime-configurable options with current values.
+   */
+  async listOptions(): Promise<SkillOptionDefinition[]> {
+    const result = await this.transport.request<{
+      options: SkillOptionDefinition[];
+    }>("options/list");
+    return result.options;
+  }
+
+  /**
+   * Set a single option value.
+   */
+  async setOption(name: string, value: unknown): Promise<void> {
+    await this.transport.request("options/set", { name, value });
   }
 
   /**

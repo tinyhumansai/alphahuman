@@ -47,6 +47,10 @@ parking_lot = "0.12"
 log = "0.4"
 env_logger = "0.11"
 
+# Archive extraction (for downloading skills repo without git)
+tar = "0.4"
+flate2 = "1"
+
 # AI module dependencies
 base64 = "0.22"
 aes-gcm = "0.10"

@@ -32,3 +32,5 @@ dist-ssr
 *.sw?
 references/
 src-tauri/runtime-skill-*
+.mypy_cache
+.ruff_cache

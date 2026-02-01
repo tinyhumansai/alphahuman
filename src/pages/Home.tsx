@@ -27,6 +27,13 @@ const Home = () => {
     navigate("/settings");
   };
 
+  const handleUpgrade = () => {
+    navigate("/settings/billing");
+  };
+
+  const currentPlan = user?.subscription?.plan || "FREE";
+  const showUpgradeCTA = currentPlan === "FREE";
+
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Content overlay */}
@@ -34,6 +41,51 @@ const Home = () => {
         {/* Main content */}
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="max-w-md w-full">
+            {/* Upgrade CTA */}
+            {showUpgradeCTA && (
+              <button
+                onClick={handleUpgrade}
+                className="glass rounded-3xl p-4 shadow-large animate-fade-up mb-4 w-full text-left hover:bg-stone-800/30 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500/50 group"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <svg
+                        className="w-5 h-5 text-primary-500"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
+                      </svg>
+                      <span className="font-semibold text-sm">Upgrade to Premium</span>
+                    </div>
+                    <p className="text-xs opacity-70">
+                      Unlock advanced features and unlimited access
+                    </p>
+                  </div>
+                  <svg
+                    className="w-5 h-5 opacity-60 group-hover:opacity-100 transition-opacity"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </div>
+              </button>
+            )}
+
             {/* Weather card */}
             <div className="glass rounded-3xl p-4 shadow-large animate-fade-up text-center">
               {/* Greeting */}
@@ -53,8 +105,7 @@ const Home = () => {
               </button>
             </div>
 
-            {/* Skills Grid */}
-            <SkillsGrid />
+
 
             {/* Action buttons */}
             <div className="glass rounded-3xl p-0 shadow-large animate-fade-up mt-4 overflow-hidden">
@@ -90,6 +141,9 @@ const Home = () => {
                 </div>
               </button>
             </div>
+
+            {/* Skills Grid */}
+            <SkillsGrid />
           </div>
         </div>
       </div>
