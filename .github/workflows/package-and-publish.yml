@@ -10,7 +10,7 @@ name: Package and publish
 
 on:
   workflow_run:
-    workflows: ['Version Bump']
+    workflows: ["Version Bump"]
     types:
       - completed
     branches:
@@ -153,12 +153,12 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "ubuntu-22.04"
+            args: ""
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -177,7 +177,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -283,13 +283,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GITHUB_TOKEN: ${{ secrets.XGH_TOKEN }}
+          XGH_TOKEN: ${{ secrets.XGH_TOKEN }}
           BASE_URL: ${{ vars.BASE_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
           WITH_UPDATER: ${{ needs.get-version.outputs.should-publish != '' && 'true' || 'false' }}
         with:
-          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
+          args: "-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}"
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
           releaseId: ${{ needs.create-release.outputs.releaseId }}
