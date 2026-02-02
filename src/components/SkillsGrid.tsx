@@ -408,7 +408,7 @@ export default function SkillsGrid() {
                           setSetupModalOpen(true);
                         }}
                         className="px-4 py-1.5 text-xs font-medium text-primary-300 bg-primary-500/10 border border-primary-500/30 rounded-lg hover:bg-primary-500/20 transition-colors flex-shrink-0 ml-3">
-                        Configure
+                        {connectionStatus === 'connected' ? 'Manage' : 'Configure'}
                       </button>
                     </div>
                   );
