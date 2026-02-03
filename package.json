@@ -12,7 +12,9 @@
     "macos:build": "tauri build --debug --bundles app",
     "macos:run": "open 'src-tauri/target/debug/bundle/macos/AlphaHuman.app'",
     "macos:dev": "tauri build --debug --bundles app && open 'src-tauri/target/debug/bundle/macos/AlphaHuman.app'",
-    "setup-python-sidecar": "node scripts/setup-python-sidecar.mjs",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "dev:app": "RUST_BACKTRACE=1 RUST_LOG=info tauri dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -20,6 +22,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "skills:build": "cd skills && yarn build",
+    "skills:watch": "cd skills && yarn build:watch",
     "prepare": "husky"
   },
   "dependencies": {

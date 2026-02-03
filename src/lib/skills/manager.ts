@@ -23,7 +23,8 @@ import {
   setSkillTools,
   setSkillState,
 } from "../../store/skillsSlice";
-import { TELEGRAM_API_ID, TELEGRAM_API_HASH } from "../../utils/config";
+// Env vars kept for reverse RPC compatibility (may be used by skills via state)
+
 
 class SkillManager {
   private runtimes = new Map<string, SkillRuntime>();
@@ -78,16 +79,7 @@ class SkillManager {
     });
 
     try {
-      // Build env vars to pass to the process
-      const env: Record<string, string> = {};
-      if (TELEGRAM_API_ID) {
-        env.TELEGRAM_API_ID = String(TELEGRAM_API_ID);
-      }
-      if (TELEGRAM_API_HASH) {
-        env.TELEGRAM_API_HASH = TELEGRAM_API_HASH;
-      }
-
-      await runtime.start(env);
+      await runtime.start();
       this.runtimes.set(skillId, runtime);
 
       store.dispatch(setSkillStatus({ skillId, status: "running" }));
@@ -370,12 +362,10 @@ class SkillManager {
       }
 
       case "data/read": {
-        // Read from the skill's data directory
-        // For now, use fetch or Tauri command
         const filename = params.filename as string;
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          const content = await invoke<string>("skill_read_data", {
+          const content = await invoke<string>("runtime_skill_data_read", {
             skillId,
             filename,
           });
@@ -390,7 +380,7 @@ class SkillManager {
         const content = params.content as string;
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("skill_write_data", {
+          await invoke("runtime_skill_data_write", {
             skillId,
             filename,
             content,

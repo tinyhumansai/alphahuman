@@ -1,12 +1,14 @@
 pub mod auth;
-pub mod skills;
+pub mod runtime;
 pub mod socket;
-pub mod telegram;
+
+#[cfg(desktop)]
 pub mod window;
 
 // Re-export all commands for registration
 pub use auth::*;
-pub use skills::*;
+pub use runtime::*;
 pub use socket::*;
-pub use telegram::*;
+
+#[cfg(desktop)]
 pub use window::*;

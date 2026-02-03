@@ -34,3 +34,5 @@ references/
 src-tauri/runtime-skill-*
 .mypy_cache
 .ruff_cache
+.kotlin
+.cargo
