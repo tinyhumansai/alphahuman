@@ -54,15 +54,34 @@ jobs:
       - name: Bump version
         id: version
         run: |
-          # Get current version
+          # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
+          export CURRENT_VERSION
           echo "Current version: $CURRENT_VERSION"
 
-          # Bump minor version (creates commit and tag)
-          # The commit message includes [skip ci] to prevent triggering this workflow again
-          NEW_VERSION=$(npm version minor -m "chore: bump version to %s [skip ci]" | sed 's/v//')
+          # Compute new version (minor bump: x.y.z -> x.(y+1).0)
+          NEW_VERSION=$(node -e "
+            const v = process.env.CURRENT_VERSION.split('.').map(Number);
+            console.log([v[0], (v[1] || 0) + 1, 0].join('.'));
+          ")
+          export NEW_VERSION
           echo "New version: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Update package.json
+          node -e "
+            const p = require('./package.json');
+            p.version = process.env.NEW_VERSION;
+            require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+
+          # Update Cargo.toml to match
+          sed -i 's/^version = .*/version = "'"$NEW_VERSION"'"/' src-tauri/Cargo.toml
+
+          # Single commit and tag for both npm and Cargo
+          git add package.json src-tauri/Cargo.toml
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git tag "v$NEW_VERSION"
 
       - name: Push changes
         run: |

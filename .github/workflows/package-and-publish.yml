@@ -14,7 +14,7 @@ on:
     branches:
       - develop
   workflow_run:
-    workflows: ["Version Bump"]
+    workflows: ['Version Bump']
     types:
       - completed
     branches:
@@ -169,12 +169,15 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: ""
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            target: ''
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -194,7 +197,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: "yarn"
+          cache: 'yarn'
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -315,10 +318,12 @@ jobs:
           # macOS 10.15+ required for std::filesystem used by llama.cpp
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
-          args: "-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}"
+          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
-          releaseId: ${{ needs.create-release.outputs.releaseId }}
+          # Don't let tauri-action upload for macOS - we need to bundle TDLib first and recreate the DMG
+          # For non-macOS platforms, upload directly via tauri-action
+          releaseId: ${{ matrix.settings.platform != 'macos-latest' && needs.create-release.outputs.releaseId || '' }}
           owner: alphahumanxyz
           repo: alphahuman
 
@@ -326,8 +331,10 @@ jobs:
       - name: Bundle TDLib for macOS
         if: matrix.settings.platform == 'macos-latest'
         run: |
+          TARGET="${{ matrix.settings.target }}"
+          echo "Bundling TDLib for target: $TARGET"
           chmod +x ./src-tauri/scripts/bundle-tdlib-macos.sh
-          ./src-tauri/scripts/bundle-tdlib-macos.sh release
+          ./src-tauri/scripts/bundle-tdlib-macos.sh release "$TARGET"
 
       # Re-sign the app after modifying the bundle (required for notarization)
       - name: Re-sign macOS app after TDLib bundling
@@ -335,23 +342,80 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
+          TARGET="${{ matrix.settings.target }}"
+          echo "Re-signing for target: $TARGET"
+
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
             echo "No signing identity provided, skipping re-sign"
             exit 0
           fi
-          APP_BUNDLE=$(find src-tauri/target/release/bundle/macos -name "*.app" -type d | head -1)
+
+          # Find app bundle in target-specific or default location
+          if [ -n "$TARGET" ]; then
+            APP_BUNDLE=$(find "src-tauri/target/$TARGET/release/bundle/macos" -name "*.app" -type d 2>/dev/null | head -1)
+          fi
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find "src-tauri/target/release/bundle/macos" -name "*.app" -type d 2>/dev/null | head -1)
+          fi
+
           if [ -n "$APP_BUNDLE" ]; then
             echo "Re-signing app bundle: $APP_BUNDLE"
-            # Sign the bundled dylibs
+            # Sign the bundled dylibs first
             for dylib in "$APP_BUNDLE/Contents/Frameworks/"*.dylib; do
               if [ -f "$dylib" ]; then
+                echo "Signing: $dylib"
                 codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$dylib" || true
               fi
             done
             # Re-sign the entire app bundle
             codesign --force --deep --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$APP_BUNDLE" || true
             echo "App re-signed successfully"
+          else
+            echo "Warning: No app bundle found to re-sign"
           fi
+
+      # Re-create DMG after TDLib bundling (the original DMG was created before bundling)
+      - name: Recreate DMG with bundled TDLib
+        if: matrix.settings.platform == 'macos-latest'
+        run: |
+          TARGET="${{ matrix.settings.target }}"
+          echo "Recreating DMG for target: $TARGET"
+
+          # Find the app bundle
+          if [ -n "$TARGET" ]; then
+            BUNDLE_DIR="src-tauri/target/$TARGET/release/bundle/macos"
+          else
+            BUNDLE_DIR="src-tauri/target/release/bundle/macos"
+          fi
+
+          APP_BUNDLE=$(find "$BUNDLE_DIR" -name "*.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Error: No app bundle found"
+            exit 1
+          fi
+
+          APP_NAME=$(basename "$APP_BUNDLE" .app)
+
+          # Find the original DMG
+          ORIGINAL_DMG=$(find "$BUNDLE_DIR" -name "*.dmg" -type f 2>/dev/null | head -1)
+          if [ -z "$ORIGINAL_DMG" ]; then
+            echo "Warning: No original DMG found, skipping DMG recreation"
+            exit 0
+          fi
+
+          echo "Recreating DMG with bundled TDLib..."
+          echo "App bundle: $APP_BUNDLE"
+          echo "Original DMG: $ORIGINAL_DMG"
+
+          # Remove the old DMG
+          rm -f "$ORIGINAL_DMG"
+
+          # Create new DMG with the updated app bundle
+          DMG_NAME=$(basename "$ORIGINAL_DMG")
+          hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$BUNDLE_DIR/$DMG_NAME"
+
+          echo "DMG recreated successfully: $BUNDLE_DIR/$DMG_NAME"
+          ls -la "$BUNDLE_DIR/$DMG_NAME"
 
       - name: Get file info
         id: file-info
@@ -392,13 +456,14 @@ jobs:
           NAME=$(echo "$NAME" | sed -E 's/[_-]{2,}/_/g' | sed 's/^[_-]//' | sed 's/[_-]$//')
 
           FILE_PATH=$(cd "$(dirname "$FULL_PATH")" && pwd)
-          ARCHITECTURE=$(echo "${{ matrix.settings.args }}" | grep -oE 'x86_64|aarch64' || echo "")
+          # Extract architecture from target (e.g., aarch64-apple-darwin -> aarch64)
+          ARCHITECTURE=$(echo "${{ matrix.settings.target }}" | cut -d'-' -f1)
           echo "name=$NAME" >> $GITHUB_OUTPUT
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
           echo "architecture=$ARCHITECTURE" >> $GITHUB_OUTPUT
           echo "path=$FILE_PATH" >> $GITHUB_OUTPUT
 
-      # MacOS release — use the DMG produced by tauri-action directly
+      # MacOS release — upload the DMG after TDLib bundling and re-signing
       - name: Upload release asset (MacOS)
         if: matrix.settings.platform == 'macos-latest' && needs.get-version.outputs.should-publish != ''
         shell: bash
@@ -594,3 +659,43 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -d "$GIST_CONTENT" \
             "https://api.github.com/gists/$UPDATER_GIST_ID"
+
+  delete-release-on-failure:
+    name: Delete draft release on build/publish failure
+    runs-on: ubuntu-latest
+    needs: [get-version, create-release, package-tauri, publish-release]
+    if: failure() && needs.create-release.result == 'success' && needs.create-release.outputs.releaseId != ''
+    permissions:
+      contents: write
+    env:
+      RELEASE_ID: ${{ needs.create-release.outputs.releaseId }}
+      TAG_NAME: ${{ needs.get-version.outputs.tag-name }}
+      XGH_TOKEN: ${{ secrets.XGH_TOKEN }}
+    steps:
+      - name: Delete draft release
+        run: |
+          echo "Deleting draft release $RELEASE_ID after build or publish failure"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $XGH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "404" ]; then
+            echo "Release deleted (or already gone)"
+          else
+            echo "Warning: Delete release returned HTTP $HTTP_CODE. Response: $BODY"
+          fi
+      - name: Delete tag
+        run: |
+          echo "Deleting tag $TAG_NAME"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $XGH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$PUBLISH_REPO/git/refs/tags/$TAG_NAME")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "404" ]; then
+            echo "Tag deleted (or already gone)"
+          else
+            echo "Warning: Delete tag returned HTTP $HTTP_CODE"
+          fi
