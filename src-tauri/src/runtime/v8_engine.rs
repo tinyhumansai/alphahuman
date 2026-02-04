@@ -29,6 +29,8 @@ pub struct RuntimeEngine {
     skills_data_dir: PathBuf,
     /// Directory containing skill source files.
     skills_source_dir: RwLock<Option<PathBuf>>,
+    /// Tauri resource directory (bundled skills in production).
+    resource_dir: RwLock<Option<PathBuf>>,
     /// Tauri app handle for emitting events.
     app_handle: RwLock<Option<AppHandle>>,
 }
@@ -49,6 +51,7 @@ impl RuntimeEngine {
             preferences,
             skills_data_dir,
             skills_source_dir: RwLock::new(None),
+            resource_dir: RwLock::new(None),
             app_handle: RwLock::new(None),
         })
     }
@@ -74,32 +77,73 @@ impl RuntimeEngine {
         *self.skills_source_dir.write() = Some(dir);
     }
 
+    /// Set the Tauri resource directory (for bundled skills in production).
+    pub fn set_resource_dir(&self, dir: PathBuf) {
+        log::info!("[runtime] Resource directory set to: {:?}", dir);
+        *self.resource_dir.write() = Some(dir);
+    }
+
     /// Get the skills source directory.
     fn get_skills_source_dir(&self) -> Result<PathBuf, String> {
+        // 1. Explicitly set source dir (highest priority)
         if let Some(dir) = self.skills_source_dir.read().as_ref() {
+            log::info!("[runtime] Using explicit skills source dir: {:?}", dir);
             return Ok(dir.clone());
         }
 
         let current =
             std::env::current_dir().map_err(|e| format!("Failed to get current dir: {e}"))?;
 
-        // Check: cwd/skills/skills
+        // 2. Dev: cwd/skills/skills
         let dev_skills = current.join("skills").join("skills");
         if dev_skills.exists() {
+            log::info!("[runtime] Using dev skills dir: {:?}", dev_skills);
             return Ok(dev_skills);
         }
 
-        // Check: ../skills/skills
+        // 3. Dev: ../skills/skills
         if let Some(parent) = current.parent() {
             let parent_skills = parent.join("skills").join("skills");
             if parent_skills.exists() {
+                log::info!("[runtime] Using parent dev skills dir: {:?}", parent_skills);
                 return Ok(parent_skills);
             }
         }
 
+        // 4. Production: bundled resources
+        // Tauri converts "../" to "_up_/" when bundling resources with array notation
+        if let Some(resource_dir) = self.resource_dir.read().as_ref() {
+            // Try: $RESOURCE/_up_/skills/skills/ (array notation with ../)
+            let bundled_skills = resource_dir.join("_up_").join("skills").join("skills");
+            if bundled_skills.exists() {
+                log::info!(
+                    "[runtime] Using bundled skills from resources: {:?}",
+                    bundled_skills
+                );
+                return Ok(bundled_skills);
+            }
+
+            // Try: $RESOURCE/skills/ (map notation)
+            let bundled_skills_alt = resource_dir.join("skills");
+            if bundled_skills_alt.exists() {
+                log::info!(
+                    "[runtime] Using bundled skills from resources (alt): {:?}",
+                    bundled_skills_alt
+                );
+                return Ok(bundled_skills_alt);
+            }
+
+            log::warn!(
+                "[runtime] Resource dir set but skills not found. Checked: {:?} and {:?}",
+                bundled_skills,
+                bundled_skills_alt
+            );
+        }
+
+        // 5. Final fallback: app data dir (for user-installed skills)
         let prod_dir = self.skills_data_dir.clone();
         log::info!(
-            "[runtime] Skills source dir (production fallback): {:?}",
+            "[runtime] Skills source dir (data dir fallback): {:?}",
             prod_dir
         );
         Ok(prod_dir)

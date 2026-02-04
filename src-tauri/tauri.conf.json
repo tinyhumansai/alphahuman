@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:app",
     "frontendDist": "../dist"
   },
   "app": {
@@ -37,6 +37,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": ["../skills/skills"],
     "macOS": {
       "minimumSystemVersion": "10.15"
     }

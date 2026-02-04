@@ -311,6 +311,12 @@ pub fn run() {
                 match runtime::v8_engine::RuntimeEngine::new(skills_data_dir) {
                     Ok(engine) => {
                         engine.set_app_handle(app.handle().clone());
+
+                        // Set resource directory for bundled skills (production builds)
+                        if let Ok(resource_dir) = app.path().resource_dir() {
+                            engine.set_resource_dir(resource_dir);
+                        }
+
                         let engine = std::sync::Arc::new(engine);
 
                         // Wire the SkillRegistry into the SocketManager for MCP
