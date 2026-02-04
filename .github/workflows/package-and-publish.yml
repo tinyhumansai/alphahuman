@@ -9,8 +9,9 @@
 name: Package and publish
 
 on:
+  workflow_dispatch:
   workflow_run:
-    workflows: ['Version Bump']
+    workflows: ["Version Bump"]
     types:
       - completed
     branches:
@@ -164,12 +165,12 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "ubuntu-22.04"
+            args: ""
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -189,7 +190,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -310,12 +311,43 @@ jobs:
           # macOS 10.15+ required for std::filesystem used by llama.cpp
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
-          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
+          args: "-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}"
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           owner: alphahumanxyz
           repo: alphahuman
+
+      # Bundle TDLib dylib into macOS app (fixes "Library not loaded" crash)
+      - name: Bundle TDLib for macOS
+        if: matrix.settings.platform == 'macos-latest'
+        run: |
+          chmod +x ./src-tauri/scripts/bundle-tdlib-macos.sh
+          ./src-tauri/scripts/bundle-tdlib-macos.sh release
+
+      # Re-sign the app after modifying the bundle (required for notarization)
+      - name: Re-sign macOS app after TDLib bundling
+        if: matrix.settings.platform == 'macos-latest'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "No signing identity provided, skipping re-sign"
+            exit 0
+          fi
+          APP_BUNDLE=$(find src-tauri/target/release/bundle/macos -name "*.app" -type d | head -1)
+          if [ -n "$APP_BUNDLE" ]; then
+            echo "Re-signing app bundle: $APP_BUNDLE"
+            # Sign the bundled dylibs
+            for dylib in "$APP_BUNDLE/Contents/Frameworks/"*.dylib; do
+              if [ -f "$dylib" ]; then
+                codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$dylib" || true
+              fi
+            done
+            # Re-sign the entire app bundle
+            codesign --force --deep --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$APP_BUNDLE" || true
+            echo "App re-signed successfully"
+          fi
 
       - name: Get file info
         id: file-info
