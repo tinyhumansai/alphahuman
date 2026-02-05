@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// Result of opening an IndexedDB database.
 /// Used by the IndexedDB emulation layer for tdweb.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct IdbOpenResult {
     /// Whether a version upgrade is needed.
     pub needs_upgrade: bool,
@@ -29,7 +29,7 @@ pub struct IdbStorage {
     /// Base directory for all databases.
     data_dir: PathBuf,
     /// Open database connections (db_name -> connection).
-    connections: Arc<RwLock<HashMap<String, Arc<RwLock<Connection>>>>>,
+    connections: Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Connection>>>>>,
     /// Database version info (used by IndexedDB emulation).
     #[allow(dead_code)]
     versions: Arc<RwLock<HashMap<String, u32>>>,
@@ -49,7 +49,7 @@ impl IdbStorage {
     }
 
     /// Get or create a database connection.
-    fn get_connection(&self, db_name: &str) -> Result<Arc<RwLock<Connection>>, String> {
+    fn get_connection(&self, db_name: &str) -> Result<Arc<parking_lot::Mutex<Connection>>, String> {
         // Check if already open
         if let Some(conn) = self.connections.read().get(db_name) {
             return Ok(conn.clone());
@@ -81,7 +81,7 @@ impl IdbStorage {
         )
         .map_err(|e| format!("Failed to initialize database schema: {e}"))?;
 
-        let conn = Arc::new(RwLock::new(conn));
+        let conn = Arc::new(parking_lot::Mutex::new(conn));
         self.connections
             .write()
             .insert(db_name.to_string(), conn.clone());
@@ -90,9 +90,9 @@ impl IdbStorage {
     }
 
     /// Open or create an IndexedDB database.
-    pub async fn open_database(&self, name: &str, version: u32) -> Result<IdbOpenResult, String> {
+    pub fn open_database(&self, name: &str, version: u32) -> Result<IdbOpenResult, String> {
         let conn = self.get_connection(name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Get current version
         let current_version: u32 = conn_guard
@@ -145,7 +145,7 @@ impl IdbStorage {
     }
 
     /// Delete a database.
-    pub async fn delete_database(&self, name: &str) -> Result<(), String> {
+    pub fn delete_database(&self, name: &str) -> Result<(), String> {
         self.close_database(name);
         let db_path = self.data_dir.join(format!("{}.sqlite", name));
         if db_path.exists() {
@@ -164,7 +164,7 @@ impl IdbStorage {
         auto_increment: bool,
     ) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Register the store
         conn_guard
@@ -197,7 +197,7 @@ impl IdbStorage {
     /// Delete an object store.
     pub fn delete_object_store(&self, db_name: &str, store_name: &str) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Remove from registry
         conn_guard
@@ -214,14 +214,14 @@ impl IdbStorage {
     }
 
     /// Get a value from an object store.
-    pub async fn get(
+    pub fn get(
         &self,
         db_name: &str,
         store_name: &str,
         key: &serde_json::Value,
     ) -> Result<Option<serde_json::Value>, String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
         let key_str = serde_json::to_string(key).unwrap_or_else(|_| "null".to_string());
@@ -245,7 +245,7 @@ impl IdbStorage {
     }
 
     /// Put a value into an object store.
-    pub async fn put(
+    pub fn put(
         &self,
         db_name: &str,
         store_name: &str,
@@ -253,7 +253,7 @@ impl IdbStorage {
         value: &serde_json::Value,
     ) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
         let key_str = serde_json::to_string(key).unwrap_or_else(|_| "null".to_string());
@@ -273,14 +273,14 @@ impl IdbStorage {
     }
 
     /// Delete a value from an object store.
-    pub async fn delete(
+    pub fn delete(
         &self,
         db_name: &str,
         store_name: &str,
         key: &serde_json::Value,
     ) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
         let key_str = serde_json::to_string(key).unwrap_or_else(|_| "null".to_string());
@@ -296,9 +296,9 @@ impl IdbStorage {
     }
 
     /// Clear all values from an object store.
-    pub async fn clear(&self, db_name: &str, store_name: &str) -> Result<(), String> {
+    pub fn clear(&self, db_name: &str, store_name: &str) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
 
@@ -310,14 +310,14 @@ impl IdbStorage {
     }
 
     /// Get all values from an object store.
-    pub async fn get_all(
+    pub fn get_all(
         &self,
         db_name: &str,
         store_name: &str,
         count: Option<u32>,
     ) -> Result<Vec<serde_json::Value>, String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
         let limit = count.map(|c| format!(" LIMIT {}", c)).unwrap_or_default();
@@ -337,14 +337,14 @@ impl IdbStorage {
     }
 
     /// Get all keys from an object store.
-    pub async fn get_all_keys(
+    pub fn get_all_keys(
         &self,
         db_name: &str,
         store_name: &str,
         count: Option<u32>,
     ) -> Result<Vec<serde_json::Value>, String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
         let limit = count.map(|c| format!(" LIMIT {}", c)).unwrap_or_default();
@@ -364,9 +364,9 @@ impl IdbStorage {
     }
 
     /// Count values in an object store.
-    pub async fn count(&self, db_name: &str, store_name: &str) -> Result<u32, String> {
+    pub fn count(&self, db_name: &str, store_name: &str) -> Result<u32, String> {
         let conn = self.get_connection(db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let table_name = format!("store_{}", sanitize_name(store_name));
 
@@ -394,7 +394,7 @@ impl IdbStorage {
     ) -> Result<usize, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let params: Vec<Box<dyn rusqlite::ToSql>> = params
             .iter()
@@ -418,7 +418,7 @@ impl IdbStorage {
     ) -> Result<serde_json::Value, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let params: Vec<Box<dyn rusqlite::ToSql>> = params
             .iter()
@@ -463,7 +463,7 @@ impl IdbStorage {
     ) -> Result<serde_json::Value, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         let params: Vec<Box<dyn rusqlite::ToSql>> = params
             .iter()
@@ -502,7 +502,7 @@ impl IdbStorage {
     pub fn skill_kv_get(&self, skill_id: &str, key: &str) -> Result<serde_json::Value, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Ensure KV table exists
         conn_guard
@@ -535,7 +535,7 @@ impl IdbStorage {
     ) -> Result<(), String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Ensure KV table exists
         conn_guard
@@ -580,7 +580,7 @@ impl IdbStorage {
     pub fn skill_store_delete(&self, skill_id: &str, key: &str) -> Result<(), String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         conn_guard
             .execute(
@@ -596,7 +596,7 @@ impl IdbStorage {
     pub fn skill_store_keys(&self, skill_id: &str) -> Result<Vec<String>, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
-        let conn_guard = conn.read();
+        let conn_guard = conn.lock();
 
         // Ensure KV table exists
         conn_guard

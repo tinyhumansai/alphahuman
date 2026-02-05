@@ -30,7 +30,7 @@ use rust_socketio::{
     Event, Payload,
 };
 
-// SkillRegistry only available on desktop (V8/deno_core required)
+// SkillRegistry only available on desktop (QuickJS required)
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::runtime::skill_registry::SkillRegistry;
 

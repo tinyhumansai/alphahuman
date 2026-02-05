@@ -86,10 +86,10 @@ impl SkillManifest {
         Self::from_json(&content)
     }
 
-    /// Whether this manifest declares a JavaScript runtime (V8).
-    /// Accepts "v8", "javascript" for compatibility.
+    /// Whether this manifest declares a JavaScript runtime (QuickJS).
+    /// Accepts "v8", "javascript", "quickjs" for compatibility.
     pub fn is_javascript(&self) -> bool {
-        self.runtime == "v8" || self.runtime == "javascript"
+        matches!(self.runtime.as_str(), "v8" | "javascript" | "quickjs")
     }
 
     /// Whether the skill is available on the current platform.

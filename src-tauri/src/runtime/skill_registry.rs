@@ -6,7 +6,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::runtime::v8_skill_instance::SkillState;
+use crate::runtime::qjs_skill_instance::SkillState;
 use crate::runtime::types::{
     SkillConfig, SkillMessage, SkillSnapshot, SkillStatus, ToolDefinition, ToolResult,
 };

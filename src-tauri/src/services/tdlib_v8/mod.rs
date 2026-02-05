@@ -1,10 +1,10 @@
-//! TDLib V8 Runtime Module
+//! TDLib Runtime Module
 //!
-//! Provides a V8 JavaScript runtime (via deno_core) for running
-//! skill JavaScript code and TDLib via tdweb. Provides a browser-like
-//! environment that supports WASM natively.
+//! Provides a QuickJS JavaScript runtime (via rquickjs) for running
+//! skill JavaScript code and TDLib integration. Provides a browser-like
+//! environment for skill execution.
 
-pub mod ops;
+pub mod qjs_ops;
 pub mod service;
 pub mod storage;
 

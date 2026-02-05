@@ -1,5 +1,5 @@
 /**
- * Bootstrap JavaScript for V8 Runtime
+ * Bootstrap JavaScript for QuickJS Runtime
  *
  * Provides browser-like API shims that tdweb expects.
  * These shims call Rust "ops" for actual I/O.
@@ -14,19 +14,19 @@ globalThis.window = globalThis;
 // ============================================================================
 globalThis.console = {
   log: function (...args) {
-    Deno.core.ops.op_console_log(args.map(String).join(' '));
+    __ops.console_log(args.map(String).join(' '));
   },
   info: function (...args) {
-    Deno.core.ops.op_console_log(args.map(String).join(' '));
+    __ops.console_log(args.map(String).join(' '));
   },
   warn: function (...args) {
-    Deno.core.ops.op_console_warn(args.map(String).join(' '));
+    __ops.console_warn(args.map(String).join(' '));
   },
   error: function (...args) {
-    Deno.core.ops.op_console_error(args.map(String).join(' '));
+    __ops.console_error(args.map(String).join(' '));
   },
   debug: function (...args) {
-    Deno.core.ops.op_console_log('[DEBUG] ' + args.map(String).join(' '));
+    __ops.console_log('[DEBUG] ' + args.map(String).join(' '));
   },
 };
 
@@ -39,25 +39,25 @@ let nextTimerId = 1;
 globalThis.setTimeout = function (callback, delay, ...args) {
   const id = nextTimerId++;
   timerCallbacks.set(id, { callback, args, type: 'timeout' });
-  Deno.core.ops.op_ah_timer_start(id, delay || 0, false);
+  __ops.timer_start(id, delay || 0, false);
   return id;
 };
 
 globalThis.setInterval = function (callback, delay, ...args) {
   const id = nextTimerId++;
   timerCallbacks.set(id, { callback, args, type: 'interval' });
-  Deno.core.ops.op_ah_timer_start(id, delay || 0, true);
+  __ops.timer_start(id, delay || 0, true);
   return id;
 };
 
 globalThis.clearTimeout = function (id) {
   timerCallbacks.delete(id);
-  Deno.core.ops.op_ah_timer_cancel(id);
+  __ops.timer_cancel(id);
 };
 
 globalThis.clearInterval = function (id) {
   timerCallbacks.delete(id);
-  Deno.core.ops.op_ah_timer_cancel(id);
+  __ops.timer_cancel(id);
 };
 
 // Timer callback handler (called from Rust)
@@ -146,7 +146,7 @@ globalThis.fetch = async function (url, options = {}) {
     headersObj = headers;
   }
 
-  const result = await Deno.core.ops.op_fetch(url.toString(), {
+  const result = await __ops.fetch(url.toString(), {
     method,
     headers: headersObj,
     body: typeof body === 'string' ? body : body ? JSON.stringify(body) : null,
@@ -259,7 +259,7 @@ class WebSocket {
 
   async _connect() {
     try {
-      this._id = await Deno.core.ops.op_ws_connect(this.url);
+      this._id = await __ops.ws_connect(this.url);
       this.readyState = WebSocket.OPEN;
 
       // Register for message callbacks
@@ -282,7 +282,7 @@ class WebSocket {
   async _startReceiving() {
     while (this.readyState === WebSocket.OPEN) {
       try {
-        const message = await Deno.core.ops.op_ws_recv(this._id);
+        const message = await __ops.ws_recv(this._id);
         if (message === null) {
           // Connection closed
           this._handleClose(1000, '');
@@ -322,7 +322,7 @@ class WebSocket {
     }
 
     const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
-    Deno.core.ops.op_ws_send(this._id, dataStr);
+    __ops.ws_send(this._id, dataStr);
   }
 
   close(code = 1000, reason = '') {
@@ -331,7 +331,7 @@ class WebSocket {
     }
 
     this.readyState = WebSocket.CLOSING;
-    Deno.core.ops.op_ws_close(this._id, code, reason);
+    __ops.ws_close(this._id, code, reason);
   }
 }
 
@@ -350,7 +350,7 @@ class IDBFactory {
     const request = new IDBRequest();
     (async () => {
       try {
-        await Deno.core.ops.op_idb_delete_database(name);
+        await __ops.idb_delete_database(name);
         request._success(undefined);
       } catch (e) {
         request._error(e);
@@ -398,7 +398,7 @@ class IDBOpenDBRequest extends IDBRequest {
 
   async _open() {
     try {
-      const info = await Deno.core.ops.op_idb_open(this._name, this._version);
+      const info = await __ops.idb_open(this._name, this._version);
       const db = new IDBDatabase(this._name, this._version, info.objectStores || []);
 
       if (info.needsUpgrade) {
@@ -433,13 +433,13 @@ class IDBDatabase {
   }
 
   createObjectStore(name, options = {}) {
-    Deno.core.ops.op_idb_create_object_store(this.name, name, options);
+    __ops.idb_create_object_store(this.name, name, options);
     this.objectStoreNames.push(name);
     return new IDBObjectStore(this, name);
   }
 
   deleteObjectStore(name) {
-    Deno.core.ops.op_idb_delete_object_store(this.name, name);
+    __ops.idb_delete_object_store(this.name, name);
     const idx = this.objectStoreNames.indexOf(name);
     if (idx >= 0) this.objectStoreNames.splice(idx, 1);
   }
@@ -449,7 +449,7 @@ class IDBDatabase {
   }
 
   close() {
-    Deno.core.ops.op_idb_close(this.name);
+    __ops.idb_close(this.name);
   }
 }
 
@@ -495,7 +495,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        const value = await Deno.core.ops.op_idb_get(this._db.name, this.name, key);
+        const value = await __ops.idb_get(this._db.name, this.name, key);
         request._success(value);
       } catch (e) {
         request._error(e);
@@ -508,7 +508,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        await Deno.core.ops.op_idb_put(this._db.name, this.name, key, value);
+        await __ops.idb_put(this._db.name, this.name, key, value);
         request._success(key);
       } catch (e) {
         request._error(e);
@@ -525,7 +525,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        await Deno.core.ops.op_idb_delete(this._db.name, this.name, key);
+        await __ops.idb_delete(this._db.name, this.name, key);
         request._success(undefined);
       } catch (e) {
         request._error(e);
@@ -538,7 +538,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        await Deno.core.ops.op_idb_clear(this._db.name, this.name);
+        await __ops.idb_clear(this._db.name, this.name);
         request._success(undefined);
       } catch (e) {
         request._error(e);
@@ -551,7 +551,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        const values = await Deno.core.ops.op_idb_get_all(this._db.name, this.name, count);
+        const values = await __ops.idb_get_all(this._db.name, this.name, count);
         request._success(values);
       } catch (e) {
         request._error(e);
@@ -564,7 +564,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        const keys = await Deno.core.ops.op_idb_get_all_keys(this._db.name, this.name, count);
+        const keys = await __ops.idb_get_all_keys(this._db.name, this.name, count);
         request._success(keys);
       } catch (e) {
         request._error(e);
@@ -577,7 +577,7 @@ class IDBObjectStore {
     const request = new IDBRequest();
     (async () => {
       try {
-        const count = await Deno.core.ops.op_idb_count(this._db.name, this.name);
+        const count = await __ops.idb_count(this._db.name, this.name);
         request._success(count);
       } catch (e) {
         request._error(e);
@@ -636,13 +636,13 @@ if (typeof globalThis.TextDecoder === 'undefined') {
 // ============================================================================
 if (typeof globalThis.atob === 'undefined') {
   globalThis.atob = function (str) {
-    return Deno.core.ops.op_atob(str);
+    return __ops.atob(str);
   };
 }
 
 if (typeof globalThis.btoa === 'undefined') {
   globalThis.btoa = function (str) {
-    return Deno.core.ops.op_btoa(str);
+    return __ops.btoa(str);
   };
 }
 
@@ -651,7 +651,7 @@ if (typeof globalThis.btoa === 'undefined') {
 // ============================================================================
 globalThis.crypto = {
   getRandomValues: function (array) {
-    const bytes = Deno.core.ops.op_crypto_random(array.length);
+    const bytes = __ops.crypto_random(array.length);
     array.set(bytes);
     return array;
   },
@@ -662,7 +662,7 @@ globalThis.crypto = {
 // ============================================================================
 globalThis.performance = {
   now: function () {
-    return Deno.core.ops.op_performance_now();
+    return __ops.performance_now();
   },
 };
 
@@ -673,53 +673,53 @@ globalThis.performance = {
 
 globalThis.__db = {
   exec: function (sql, paramsJson) {
-    return Deno.core.ops.op_db_exec(sql, paramsJson);
+    return __ops.db_exec(sql, paramsJson);
   },
   get: function (sql, paramsJson) {
-    return Deno.core.ops.op_db_get(sql, paramsJson);
+    return __ops.db_get(sql, paramsJson);
   },
   all: function (sql, paramsJson) {
-    return Deno.core.ops.op_db_all(sql, paramsJson);
+    return __ops.db_all(sql, paramsJson);
   },
   kvGet: function (key) {
-    return Deno.core.ops.op_db_kv_get(key);
+    return __ops.db_kv_get(key);
   },
   kvSet: function (key, valueJson) {
-    return Deno.core.ops.op_db_kv_set(key, valueJson);
+    return __ops.db_kv_set(key, valueJson);
   },
 };
 
 globalThis.__store = {
   get: function (key) {
-    return Deno.core.ops.op_store_get(key);
+    return __ops.store_get(key);
   },
   set: function (key, valueJson) {
-    return Deno.core.ops.op_store_set(key, valueJson);
+    return __ops.store_set(key, valueJson);
   },
   delete: function (key) {
-    return Deno.core.ops.op_store_delete(key);
+    return __ops.store_delete(key);
   },
   keys: function () {
-    return Deno.core.ops.op_store_keys();
+    return __ops.store_keys();
   },
 };
 
 globalThis.__net = {
   fetch: function (url, optionsJson) {
-    return Deno.core.ops.op_net_fetch(url, optionsJson);
+    return __ops.net_fetch(url, optionsJson);
   },
 };
 
 globalThis.__platform = {
   os: function () {
-    return Deno.core.ops.op_platform_os();
+    return __ops.platform_os();
   },
   env: function (key) {
-    return Deno.core.ops.op_platform_env(key);
+    return __ops.platform_env(key);
   },
 };
 
-// High-level wrappers for skills (V8 bridge)
+// High-level wrappers for skills (QuickJS bridge)
 globalThis.db = {
   exec: function (sql, params) {
     return __db.exec(sql, params ? JSON.stringify(params) : undefined);
@@ -779,13 +779,13 @@ globalThis.platform = {
 // ============================================================================
 globalThis.__state = {
   get: function (key) {
-    return Deno.core.ops.op_state_get(key);
+    return __ops.state_get(key);
   },
   set: function (key, valueJson) {
-    return Deno.core.ops.op_state_set(key, valueJson);
+    return __ops.state_set(key, valueJson);
   },
   setPartial: function (partialJson) {
-    return Deno.core.ops.op_state_set_partial(partialJson);
+    return __ops.state_set_partial(partialJson);
   },
 };
 
@@ -807,10 +807,10 @@ globalThis.state = {
 // ============================================================================
 globalThis.__data = {
   read: function (filename) {
-    return Deno.core.ops.op_data_read(filename);
+    return __ops.data_read(filename);
   },
   write: function (filename, content) {
-    return Deno.core.ops.op_data_write(filename, content);
+    return __ops.data_write(filename, content);
   },
 };
 
@@ -828,15 +828,15 @@ globalThis.data = {
 // ============================================================================
 globalThis.cron = {
   register: function (scheduleId, cronExpr) {
-    console.warn('[cron] register not implemented in V8 runtime yet');
+    console.warn('[cron] register not implemented in QuickJS runtime yet');
     return false;
   },
   unregister: function (scheduleId) {
-    console.warn('[cron] unregister not implemented in V8 runtime yet');
+    console.warn('[cron] unregister not implemented in QuickJS runtime yet');
     return false;
   },
   list: function () {
-    console.warn('[cron] list not implemented in V8 runtime yet');
+    console.warn('[cron] list not implemented in QuickJS runtime yet');
     return [];
   },
 };
@@ -846,11 +846,11 @@ globalThis.cron = {
 // ============================================================================
 globalThis.skills = {
   list: function () {
-    console.warn('[skills] list not implemented in V8 runtime yet');
+    console.warn('[skills] list not implemented in QuickJS runtime yet');
     return [];
   },
   callTool: function (skillId, toolName, args) {
-    console.warn('[skills] callTool not implemented in V8 runtime yet');
+    console.warn('[skills] callTool not implemented in QuickJS runtime yet');
     return { error: 'Not implemented' };
   },
 };
@@ -868,8 +868,8 @@ globalThis.tdlib = {
    */
   isAvailable: function () {
     try {
-      return typeof Deno?.core?.ops?.op_tdlib_is_available === 'function'
-        ? Deno.core.ops.op_tdlib_is_available()
+      return typeof __ops?.tdlib_is_available === 'function'
+        ? __ops.tdlib_is_available()
         : false;
     } catch (e) {
       return false;
@@ -881,8 +881,8 @@ globalThis.tdlib = {
    * @param {string} dataDir - Path to store TDLib data files.
    * @returns {Promise<number>} Client ID (always 1 for singleton).
    */
-  createClient: async function (dataDir) {
-    return await Deno.core.ops.op_tdlib_create_client(dataDir);
+  createClient: function (dataDir) {
+    return __ops.tdlib_create_client(dataDir);
   },
 
   /**
@@ -891,7 +891,7 @@ globalThis.tdlib = {
    * @returns {Promise<object>} TDLib response object.
    */
   send: async function (request) {
-    return await Deno.core.ops.op_tdlib_send(request);
+    return await __ops.tdlib_send(request);
   },
 
   /**
@@ -900,7 +900,7 @@ globalThis.tdlib = {
    * @returns {Promise<object|null>} Update object or null if timeout.
    */
   receive: async function (timeoutMs = 1000) {
-    return await Deno.core.ops.op_tdlib_receive(timeoutMs);
+    return await __ops.tdlib_receive(timeoutMs);
   },
 
   /**
@@ -908,7 +908,7 @@ globalThis.tdlib = {
    * @returns {Promise<void>}
    */
   destroy: async function () {
-    return await Deno.core.ops.op_tdlib_destroy();
+    return await __ops.tdlib_destroy();
   },
 };
 
@@ -919,21 +919,21 @@ globalThis.tdlib = {
 globalThis.__model = {
   isAvailable: function () {
     try {
-      return typeof Deno?.core?.ops?.op_model_is_available === 'function'
-        ? Deno.core.ops.op_model_is_available()
+      return typeof __ops?.model_is_available === 'function'
+        ? __ops.model_is_available()
         : false;
     } catch (e) {
       return false;
     }
   },
   getStatus: function () {
-    return Deno.core.ops.op_model_get_status();
+    return __ops.model_get_status();
   },
   generate: async function (prompt, configJson) {
-    return await Deno.core.ops.op_model_generate(prompt, configJson);
+    return await __ops.model_generate(prompt, configJson);
   },
   summarize: async function (text, maxTokens) {
-    return await Deno.core.ops.op_model_summarize(text, maxTokens);
+    return await __ops.model_summarize(text, maxTokens);
   },
 };
 
@@ -986,4 +986,4 @@ globalThis.model = {
 };
 
 console.log('[bootstrap] Model API initialized');
-console.log('[bootstrap] V8 browser APIs initialized');
+console.log('[bootstrap] QuickJS browser APIs initialized');

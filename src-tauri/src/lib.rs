@@ -84,7 +84,7 @@ macro_rules! common_handlers {
         ai_read_memory_file,
         ai_write_memory_file,
         ai_list_memory_files,
-        // V8 runtime commands
+        // Runtime commands
         runtime_discover_skills,
         runtime_list_skills,
         runtime_start_skill,
@@ -93,14 +93,14 @@ macro_rules! common_handlers {
         runtime_call_tool,
         runtime_all_tools,
         runtime_broadcast_event,
-        // V8 runtime enable/disable + KV commands
+        // Runtime enable/disable + KV commands
         runtime_enable_skill,
         runtime_disable_skill,
         runtime_is_skill_enabled,
         runtime_get_skill_preferences,
         runtime_skill_kv_get,
         runtime_skill_kv_set,
-        // V8 runtime JSON-RPC + data commands
+        // Runtime JSON-RPC + data commands
         runtime_rpc,
         runtime_skill_data_read,
         runtime_skill_data_write,
@@ -207,15 +207,6 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load .env file (silently ignore if missing — production won't have one)
-    // Try current directory first, then parent (for when running from src-tauri)
-    if dotenvy::dotenv().is_err() {
-        if let Ok(cwd) = std::env::current_dir() {
-            if let Some(parent) = cwd.parent() {
-                let _ = dotenvy::from_path(parent.join(".env"));
-            }
-        }
-    }
 
     // Initialize platform-appropriate logger
     #[cfg(target_os = "android")]
@@ -289,7 +280,7 @@ pub fn run() {
             );
             socket_mgr.set_app_handle(app.handle().clone());
 
-            // Initialize V8 Runtime Engine (desktop only - V8 not available on Android/iOS)
+            // Initialize QuickJS Runtime Engine (desktop only - not available on Android/iOS)
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
                 let data_dir = app
@@ -308,7 +299,7 @@ pub fn run() {
                 services::llama::LLAMA_MANAGER.set_data_dir(model_dir);
                 log::info!("[runtime] Local model service initialized");
 
-                match runtime::v8_engine::RuntimeEngine::new(skills_data_dir) {
+                match runtime::qjs_engine::RuntimeEngine::new(skills_data_dir) {
                     Ok(engine) => {
                         engine.set_app_handle(app.handle().clone());
 
@@ -330,28 +321,29 @@ pub fn run() {
                             cron.start();
                         });
 
-                        // Auto-start skills in background
+                        // Auto-start skills in background (no delay needed for QuickJS -
+                        // lightweight contexts don't have V8's memory reservation issue)
                         let engine_clone = engine.clone();
                         tauri::async_runtime::spawn(async move {
                             engine_clone.auto_start_skills().await;
                         });
 
-                        log::info!("[runtime] V8 runtime engine initialized");
+                        log::info!("[runtime] QuickJS runtime engine initialized");
                     }
                     Err(e) => {
-                        log::error!("[runtime] Failed to initialize V8 runtime: {e}");
+                        log::error!("[runtime] Failed to initialize QuickJS runtime: {e}");
                     }
                 }
             }
 
             #[cfg(target_os = "android")]
             {
-                log::info!("[runtime] V8 runtime and local model disabled on Android");
+                log::info!("[runtime] QuickJS runtime and local model disabled on Android");
             }
 
             #[cfg(target_os = "ios")]
             {
-                log::info!("[runtime] V8 runtime and local model disabled on iOS");
+                log::info!("[runtime] QuickJS runtime and local model disabled on iOS");
             }
 
             // Store SocketManager as Tauri state
@@ -433,7 +425,7 @@ pub fn run() {
                     ai_read_memory_file,
                     ai_write_memory_file,
                     ai_list_memory_files,
-                    // V8 runtime commands
+                    // Runtime commands
                     runtime_discover_skills,
                     runtime_list_skills,
                     runtime_start_skill,
@@ -442,14 +434,14 @@ pub fn run() {
                     runtime_call_tool,
                     runtime_all_tools,
                     runtime_broadcast_event,
-                    // V8 runtime enable/disable + KV commands
+                    // Runtime enable/disable + KV commands
                     runtime_enable_skill,
                     runtime_disable_skill,
                     runtime_is_skill_enabled,
                     runtime_get_skill_preferences,
                     runtime_skill_kv_get,
                     runtime_skill_kv_set,
-                    // V8 runtime JSON-RPC + data commands
+                    // Runtime JSON-RPC + data commands
                     runtime_rpc,
                     runtime_skill_data_read,
                     runtime_skill_data_write,
@@ -525,7 +517,7 @@ pub fn run() {
                     ai_read_memory_file,
                     ai_write_memory_file,
                     ai_list_memory_files,
-                    // V8 runtime commands
+                    // Runtime commands
                     runtime_discover_skills,
                     runtime_list_skills,
                     runtime_start_skill,
@@ -534,14 +526,14 @@ pub fn run() {
                     runtime_call_tool,
                     runtime_all_tools,
                     runtime_broadcast_event,
-                    // V8 runtime enable/disable + KV commands
+                    // Runtime enable/disable + KV commands
                     runtime_enable_skill,
                     runtime_disable_skill,
                     runtime_is_skill_enabled,
                     runtime_get_skill_preferences,
                     runtime_skill_kv_get,
                     runtime_skill_kv_set,
-                    // V8 runtime JSON-RPC + data commands
+                    // Runtime JSON-RPC + data commands
                     runtime_rpc,
                     runtime_skill_data_read,
                     runtime_skill_data_write,

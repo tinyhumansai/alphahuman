@@ -75,11 +75,15 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
           "
 
-          # Update Cargo.toml to match
-          sed -i 's/^version = .*/version = "'"$NEW_VERSION"'"/' src-tauri/Cargo.toml
+          # Update tauri.conf.json to match
+          node -e "
+            const c = require('./src-tauri/tauri.conf.json');
+            c.version = process.env.NEW_VERSION;
+            require('fs').writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(c, null, 2) + '\n');
+          "
 
-          # Single commit and tag for both npm and Cargo
-          git add package.json src-tauri/Cargo.toml
+          # Single commit and tag for package.json and tauri.conf.json
+          git add package.json src-tauri/tauri.conf.json
           git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
           git tag "v$NEW_VERSION"
 

@@ -14,7 +14,7 @@ use tauri::State;
 
 // Desktop-only imports
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use crate::runtime::v8_engine::RuntimeEngine;
+use crate::runtime::qjs_engine::RuntimeEngine;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::runtime::types::{SkillSnapshot, ToolResult};
 

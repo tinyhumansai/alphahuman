@@ -93,7 +93,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 # V8 JavaScript runtime (via deno_core - powers Deno)
 # Only available on desktop - prebuilt binaries don't exist for Android/iOS
-deno_core = "0.314"
+rquickjs = { version = "0.11", features = ["futures", "macro", "loader", "parallel"] }
 # TDLib Rust bindings (desktop only - downloads prebuilt TDLib library)
 tdlib-rs = { version = "1.2", features = ["download-tdlib"] }
 # Local LLM inference - desktop only (llama.cpp requires native C++ compilation)

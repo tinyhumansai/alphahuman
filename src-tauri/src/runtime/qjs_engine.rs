@@ -1,7 +1,7 @@
-//! RuntimeEngine — top-level orchestrator for the V8 skill runtime.
+//! RuntimeEngine — top-level orchestrator for the QuickJS skill runtime.
 //!
 //! Manages skill lifecycle and provides the public API consumed by Tauri commands.
-//! Uses V8 (via deno_core) for JavaScript execution.
+//! Uses QuickJS (via rquickjs) for JavaScript execution.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,10 +14,10 @@ use crate::runtime::manifest::SkillManifest;
 use crate::runtime::preferences::PreferencesStore;
 use crate::runtime::skill_registry::SkillRegistry;
 use crate::runtime::types::{events, SkillSnapshot, SkillStatus, ToolResult};
-use crate::runtime::v8_skill_instance::{BridgeDeps, V8SkillInstance};
+use crate::runtime::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
 use crate::services::tdlib_v8::storage::IdbStorage;
 
-/// The central runtime engine using V8.
+/// The central runtime engine using QuickJS.
 pub struct RuntimeEngine {
     /// Registry of all skills.
     registry: Arc<SkillRegistry>,
@@ -43,7 +43,7 @@ impl RuntimeEngine {
         cron_scheduler.set_registry(Arc::clone(&registry));
         let preferences = Arc::new(PreferencesStore::new(&skills_data_dir));
 
-        log::info!("[runtime] V8 RuntimeEngine created");
+        log::info!("[runtime] QuickJS RuntimeEngine created");
 
         Ok(Self {
             registry,
@@ -111,9 +111,7 @@ impl RuntimeEngine {
         }
 
         // 4. Production: bundled resources
-        // Tauri converts "../" to "_up_/" when bundling resources with array notation
         if let Some(resource_dir) = self.resource_dir.read().as_ref() {
-            // Try: $RESOURCE/_up_/skills/skills/ (array notation with ../)
             let bundled_skills = resource_dir.join("_up_").join("skills").join("skills");
             if bundled_skills.exists() {
                 log::info!(
@@ -123,7 +121,6 @@ impl RuntimeEngine {
                 return Ok(bundled_skills);
             }
 
-            // Try: $RESOURCE/skills/ (map notation)
             let bundled_skills_alt = resource_dir.join("skills");
             if bundled_skills_alt.exists() {
                 log::info!(
@@ -140,7 +137,7 @@ impl RuntimeEngine {
             );
         }
 
-        // 5. Final fallback: app data dir (for user-installed skills)
+        // 5. Final fallback: app data dir
         let prod_dir = self.skills_data_dir.clone();
         log::info!(
             "[runtime] Skills source dir (data dir fallback): {:?}",
@@ -184,7 +181,6 @@ impl RuntimeEngine {
                             );
                         }
                         Ok(_) => {
-                            // Not a JavaScript skill, skip
                             log::info!(
                                 "[runtime] Skipping skill '{}': not a JavaScript skill",
                                 manifest_path.display()
@@ -227,7 +223,7 @@ impl RuntimeEngine {
         let manifest = SkillManifest::from_path(&manifest_path).await?;
         if !manifest.is_javascript() {
             return Err(format!(
-                "Skill '{}' uses runtime '{}', not 'v8' or 'javascript'",
+                "Skill '{}' uses runtime '{}', not a supported JavaScript runtime",
                 skill_id, manifest.runtime
             ));
         }
@@ -235,15 +231,15 @@ impl RuntimeEngine {
         let config = manifest.to_config();
         let data_dir = self.skills_data_dir.join(skill_id);
 
-        // Create the V8 skill instance
-        log::info!("[runtime] Creating V8 skill instance for '{}'", skill_id);
+        // Create the QuickJS skill instance
+        log::info!("[runtime] Creating QuickJS skill instance for '{}'", skill_id);
         log::info!("[runtime] Config: {:?}", config);
         log::info!("[runtime] Skill dir: {:?}", skill_dir);
         log::info!("[runtime] Data dir: {:?}", data_dir);
-        let (instance, rx) = V8SkillInstance::new(config.clone(), skill_dir, data_dir.clone());
-        log::info!("[runtime] V8 skill instance created for '{}'", skill_id);
+        let (instance, rx) = QjsSkillInstance::new(config.clone(), skill_dir, data_dir.clone());
+        log::info!("[runtime] QuickJS skill instance created for '{}'", skill_id);
 
-        // Bundle bridge dependencies
+        // Bundle bridge dependencies (no creation lock needed for QuickJS)
         let deps = BridgeDeps {
             cron_scheduler: self.cron_scheduler.clone(),
             skill_registry: self.registry.clone(),
@@ -265,8 +261,7 @@ impl RuntimeEngine {
 
         self.emit_status_change(skill_id);
 
-        // Wait for initialization to complete (Running or Error status)
-        // with a reasonable timeout
+        // Wait for initialization to complete
         let state = instance.state.clone();
         let skill_id_owned = skill_id.to_string();
         let max_wait = std::time::Duration::from_secs(10);
@@ -278,12 +273,10 @@ impl RuntimeEngine {
 
             match current_status {
                 SkillStatus::Running => {
-                    // Successfully started
                     self.emit_status_change(&skill_id_owned);
                     return Ok(instance.snapshot());
                 }
                 SkillStatus::Error => {
-                    // Initialization failed - unregister and return error
                     let error_msg = state
                         .read()
                         .error
@@ -297,7 +290,6 @@ impl RuntimeEngine {
                     ));
                 }
                 SkillStatus::Stopped => {
-                    // Skill stopped unexpectedly during init
                     self.registry.unregister(&skill_id_owned);
                     return Err(format!(
                         "Skill '{}' stopped unexpectedly during initialization",
@@ -305,9 +297,7 @@ impl RuntimeEngine {
                     ));
                 }
                 SkillStatus::Initializing | SkillStatus::Pending => {
-                    // Still initializing, continue waiting
                     if start.elapsed() > max_wait {
-                        // Timeout - skill is taking too long
                         log::warn!(
                             "[runtime] Skill '{}' initialization timeout, returning current state",
                             skill_id_owned
@@ -317,7 +307,6 @@ impl RuntimeEngine {
                     tokio::time::sleep(poll_interval).await;
                 }
                 SkillStatus::Stopping => {
-                    // Unexpected state during startup
                     return Err(format!(
                         "Skill '{}' is in unexpected Stopping state during startup",
                         skill_id_owned
@@ -375,6 +364,7 @@ impl RuntimeEngine {
     }
 
     /// Auto-start skills based on user preferences.
+    /// No stagger delay needed for QuickJS (lightweight contexts).
     pub async fn auto_start_skills(&self) {
         match self.discover_skills().await {
             Ok(manifests) => {

@@ -20,6 +20,10 @@ dist-ssr
 .env.local
 .env.*.local
 
+# CI secrets for local testing (contains real tokens)
+scripts/ci-secrets.json
+scripts/ci-secrets.local.json
+
 # Editor directories and files
 .idea
 .DS_Store
