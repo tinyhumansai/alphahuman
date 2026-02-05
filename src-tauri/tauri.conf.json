@@ -37,7 +37,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["../skills/skills"],
+    "resources": [
+      "../skills/skills"
+    ],
     "macOS": {
       "minimumSystemVersion": "10.15",
       "dmg": {
@@ -51,7 +53,9 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["alphahuman"]
+        "schemes": [
+          "alphahuman"
+        ]
       }
     }
   }
