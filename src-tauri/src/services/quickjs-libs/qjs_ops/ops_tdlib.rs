@@ -17,10 +17,22 @@ pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, skill_context: SkillCont
         let sc = skill_context.clone();
         ops.set("tdlib_create_client", Function::new(ctx.clone(),
             move |data_dir: String| -> rquickjs::Result<i32> {
-                check_telegram_skill(&sc.skill_id).map_err(|e| js_err(e))?;
-                crate::services::tdlib::TDLIB_MANAGER
+                log::info!("[tdlib_v8] Creating TDLib client with data_dir: {}", data_dir);
+                check_telegram_skill(&sc.skill_id).map_err(|e| {
+                    log::error!("[tdlib_v8] Skill check failed: {}", e);
+                    js_err(e)
+                })?;
+                let result = crate::services::tdlib::TDLIB_MANAGER
                     .create_client(PathBuf::from(data_dir))
-                    .map_err(|e| js_err(e))
+                    .map_err(|e| {
+                        log::error!("[tdlib_v8] TDLib client creation failed: {}", e);
+                        js_err(e)
+                    });
+                match &result {
+                    Ok(client_id) => log::info!("[tdlib_v8] TDLib client created successfully with ID: {}", client_id),
+                    Err(_) => log::error!("[tdlib_v8] TDLib client creation returned error"),
+                }
+                result
             },
         ))?;
     }
@@ -31,14 +43,29 @@ pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, skill_context: SkillCont
             Async(move |request_json: String| {
                 let skill_id = sc.skill_id.clone();
                 async move {
-                    check_telegram_skill(&skill_id).map_err(|e| js_err(e))?;
+                    log::info!("[tdlib_v8] Sending TDLib request: {}", request_json);
+                    check_telegram_skill(&skill_id).map_err(|e| {
+                        log::error!("[tdlib_v8] Skill check failed for tdlib_send: {}", e);
+                        js_err(e)
+                    })?;
                     let request: serde_json::Value =
-                        serde_json::from_str(&request_json).map_err(|e| js_err(e.to_string()))?;
+                        serde_json::from_str(&request_json).map_err(|e| {
+                            log::error!("[tdlib_v8] Failed to parse request JSON: {} - JSON: {}", e, request_json);
+                            js_err(e.to_string())
+                        })?;
+                    log::info!("[tdlib_v8] Parsed request type: {:?}", request.get("@type"));
                     let result = crate::services::tdlib::TDLIB_MANAGER
-                        .send(request)
+                        .send(request.clone())
                         .await
-                        .map_err(|e| js_err(e))?;
-                    serde_json::to_string(&result).map_err(|e| js_err(e.to_string()))
+                        .map_err(|e| {
+                            log::error!("[tdlib_v8] TDLib send failed for request {:?}: {}", request.get("@type"), e);
+                            js_err(e)
+                        })?;
+                    log::info!("[tdlib_v8] TDLib send successful, result: {:?}", result);
+                    serde_json::to_string(&result).map_err(|e| {
+                        log::error!("[tdlib_v8] Failed to serialize result: {}", e);
+                        js_err(e.to_string())
+                    })
                 }
             }),
         ))?;

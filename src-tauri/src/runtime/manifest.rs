@@ -37,6 +37,9 @@ pub struct SkillManifest {
     pub auto_start: bool,
     /// Version string (informational).
     pub version: Option<String>,
+    /// Whether to ignore in production.
+    #[serde(default)]
+    pub ignoreInProduction: bool,
     /// Description (informational).
     pub description: Option<String>,
     /// Setup configuration (optional).

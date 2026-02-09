@@ -3,7 +3,7 @@
 use rquickjs::{Ctx, Function, Object};
 
 use super::types::{js_err, SkillContext};
-use crate::services::tdlib_v8::storage::IdbStorage;
+use crate::services::quickjs_libs::storage::IdbStorage;
 
 pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, storage: IdbStorage, skill_context: SkillContext) -> rquickjs::Result<()> {
     // ========================================================================

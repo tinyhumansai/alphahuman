@@ -14,7 +14,7 @@ on:
     branches:
       - develop
   workflow_run:
-    workflows: ["Version Bump"]
+    workflows: ['Version Bump']
     types:
       - completed
     branches:
@@ -134,10 +134,11 @@ jobs:
         run: |
           echo "Creating draft release for tag: $TAG_NAME"
           echo "Repository: $PUBLISH_REPO"
+          RELEASE_BODY="See the assets below to download this version."
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer $XGH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            -d '{"tag_name": "'"$TAG_NAME"'", "name": "'"$RELEASE_NAME"'", "draft": true}' \
+            -d '{"tag_name": "'"$TAG_NAME"'", "name": "'"$RELEASE_NAME"'", "draft": true, "body": "'"$RELEASE_BODY"'"}' \
             "https://api.github.com/repos/$PUBLISH_REPO/releases")
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
@@ -169,15 +170,15 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin"
-            target: "x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: ""
-            target: ""
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            target: ''
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -197,7 +198,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: "yarn"
+          cache: 'yarn'
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -320,7 +321,7 @@ jobs:
           # macOS 10.15+ required for std::filesystem used by llama.cpp
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
-          args: "-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}"
+          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
           # TDLib dylibs are now bundled natively via build.rs + tauri.conf.json macOS.frameworks

@@ -12,3 +12,6 @@ todo
 [] - get background proceeses done
 [] - get ai to summarize messages in the device and upload to the cloud
 [] - get all the remaining skills working
+[] - allow bundling of unverified skills
+[] - allow for new skills to be coded on their own
+[] - allow for multiple instances of a skill to be loaded

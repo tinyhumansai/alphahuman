@@ -669,7 +669,7 @@ globalThis.performance = {
 // ============================================================================
 // Skill Bridge API
 // ============================================================================
-// These are exposed to skills via the `platform`, `db`, `store`, etc globals
+// These are exposed to skills via the `platform`, `db`, `state`, etc globals
 
 globalThis.__db = {
   exec: function (sql, paramsJson) {
@@ -686,21 +686,6 @@ globalThis.__db = {
   },
   kvSet: function (key, valueJson) {
     return __ops.db_kv_set(key, valueJson);
-  },
-};
-
-globalThis.__store = {
-  get: function (key) {
-    return __ops.store_get(key);
-  },
-  set: function (key, valueJson) {
-    return __ops.store_set(key, valueJson);
-  },
-  delete: function (key) {
-    return __ops.store_delete(key);
-  },
-  keys: function () {
-    return __ops.store_keys();
   },
 };
 
@@ -741,23 +726,6 @@ globalThis.db = {
   },
 };
 
-globalThis.store = {
-  get: function (key) {
-    var result = __store.get(key);
-    return JSON.parse(result);
-  },
-  set: function (key, value) {
-    return __store.set(key, JSON.stringify(value));
-  },
-  delete: function (key) {
-    return __store.delete(key);
-  },
-  keys: function () {
-    var result = __store.keys();
-    return JSON.parse(result);
-  },
-};
-
 globalThis.net = {
   fetch: function (url, options) {
     var result = __net.fetch(url, options ? JSON.stringify(options) : '{}');
@@ -791,14 +759,26 @@ globalThis.__state = {
 
 globalThis.state = {
   get: function (key) {
-    var result = __state.get(key);
+    var result = __ops.store_get(key);
     return JSON.parse(result);
   },
   set: function (key, value) {
-    return __state.set(key, JSON.stringify(value));
+    __ops.store_set(key, JSON.stringify(value));
+    __state.set(key, JSON.stringify(value));
   },
   setPartial: function (partial) {
-    return __state.setPartial(JSON.stringify(partial));
+    var keys = Object.keys(partial);
+    for (var i = 0; i < keys.length; i++) {
+      __ops.store_set(keys[i], JSON.stringify(partial[keys[i]]));
+    }
+    __state.setPartial(JSON.stringify(partial));
+  },
+  delete: function (key) {
+    return __ops.store_delete(key);
+  },
+  keys: function () {
+    var result = __ops.store_keys();
+    return JSON.parse(result);
   },
 };
 
@@ -972,11 +952,11 @@ globalThis.tdlib = {
 
   /**
    * Send a TDLib request and wait for the response.
-   * @param {object} request - TDLib API request object with @type field.
-   * @returns {Promise<object>} TDLib response object.
+   * @param {string} requestJson - JSON-serialized TDLib API request with @type field.
+   * @returns {Promise<string>} JSON-serialized TDLib response.
    */
-  send: async function (request) {
-    return await __ops.tdlib_send(request);
+  send: async function (requestJson) {
+    return await __ops.tdlib_send(requestJson);
   },
 
   /**
@@ -985,7 +965,8 @@ globalThis.tdlib = {
    * @returns {Promise<object|null>} Update object or null if timeout.
    */
   receive: async function (timeoutMs = 1000) {
-    return await __ops.tdlib_receive(timeoutMs);
+    const resultJson = await __ops.tdlib_receive(timeoutMs);
+    return resultJson ? JSON.parse(resultJson) : null;
   },
 
   /**

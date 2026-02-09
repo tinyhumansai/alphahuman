@@ -14,6 +14,7 @@ import { apiClient } from "../../services/apiClient";
 import { openUrl } from "../../utils/openUrl";
 import type { SetupStep, SetupFieldError } from "../../lib/skills/types";
 import SetupFormRenderer from "./SetupFormRenderer";
+import {IS_DEV} from "../../utils/config.ts";
 
 interface SkillSetupWizardProps {
   skillId: string;
@@ -42,21 +43,22 @@ export default function SkillSetupWizard({
 }: SkillSetupWizardProps) {
   const [state, setState] = useState<WizardState>({ phase: "loading" });
 
-  // Watch skill state for OAuth completion (skill pushes connected: true)
+  // Watch skill state for OAuth completion (skill pushes connection_status: "connected")
   const skillState = useAppSelector(
     (s) => s.skills.skillStates[skillId],
   );
+  const isConnected = skillState?.connection_status === "connected";
 
   // When skill state changes to connected during OAuth waiting, mark complete
   useEffect(() => {
     if (
       (state.phase === "oauth" || state.phase === "oauth_waiting") &&
-      skillState?.connected === true
+      isConnected
     ) {
       store.dispatch(setSkillSetupComplete({ skillId, complete: true }));
       setState({ phase: "complete", message: "Successfully connected!" });
     }
-  }, [skillState?.connected, state.phase, skillId]);
+  }, [isConnected, state.phase, skillId]);
 
   // Start the skill (if not running) then start the setup flow on mount
   useEffect(() => {
@@ -146,9 +148,10 @@ export default function SkillSetupWizard({
     const { oauth } = state;
 
     try {
+      const shouldShowJson = IS_DEV ? 'responseType=json&' : ''
       // Call backend to get the real OAuth authorization URL
       const data = await apiClient.get<{ oauthUrl?: string }>(
-        `/auth/${oauth.provider}/connect?skillId=${skillId}`,
+        `/auth/${oauth.provider}/connect?${shouldShowJson}skillId=${skillId}`,
       );
 
       if (!data.oauthUrl) {

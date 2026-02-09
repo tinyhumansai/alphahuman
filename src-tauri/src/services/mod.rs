@@ -5,7 +5,8 @@ pub mod socket_service;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod tdlib;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub mod tdlib_v8;
+#[path = "quickjs-libs/mod.rs"]
+pub mod quickjs_libs;
 
 #[cfg(desktop)]
 pub mod notification_service;

@@ -9,6 +9,7 @@ import { useSkillConnectionStatus } from '../lib/skills/hooks';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
 import { useAppSelector } from '../store/hooks';
+import { IS_DEV } from '../utils/config';
 import SkillSetupModal from './skills/SkillSetupModal';
 
 // Map skill IDs to icons
@@ -109,6 +110,7 @@ interface SkillListEntry {
   id: string;
   name: string;
   description: string;
+  ignoreInProduction?: boolean;
   icon?: React.ReactElement;
   hasSetup: boolean;
 }
@@ -322,18 +324,21 @@ export default function SkillsGrid() {
           return true;
         });
 
-        const processed: SkillListEntry[] = validManifests.map(m => {
-          const setup = m.setup as Record<string, unknown> | undefined;
-          return {
-            id: m.id as string,
-            name:
-              (m.name as string) ||
-              (m.id as string).charAt(0).toUpperCase() + (m.id as string).slice(1),
-            description: (m.description as string) || '',
-            icon: SKILL_ICONS[m.id as string],
-            hasSetup: !!(setup && setup.required),
-          };
-        });
+        const processed: SkillListEntry[] = validManifests
+          .map(m => {
+            const setup = m.setup as Record<string, unknown> | undefined;
+            return {
+              id: m.id as string,
+              name:
+                (m.name as string) ||
+                (m.id as string).charAt(0).toUpperCase() + (m.id as string).slice(1),
+              description: (m.description as string) || '',
+              icon: SKILL_ICONS[m.id as string],
+              ignoreInProduction: (m.ignoreInProduction as boolean) ?? false,
+              hasSetup: !!(setup && setup.required),
+            };
+          })
+          .filter(s => IS_DEV || !s.ignoreInProduction);
 
         setSkillsList(processed);
         setLoading(false);
@@ -348,25 +353,27 @@ export default function SkillsGrid() {
 
   // Sort skills by connection status (connected first)
   const sortedSkillsList = useMemo(() => {
-    return [...skillsList].sort((a, b) => {
-      const skillA = skillsState[a.id];
-      const skillB = skillsState[b.id];
-      const stateA = skillStates[a.id];
-      const stateB = skillStates[b.id];
+    return [...skillsList]
+      .sort((a, b) => {
+        const skillA = skillsState[a.id];
+        const skillB = skillsState[b.id];
+        const stateA = skillStates[a.id];
+        const stateB = skillStates[b.id];
 
-      const statusA = deriveConnectionStatus(skillA?.status, skillA?.setupComplete, stateA);
-      const statusB = deriveConnectionStatus(skillB?.status, skillB?.setupComplete, stateB);
+        const statusA = deriveConnectionStatus(skillA?.status, skillA?.setupComplete, stateA);
+        const statusB = deriveConnectionStatus(skillB?.status, skillB?.setupComplete, stateB);
 
-      const priorityA = STATUS_PRIORITY[statusA] ?? 999;
-      const priorityB = STATUS_PRIORITY[statusB] ?? 999;
+        const priorityA = STATUS_PRIORITY[statusA] ?? 999;
+        const priorityB = STATUS_PRIORITY[statusB] ?? 999;
 
-      // If same priority, sort alphabetically by name
-      if (priorityA === priorityB) {
-        return a.name.localeCompare(b.name);
-      }
+        // If same priority, sort alphabetically by name
+        if (priorityA === priorityB) {
+          return a.name.localeCompare(b.name);
+        }
 
-      return priorityA - priorityB;
-    });
+        return priorityA - priorityB;
+      })
+      .filter(s => IS_DEV || !s.ignoreInProduction);
   }, [skillsList, skillsState, skillStates]);
 
   // Show mobile-only message on mobile platforms

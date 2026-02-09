@@ -193,7 +193,7 @@ Advanced JavaScript execution engine for skills using V8 (via deno_core):
 - `log_bridge.rs` — Structured logging from skills
 - `cron_bridge.rs` — Cron job scheduling and management
 
-**TDLib Integration (`src-tauri/src/services/tdlib_v8/`):**
+**Quickjs Integration (`src-tauri/src/services/quickjs/`):**
 
 - `service.rs` — High-level TDLib client management with V8 integration
 - `bootstrap.js` — V8 JavaScript bootstrap environment

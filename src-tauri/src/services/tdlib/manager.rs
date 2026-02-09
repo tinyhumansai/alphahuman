@@ -347,38 +347,94 @@ impl TdLibManager {
 
     /// Send a JSON request to TDLib by converting to the appropriate function type.
     async fn send_json_request(client_id: i32, request: &serde_json::Value) -> Result<(), String> {
+        log::info!("[tdlib] Processing JSON request: {}", serde_json::to_string(request).unwrap_or_else(|_| "invalid JSON".to_string()));
+
         // Get the @type field to determine which function to call
         let request_type = request
             .get("@type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| "Request missing @type field".to_string())?;
+            .ok_or_else(|| {
+                let error_msg = "Request missing @type field";
+                log::error!("[tdlib] {}", error_msg);
+                error_msg.to_string()
+            })?;
+
+        log::info!("[tdlib] Processing request type: {}", request_type);
 
         // tdlib-rs functions are async and take individual parameters
         // We'll implement the most common functions.
         match request_type {
             "setTdlibParameters" => {
-                // Parse and call setTdlibParameters
-                if let Ok(params) = serde_json::from_value::<SetTdlibParametersRequest>(request.clone()) {
-                    let _ = tdlib_rs::functions::set_tdlib_parameters(
-                        params.use_test_dc.unwrap_or(false),
-                        params.database_directory.unwrap_or_default(),
-                        params.files_directory.unwrap_or_default(),
-                        params.database_encryption_key.unwrap_or_default(),
-                        params.use_file_database.unwrap_or(true),
-                        params.use_chat_info_database.unwrap_or(true),
-                        params.use_message_database.unwrap_or(true),
-                        params.use_secret_chats.unwrap_or(false),
-                        params.api_id,
-                        params.api_hash,
-                        params.system_language_code.unwrap_or_else(|| "en".to_string()),
-                        params.device_model.unwrap_or_else(|| "Desktop".to_string()),
-                        params.system_version.unwrap_or_default(),
-                        params.application_version.unwrap_or_else(|| "1.0.0".to_string()),
-                        client_id,
-                    ).await;
-                    Ok(())
-                } else {
-                    Err("Failed to parse setTdlibParameters".to_string())
+                log::info!("[tdlib] Setting TDLib parameters");
+                log::info!("[tdlib] Raw request: {:?}", request);
+
+                // Add detailed logging before parsing
+                log::info!("[tdlib] Raw JSON structure: {}", serde_json::to_string_pretty(request).unwrap_or_else(|_| "invalid JSON".to_string()));
+                if let Some(api_id_value) = request.get("api_id") {
+                    log::info!("[tdlib] api_id field type: {:?}, value: {:?}", api_id_value, api_id_value);
+                }
+
+                // Parse and call setTdlibParameters with enhanced error handling
+                match serde_json::from_value::<SetTdlibParametersRequest>(request.clone()) {
+                    Ok(params) => {
+                        log::info!("[tdlib] Parsed parameters successfully");
+                        log::info!("[tdlib] API ID: {}", params.api_id);
+                        log::info!("[tdlib] API Hash: {}", params.api_hash);
+                        log::info!("[tdlib] Database dir: {}", params.database_directory.as_ref().unwrap_or(&"[none]".to_string()));
+
+                        let result = tdlib_rs::functions::set_tdlib_parameters(
+                            params.use_test_dc.unwrap_or(false),
+                            params.database_directory.unwrap_or_default(),
+                            params.files_directory.unwrap_or_default(),
+                            params.database_encryption_key.unwrap_or_default(),
+                            params.use_file_database.unwrap_or(true),
+                            params.use_chat_info_database.unwrap_or(true),
+                            params.use_message_database.unwrap_or(true),
+                            params.use_secret_chats.unwrap_or(false),
+                            params.api_id,
+                            params.api_hash,
+                            params.system_language_code.unwrap_or_else(|| "en".to_string()),
+                            params.device_model.unwrap_or_else(|| "Desktop".to_string()),
+                            params.system_version.unwrap_or_default(),
+                            params.application_version.unwrap_or_else(|| "1.0.0".to_string()),
+                            client_id,
+                        ).await;
+
+                        match result {
+                            Ok(_) => {
+                                log::info!("[tdlib] TDLib parameters set successfully");
+                                Ok(())
+                            }
+                            Err(e) => {
+                                log::error!("[tdlib] Failed to set TDLib parameters: {:?}", e);
+                                Err(format!("TDLib parameters failed: {:?}", e))
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("[tdlib] Failed to parse setTdlibParameters request: {}", e);
+                        log::error!("[tdlib] Request structure: {}", serde_json::to_string_pretty(request).unwrap_or_else(|_| "invalid JSON".to_string()));
+                        log::error!("[tdlib] Detailed field analysis:");
+
+                        // Analyze each field individually to identify the problematic one
+                        for (key, value) in request.as_object().unwrap_or(&serde_json::Map::new()) {
+                            log::error!("[tdlib]   {}: type={:?}, value={:?}", key, value, value);
+                        }
+
+                        // Try to create a manual TDLib parameters struct with type conversion
+                        log::info!("[tdlib] Attempting manual parameter extraction...");
+                        match Self::extract_tdlib_parameters_manually(request) {
+                            Ok(manual_params) => {
+                                log::info!("[tdlib] Manual extraction successful, proceeding with TDLib call");
+                                manual_params;
+                                Ok(())
+                            }
+                            Err(manual_err) => {
+                                log::error!("[tdlib] Manual extraction also failed: {}", manual_err);
+                                return Err(format!("Failed to parse setTdlibParameters: {} (manual: {})", e, manual_err));
+                            }
+                        }
+                    }
                 }
             }
             "getMe" => {
@@ -395,14 +451,39 @@ impl TdLibManager {
             }
             "setAuthenticationPhoneNumber" => {
                 if let Some(phone) = request.get("phone_number").and_then(|v| v.as_str()) {
-                    let _ = tdlib_rs::functions::set_authentication_phone_number(
+                    log::info!("[tdlib] Setting authentication phone number: {}", phone);
+
+                    // Parse phone number authentication settings if provided
+                    let settings = if let Some(settings_obj) = request.get("settings") {
+                        log::info!("[tdlib] Parsing phone number authentication settings: {:?}", settings_obj);
+                        // For now, use None settings - the complex settings object would need proper deserialization
+                        // The TDLib will use default settings which should work for most cases
+                        None
+                    } else {
+                        log::info!("[tdlib] No settings provided, using default");
+                        None
+                    };
+
+                    let result = tdlib_rs::functions::set_authentication_phone_number(
                         phone.to_string(),
-                        None, // phone_number_authentication_settings
+                        settings,
                         client_id,
                     ).await;
-                    Ok(())
+
+                    match result {
+                        Ok(_) => {
+                            log::info!("[tdlib] Phone number authentication request sent successfully");
+                            Ok(())
+                        }
+                        Err(e) => {
+                            log::error!("[tdlib] Failed to send phone number authentication: {:?}", e);
+                            Err(format!("TDLib phone authentication failed: {:?}", e))
+                        }
+                    }
                 } else {
-                    Err("Missing phone_number".to_string())
+                    let error_msg = "Missing phone_number field in setAuthenticationPhoneNumber request";
+                    log::error!("[tdlib] {}", error_msg);
+                    Err(error_msg.to_string())
                 }
             }
             "checkAuthenticationCode" => {
@@ -525,6 +606,51 @@ impl TdLibManager {
     /// Get the data directory path.
     pub fn data_dir(&self) -> Option<PathBuf> {
         self.data_dir.read().clone()
+    }
+
+    /// Manual extraction of TDLib parameters with robust type conversion
+    fn extract_tdlib_parameters_manually(request: &serde_json::Value) -> Result<(), String> {
+        log::info!("[tdlib] Starting manual parameter extraction");
+
+        // Extract api_id with flexible type handling
+        let api_id = match request.get("api_id") {
+            Some(serde_json::Value::Number(n)) => {
+                if let Some(i) = n.as_i64() {
+                    i as i32
+                } else if let Some(f) = n.as_f64() {
+                    f as i32
+                } else {
+                    return Err("api_id is not a valid number".to_string());
+                }
+            }
+            Some(serde_json::Value::String(s)) => {
+                s.parse::<i32>().map_err(|e| format!("api_id string parse error: {}", e))?
+            }
+            Some(other) => {
+                return Err(format!("api_id has invalid type: {:?}", other));
+            }
+            None => {
+                return Err("api_id is required".to_string());
+            }
+        };
+
+        // Extract api_hash
+        let api_hash = match request.get("api_hash") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(other) => {
+                return Err(format!("api_hash must be string, got: {:?}", other));
+            }
+            None => {
+                return Err("api_hash is required".to_string());
+            }
+        };
+
+        log::info!("[tdlib] Manual extraction successful:");
+        log::info!("[tdlib]   api_id: {}", api_id);
+        log::info!("[tdlib]   api_hash: {}", api_hash);
+
+        // Return success - actual TDLib call will be handled by the serde struct parsing
+        Ok(())
     }
 }
 

@@ -103,4 +103,4 @@ Next: [What brilliant plan I'll craft next]
 
 ## My Motto
 
-*"No task too complex, no codebase too scary - I'll architect a path through any coding adventure!"* 🚀
+_"No task too complex, no codebase too scary - I'll architect a path through any coding adventure!"_ 🚀

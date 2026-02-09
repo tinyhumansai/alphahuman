@@ -5,7 +5,6 @@ import { skillManager } from '../lib/skills/manager';
 import { consumeLoginToken } from '../services/api/authApi';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
-import { IS_DEV } from './config';
 
 /**
  * Handle an `alphahuman://auth?token=...` deep link for login.
@@ -126,8 +125,9 @@ export const setupDesktopDeepLinkListener = async () => {
       void handleDeepLinkUrls(urls);
     });
 
-    if (IS_DEV && typeof window !== 'undefined') {
-      // window.__simulateDeepLink('alphahuman//auth?token=1234567890')
+    if (typeof window !== 'undefined') {
+      // window.__simulateDeepLink('alphahuman://auth?token=1234567890')
+      // window.__simulateDeepLink('alphahuman://oauth/success?integrationId=6989178fad6dbfe9b137f577&skillId=notion')
       (
         window as Window & { __simulateDeepLink?: (url: string) => Promise<void> }
       ).__simulateDeepLink = (url: string) => handleDeepLinkUrls([url]);

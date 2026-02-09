@@ -64,6 +64,7 @@ mod desktop {
                     "entry": m.entry,
                     "autoStart": m.auto_start,
                     "version": m.version,
+                    "ignoreInProduction": m.ignoreInProduction,
                     "description": m.description,
                     "setup": m.setup.as_ref().map(|s| {
                         let mut obj = serde_json::json!({
