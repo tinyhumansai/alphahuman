@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
 import { teamApi } from '../../../services/api/teamApi';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
@@ -210,11 +210,12 @@ const TeamInvitesPanel = () => {
                     <div className="flex items-center justify-between mb-2">
                       {/* Code with status label */}
                       <div className="flex items-center gap-2">
-                        <code className={`text-sm font-mono px-2 py-1 rounded-lg ${
-                          isInactive
-                            ? 'text-stone-500 bg-stone-900/30'
-                            : 'text-white bg-stone-900/60'
-                        }`}>
+                        <code
+                          className={`text-sm font-mono px-2 py-1 rounded-lg ${
+                            isInactive
+                              ? 'text-stone-500 bg-stone-900/30'
+                              : 'text-white bg-stone-900/60'
+                          }`}>
                           {invite.code}
                         </code>
                         {status === 'expired' && (
@@ -340,8 +341,16 @@ const TeamInvitesPanel = () => {
 
                 <div className="space-y-4">
                   <div className="text-sm text-stone-400">
-                    <p>Are you sure you want to revoke the invite code <code className="text-white bg-stone-800/60 px-1.5 py-0.5 rounded font-mono text-xs">{inviteToRevoke.code}</code>?</p>
-                    <p className="mt-2 text-amber-400">This invite code will no longer be valid and cannot be used to join the team.</p>
+                    <p>
+                      Are you sure you want to revoke the invite code{' '}
+                      <code className="text-white bg-stone-800/60 px-1.5 py-0.5 rounded font-mono text-xs">
+                        {inviteToRevoke.code}
+                      </code>
+                      ?
+                    </p>
+                    <p className="mt-2 text-amber-400">
+                      This invite code will no longer be valid and cannot be used to join the team.
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-2">

@@ -88,5 +88,11 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     navigate('/home');
   }, [navigate]);
 
-  return { currentRoute, navigateToSettings, navigateToTeamManagement, navigateBack, closeSettings };
+  return {
+    currentRoute,
+    navigateToSettings,
+    navigateToTeamManagement,
+    navigateBack,
+    closeSettings,
+  };
 };

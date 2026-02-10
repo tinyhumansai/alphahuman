@@ -24,11 +24,7 @@ const CodeRow = ({ invite }: { invite: InviteCode }) => {
     <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/5 hover:bg-white/[0.07] transition-colors">
       <div className="flex-1 min-w-0">
         <span className="font-mono text-sm tracking-wider">{invite.code}</span>
-        {claimed && (
-          <p className="text-xs text-stone-500 mt-0.5">
-            Claimed by {displayName}
-          </p>
-        )}
+        {claimed && <p className="text-xs text-stone-500 mt-0.5">Claimed by {displayName}</p>}
       </div>
       <div className="flex items-center gap-2 ml-3">
         {claimed ? (
@@ -45,8 +41,17 @@ const CodeRow = ({ invite }: { invite: InviteCode }) => {
           className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-stone-400 hover:text-stone-200"
           title="Copy code">
           {copied ? (
-            <svg className="w-4 h-4 text-sage-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <svg
+              className="w-4 h-4 text-sage-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           ) : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
