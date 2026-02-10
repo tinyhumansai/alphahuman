@@ -459,6 +459,17 @@ async fn handle_message(
             let result = handle_js_void_call(ctx, "onTick", "{}").await;
             let _ = reply.send(result);
         }
+        SkillMessage::Error { error_type, message, source, recoverable } => {
+            let args = serde_json::json!({
+                "type": error_type,
+                "message": message,
+                "source": source,
+                "recoverable": recoverable,
+            });
+            if let Err(e) = handle_js_void_call(ctx, "onError", &args.to_string()).await {
+                log::warn!("[skill:{}] onError() handler failed: {e}", skill_id);
+            }
+        }
         SkillMessage::Rpc { method, params, reply } => {
             let result = match method.as_str() {
                 "oauth/complete" => {
@@ -481,6 +492,9 @@ async fn handle_message(
                     log::info!("[skill:{}] OAuth credential set and persisted to store", skill_id);
                     let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
                     handle_js_call(ctx, "onOAuthComplete", &params_str).await
+                }
+                "skill/ping" => {
+                    handle_js_call(ctx, "onPing", "{}").await
                 }
                 "oauth/revoked" => {
                     // Clear credential: set to empty string so it's clearly "disconnected"

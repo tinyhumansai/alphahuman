@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::runtime::cron_scheduler::CronScheduler;
 use crate::runtime::manifest::SkillManifest;
+use crate::runtime::ping_scheduler::PingScheduler;
 use crate::runtime::preferences::PreferencesStore;
 use crate::runtime::skill_registry::SkillRegistry;
 use crate::runtime::socket_manager::SocketManager;
@@ -24,6 +25,8 @@ pub struct RuntimeEngine {
     registry: Arc<SkillRegistry>,
     /// Global cron scheduler for timed skill triggers.
     cron_scheduler: Arc<CronScheduler>,
+    /// Background ping scheduler for skill health checks.
+    ping_scheduler: Arc<PingScheduler>,
     /// Persistent user enable/disable preferences for skills.
     preferences: Arc<PreferencesStore>,
     /// Base data directory for skills (platform-aware).
@@ -44,6 +47,8 @@ impl RuntimeEngine {
         let registry = Arc::new(SkillRegistry::new());
         let cron_scheduler = Arc::new(CronScheduler::new());
         cron_scheduler.set_registry(Arc::clone(&registry));
+        let ping_scheduler = Arc::new(PingScheduler::new());
+        ping_scheduler.set_registry(Arc::clone(&registry));
         let preferences = Arc::new(PreferencesStore::new(&skills_data_dir));
 
         log::info!("[runtime] QuickJS RuntimeEngine created");
@@ -51,6 +56,7 @@ impl RuntimeEngine {
         Ok(Self {
             registry,
             cron_scheduler,
+            ping_scheduler,
             preferences,
             skills_data_dir,
             skills_source_dir: RwLock::new(None),
@@ -70,8 +76,14 @@ impl RuntimeEngine {
         Arc::clone(&self.cron_scheduler)
     }
 
+    /// Get a clone of the ping scheduler Arc.
+    pub fn ping_scheduler(&self) -> Arc<PingScheduler> {
+        Arc::clone(&self.ping_scheduler)
+    }
+
     /// Set the Tauri app handle for emitting events to the frontend.
     pub fn set_app_handle(&self, handle: AppHandle) {
+        self.ping_scheduler.set_app_handle(handle.clone());
         *self.app_handle.write() = Some(handle);
     }
 

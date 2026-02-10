@@ -19,6 +19,8 @@ pub mod bridge;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod cron_scheduler;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod ping_scheduler;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod skill_registry;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod qjs_engine;
