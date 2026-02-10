@@ -13,7 +13,7 @@ import type {
  * Derive a unified connection status from the skill's lifecycle status
  * and its self-reported connection/auth state.
  */
-function deriveConnectionStatus(
+export function deriveConnectionStatus(
   lifecycleStatus: string | undefined,
   setupComplete: boolean | undefined,
   skillState: Record<string, unknown> | undefined,

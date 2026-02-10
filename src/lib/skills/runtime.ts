@@ -15,6 +15,7 @@ import type {
   SetupResult,
   SkillToolDefinition,
   SkillOptionDefinition,
+  PingResult,
 } from "./types";
 
 export class SkillRuntime {
@@ -141,6 +142,14 @@ export class SkillRuntime {
     isError: boolean;
   }> {
     return this.transport.request("tools/call", { name, arguments: args });
+  }
+
+  /**
+   * Ping the skill to verify its external service connection is healthy.
+   * Returns null if the skill doesn't implement onPing (backward compatible).
+   */
+  async ping(): Promise<PingResult | null> {
+    return this.transport.request<PingResult | null>("skill/ping");
   }
 
   /**

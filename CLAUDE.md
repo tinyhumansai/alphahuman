@@ -373,6 +373,7 @@ Key updates from recent commits (cd9ebcd to current):
 - **Unit Tests**: All unit tests live in `__tests__/` folders co-located with the code they test. Use Jest with TypeScript support.
 - **Runtime Platform Differences**: V8 runtime is desktop-only. Mobile platforms use feature detection and graceful degradation. Skills with platform restrictions are filtered during discovery.
 - **Socket Management**: Rust-native Socket.io client provides persistent connections with automatic reconnection. Use `connect_to_socket` command instead of frontend-only socket connections for reliability.
+- **Dual Socket Codebase**: Socket event handling exists in **both** the TypeScript frontend (`src/services/socketService.ts`, `src/utils/tauriSocket.ts`) and the Rust backend (`src-tauri/src/runtime/socket_manager.rs`). **Any new socket event or protocol change must be implemented in both codebases.** The web frontend handles events directly via Socket.io; the Rust backend handles them over raw WebSocket with Engine.IO/Socket.IO framing. Example: `tool:sync` is emitted from both `src/lib/skills/sync.ts` (web mode) and `socket_manager.rs` (Rust mode, on connect + skill lifecycle changes).
 
 ## Platform Gotchas
 

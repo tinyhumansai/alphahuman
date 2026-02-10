@@ -32,6 +32,8 @@ use {
 // SkillRegistry only available on desktop
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::runtime::skill_registry::SkillRegistry;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use crate::runtime::types::{SkillSnapshot, SkillStatus};
 
 /// Events emitted to the frontend via Tauri.
 #[allow(dead_code)]
@@ -222,6 +224,27 @@ impl SocketManager {
     #[cfg(target_os = "android")]
     pub async fn emit(&self, _event: &str, _data: serde_json::Value) -> Result<(), String> {
         Err("Rust Socket.io not available on Android".to_string())
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool sync — notify backend of current skill/tool state
+    // -----------------------------------------------------------------------
+
+    /// Emit `tool:sync` with the current skill/tool state.
+    /// Called on socket reconnect and after skill lifecycle changes.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub async fn sync_tools(&self) {
+        let payload = build_tool_sync_payload(&self.shared);
+        if let Some(payload) = payload {
+            if let Err(e) = self.emit("tool:sync", payload).await {
+                log::debug!("[socket-mgr] tool:sync emit failed: {e}");
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    pub async fn sync_tools(&self) {
+        // No-op on mobile — skill runtime not available
     }
 
     // -----------------------------------------------------------------------
@@ -663,6 +686,10 @@ fn handle_sio_event(
             log::info!("[socket-mgr] Server ready — auth successful");
             *shared.status.write() = ConnectionStatus::Connected;
             SocketManager::emit_state_change(shared);
+
+            // Sync current tool state to backend on connect/reconnect
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            sync_tools_via_channel(emit_tx, shared);
         }
         "error" => {
             log::error!("[socket-mgr] Server error event: {}", data);
@@ -868,6 +895,70 @@ fn emit_via_channel(
         log::error!("[socket-mgr] emit_via_channel failed: {e}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tool sync helpers (desktop only — requires SkillRegistry)
+// ---------------------------------------------------------------------------
+
+/// Derive a unified connection status string from a Rust-side SkillSnapshot.
+/// Mirrors the frontend's `deriveConnectionStatus()` logic in `src/lib/skills/hooks.ts`.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn derive_connection_status(snap: &SkillSnapshot) -> &'static str {
+    match snap.status {
+        SkillStatus::Error => "error",
+        SkillStatus::Pending | SkillStatus::Stopped => "offline",
+        SkillStatus::Initializing => "connecting",
+        SkillStatus::Stopping => "disconnected",
+        SkillStatus::Running => {
+            // Check the skill's self-reported connection/auth state
+            let conn = snap.state.get("connection_status").and_then(|v| v.as_str());
+            let auth = snap.state.get("auth_status").and_then(|v| v.as_str());
+
+            match (conn, auth) {
+                (Some("error"), _) | (_, Some("error")) => "error",
+                (Some("connected"), Some("authenticated")) => "connected",
+                (Some("connecting"), _) | (_, Some("authenticating")) => "connecting",
+                (Some("connected"), Some("not_authenticated")) => "not_authenticated",
+                (Some("disconnected"), _) => "disconnected",
+                // Running with no explicit connection state = connected
+                _ => "connected",
+            }
+        }
+    }
+}
+
+/// Build the `tool:sync` payload from the current registry state.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn build_tool_sync_payload(shared: &SharedState) -> Option<serde_json::Value> {
+    let registry = shared.registry.read().clone()?;
+    let skills = registry.list_skills();
+    let tools: Vec<serde_json::Value> = skills
+        .iter()
+        .map(|snap| {
+            let status = derive_connection_status(snap);
+            let tool_names: Vec<String> = snap.tools.iter().map(|t| t.name.clone()).collect();
+            json!({
+                "skillId": snap.skill_id,
+                "name": snap.name,
+                "status": status,
+                "tools": tool_names,
+            })
+        })
+        .collect();
+    Some(json!({ "tools": tools }))
+}
+
+/// Emit `tool:sync` synchronously via the emit channel (for use from event handlers).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn sync_tools_via_channel(emit_tx: &mpsc::UnboundedSender<String>, shared: &SharedState) {
+    if let Some(payload) = build_tool_sync_payload(shared) {
+        emit_via_channel(emit_tx, "tool:sync", payload);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SIO event parsing
+// ---------------------------------------------------------------------------
 
 /// Parse a Socket.IO EVENT payload: `["eventName", data]` or `<ackId>["eventName", data]`.
 #[cfg(not(target_os = "android"))]

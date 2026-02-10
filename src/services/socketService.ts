@@ -3,7 +3,7 @@ import debug from 'debug';
 import { io, Socket } from 'socket.io-client';
 
 import { MCPTool, MCPToolCall, SocketIOMCPTransportImpl } from '../lib/mcp';
-import { skillManager } from '../lib/skills';
+import { skillManager, syncToolsToBackend } from '../lib/skills';
 import { store } from '../store';
 import { resetForUser, setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import { BACKEND_URL } from '../utils/config';
@@ -134,6 +134,7 @@ class SocketService {
       socketLog('Connected', { socketId, userId: uid });
       store.dispatch(setStatusForUser({ userId: uid, status: 'connected' }));
       store.dispatch(setSocketIdForUser({ userId: uid, socketId }));
+      syncToolsToBackend();
     });
 
     this.socket.on('ready', () => {

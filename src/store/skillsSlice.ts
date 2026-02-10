@@ -58,7 +58,10 @@ const skillsSlice = createSlice({
       }
     },
 
-    setSkillOAuthCredential(state, action: PayloadAction<{ skillId: string; credential: OAuthCredential | undefined }>) {
+    setSkillOAuthCredential(
+      state,
+      action: PayloadAction<{ skillId: string; credential: OAuthCredential | undefined }>
+    ) {
       const { skillId, credential } = action.payload;
       if (state.skills[skillId]) {
         state.skills[skillId].oauthCredential = credential;

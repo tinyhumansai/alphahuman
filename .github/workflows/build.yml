@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          submodules: true
 
       - name: Setup Node.js 24.x
         uses: actions/setup-node@v4

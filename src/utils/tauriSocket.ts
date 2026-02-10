@@ -16,6 +16,7 @@
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
+import { syncToolsToBackend } from '../lib/skills/sync';
 import { store } from '../store';
 import { setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import { BACKEND_URL } from './config';
@@ -149,6 +150,10 @@ export async function setupTauriSocketListeners(): Promise<void> {
         const mappedStatus: ReduxStatus = statusMap[status] || 'disconnected';
         store.dispatch(setStatusForUser({ userId: uid, status: mappedStatus }));
         store.dispatch(setSocketIdForUser({ userId: uid, socketId: socket_id ?? null }));
+
+        if (mappedStatus === 'connected') {
+          syncToolsToBackend();
+        }
       }
     );
 

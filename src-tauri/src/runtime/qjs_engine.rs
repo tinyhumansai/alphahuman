@@ -11,8 +11,10 @@ use tauri::{AppHandle, Emitter};
 
 use crate::runtime::cron_scheduler::CronScheduler;
 use crate::runtime::manifest::SkillManifest;
+use crate::runtime::ping_scheduler::PingScheduler;
 use crate::runtime::preferences::PreferencesStore;
 use crate::runtime::skill_registry::SkillRegistry;
+use crate::runtime::socket_manager::SocketManager;
 use crate::runtime::types::{events, SkillSnapshot, SkillStatus, ToolResult};
 use crate::runtime::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
 use crate::services::quickjs_libs::storage::IdbStorage;
@@ -23,6 +25,8 @@ pub struct RuntimeEngine {
     registry: Arc<SkillRegistry>,
     /// Global cron scheduler for timed skill triggers.
     cron_scheduler: Arc<CronScheduler>,
+    /// Background ping scheduler for skill health checks.
+    ping_scheduler: Arc<PingScheduler>,
     /// Persistent user enable/disable preferences for skills.
     preferences: Arc<PreferencesStore>,
     /// Base data directory for skills (platform-aware).
@@ -33,6 +37,8 @@ pub struct RuntimeEngine {
     resource_dir: RwLock<Option<PathBuf>>,
     /// Tauri app handle for emitting events.
     app_handle: RwLock<Option<AppHandle>>,
+    /// Socket manager for emitting tool:sync events.
+    socket_manager: RwLock<Option<Arc<SocketManager>>>,
 }
 
 impl RuntimeEngine {
@@ -41,6 +47,8 @@ impl RuntimeEngine {
         let registry = Arc::new(SkillRegistry::new());
         let cron_scheduler = Arc::new(CronScheduler::new());
         cron_scheduler.set_registry(Arc::clone(&registry));
+        let ping_scheduler = Arc::new(PingScheduler::new());
+        ping_scheduler.set_registry(Arc::clone(&registry));
         let preferences = Arc::new(PreferencesStore::new(&skills_data_dir));
 
         log::info!("[runtime] QuickJS RuntimeEngine created");
@@ -48,11 +56,13 @@ impl RuntimeEngine {
         Ok(Self {
             registry,
             cron_scheduler,
+            ping_scheduler,
             preferences,
             skills_data_dir,
             skills_source_dir: RwLock::new(None),
             resource_dir: RwLock::new(None),
             app_handle: RwLock::new(None),
+            socket_manager: RwLock::new(None),
         })
     }
 
@@ -66,8 +76,14 @@ impl RuntimeEngine {
         Arc::clone(&self.cron_scheduler)
     }
 
+    /// Get a clone of the ping scheduler Arc.
+    pub fn ping_scheduler(&self) -> Arc<PingScheduler> {
+        Arc::clone(&self.ping_scheduler)
+    }
+
     /// Set the Tauri app handle for emitting events to the frontend.
     pub fn set_app_handle(&self, handle: AppHandle) {
+        self.ping_scheduler.set_app_handle(handle.clone());
         *self.app_handle.write() = Some(handle);
     }
 
@@ -81,6 +97,19 @@ impl RuntimeEngine {
     pub fn set_resource_dir(&self, dir: PathBuf) {
         log::info!("[runtime] Resource directory set to: {:?}", dir);
         *self.resource_dir.write() = Some(dir);
+    }
+
+    /// Set the socket manager for emitting `tool:sync` events.
+    pub fn set_socket_manager(&self, mgr: Arc<SocketManager>) {
+        *self.socket_manager.write() = Some(mgr);
+    }
+
+    /// Notify the backend of the current tool state via `tool:sync`.
+    async fn sync_tools(&self) {
+        let mgr = { self.socket_manager.read().clone() };
+        if let Some(mgr) = mgr {
+            mgr.sync_tools().await;
+        }
     }
 
     /// Get the skills source directory.
@@ -274,6 +303,7 @@ impl RuntimeEngine {
             match current_status {
                 SkillStatus::Running => {
                     self.emit_status_change(&skill_id_owned);
+                    self.sync_tools().await;
                     return Ok(instance.snapshot());
                 }
                 SkillStatus::Error => {
@@ -321,6 +351,7 @@ impl RuntimeEngine {
         self.registry.stop_skill(skill_id).await?;
         self.cron_scheduler.unregister_all_for_skill(skill_id);
         self.emit_status_change(skill_id);
+        self.sync_tools().await;
         Ok(())
     }
 
@@ -391,6 +422,8 @@ impl RuntimeEngine {
                 log::warn!("[runtime] Failed to discover skills for auto-start: {e}");
             }
         }
+        // Sync all tool state to backend after auto-start completes
+        self.sync_tools().await;
     }
 
     /// Enable a skill.

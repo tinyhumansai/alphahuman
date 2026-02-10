@@ -188,6 +188,16 @@ export interface OAuthCredential {
   grantedScopes?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Ping / Health-Check
+// ---------------------------------------------------------------------------
+
+export interface PingResult {
+  ok: boolean;
+  errorType?: "network" | "auth";
+  errorMessage?: string;
+}
+
 export interface SkillState {
   manifest: SkillManifest;
   status: SkillStatus;
