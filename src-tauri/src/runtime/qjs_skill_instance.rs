@@ -230,7 +230,7 @@ impl QjsSkillInstance {
             restore_oauth_credential(&ctx, &config.skill_id).await;
 
             // Call init() lifecycle
-            if let Err(e) = call_lifecycle(&ctx, "init").await {
+            if let Err(e) = call_lifecycle(&rt, &ctx, "init").await {
                 let mut s = state.write();
                 s.status = SkillStatus::Error;
                 s.error = Some(format!("init() failed: {e}"));
@@ -242,7 +242,7 @@ impl QjsSkillInstance {
             drive_jobs(&rt).await;
 
             // Call start() lifecycle
-            if let Err(e) = call_lifecycle(&ctx, "start").await {
+            if let Err(e) = call_lifecycle(&rt, &ctx, "start").await {
                 let mut s = state.write();
                 s.status = SkillStatus::Error;
                 s.error = Some(format!("start() failed: {e}"));
@@ -257,6 +257,17 @@ impl QjsSkillInstance {
             state.write().status = SkillStatus::Running;
             log::info!("[skill:{}] Running (QuickJS)", config.skill_id);
 
+            // Immediate ping to verify the connection is healthy
+            match handle_js_call(&rt, &ctx, "onPing", "{}").await {
+                Ok(value) => {
+                    log::info!("[skill:{}] Initial ping result: {}", config.skill_id, value);
+                }
+                Err(e) => {
+                    log::warn!("[skill:{}] Initial ping failed: {}", config.skill_id, e);
+                }
+            }
+            drive_jobs(&rt).await;
+
             // Run the event loop
             run_event_loop(&rt, &ctx, &mut rx, &state, &config.skill_id, &timer_state, &published_state, _deps.app_handle.as_ref()).await;
         })
@@ -267,13 +278,20 @@ impl QjsSkillInstance {
 // Event Loop
 // ============================================================================
 
+/// Pending async tool call that is being driven by the event loop.
+struct PendingToolCall {
+    reply: tokio::sync::oneshot::Sender<Result<ToolResult, String>>,
+    deadline: tokio::time::Instant,
+}
+
 /// The main event loop that drives the QuickJS runtime.
 /// This continuously:
 /// 1. Polls for ready timers and fires their callbacks
 /// 2. Checks for incoming messages (non-blocking)
 /// 3. Runs the QuickJS job queue for promises/async ops
-/// 4. Syncs published state from ops → instance and emits Tauri events
-/// 5. Sleeps efficiently when idle
+/// 4. Checks if a pending async tool call has completed
+/// 5. Syncs published state from ops → instance and emits Tauri events
+/// 6. Sleeps efficiently when idle
 async fn run_event_loop(
     rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
@@ -288,6 +306,11 @@ async fn run_event_loop(
     const MAX_IDLE_SLEEP: Duration = Duration::from_millis(100);
     // Minimum sleep to prevent busy-spinning
     const MIN_SLEEP: Duration = Duration::from_millis(1);
+    // Faster polling when waiting for an async tool call
+    const TOOL_POLL_SLEEP: Duration = Duration::from_millis(5);
+
+    // Tracks an in-flight async tool call whose Promise hasn't resolved yet.
+    let mut pending_tool: Option<PendingToolCall> = None;
 
     loop {
         // 1. Poll and fire ready timers
@@ -301,10 +324,12 @@ async fn run_event_loop(
             fire_timer_callback(ctx, timer_id).await;
         }
 
-        // 2. Check for incoming messages (non-blocking)
+        // 2. Check for incoming messages (non-blocking).
+        //    While an async tool call is in flight, still process other
+        //    messages (events, pings, etc.) but queue any new CallTool.
         match rx.try_recv() {
             Ok(msg) => {
-                let should_stop = handle_message(ctx, msg, state, skill_id).await;
+                let should_stop = handle_message(rt, ctx, msg, state, skill_id, &mut pending_tool).await;
                 if should_stop {
                     break;
                 }
@@ -322,7 +347,34 @@ async fn run_event_loop(
         // 3. Drive QuickJS job queue (process pending promises)
         drive_jobs(rt).await;
 
-        // 4. Sync ops-level published state → instance published_state + emit event
+        // 4. Check if pending async tool call has completed
+        if pending_tool.is_some() {
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingToolDone === true")
+                    .unwrap_or(false)
+            })
+            .await;
+
+            if done {
+                // Read the resolved value and send it back
+                let result = read_pending_tool_result(ctx).await;
+                if let Some(ptc) = pending_tool.take() {
+                    let _ = ptc.reply.send(result);
+                }
+            } else if let Some(ref ptc) = pending_tool {
+                if tokio::time::Instant::now() >= ptc.deadline {
+                    log::error!("[skill:{}] Async tool call timed out", skill_id);
+                    if let Some(ptc) = pending_tool.take() {
+                        let _ = ptc
+                            .reply
+                            .send(Err("Tool async execution timed out".to_string()));
+                    }
+                }
+            }
+        }
+
+        // 5. Sync ops-level published state → instance published_state + emit event
         {
             let mut ops = ops_state.write();
             if ops.dirty {
@@ -349,8 +401,11 @@ async fn run_event_loop(
             }
         }
 
-        // 5. Calculate sleep duration based on next timer
-        let sleep_duration = {
+        // 6. Calculate sleep duration based on next timer and pending tool call
+        let sleep_duration = if pending_tool.is_some() {
+            // Poll faster while waiting for an async tool result
+            TOOL_POLL_SLEEP
+        } else {
             let (_, next_timer) = qjs_ops::poll_timers(timer_state);
             match next_timer {
                 Some(d) if d < MIN_SLEEP => MIN_SLEEP,
@@ -384,26 +439,45 @@ async fn fire_timer_callback(ctx: &rquickjs::AsyncContext, timer_id: u32) {
 /// Handle a single message from the channel.
 /// Returns true if the skill should stop.
 async fn handle_message(
+    rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
     msg: SkillMessage,
     state: &Arc<RwLock<SkillState>>,
     skill_id: &str,
+    pending_tool: &mut Option<PendingToolCall>,
 ) -> bool {
     match msg {
         SkillMessage::CallTool { tool_name, arguments, reply } => {
             // Lazy-load persisted OAuth credential before calling the tool
             restore_oauth_credential(ctx, skill_id).await;
-            let result = handle_tool_call(ctx, &tool_name, arguments).await;
-            let _ = reply.send(result);
+
+            // Start the async tool execution. The JS code stores the result
+            // in globals when done. The main event loop checks for completion.
+            match start_async_tool_call(ctx, &tool_name, arguments).await {
+                Ok(Some(sync_result)) => {
+                    // Tool returned synchronously (non-Promise)
+                    let _ = reply.send(Ok(sync_result));
+                }
+                Ok(None) => {
+                    // Tool returned a Promise — event loop will drive it
+                    *pending_tool = Some(PendingToolCall {
+                        reply,
+                        deadline: tokio::time::Instant::now() + Duration::from_secs(120),
+                    });
+                }
+                Err(e) => {
+                    let _ = reply.send(Err(e));
+                }
+            }
         }
         SkillMessage::ServerEvent { event, data } => {
-            let _ = handle_server_event(ctx, &event, data).await;
+            let _ = handle_server_event(rt, ctx, &event, data).await;
         }
         SkillMessage::CronTrigger { schedule_id } => {
-            let _ = handle_cron_trigger(ctx, &schedule_id).await;
+            let _ = handle_cron_trigger(rt, ctx, &schedule_id).await;
         }
         SkillMessage::Stop { reply } => {
-            let _ = call_lifecycle(ctx, "stop").await;
+            let _ = call_lifecycle(rt, ctx, "stop").await;
 
             // Clear OAuth credential from memory and mark as disconnected in store
             let clear_code = r#"(function() {
@@ -424,39 +498,39 @@ async fn handle_message(
             return true; // Signal to stop
         }
         SkillMessage::SetupStart { reply } => {
-            let result = handle_js_call(ctx, "onSetupStart", "{}").await;
+            let result = handle_js_call(rt, ctx, "onSetupStart", "{}").await;
             let _ = reply.send(result);
         }
         SkillMessage::SetupSubmit { step_id, values, reply } => {
             let args = serde_json::json!({ "stepId": step_id, "values": values });
-            let result = handle_js_call(ctx, "onSetupSubmit", &args.to_string()).await;
+            let result = handle_js_call(rt, ctx, "onSetupSubmit", &args.to_string()).await;
             let _ = reply.send(result);
         }
         SkillMessage::SetupCancel { reply } => {
-            let result = handle_js_void_call(ctx, "onSetupCancel", "{}").await;
+            let result = handle_js_void_call(rt, ctx, "onSetupCancel", "{}").await;
             let _ = reply.send(result);
         }
         SkillMessage::ListOptions { reply } => {
-            let result = handle_js_call(ctx, "onListOptions", "{}").await;
+            let result = handle_js_call(rt, ctx, "onListOptions", "{}").await;
             let _ = reply.send(result);
         }
         SkillMessage::SetOption { name, value, reply } => {
             let args = serde_json::json!({ "name": name, "value": value });
-            let result = handle_js_void_call(ctx, "onSetOption", &args.to_string()).await;
+            let result = handle_js_void_call(rt, ctx, "onSetOption", &args.to_string()).await;
             let _ = reply.send(result);
         }
         SkillMessage::SessionStart { session_id, reply } => {
             let args = serde_json::json!({ "sessionId": session_id });
-            let result = handle_js_void_call(ctx, "onSessionStart", &args.to_string()).await;
+            let result = handle_js_void_call(rt, ctx, "onSessionStart", &args.to_string()).await;
             let _ = reply.send(result);
         }
         SkillMessage::SessionEnd { session_id, reply } => {
             let args = serde_json::json!({ "sessionId": session_id });
-            let result = handle_js_void_call(ctx, "onSessionEnd", &args.to_string()).await;
+            let result = handle_js_void_call(rt, ctx, "onSessionEnd", &args.to_string()).await;
             let _ = reply.send(result);
         }
         SkillMessage::Tick { reply } => {
-            let result = handle_js_void_call(ctx, "onTick", "{}").await;
+            let result = handle_js_void_call(rt, ctx, "onTick", "{}").await;
             let _ = reply.send(result);
         }
         SkillMessage::Error { error_type, message, source, recoverable } => {
@@ -466,7 +540,7 @@ async fn handle_message(
                 "source": source,
                 "recoverable": recoverable,
             });
-            if let Err(e) = handle_js_void_call(ctx, "onError", &args.to_string()).await {
+            if let Err(e) = handle_js_void_call(rt, ctx, "onError", &args.to_string()).await {
                 log::warn!("[skill:{}] onError() handler failed: {e}", skill_id);
             }
         }
@@ -491,10 +565,10 @@ async fn handle_message(
                     }).await;
                     log::info!("[skill:{}] OAuth credential set and persisted to store", skill_id);
                     let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
-                    handle_js_call(ctx, "onOAuthComplete", &params_str).await
+                    handle_js_call(rt, ctx, "onOAuthComplete", &params_str).await
                 }
                 "skill/ping" => {
-                    handle_js_call(ctx, "onPing", "{}").await
+                    handle_js_call(rt, ctx, "onPing", "{}").await
                 }
                 "oauth/revoked" => {
                     // Clear credential: set to empty string so it's clearly "disconnected"
@@ -511,12 +585,12 @@ async fn handle_message(
                     }).await;
                     log::info!("[skill:{}] OAuth credential cleared from store", skill_id);
                     let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
-                    handle_js_void_call(ctx, "onOAuthRevoked", &params_str).await
+                    handle_js_void_call(rt, ctx, "onOAuthRevoked", &params_str).await
                         .map(|()| serde_json::json!({ "ok": true }))
                 }
                 _ => {
                     let args = serde_json::json!({ "method": method, "params": params });
-                    handle_js_call(ctx, "onRpc", &args.to_string()).await
+                    handle_js_call(rt, ctx, "onRpc", &args.to_string()).await
                 }
             };
             let _ = reply.send(result);
@@ -565,29 +639,97 @@ fn format_js_exception(js_ctx: &rquickjs::Ctx<'_>, err: &rquickjs::Error) -> Str
 }
 
 /// Call a lifecycle function on the skill object.
-/// Looks for the skill at globalThis.__skill.default first, then falls back to globalThis.
-async fn call_lifecycle(ctx: &rquickjs::AsyncContext, name: &str) -> Result<(), String> {
+/// Handles async (Promise-returning) lifecycle methods (init, start, stop).
+async fn call_lifecycle(
+    rt: &rquickjs::AsyncRuntime,
+    ctx: &rquickjs::AsyncContext,
+    name: &str,
+) -> Result<(), String> {
     let name = name.to_string();
-    ctx.with(|js_ctx| {
+    let is_promise = ctx.with(|js_ctx| {
         let code = format!(
             r#"(function() {{
                 var skill = globalThis.__skill && globalThis.__skill.default
                     ? globalThis.__skill.default
                     : (globalThis.__skill || globalThis);
-                if (typeof skill.{name} === 'function') {{
-                    skill.{name}();
-                }} else if (typeof globalThis.{name} === 'function') {{
-                    globalThis.{name}();
+                var fn = skill.{name} || globalThis.{name};
+                if (typeof fn === 'function') {{
+                    var result = fn.call(skill);
+                    if (result && typeof result.then === 'function') {{
+                        globalThis.__pendingLifecycleDone = false;
+                        globalThis.__pendingLifecycleError = undefined;
+                        result.then(
+                            function() {{ globalThis.__pendingLifecycleDone = true; }},
+                            function(e) {{
+                                globalThis.__pendingLifecycleError = e && e.message ? e.message : String(e);
+                                globalThis.__pendingLifecycleDone = true;
+                            }}
+                        );
+                        return "1";
+                    }}
                 }}
+                return "0";
             }})()"#
         );
-        js_ctx.eval::<rquickjs::Value, _>(code.as_bytes())
-            .map_err(|e| {
+        match js_ctx.eval::<String, _>(code.as_bytes()) {
+            Ok(s) => Ok(s == "1"),
+            Err(e) => {
                 let detail = format_js_exception(&js_ctx, &e);
-                format!("{name}() failed: {detail}")
-            })?;
-        Ok(())
-    }).await
+                Err(format!("{name}() failed: {detail}"))
+            }
+        }
+    }).await?;
+
+    if is_promise {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+
+        loop {
+            drive_jobs(rt).await;
+
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingLifecycleDone === true")
+                    .unwrap_or(false)
+            }).await;
+
+            if done {
+                let error = ctx.with(|js_ctx| {
+                    let has_error = js_ctx
+                        .eval::<bool, _>(b"globalThis.__pendingLifecycleError !== undefined")
+                        .unwrap_or(false);
+                    let err = if has_error {
+                        Some(js_ctx
+                            .eval::<String, _>(b"String(globalThis.__pendingLifecycleError)")
+                            .unwrap_or_else(|_| "Unknown error".to_string()))
+                    } else {
+                        None
+                    };
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingLifecycleDone; delete globalThis.__pendingLifecycleError;"
+                    );
+                    err
+                }).await;
+
+                if let Some(err_msg) = error {
+                    return Err(format!("{name}() rejected: {err_msg}"));
+                }
+                return Ok(());
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                ctx.with(|js_ctx| {
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingLifecycleDone; delete globalThis.__pendingLifecycleError;"
+                    );
+                }).await;
+                return Err(format!("{name}() timed out after 30s"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    Ok(())
 }
 
 /// Extract tool definitions from the skill.
@@ -626,19 +768,27 @@ fn extract_tools(js_ctx: &rquickjs::Ctx<'_>, state: &Arc<RwLock<SkillState>>) {
     }
 }
 
-/// Handle a tool call.
-async fn handle_tool_call(
+/// Start an async tool call.
+///
+/// Calls the tool's `execute()` and checks if it returns a Promise.
+/// - If sync: returns `Ok(Some(ToolResult))` with the immediate result.
+/// - If async (Promise): attaches `.then`/`.catch` handlers that store the
+///   resolved value in `globalThis.__pendingTool*` globals, and returns
+///   `Ok(None)`. The caller should let the event loop drive the QuickJS
+///   runtime and poll `__pendingToolDone` for completion.
+async fn start_async_tool_call(
     ctx: &rquickjs::AsyncContext,
     tool_name: &str,
     arguments: serde_json::Value,
-) -> Result<ToolResult, String> {
+) -> Result<Option<ToolResult>, String> {
     let args_str = serde_json::to_string(&arguments)
         .map_err(|e| format!("Failed to serialize args: {e}"))?;
     let tool_name = tool_name.to_string();
 
-    let result_text = ctx.with(|js_ctx| {
-        let code = format!(
-            r#"(function() {{
+    let eval_result = ctx
+        .with(|js_ctx| {
+            let code = format!(
+                r#"(function() {{
                 var skill = globalThis.__skill && globalThis.__skill.default
                     ? globalThis.__skill.default
                     : (globalThis.__skill || null);
@@ -647,6 +797,22 @@ async fn handle_tool_call(
                     if (tools[i].name === "{}") {{
                         var args = {};
                         var result = tools[i].execute(args);
+                        if (result && typeof result.then === 'function') {{
+                            globalThis.__pendingToolResult = undefined;
+                            globalThis.__pendingToolError = undefined;
+                            globalThis.__pendingToolDone = false;
+                            result.then(
+                                function(v) {{
+                                    globalThis.__pendingToolResult = v;
+                                    globalThis.__pendingToolDone = true;
+                                }},
+                                function(e) {{
+                                    globalThis.__pendingToolError = e;
+                                    globalThis.__pendingToolDone = true;
+                                }}
+                            );
+                            return "__PROMISE__";
+                        }}
                         if (result && typeof result === 'object') {{
                             return JSON.stringify(result);
                         }}
@@ -655,19 +821,67 @@ async fn handle_tool_call(
                 }}
                 throw new Error("Tool '{}' not found");
             }})()"#,
-            tool_name.replace('"', r#"\""#),
-            args_str,
-            tool_name.replace('"', r#"\""#),
-        );
+                tool_name.replace('"', r#"\""#),
+                args_str,
+                tool_name.replace('"', r#"\""#),
+            );
 
-        match js_ctx.eval::<String, _>(code.as_bytes()) {
-            Ok(s) => Ok(s),
-            Err(e) => {
-                let detail = format_js_exception(&js_ctx, &e);
-                Err(format!("Tool execution failed: {detail}"))
+            match js_ctx.eval::<String, _>(code.as_bytes()) {
+                Ok(s) => Ok(s),
+                Err(e) => {
+                    let detail = format_js_exception(&js_ctx, &e);
+                    Err(format!("Tool execution failed: {detail}"))
+                }
             }
-        }
-    }).await?;
+        })
+        .await?;
+
+    if eval_result == "__PROMISE__" {
+        // Async — caller should poll __pendingToolDone via the event loop
+        Ok(None)
+    } else {
+        // Sync — return immediately
+        Ok(Some(ToolResult {
+            content: vec![ToolContent::Text { text: eval_result }],
+            is_error: false,
+        }))
+    }
+}
+
+/// Read the result of a completed async tool call from JS globals.
+/// Call this only after `globalThis.__pendingToolDone === true`.
+async fn read_pending_tool_result(
+    ctx: &rquickjs::AsyncContext,
+) -> Result<ToolResult, String> {
+    let result_text = ctx
+        .with(|js_ctx| {
+            let code = r#"(function() {
+                var err = globalThis.__pendingToolError;
+                globalThis.__pendingToolError = undefined;
+                globalThis.__pendingToolDone = false;
+                if (err !== undefined) {
+                    var msg = (typeof err === 'object' && err !== null && err.message)
+                        ? err.message
+                        : String(err);
+                    globalThis.__pendingToolResult = undefined;
+                    throw new Error(msg);
+                }
+                var r = globalThis.__pendingToolResult;
+                globalThis.__pendingToolResult = undefined;
+                if (r === undefined || r === null) return "null";
+                if (typeof r === 'object') return JSON.stringify(r);
+                return String(r);
+            })()"#;
+
+            match js_ctx.eval::<String, _>(code.as_bytes()) {
+                Ok(s) => Ok(s),
+                Err(e) => {
+                    let detail = format_js_exception(&js_ctx, &e);
+                    Err(format!("Tool async execution failed: {detail}"))
+                }
+            }
+        })
+        .await?;
 
     Ok(ToolResult {
         content: vec![ToolContent::Text { text: result_text }],
@@ -676,7 +890,9 @@ async fn handle_tool_call(
 }
 
 /// Handle a server event.
+/// Handles async (Promise-returning) onServerEvent handlers.
 async fn handle_server_event(
+    rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
     event: &str,
     data: serde_json::Value,
@@ -684,56 +900,189 @@ async fn handle_server_event(
     let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "null".to_string());
     let event = event.to_string();
 
-    ctx.with(|js_ctx| {
+    let is_promise = ctx.with(|js_ctx| {
         let code = format!(
             r#"(function() {{
                 var skill = globalThis.__skill && globalThis.__skill.default
                     ? globalThis.__skill.default
                     : (globalThis.__skill || globalThis);
-                if (typeof skill.onServerEvent === 'function') {{
-                    skill.onServerEvent("{}", {});
-                }} else if (typeof globalThis.onServerEvent === 'function') {{
-                    globalThis.onServerEvent("{}", {});
+                var fn = skill.onServerEvent || globalThis.onServerEvent;
+                if (typeof fn === 'function') {{
+                    var result = fn.call(skill, "{}", {});
+                    if (result && typeof result.then === 'function') {{
+                        globalThis.__pendingEventDone = false;
+                        globalThis.__pendingEventError = undefined;
+                        result.then(
+                            function() {{ globalThis.__pendingEventDone = true; }},
+                            function(e) {{
+                                globalThis.__pendingEventError = e && e.message ? e.message : String(e);
+                                globalThis.__pendingEventDone = true;
+                            }}
+                        );
+                        return "1";
+                    }}
                 }}
+                return "0";
             }})()"#,
-            event.replace('"', r#"\""#),
-            data_str,
             event.replace('"', r#"\""#),
             data_str,
         );
 
-        js_ctx.eval::<rquickjs::Value, _>(code.as_bytes())
-            .map_err(|e| format!("Event handler failed: {e}"))?;
-        Ok(())
-    }).await
+        match js_ctx.eval::<String, _>(code.as_bytes()) {
+            Ok(s) => Ok(s == "1"),
+            Err(e) => Err(format!("Event handler failed: {e}"))
+        }
+    }).await?;
+
+    if is_promise {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+
+        loop {
+            drive_jobs(rt).await;
+
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingEventDone === true")
+                    .unwrap_or(false)
+            }).await;
+
+            if done {
+                let error = ctx.with(|js_ctx| {
+                    let has_error = js_ctx
+                        .eval::<bool, _>(b"globalThis.__pendingEventError !== undefined")
+                        .unwrap_or(false);
+                    let err = if has_error {
+                        Some(js_ctx
+                            .eval::<String, _>(b"String(globalThis.__pendingEventError)")
+                            .unwrap_or_else(|_| "Unknown error".to_string()))
+                    } else {
+                        None
+                    };
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingEventDone; delete globalThis.__pendingEventError;"
+                    );
+                    err
+                }).await;
+
+                if let Some(err_msg) = error {
+                    return Err(format!("onServerEvent() rejected: {err_msg}"));
+                }
+                return Ok(());
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                ctx.with(|js_ctx| {
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingEventDone; delete globalThis.__pendingEventError;"
+                    );
+                }).await;
+                return Err("onServerEvent() timed out after 30s".to_string());
+            }
+
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    Ok(())
 }
 
 /// Handle a cron trigger.
-async fn handle_cron_trigger(ctx: &rquickjs::AsyncContext, schedule_id: &str) -> Result<(), String> {
+/// Handles async (Promise-returning) onCronTrigger handlers.
+async fn handle_cron_trigger(
+    rt: &rquickjs::AsyncRuntime,
+    ctx: &rquickjs::AsyncContext,
+    schedule_id: &str,
+) -> Result<(), String> {
     let schedule_id = schedule_id.to_string();
-    ctx.with(|js_ctx| {
+
+    let is_promise = ctx.with(|js_ctx| {
         let code = format!(
             r#"(function() {{
                 var skill = globalThis.__skill && globalThis.__skill.default
                     ? globalThis.__skill.default
                     : (globalThis.__skill || globalThis);
-                if (typeof skill.onCronTrigger === 'function') {{
-                    skill.onCronTrigger("{}");
-                }} else if (typeof globalThis.onCronTrigger === 'function') {{
-                    globalThis.onCronTrigger("{}");
+                var fn = skill.onCronTrigger || globalThis.onCronTrigger;
+                if (typeof fn === 'function') {{
+                    var result = fn.call(skill, "{}");
+                    if (result && typeof result.then === 'function') {{
+                        globalThis.__pendingCronDone = false;
+                        globalThis.__pendingCronError = undefined;
+                        result.then(
+                            function() {{ globalThis.__pendingCronDone = true; }},
+                            function(e) {{
+                                globalThis.__pendingCronError = e && e.message ? e.message : String(e);
+                                globalThis.__pendingCronDone = true;
+                            }}
+                        );
+                        return "1";
+                    }}
                 }}
+                return "0";
             }})()"#,
             schedule_id.replace('"', r#"\""#),
-            schedule_id.replace('"', r#"\""#),
         );
-        js_ctx.eval::<rquickjs::Value, _>(code.as_bytes())
-            .map_err(|e| format!("Cron trigger failed: {e}"))
-            .map(|_| ())
-    }).await
+        match js_ctx.eval::<String, _>(code.as_bytes()) {
+            Ok(s) => Ok(s == "1"),
+            Err(e) => Err(format!("Cron trigger failed: {e}"))
+        }
+    }).await?;
+
+    if is_promise {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+
+        loop {
+            drive_jobs(rt).await;
+
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingCronDone === true")
+                    .unwrap_or(false)
+            }).await;
+
+            if done {
+                let error = ctx.with(|js_ctx| {
+                    let has_error = js_ctx
+                        .eval::<bool, _>(b"globalThis.__pendingCronError !== undefined")
+                        .unwrap_or(false);
+                    let err = if has_error {
+                        Some(js_ctx
+                            .eval::<String, _>(b"String(globalThis.__pendingCronError)")
+                            .unwrap_or_else(|_| "Unknown error".to_string()))
+                    } else {
+                        None
+                    };
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingCronDone; delete globalThis.__pendingCronError;"
+                    );
+                    err
+                }).await;
+
+                if let Some(err_msg) = error {
+                    return Err(format!("onCronTrigger() rejected: {err_msg}"));
+                }
+                return Ok(());
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                ctx.with(|js_ctx| {
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingCronDone; delete globalThis.__pendingCronError;"
+                    );
+                }).await;
+                return Err("onCronTrigger() timed out after 30s".to_string());
+            }
+
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    Ok(())
 }
 
 /// Call a JS function on the skill object that returns a JSON value.
+/// Handles both sync and async (Promise-returning) functions.
 async fn handle_js_call(
+    rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
     fn_name: &str,
     args_json: &str,
@@ -749,8 +1098,23 @@ async fn handle_js_call(
                     : (globalThis.__skill || globalThis);
                 var fn = skill.{fn_name} || globalThis.{fn_name};
                 if (typeof fn === 'function') {{
-                    var args = {args_json};
-                    var result = fn.call(skill, args);
+                    var result = fn.call(skill, {args_json});
+                    if (result && typeof result.then === 'function') {{
+                        globalThis.__pendingRpcResult = undefined;
+                        globalThis.__pendingRpcError = undefined;
+                        globalThis.__pendingRpcDone = false;
+                        result.then(
+                            function(v) {{
+                                globalThis.__pendingRpcResult = v;
+                                globalThis.__pendingRpcDone = true;
+                            }},
+                            function(e) {{
+                                globalThis.__pendingRpcError = e && e.message ? e.message : String(e);
+                                globalThis.__pendingRpcDone = true;
+                            }}
+                        );
+                        return "__PROMISE__";
+                    }}
                     return JSON.stringify(result === undefined ? null : result);
                 }}
                 return "null";
@@ -766,12 +1130,74 @@ async fn handle_js_call(
         }
     }).await?;
 
-    serde_json::from_str(&result_text)
-        .map_err(|e| format!("{fn_name}() returned invalid JSON: {e}"))
+    if result_text == "__PROMISE__" {
+        // Async — drive the QuickJS job queue until the promise resolves
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+
+        loop {
+            drive_jobs(rt).await;
+
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingRpcDone === true")
+                    .unwrap_or(false)
+            }).await;
+
+            if done {
+                let result = ctx.with(|js_ctx| {
+                    let has_error = js_ctx
+                        .eval::<bool, _>(b"globalThis.__pendingRpcError !== undefined")
+                        .unwrap_or(false);
+
+                    let val = if has_error {
+                        let err_msg = js_ctx
+                            .eval::<String, _>(b"String(globalThis.__pendingRpcError)")
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        Err(format!("{fn_name}() rejected: {err_msg}"))
+                    } else {
+                        let json_str = js_ctx
+                            .eval::<String, _>(
+                                b"JSON.stringify(globalThis.__pendingRpcResult === undefined ? null : globalThis.__pendingRpcResult)"
+                            )
+                            .unwrap_or_else(|_| "null".to_string());
+                        Ok(json_str)
+                    };
+
+                    // Clean up globals
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingRpcDone; delete globalThis.__pendingRpcResult; delete globalThis.__pendingRpcError;"
+                    );
+                    val
+                }).await;
+
+                return match result {
+                    Ok(json_str) => serde_json::from_str(&json_str)
+                        .map_err(|e| format!("{fn_name}() returned invalid JSON: {e}")),
+                    Err(e) => Err(e),
+                };
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                ctx.with(|js_ctx| {
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingRpcDone; delete globalThis.__pendingRpcResult; delete globalThis.__pendingRpcError;"
+                    );
+                }).await;
+                return Err(format!("{fn_name}() timed out after 30s"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    } else {
+        serde_json::from_str(&result_text)
+            .map_err(|e| format!("{fn_name}() returned invalid JSON: {e}"))
+    }
 }
 
 /// Call a JS function on the skill object that returns void.
+/// Handles both sync and async (Promise-returning) functions.
 async fn handle_js_void_call(
+    rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
     fn_name: &str,
     args_json: &str,
@@ -779,7 +1205,7 @@ async fn handle_js_void_call(
     let fn_name = fn_name.to_string();
     let args_json = args_json.to_string();
 
-    ctx.with(|js_ctx| {
+    let is_promise = ctx.with(|js_ctx| {
         let code = format!(
             r#"(function() {{
                 var skill = globalThis.__skill && globalThis.__skill.default
@@ -787,16 +1213,83 @@ async fn handle_js_void_call(
                     : (globalThis.__skill || globalThis);
                 var fn = skill.{fn_name} || globalThis.{fn_name};
                 if (typeof fn === 'function') {{
-                    var args = {args_json};
-                    fn.call(skill, args);
+                    var result = fn.call(skill, {args_json});
+                    if (result && typeof result.then === 'function') {{
+                        globalThis.__pendingRpcVoidDone = false;
+                        globalThis.__pendingRpcVoidError = undefined;
+                        result.then(
+                            function() {{ globalThis.__pendingRpcVoidDone = true; }},
+                            function(e) {{
+                                globalThis.__pendingRpcVoidError = e && e.message ? e.message : String(e);
+                                globalThis.__pendingRpcVoidDone = true;
+                            }}
+                        );
+                        return "1";
+                    }}
                 }}
+                return "0";
             }})()"#
         );
 
-        js_ctx.eval::<rquickjs::Value, _>(code.as_bytes())
-            .map_err(|e| format!("{fn_name}() failed: {e}"))
-            .map(|_| ())
-    }).await
+        match js_ctx.eval::<String, _>(code.as_bytes()) {
+            Ok(s) => Ok(s == "1"),
+            Err(e) => {
+                let detail = format_js_exception(&js_ctx, &e);
+                Err(format!("{fn_name}() failed: {detail}"))
+            }
+        }
+    }).await?;
+
+    if is_promise {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+
+        loop {
+            drive_jobs(rt).await;
+
+            let done = ctx.with(|js_ctx| {
+                js_ctx
+                    .eval::<bool, _>(b"globalThis.__pendingRpcVoidDone === true")
+                    .unwrap_or(false)
+            }).await;
+
+            if done {
+                let error = ctx.with(|js_ctx| {
+                    let has_error = js_ctx
+                        .eval::<bool, _>(b"globalThis.__pendingRpcVoidError !== undefined")
+                        .unwrap_or(false);
+                    let err = if has_error {
+                        Some(js_ctx
+                            .eval::<String, _>(b"String(globalThis.__pendingRpcVoidError)")
+                            .unwrap_or_else(|_| "Unknown error".to_string()))
+                    } else {
+                        None
+                    };
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingRpcVoidDone; delete globalThis.__pendingRpcVoidError;"
+                    );
+                    err
+                }).await;
+
+                if let Some(err_msg) = error {
+                    return Err(format!("{fn_name}() rejected: {err_msg}"));
+                }
+                return Ok(());
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                ctx.with(|js_ctx| {
+                    let _ = js_ctx.eval::<rquickjs::Value, _>(
+                        b"delete globalThis.__pendingRpcVoidDone; delete globalThis.__pendingRpcVoidError;"
+                    );
+                }).await;
+                return Err(format!("{fn_name}() timed out after 30s"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    Ok(())
 }
 
 /// Load a persisted OAuth credential from the skill's store and inject it

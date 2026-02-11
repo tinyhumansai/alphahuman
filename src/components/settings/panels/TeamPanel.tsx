@@ -125,10 +125,13 @@ const TeamPanel = () => {
     // Show "Owner" if this is the team creator and admin
     const isOwner = normalizedRole === 'ADMIN' && teamCreatedBy === user?._id;
 
-    const roleLabel = isOwner ? 'Owner' :
-      normalizedRole === 'ADMIN' ? 'Admin' :
-      normalizedRole === 'BILLING_MANAGER' ? 'Billing Manager' :
-      'Member';
+    const roleLabel = isOwner
+      ? 'Owner'
+      : normalizedRole === 'ADMIN'
+        ? 'Admin'
+        : normalizedRole === 'BILLING_MANAGER'
+          ? 'Billing Manager'
+          : 'Member';
 
     const colors: Record<string, string> = {
       ADMIN: 'bg-primary-500/20 text-primary-400 border-primary-500/30',
@@ -334,8 +337,14 @@ const TeamPanel = () => {
 
                 <div className="space-y-4">
                   <div className="text-sm text-stone-400">
-                    <p>Are you sure you want to leave <strong className="text-white">{teamToLeave.team.name}</strong>?</p>
-                    <p className="mt-2 text-amber-400">You will lose access to the team and all team resources. You'll need a new invite to rejoin.</p>
+                    <p>
+                      Are you sure you want to leave{' '}
+                      <strong className="text-white">{teamToLeave.team.name}</strong>?
+                    </p>
+                    <p className="mt-2 text-amber-400">
+                      You will lose access to the team and all team resources. You'll need a new
+                      invite to rejoin.
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-2">

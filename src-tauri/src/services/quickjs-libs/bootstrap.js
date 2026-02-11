@@ -689,11 +689,6 @@ globalThis.__db = {
   },
 };
 
-globalThis.__net = {
-  fetch: function (url, optionsJson) {
-    return __ops.net_fetch(url, optionsJson);
-  },
-};
 
 globalThis.__platform = {
   os: function () {
@@ -727,8 +722,8 @@ globalThis.db = {
 };
 
 globalThis.net = {
-  fetch: function (url, options) {
-    var result = __net.fetch(url, options ? JSON.stringify(options) : '{}');
+  fetch: async function (url, options) {
+    const result = await __ops.fetch(url, options ? JSON.stringify(options) : '{}');
     return JSON.parse(result);
   },
 };
@@ -819,7 +814,7 @@ globalThis.data = {
      * Make an authenticated API request proxied through the backend.
      * Path is relative to manifest's apiBaseUrl.
      */
-    fetch: function (path, options) {
+    fetch: async function (path, options) {
       if (!globalThis.__oauthCredential) {
         return {
           status: 401,
@@ -841,18 +836,19 @@ globalThis.data = {
           headers[k] = options.headers[k];
         }
       }
-      var fetchOpts = JSON.stringify({
+      var fetchOpts = {
         method: method,
         headers: headers,
         body: options ? options.body : undefined,
         timeout: options ? options.timeout : undefined,
-      });
-      var result = __net.fetch(proxyUrl, fetchOpts);
-      return JSON.parse(result);
+      };
+
+      var result = await net.fetch(proxyUrl, fetchOpts);
+      return result;
     },
 
     /** Revoke the current OAuth credential server-side. */
-    revoke: function () {
+    revoke: async function () {
       if (__oauthCredential) {
         try {
           var backendUrl = __platform.env('BACKEND_URL') || 'https://api.alphahuman.xyz';
@@ -864,7 +860,7 @@ globalThis.data = {
               Authorization: 'Bearer ' + jwtToken,
             },
           });
-          __net.fetch(
+          await net.fetch(
             backendUrl + '/auth/integrations/' + __oauthCredential.credentialId,
             revokeOpts
           );
@@ -991,13 +987,13 @@ globalThis.model = {
    * @param {number} [options.temperature=0.7] - Sampling temperature
    * @returns {string}
    */
-  generate: function (prompt, options) {
+  generate: async function (prompt, options) {
     var backendUrl = __platform.env('BACKEND_URL') || 'https://api.alphahuman.xyz';
     var jwtToken = __ops.get_session_token() || '';
     var body = { prompt: prompt };
     if (options && options.maxTokens) body.maxTokens = options.maxTokens;
     if (options && options.temperature) body.temperature = options.temperature;
-    var result = __net.fetch(backendUrl + '/api/ai/generate', JSON.stringify({
+    var result = await net.fetch(backendUrl + '/api/ai/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1005,7 +1001,7 @@ globalThis.model = {
       },
       body: JSON.stringify(body),
       timeout: 30000,
-    }));
+    });
     var parsed = JSON.parse(result);
     if (parsed.status >= 400) {
       throw new Error('Backend returned ' + parsed.status + ': ' + parsed.body);
@@ -1021,12 +1017,12 @@ globalThis.model = {
    * @param {number} [options.maxTokens=500] - Target summary length
    * @returns {string}
    */
-  summarize: function (text, options) {
+  summarize: async function (text, options) {
     var backendUrl = __platform.env('BACKEND_URL') || 'https://api.alphahuman.xyz';
     var jwtToken = __ops.get_session_token() || '';
     var body = { text: text };
     if (options && options.maxTokens) body.maxTokens = options.maxTokens;
-    var result = __net.fetch(backendUrl + '/api/ai/summarize', JSON.stringify({
+    var result = await net.fetch(backendUrl + '/api/ai/summarize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1034,7 +1030,7 @@ globalThis.model = {
       },
       body: JSON.stringify(body),
       timeout: 30000,
-    }));
+    });
     var parsed = JSON.parse(result);
     if (parsed.status >= 400) {
       throw new Error('Backend returned ' + parsed.status + ': ' + parsed.body);

@@ -106,11 +106,7 @@ const TeamManagementPanel = () => {
 
   return (
     <div className="overflow-hidden flex flex-col h-full">
-      <SettingsHeader
-        title={`Manage ${team.name}`}
-        showBackButton={true}
-        onBack={navigateBack}
-      />
+      <SettingsHeader title={`Manage ${team.name}`} showBackButton={true} onBack={navigateBack} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-md mx-auto p-4 space-y-4">
@@ -125,7 +121,8 @@ const TeamManagementPanel = () => {
               <div>
                 <h3 className="text-lg font-semibold text-white">{team.name}</h3>
                 <p className="text-xs text-stone-500">
-                  {team.subscription.plan} Plan • Created {new Date(team.createdAt).toLocaleDateString()}
+                  {team.subscription.plan} Plan • Created{' '}
+                  {new Date(team.createdAt).toLocaleDateString()}
                 </p>
               </div>
             </div>
@@ -304,8 +301,8 @@ const TeamManagementPanel = () => {
                     <input
                       type="text"
                       value={editTeamName}
-                      onChange={(e) => setEditTeamName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleUpdateTeam()}
+                      onChange={e => setEditTeamName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleUpdateTeam()}
                       className="w-full px-3 py-2 text-sm bg-stone-800/60 border border-stone-700/50 rounded-xl text-white placeholder-stone-500 focus:outline-none focus:border-primary-500/50"
                       placeholder="Enter team name"
                     />
@@ -344,8 +341,13 @@ const TeamManagementPanel = () => {
 
                 <div className="space-y-4">
                   <div className="text-sm text-stone-400">
-                    <p>Are you sure you want to delete <strong className="text-white">{teamEntry?.team.name}</strong>?</p>
-                    <p className="mt-2 text-coral-400">This action cannot be undone. All team data will be permanently removed.</p>
+                    <p>
+                      Are you sure you want to delete{' '}
+                      <strong className="text-white">{teamEntry?.team.name}</strong>?
+                    </p>
+                    <p className="mt-2 text-coral-400">
+                      This action cannot be undone. All team data will be permanently removed.
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-2">

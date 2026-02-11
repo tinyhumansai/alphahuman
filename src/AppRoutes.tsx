@@ -7,6 +7,7 @@ import PublicRoute from './components/PublicRoute';
 import Agents from './pages/Agents';
 import Conversations from './pages/Conversations';
 import Home from './pages/Home';
+import Invites from './pages/Invites';
 import Login from './pages/Login';
 import Onboarding from './pages/onboarding/Onboarding';
 import Settings from './pages/Settings';
@@ -93,6 +94,16 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute requireAuth={true}>
               <Conversations />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Invites */}
+        <Route
+          path="/invites"
+          element={
+            <ProtectedRoute requireAuth={true}>
+              <Invites />
             </ProtectedRoute>
           }
         />

@@ -1,0 +1,168 @@
+import { useEffect, useState } from 'react';
+
+import { useUser } from '../hooks/useUser';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { clearRedeemStatus, fetchInviteCodes, redeemCode } from '../store/inviteSlice';
+import type { InviteCode } from '../types/invite';
+
+const CodeRow = ({ invite }: { invite: InviteCode }) => {
+  const [copied, setCopied] = useState(false);
+  const claimed = invite.currentUses >= invite.maxUses;
+  const claimedUser = invite.usageHistory[0]?.userId;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(invite.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const displayName = claimedUser?.username
+    ? `@${claimedUser.username}`
+    : claimedUser?.firstName || 'Someone';
+
+  return (
+    <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/5 hover:bg-white/[0.07] transition-colors">
+      <div className="flex-1 min-w-0">
+        <span className="font-mono text-sm tracking-wider">{invite.code}</span>
+        {claimed && <p className="text-xs text-stone-500 mt-0.5">Claimed by {displayName}</p>}
+      </div>
+      <div className="flex items-center gap-2 ml-3">
+        {claimed ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-stone-700/50 text-stone-400">
+            Used
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full bg-sage-500/20 text-sage-500">
+            Available
+          </span>
+        )}
+        <button
+          onClick={handleCopy}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-stone-400 hover:text-stone-200"
+          title="Copy code">
+          {copied ? (
+            <svg
+              className="w-4 h-4 text-sage-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const Invites = () => {
+  const dispatch = useAppDispatch();
+  const { user, refetch: refetchUser } = useUser();
+  const { codes, isLoading, redeemStatus, redeemError } = useAppSelector(state => state.invite);
+
+  const [redeemInput, setRedeemInput] = useState('');
+  const hasBeenInvited = !!user?.referral?.invitedBy;
+
+  useEffect(() => {
+    dispatch(fetchInviteCodes());
+  }, [dispatch]);
+
+  const handleRedeem = async () => {
+    const trimmed = redeemInput.trim();
+    if (!trimmed) return;
+
+    const result = await dispatch(redeemCode(trimmed));
+    if (redeemCode.fulfilled.match(result)) {
+      setRedeemInput('');
+      refetchUser();
+      setTimeout(() => dispatch(clearRedeemStatus()), 3000);
+    }
+  };
+
+  return (
+    <div className="min-h-full relative">
+      <div className="relative z-10 min-h-full flex flex-col">
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="max-w-md w-full space-y-4">
+            {/* Redeem Section — shown only if user hasn't redeemed yet */}
+            {!hasBeenInvited && (
+              <div className="glass rounded-3xl p-6 shadow-large animate-fade-up">
+                <h2 className="text-lg font-bold mb-1">Redeem an Invite Code</h2>
+                <p className="text-xs opacity-70 mb-4">
+                  Got a code from a friend? Enter it below to unlock free credits.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={redeemInput}
+                    onChange={e => setRedeemInput(e.target.value.toUpperCase())}
+                    onKeyDown={e => e.key === 'Enter' && handleRedeem()}
+                    placeholder="Enter code"
+                    className="flex-1 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl font-mono text-sm tracking-wider placeholder:text-stone-500 placeholder:tracking-normal placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
+                    disabled={redeemStatus === 'loading'}
+                  />
+                  <button
+                    onClick={handleRedeem}
+                    disabled={redeemStatus === 'loading' || !redeemInput.trim()}
+                    className="btn-primary px-5 py-2.5 text-sm font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                    {redeemStatus === 'loading' ? '...' : 'Redeem'}
+                  </button>
+                </div>
+                {redeemStatus === 'success' && (
+                  <p className="text-sage-500 text-xs mt-2">Invite code redeemed successfully!</p>
+                )}
+                {redeemStatus === 'error' && redeemError && (
+                  <p className="text-coral-500 text-xs mt-2">{redeemError}</p>
+                )}
+              </div>
+            )}
+
+            {/* Your Invite Codes */}
+            <div className="glass rounded-3xl p-6 shadow-large animate-fade-up">
+              <div className="mb-4">
+                <h2 className="text-lg font-bold mb-1">Your Invite Codes</h2>
+                <p className="text-xs opacity-70">
+                  Share these codes with friends. Each code can be used once.
+                </p>
+              </div>
+
+              {isLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-12 bg-white/5 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : codes.length > 0 ? (
+                <div className="space-y-2">
+                  {codes.map(invite => (
+                    <CodeRow key={invite._id} invite={invite} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-stone-500 text-center py-6">
+                  No invite codes available yet.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Invites;

@@ -51,7 +51,7 @@ fn do_fetch(url: &str, options_json: &str) -> Result<String, String> {
 
     let timeout_secs = options.timeout.unwrap_or(30);
     let client = reqwest::blocking::Client::builder()
-        .use_native_tls()
+        .use_rustls_tls()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;

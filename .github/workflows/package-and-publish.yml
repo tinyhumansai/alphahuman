@@ -45,6 +45,7 @@ jobs:
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+          token: ${{ secrets.XGH_TOKEN_READ }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -185,6 +186,7 @@ jobs:
         with:
           fetch-depth: 1
           submodules: true
+          token: ${{ secrets.XGH_TOKEN_READ }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
       - name: Set Xcode version

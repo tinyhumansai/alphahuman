@@ -69,6 +69,7 @@ describe('teamSlice', () => {
   describe('clearTeamState', () => {
     it('should reset to initial state', () => {
       const populated = {
+        ...initialState,
         teams: [mockTeam],
         members: [mockMember],
         invites: [mockInvite],

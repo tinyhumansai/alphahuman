@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
 import { teamApi } from '../../../services/api/teamApi';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
@@ -44,11 +44,7 @@ const TeamMembersPanel = () => {
     if (!currentTeamId || member.role === newRole) return;
 
     // Show confirmation modal for role changes
-    setRoleChangeConfirmation({
-      member,
-      newRole,
-      oldRole: member.role as TeamRole,
-    });
+    setRoleChangeConfirmation({ member, newRole, oldRole: member.role as TeamRole });
   };
 
   const confirmChangeRole = async () => {
@@ -176,75 +172,75 @@ const TeamMembersPanel = () => {
           ) : (
             <div className="space-y-2">
               {members.map(member => (
-              <div
-                key={member._id}
-                className="flex items-center justify-between p-3 rounded-xl border border-stone-700/50 bg-stone-800/40">
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* Avatar */}
-                  <div className="w-8 h-8 rounded-full bg-stone-700/60 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-semibold text-stone-300">
-                      {displayName(member).charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white truncate">
-                        {displayName(member)}
+                <div
+                  key={member._id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-stone-700/50 bg-stone-800/40">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Avatar */}
+                    <div className="w-8 h-8 rounded-full bg-stone-700/60 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-stone-300">
+                        {displayName(member).charAt(0).toUpperCase()}
                       </span>
-                      {isCurrentUser(member) && (
-                        <span className="text-[10px] text-stone-500">(You)</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white truncate">
+                          {displayName(member)}
+                        </span>
+                        {isCurrentUser(member) && (
+                          <span className="text-[10px] text-stone-500">(You)</span>
+                        )}
+                      </div>
+                      {member.user.username && (
+                        <p className="text-xs text-stone-500 truncate">@{member.user.username}</p>
                       )}
                     </div>
-                    {member.user.username && (
-                      <p className="text-xs text-stone-500 truncate">@{member.user.username}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Role badge / dropdown */}
+                    {isAdmin && !isCurrentUser(member) ? (
+                      <select
+                        value={member.role.toUpperCase()}
+                        onChange={e => handleChangeRole(member, e.target.value as TeamRole)}
+                        disabled={changingRoleId === member._id}
+                        className="px-2 py-1 text-[10px] font-medium rounded-full border bg-stone-800 text-stone-300 border-stone-600 focus:outline-none focus:border-primary-500/50 disabled:opacity-50">
+                        {ROLES.map(r => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span
+                        className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${roleBadgeColor[member.role.toUpperCase()] ?? roleBadgeColor.MEMBER}`}>
+                        {member.role.toUpperCase()}
+                      </span>
+                    )}
+
+                    {/* Remove button (admin only, not self) */}
+                    {isAdmin && !isCurrentUser(member) && (
+                      <button
+                        onClick={() => handleRemoveMember(member)}
+                        disabled={removingId === member._id}
+                        className="p-1 rounded-lg text-stone-500 hover:text-coral-400 hover:bg-coral-500/10 transition-colors disabled:opacity-50"
+                        aria-label={`Remove ${displayName(member)}`}>
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
                     )}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {/* Role badge / dropdown */}
-                  {isAdmin && !isCurrentUser(member) ? (
-                    <select
-                      value={member.role.toUpperCase()}
-                      onChange={e => handleChangeRole(member, e.target.value as TeamRole)}
-                      disabled={changingRoleId === member._id}
-                      className="px-2 py-1 text-[10px] font-medium rounded-full border bg-stone-800 text-stone-300 border-stone-600 focus:outline-none focus:border-primary-500/50 disabled:opacity-50">
-                      {ROLES.map(r => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${roleBadgeColor[member.role.toUpperCase()] ?? roleBadgeColor.MEMBER}`}>
-                      {member.role.toUpperCase()}
-                    </span>
-                  )}
-
-                  {/* Remove button (admin only, not self) */}
-                  {isAdmin && !isCurrentUser(member) && (
-                    <button
-                      onClick={() => handleRemoveMember(member)}
-                      disabled={removingId === member._id}
-                      className="p-1 rounded-lg text-stone-500 hover:text-coral-400 hover:bg-coral-500/10 transition-colors disabled:opacity-50"
-                      aria-label={`Remove ${displayName(member)}`}>
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
               ))}
 
               {members.length === 0 && !isLoadingMembers && (
@@ -269,8 +265,14 @@ const TeamMembersPanel = () => {
 
                 <div className="space-y-4">
                   <div className="text-sm text-stone-400">
-                    <p>Are you sure you want to remove <strong className="text-white">{displayName(memberToRemove)}</strong> from the team?</p>
-                    <p className="mt-2 text-coral-400">They will lose access to the team and all team resources.</p>
+                    <p>
+                      Are you sure you want to remove{' '}
+                      <strong className="text-white">{displayName(memberToRemove)}</strong> from the
+                      team?
+                    </p>
+                    <p className="mt-2 text-coral-400">
+                      They will lose access to the team and all team resources.
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-2">
@@ -306,12 +308,32 @@ const TeamMembersPanel = () => {
 
                 <div className="space-y-4">
                   <div className="text-sm text-stone-400">
-                    <p>Change <strong className="text-white">{displayName(roleChangeConfirmation.member)}</strong>'s role from <span className="text-amber-400 font-medium">{roleChangeConfirmation.oldRole}</span> to <span className="text-primary-400 font-medium">{roleChangeConfirmation.newRole}</span>?</p>
+                    <p>
+                      Change{' '}
+                      <strong className="text-white">
+                        {displayName(roleChangeConfirmation.member)}
+                      </strong>
+                      's role from{' '}
+                      <span className="text-amber-400 font-medium">
+                        {roleChangeConfirmation.oldRole}
+                      </span>{' '}
+                      to{' '}
+                      <span className="text-primary-400 font-medium">
+                        {roleChangeConfirmation.newRole}
+                      </span>
+                      ?
+                    </p>
                     {roleChangeConfirmation.newRole === 'ADMIN' && (
-                      <p className="mt-2 text-amber-400">This will grant them full admin permissions including the ability to manage team members.</p>
+                      <p className="mt-2 text-amber-400">
+                        This will grant them full admin permissions including the ability to manage
+                        team members.
+                      </p>
                     )}
                     {roleChangeConfirmation.oldRole === 'ADMIN' && (
-                      <p className="mt-2 text-coral-400">This will remove their admin permissions and they will no longer be able to manage the team.</p>
+                      <p className="mt-2 text-coral-400">
+                        This will remove their admin permissions and they will no longer be able to
+                        manage the team.
+                      </p>
                     )}
                   </div>
 
@@ -326,7 +348,9 @@ const TeamMembersPanel = () => {
                       onClick={confirmChangeRole}
                       disabled={changingRoleId === roleChangeConfirmation.member._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-50">
-                      {changingRoleId === roleChangeConfirmation.member._id ? 'Changing...' : 'Change Role'}
+                      {changingRoleId === roleChangeConfirmation.member._id
+                        ? 'Changing...'
+                        : 'Change Role'}
                     </button>
                   </div>
                 </div>

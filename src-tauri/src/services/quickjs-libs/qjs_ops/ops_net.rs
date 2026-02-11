@@ -22,7 +22,7 @@ pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, ws_state: Arc<RwLock<Web
             let body = opts["body"].as_str();
 
             let client = reqwest::Client::builder()
-                .use_native_tls()
+                .use_rustls_tls()
                 .build()
                 .map_err(|e| js_err(e.to_string()))?;
             let mut req = match method {
@@ -119,16 +119,5 @@ pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, ws_state: Arc<RwLock<Web
             state.connections.remove(&id);
         }))?;
     }
-
-    // ========================================================================
-    // Net Bridge (1)
-    // ========================================================================
-
-    ops.set("net_fetch", Function::new(ctx.clone(),
-        |url: String, options_json: String| -> rquickjs::Result<String> {
-            crate::runtime::bridge::net::http_fetch(&url, &options_json).map_err(|e| js_err(e))
-        },
-    ))?;
-
     Ok(())
 }

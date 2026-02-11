@@ -8,6 +8,7 @@ import { setOnboardedForUser } from '../../store/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import FeaturesStep from './steps/FeaturesStep';
 import GetStartedStep from './steps/GetStartedStep';
+import InviteCodeStep from './steps/InviteCodeStep';
 import PrivacyStep from './steps/PrivacyStep';
 
 const Onboarding = () => {
@@ -15,13 +16,14 @@ const Onboarding = () => {
   const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.user.user);
   const [currentStep, setCurrentStep] = useState(0);
-  const totalSteps = 3;
+  const totalSteps = 4;
 
   // Lottie animation files for each step
   const stepAnimations = [
-    '/lottie/wave.json', // Step 1 - Features
-    '/lottie/safe3.json', // Step 2 - Privacy
-    '/lottie/trophy.json', // Step 3 - Get Started
+    '/lottie/trophy.json', // Step 1 - Invite Code
+    '/lottie/wave.json', // Step 2 - Features
+    '/lottie/safe3.json', // Step 3 - Privacy
+    '/lottie/trophy.json', // Step 4 - Get Started
   ];
 
   const handleNext = () => {
@@ -52,13 +54,15 @@ const Onboarding = () => {
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <FeaturesStep onNext={handleNext} />;
+        return <InviteCodeStep onNext={handleNext} />;
       case 2:
-        return <PrivacyStep onNext={handleNext} />;
+        return <FeaturesStep onNext={handleNext} />;
       case 3:
+        return <PrivacyStep onNext={handleNext} />;
+      case 4:
         return <GetStartedStep onComplete={handleComplete} />;
       default:
-        return <FeaturesStep onNext={handleNext} />;
+        return <InviteCodeStep onNext={handleNext} />;
     }
   };
 

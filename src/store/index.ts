@@ -1,5 +1,4 @@
-import type { Middleware } from '@reduxjs/toolkit';
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { createLogger } from 'redux-logger';
 import {
   FLUSH,
@@ -17,6 +16,7 @@ import { IS_DEV } from '../utils/config';
 import { storeSession } from '../utils/tauriCommands';
 import aiReducer from './aiSlice';
 import authReducer, { setOnboardedForUser, setToken } from './authSlice';
+import inviteReducer from './inviteSlice';
 import skillsReducer from './skillsSlice';
 import socketReducer from './socketSlice';
 import teamReducer from './teamSlice';
@@ -78,6 +78,7 @@ export const store = configureStore({
     ai: persistedAiReducer,
     skills: persistedSkillsReducer,
     team: teamReducer,
+    invite: inviteReducer,
   },
   middleware: getDefaultMiddleware => {
     const middleware = getDefaultMiddleware({

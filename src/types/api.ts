@@ -29,12 +29,9 @@ export interface IUserUsage {
 }
 
 export interface UserReferral {
-  inviteCode?: string | null;
-  inviteCodeUsages: number;
-  maxInviteCodeUsages?: number | null;
+  invitedByCode?: string | null;
   inviteCodeUsedAt?: string;
   invitedBy?: string | null;
-  pendingInviteCode?: string | null;
 }
 
 export interface UserSettings {
