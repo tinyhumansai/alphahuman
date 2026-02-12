@@ -40,3 +40,9 @@ src-tauri/runtime-skill-*
 .cargo
 
 CLAUDE.local.md
+
+# Test artifacts
+e2e-results/
+wdio-logs/
+test-results/
+coverage/

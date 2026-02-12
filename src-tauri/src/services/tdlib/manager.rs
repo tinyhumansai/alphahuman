@@ -16,6 +16,10 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+/// Telegram API credentials (kept on the Rust side only).
+const API_ID: i32 = 28685916;
+const API_HASH: &str = "d540ab21dece5404af298c44f4f6386d";
+
 /// Global TDLib manager instance.
 pub static TDLIB_MANAGER: Lazy<TdLibManager> = Lazy::new(TdLibManager::new);
 
@@ -122,6 +126,7 @@ impl TdLibManager {
     /// Returns the client ID. If a client already exists, returns its ID.
     /// Only one client can exist at a time; blocks if a destroy is in progress.
     pub fn create_client(&self, data_dir: PathBuf) -> Result<i32, String> {
+        log::info!("[tdlib] create_client called with data dir: {:?}", data_dir);
         // Block creation while a destroy is in progress to prevent
         // creating a new C++ client before the old one releases its database lock.
         if self.is_destroying.load(Ordering::SeqCst) {
@@ -143,7 +148,8 @@ impl TdLibManager {
         // Create TDLib client using tdlib_rs
         let client_id = tdlib_rs::create_client();
 
-        // Store data directory
+        // Store data directory and pass a clone to the worker
+        let worker_data_dir = data_dir.clone();
         *self.data_dir.write() = Some(data_dir);
 
         // Create request channel
@@ -158,7 +164,7 @@ impl TdLibManager {
         let cid = client_id;
 
         let handle = std::thread::spawn(move || {
-            Self::worker_loop(cid, state, request_rx);
+            Self::worker_loop(cid, state, request_rx, worker_data_dir);
         });
         *self.worker_handle.write() = Some(handle);
 
@@ -170,7 +176,7 @@ impl TdLibManager {
         let tdlib_verbosity: i32 = std::env::var("TDLIB_LOG_LEVEL")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+            .unwrap_or(1);
         let cid_for_log = client_id;
         tauri::async_runtime::spawn(async move {
             if let Err(e) = tdlib_rs::functions::set_log_verbosity_level(tdlib_verbosity, cid_for_log).await {
@@ -181,11 +187,71 @@ impl TdLibManager {
         Ok(client_id)
     }
 
+    /// Create the client (if needed) and return the client ID.
+    ///
+    /// `setTdlibParameters` is sent **reactively** by the worker loop whenever
+    /// TDLib reports `authorizationStateWaitTdlibParameters`, so callers don't
+    /// need to send it themselves.
+    pub async fn ensure_initialized(&self, data_dir: PathBuf) -> Result<i32, String> {
+        self.create_client(data_dir)
+    }
+
+    pub async fn send_set_tdlib_parameters(&self) -> Result<(), String> {
+        // Resolve client_id from manager state
+        let client_id_opt = *self.client_id.read();
+        let client_id = match client_id_opt {
+            Some(id) => id,
+            None => {
+                log::error!("[tdlib] Cannot send setTdlibParameters: client_id not initialized");
+                return Err("TDLib client is not initialized".to_string());
+            }
+        };
+
+        // Resolve data_dir from manager state
+        let data_dir_opt = self.data_dir.read().clone();
+        let data_dir = match data_dir_opt {
+            Some(dir) => dir,
+            None => {
+                log::error!("[tdlib] Cannot send setTdlibParameters: data_dir not set");
+                return Err("TDLib data directory is not set".to_string());
+            }
+        };
+
+        log::info!("[tdlib] Sending setTdlibParameters to client {}", client_id);
+        let db_dir = data_dir.to_string_lossy().to_string();
+        let files_dir = data_dir.join("files").to_string_lossy().to_string();
+        let params = serde_json::json!({
+            "@type": "setTdlibParameters",
+            "use_test_dc": false,
+            "database_directory": db_dir,
+            "files_directory": files_dir,
+            "database_encryption_key": "",
+            "use_file_database": true,
+            "use_chat_info_database": true,
+            "use_message_database": true,
+            "use_secret_chats": false,
+            "api_id": API_ID,
+            "api_hash": API_HASH,
+            "system_language_code": "en",
+            "device_model": "Desktop",
+            "system_version": "",
+            "application_version": "1.0.0"
+        });
+        match Self::send_json_request(client_id, &params).await {
+            Err(e) => {
+                log::error!("[tdlib] Auto-send setTdlibParameters failed: {}", e);
+                Err(format!("Failed to send setTdlibParameters: {}", e))
+            }
+            Ok(_) => Ok(()),
+        }
+    }
+
     /// Worker loop that handles requests and polls for updates.
     fn worker_loop(
         client_id: i32,
         state: Arc<ClientState>,
         mut request_rx: mpsc::Receiver<TdRequest>,
+        data_dir: PathBuf,
     ) {
         log::info!("[tdlib] Worker loop started for client {}", client_id);
 
@@ -270,6 +336,26 @@ impl TdLibManager {
     fn handle_response(state: &Arc<ClientState>, update: tdlib_rs::enums::Update) {
         // Convert update to JSON for processing
         let json = serde_json::to_value(&update).unwrap_or(serde_json::Value::Null);
+
+        log::info!("[tdlib] Handling response: {}", serde_json::to_string_pretty(&json).unwrap_or_else(|_| "invalid JSON".to_string()));
+
+        // React to authorizationStateWaitTdlibParameters — auto-send
+        // setTdlibParameters with the configured credentials.
+        if let Some(auth_type) = json
+            .get("authorization_state")
+            .and_then(|s| s.get("@type"))
+            .and_then(|t| t.as_str())
+        {
+            if auth_type == "authorizationStateWaitTdlibParameters" {
+                log::info!("[tdlib] TDLib requests parameters — scheduling auto-send");
+                tauri::async_runtime::spawn(async {
+                    if let Err(e) = TDLIB_MANAGER.send_set_tdlib_parameters().await {
+                        log::error!("[tdlib] Auto-send setTdlibParameters failed: {}", e);
+                    }
+                });
+                return;
+            }
+        }
 
         // Check if this is a response to a pending request (has @extra)
         if let Some(extra) = json.get("@extra").and_then(|v| v.as_str()) {
@@ -558,6 +644,7 @@ impl TdLibManager {
 
     /// Receive the next update from TDLib (with timeout).
     pub async fn receive(&self, timeout_ms: u32) -> Option<serde_json::Value> {
+        log::info!("[tdlib] receive called with timeout: {}ms", timeout_ms);
         let request_tx = {
             self.request_tx.read().clone()
         }?;

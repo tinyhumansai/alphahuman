@@ -15,6 +15,31 @@ pub fn register<'js>(ctx: &Ctx<'js>, ops: &Object<'js>, skill_context: SkillCont
 
     {
         let sc = skill_context.clone();
+        ops.set("tdlib_ensure_initialized", Function::new(ctx.clone(),
+            Async(move |data_dir: String| {
+                let skill_id = sc.skill_id.clone();
+                async move {
+                    log::info!("[tdlib_v8] ensure_initialized with data_dir: {}", data_dir);
+                    check_telegram_skill(&skill_id).map_err(|e| {
+                        log::error!("[tdlib_v8] Skill check failed: {}", e);
+                        js_err(e)
+                    })?;
+                    let client_id = crate::services::tdlib::TDLIB_MANAGER
+                        .ensure_initialized(PathBuf::from(data_dir))
+                        .await
+                        .map_err(|e| {
+                            log::error!("[tdlib_v8] ensure_initialized failed: {}", e);
+                            js_err(e)
+                        })?;
+                    log::info!("[tdlib_v8] ensure_initialized succeeded with client ID: {}", client_id);
+                    Ok::<i32, rquickjs::Error>(client_id)
+                }
+            }),
+        ))?;
+    }
+
+    {
+        let sc = skill_context.clone();
         ops.set("tdlib_create_client", Function::new(ctx.clone(),
             move |data_dir: String| -> rquickjs::Result<i32> {
                 log::info!("[tdlib_v8] Creating TDLib client with data_dir: {}", data_dir);

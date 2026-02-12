@@ -942,6 +942,16 @@ globalThis.tdlib = {
   },
 
   /**
+   * Create client and set TDLib parameters in a single atomic call.
+   * API credentials are stored on the Rust side only.
+   * @param {string} dataDir - Path to store TDLib data files.
+   * @returns {Promise<number>} Client ID.
+   */
+  ensureInitialized: async function (dataDir) {
+    return await __ops.tdlib_ensure_initialized(dataDir);
+  },
+
+  /**
    * Create a TDLib client with the given data directory.
    * @param {string} dataDir - Path to store TDLib data files.
    * @returns {Promise<number>} Client ID (always 1 for singleton).

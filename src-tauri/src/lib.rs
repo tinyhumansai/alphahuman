@@ -362,6 +362,26 @@ pub fn run() {
                 }
             }
 
+            // Start the TDLib client early so it's ready before any skill
+            // starts.  The worker loop auto-sends setTdlibParameters when
+            // TDLib requests them — no JS involvement needed.
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .unwrap_or_else(|_| {
+                        dirs::home_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            .join(".alphahuman")
+                    });
+                let tdlib_data_dir = data_dir.join("telegram");
+                match crate::services::tdlib::TDLIB_MANAGER.create_client(tdlib_data_dir) {
+                    Ok(id) => log::info!("[tdlib] Client created at app startup (ID {})", id),
+                    Err(e) => log::error!("[tdlib] Failed to create client at startup: {}", e),
+                }
+            }
+
             // Create the SocketManager (persistent Rust-native Socket.io)
             let socket_mgr = std::sync::Arc::new(
                 runtime::socket_manager::SocketManager::new(),

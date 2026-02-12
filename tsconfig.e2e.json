@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["@wdio/globals/types", "@wdio/mocha-framework", "node"]
+  },
+  "include": ["test/e2e/**/*.ts", "wdio.conf.ts"]
+}
