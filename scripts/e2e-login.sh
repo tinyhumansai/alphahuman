@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 #
-# Start Appium under Node 24 (required by appium v3), run WebDriverIO E2E
-# tests, then tear everything down.
+# Run E2E login flow tests only.
+#
+# Starts Appium, cleans app caches, runs the login-flow spec,
+# then tears everything down. Each flow script is self-contained so
+# specs don't pollute each other's Redux Persist state.
 #
 # Usage:
-#   ./scripts/e2e.sh          # run tests
-#   APPIUM_PORT=4723 ./scripts/e2e.sh  # custom port
+#   ./scripts/e2e-login.sh
+#   APPIUM_PORT=4723 ./scripts/e2e-login.sh
 #
 set -euo pipefail
 
 APPIUM_PORT="${APPIUM_PORT:-4723}"
 E2E_MOCK_PORT="${E2E_MOCK_PORT:-18473}"
+SPEC="test/e2e/specs/login-flow.spec.ts"
 
 # Point the app at the local mock server (baked into the build already, but
 # also exported here so the Rust backend / any env-based config picks it up).
@@ -57,9 +61,11 @@ if [ ! -x "$APPIUM_BIN" ]; then
 fi
 
 # --- Start Appium in the background -------------------------------------------
+APPIUM_LOG="/tmp/appium-e2e-login.log"
 NODE_VER=$("$NODE24" --version)
 echo "Starting Appium on port $APPIUM_PORT (Node $NODE_VER)..."
-"$NODE24" "$APPIUM_BIN" --port "$APPIUM_PORT" --relaxed-security &
+echo "  Appium logs: $APPIUM_LOG"
+"$NODE24" "$APPIUM_BIN" --port "$APPIUM_PORT" --relaxed-security > "$APPIUM_LOG" 2>&1 &
 APPIUM_PID=$!
 
 cleanup() {
@@ -83,5 +89,5 @@ for i in $(seq 1 30); do
 done
 
 # --- Run WebDriverIO ----------------------------------------------------------
-echo "Running E2E tests..."
-npx wdio run wdio.conf.ts
+echo "Running E2E login flow tests ($SPEC)..."
+npx wdio run wdio.conf.ts --spec "$SPEC"

@@ -31,6 +31,20 @@ export function clearRequestLog() {
 }
 
 // ---------------------------------------------------------------------------
+// Mock behavior toggles — tests can change responses at runtime
+// ---------------------------------------------------------------------------
+
+let mockBehavior: Record<string, string> = {};
+
+export function setMockBehavior(key: string, value: string) {
+  mockBehavior[key] = value;
+}
+
+export function resetMockBehavior() {
+  mockBehavior = {};
+}
+
+// ---------------------------------------------------------------------------
 // Mock data — shapes taken from src/test/handlers.ts (MSW unit-test mocks)
 // ---------------------------------------------------------------------------
 
@@ -65,6 +79,38 @@ const MOCK_USER = {
   autoDeleteTelegramMessagesAfterDays: 30,
   autoDeleteThreadsAfterDays: 30,
 };
+
+// ---------------------------------------------------------------------------
+// Dynamic mock data helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a team object whose subscription reflects the current mockBehavior.
+ *   mockBehavior['plan']       → 'FREE' | 'BASIC' | 'PRO'  (default: 'FREE')
+ *   mockBehavior['planActive'] → 'true' to mark subscription active
+ *   mockBehavior['planExpiry'] → ISO date string for renewal display
+ */
+function getMockTeam() {
+  const plan = mockBehavior['plan'] || 'FREE';
+  const isActive = mockBehavior['planActive'] === 'true';
+  const expiry = mockBehavior['planExpiry'] || null;
+
+  return {
+    team: {
+      _id: 'team-1',
+      name: 'Personal',
+      slug: 'personal',
+      createdBy: 'test-user-123',
+      isPersonal: true,
+      maxMembers: 1,
+      subscription: { plan, hasActiveSubscription: isActive, planExpiry: expiry },
+      usage: { dailyTokenLimit: 1000, remainingTokens: 1000, activeSessionCount: 0 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    role: 'ADMIN',
+  };
+}
 
 // ---------------------------------------------------------------------------
 // CORS helpers
@@ -136,19 +182,32 @@ async function handleRequest(req, res) {
 
   // POST /telegram/login-tokens/:token/consume
   if (method === 'POST' && /^\/telegram\/login-tokens\/[^/]+\/consume\/?$/.test(url)) {
-    json(res, 200, { success: true, data: { jwtToken: MOCK_JWT } });
+    if (mockBehavior['token'] === 'expired') {
+      json(res, 401, { success: false, error: 'Token expired or invalid' });
+      return;
+    }
+    if (mockBehavior['token'] === 'invalid') {
+      json(res, 401, { success: false, error: 'Invalid token' });
+      return;
+    }
+    const jwt = mockBehavior['jwt'] ? `${MOCK_JWT}-${mockBehavior['jwt']}` : MOCK_JWT;
+    json(res, 200, { success: true, data: { jwtToken: jwt } });
     return;
   }
 
   // GET /telegram/me
   if (method === 'GET' && /^\/telegram\/me\/?(\?.*)?$/.test(url)) {
+    if (mockBehavior['session'] === 'revoked') {
+      json(res, 401, { success: false, error: 'Unauthorized' });
+      return;
+    }
     json(res, 200, { success: true, data: MOCK_USER });
     return;
   }
 
   // GET /teams
   if (method === 'GET' && /^\/teams\/?(\?.*)?$/.test(url)) {
-    json(res, 200, { success: true, data: [] });
+    json(res, 200, { success: true, data: [getMockTeam()] });
     return;
   }
 
@@ -176,11 +235,61 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // GET /billing/current-plan
-  if (method === 'GET' && /^\/billing\/current-plan\/?(\?.*)?$/.test(url)) {
+  // GET /billing/current-plan  (legacy alias)
+  // GET /payments/stripe/currentPlan
+  if (
+    (method === 'GET' && /^\/billing\/current-plan\/?(\?.*)?$/.test(url)) ||
+    (method === 'GET' && /^\/payments\/stripe\/currentPlan\/?(\?.*)?$/.test(url))
+  ) {
+    const plan = mockBehavior['plan'] || 'FREE';
+    const isActive = mockBehavior['planActive'] === 'true';
+    const expiry = mockBehavior['planExpiry'] || null;
     json(res, 200, {
       success: true,
-      data: { plan: 'FREE', hasActiveSubscription: false, planExpiry: null, subscription: null },
+      data: {
+        plan,
+        hasActiveSubscription: isActive,
+        planExpiry: expiry,
+        subscription: isActive
+          ? {
+              id: 'sub_mock_123',
+              status: 'active',
+              currentPeriodEnd: expiry || new Date(Date.now() + 30 * 86400000).toISOString(),
+            }
+          : null,
+      },
+    });
+    return;
+  }
+
+  // POST /payments/stripe/purchasePlan
+  if (method === 'POST' && /^\/payments\/stripe\/purchasePlan\/?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: {
+        checkoutUrl: 'http://127.0.0.1:18473/mock-checkout',
+        sessionId: 'cs_mock_' + Date.now(),
+      },
+    });
+    return;
+  }
+
+  // POST /payments/stripe/portal
+  if (method === 'POST' && /^\/payments\/stripe\/portal\/?$/.test(url)) {
+    json(res, 200, { success: true, data: { portalUrl: 'http://127.0.0.1:18473/mock-portal' } });
+    return;
+  }
+
+  // POST /payments/coinbase/charge
+  if (method === 'POST' && /^\/payments\/coinbase\/charge\/?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: {
+        gatewayTransactionId: 'coinbase_mock_' + Date.now(),
+        hostedUrl: 'http://127.0.0.1:18473/mock-coinbase-checkout',
+        status: 'NEW',
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      },
     });
     return;
   }
@@ -361,6 +470,7 @@ function sendWsFrame(socket, opcode, payload) {
 // ---------------------------------------------------------------------------
 
 let server = null;
+const openSockets = new Set();
 
 export function startMockServer(port = DEFAULT_PORT) {
   return new Promise((resolve, reject) => {
@@ -369,6 +479,12 @@ export function startMockServer(port = DEFAULT_PORT) {
         console.error('[MockServer] Unhandled error:', err);
         json(res, 500, { success: false, error: 'Internal mock error' });
       });
+    });
+
+    // Track all connections so stopMockServer can force-close them
+    server.on('connection', socket => {
+      openSockets.add(socket);
+      socket.on('close', () => openSockets.delete(socket));
     });
 
     // Handle WebSocket upgrades for Socket.IO
@@ -391,6 +507,11 @@ export function stopMockServer() {
       resolve();
       return;
     }
+    // Destroy all open sockets so server.close() doesn't hang
+    for (const socket of openSockets) {
+      socket.destroy();
+    }
+    openSockets.clear();
     server.close(() => {
       console.log('[MockServer] Stopped');
       server = null;
