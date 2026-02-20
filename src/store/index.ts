@@ -37,9 +37,17 @@ const aiPersistConfig = { key: 'ai', storage, whitelist: ['config'] };
 // Persist config for skills state (setupComplete per skill)
 const skillsPersistConfig = { key: 'skills', storage, whitelist: ['skills'] };
 
+// Persist config for thread UI prefs only (panel width, last viewed for unread)
+const threadPersistConfig = {
+  key: 'thread',
+  storage,
+  whitelist: ['panelWidth', 'lastViewedAt'],
+};
+
 const persistedAuthReducer = persistReducer(authPersistConfig, authReducer);
 const persistedAiReducer = persistReducer(aiPersistConfig, aiReducer);
 const persistedSkillsReducer = persistReducer(skillsPersistConfig, skillsReducer);
+const persistedThreadReducer = persistReducer(threadPersistConfig, threadReducer);
 
 /**
  * Middleware that syncs the JWT token to the Rust SESSION_SERVICE whenever
@@ -80,7 +88,7 @@ export const store = configureStore({
     ai: persistedAiReducer,
     skills: persistedSkillsReducer,
     team: teamReducer,
-    thread: threadReducer,
+    thread: persistedThreadReducer,
     invite: inviteReducer,
   },
   middleware: getDefaultMiddleware => {

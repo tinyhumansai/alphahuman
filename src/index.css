@@ -259,6 +259,15 @@
     background-color: rgb(115 115 115);
   }
 
+  /* Hide scrollbar while keeping scroll behavior */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Text selection styling */
   .select-primary::selection {
     @apply bg-primary-600 text-white;

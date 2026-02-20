@@ -31,7 +31,18 @@ export interface ThreadCreateData {
   id: string;
 }
 
-export interface SendMessageData {
+export interface ThreadDeleteData {
+  deleted: boolean;
+}
+
+/** Response from POST /chat/sendMessage — send user message and get agent reply */
+export interface SendMessageResponseData {
+  // Optional: backend can return empty {} or e.g. { messageId: string }
+  [key: string]: unknown;
+}
+
+/** Response from GET /chat/autocomplete — suggested starter questions for a new thread */
+export interface SuggestQuestionsData {
   suggestions: Array<{ text: string; confidence: number }>;
 }
 

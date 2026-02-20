@@ -108,6 +108,14 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/conversations/:threadId"
+          element={
+            <ProtectedRoute requireAuth={true}>
+              <Conversations />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Invites */}
         <Route

@@ -2,8 +2,10 @@ import type { ApiResponse } from '../../types/api';
 import type {
   PurgeRequestBody,
   PurgeResultData,
-  SendMessageData,
+  SendMessageResponseData,
+  SuggestQuestionsData,
   ThreadCreateData,
+  ThreadDeleteData,
   ThreadMessagesData,
   ThreadsListData,
 } from '../../types/thread';
@@ -33,12 +35,30 @@ export const threadApi = {
     return response.data;
   },
 
-  /** POST /chat/autocomplete — send a user message to a thread and get the agent response */
-  sendMessage: async (message: string, conversationId: string): Promise<SendMessageData> => {
-    const response = await apiClient.post<ApiResponse<SendMessageData>>('/chat/autocomplete', {
+  /** DELETE /telegram/threads/:threadId — delete a single thread */
+  deleteThread: async (threadId: string): Promise<ThreadDeleteData> => {
+    const response = await apiClient.delete<ApiResponse<ThreadDeleteData>>(
+      `/telegram/threads/${encodeURIComponent(threadId)}`
+    );
+    return response.data;
+  },
+
+  /** POST /chat/sendMessage — send a user message to a thread and get the agent response */
+  sendMessage: async (message: string, conversationId: string): Promise<SendMessageResponseData> => {
+    const response = await apiClient.post<ApiResponse<SendMessageResponseData>>('/chat/sendMessage', {
       message,
       conversationId,
     });
+    return response.data;
+  },
+
+  /** GET /chat/autocomplete — suggested starter questions (e.g. for a new/empty thread) */
+  getSuggestQuestions: async (conversationId?: string): Promise<SuggestQuestionsData> => {
+    const url =
+      conversationId != null
+        ? `/chat/autocomplete?conversationId=${encodeURIComponent(conversationId)}`
+        : '/chat/autocomplete';
+    const response = await apiClient.get<ApiResponse<SuggestQuestionsData>>(url);
     return response.data;
   },
 
