@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import LottieAnimation from '../components/LottieAnimation';
@@ -96,7 +96,7 @@ const Mnemonic = () => {
   );
 
   const handleImportKeyDown = useCallback(
-    (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    (index: number, e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Backspace' && !importWords[index] && index > 0) {
         inputRefs.current[index - 1]?.focus();
       }

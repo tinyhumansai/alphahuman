@@ -12,10 +12,6 @@
  * Legacy bridge (for backwards compatibility during migration):
  * - socket:should_connect / socket:should_disconnect
  * - report_socket_connected / disconnected / error
- *
- * Socket event contract (backend <-> frontend):
- * - Backend emits: REQUEST_ENCRYPTION_KEY — frontend should reply with encryption key.
- * - Frontend emits: ENCRYPTION_KEY_EVENT — payload { encryptionKey: string | null } from authSlice.
  */
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
@@ -24,12 +20,6 @@ import { syncToolsToBackend } from '../lib/skills/sync';
 import { store } from '../store';
 import { setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import { BACKEND_URL } from './config';
-
-/** Event name the backend emits to request the client’s encryption key. */
-export const REQUEST_ENCRYPTION_KEY = 'request:encryption_key';
-
-/** Event name the frontend emits with encryptionKeyByUser (authSlice) for the current user. */
-export const ENCRYPTION_KEY_EVENT = 'encryption_key';
 
 // Check if we're running in Tauri
 export const isTauri = (): boolean => {
@@ -171,14 +161,6 @@ export async function setupTauriSocketListeners(): Promise<void> {
     unlistenServerEvent = await listen<{ event: string; data: unknown }>('server:event', event => {
       const { event: eventName, data } = event.payload;
       console.log('[TauriSocket] Server event:', eventName, data);
-
-      if (eventName === REQUEST_ENCRYPTION_KEY) {
-        const state = store.getState();
-        const userId =
-          state.user.user?._id ?? getSocketUserId();
-        const encryptionKey = state.auth.encryptionKeyByUser[userId] ?? null;
-        void emitViaRustSocket(ENCRYPTION_KEY_EVENT, { encryptionKey });
-      }
     });
 
     // Legacy: Listen for connect requests from Rust (backwards compat)

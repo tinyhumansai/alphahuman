@@ -172,14 +172,7 @@ const socket = io(BACKEND_URL, {
 
 ### Socket event contract (Tauri)
 
-In Tauri mode, the Rust socket forwards server events to the frontend via the `server:event` Tauri event. The frontend listens and can emit back via `emitViaRustSocket` (see `utils/tauriSocket.ts`).
-
-| Direction   | Event name                 | Payload                         | Description |
-|------------|----------------------------|----------------------------------|-------------|
-| Backend →  | `request:encryption_key`   | (any)                            | Backend requests the client’s encryption key. |
-| Frontend → | `encryption_key`           | `{ encryptionKey: string \| null }` | Frontend sends `encryptionKeyByUser` for the current user from authSlice. |
-
-Constants: `REQUEST_ENCRYPTION_KEY`, `ENCRYPTION_KEY_EVENT` (exported from `utils/tauriSocket.ts`).
+In Tauri mode, the Rust socket forwards server events to the frontend via the `server:event` Tauri event. The frontend listens and can emit back via `emitViaRustSocket` (see `utils/tauriSocket.ts`). Encryption key is handled via the API, not the socket.
 
 ## MTProto Service (`services/mtprotoService.ts`)
 
