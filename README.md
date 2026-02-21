@@ -1,10 +1,10 @@
-<h1 align="center">AlphaHuman Mk1</h1>
+<h1 align="center">AlphaHuman</h1>
 
 <p align="center">
   <strong>Your most productive co-worker</strong><br>
   A user-friendly (GUI-first) AI agent. AlphaHuman uses the
-  Neocortex Mk1 model to co-ordinate memories &
-  realtime-data, cheaper and faster than other models.
+  <a href="https://github.com/tinyhumansai/neocortex/tree/main/mk1">Neocortex Mk1 model</a> to understand memories &
+  realtime context at incredibly low costs.
 </p>
 
 <p align="center">
@@ -14,12 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="#what-is-alphahuman">About</a> ·
-  <a href="#alphahuman-vs-openclaw">vs OpenClaw</a> ·
-  <a href="#download">Download</a> ·
-  <a href="#getting-started">Getting Started</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="CHANGELOG.md">Changelog</a>
+  <a href="https://discord.gg/k23Kn8nK">Discord</a> ·
+  <a href="https://www.reddit.com/r/alphahuman">Reddit</a> ·
+  <a href="https://x.com/alphahumanxyz">Twitter/X</a>
 </p>
 
 ![The Tet](./docs/the-tet.png)
@@ -54,16 +51,16 @@ AlphaHuman is designed to be simpler to deploy, cheaper to run, and more intelli
 
 > **Early Beta** — AlphaHuman is under active development. Expect rough edges.
 
-| Platform    | Variant                     | Download                                                                                                      |
-| ----------- | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Platform    | Variant                     | Download                                                                                                       |
+| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **macOS**   | Apple Silicon (M1/M2/M3/M4) | [`.dmg` (aarch64)](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_aarch64.dmg) |
 | **macOS**   | Intel                       | [`.dmg` (x64)](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_x64.dmg)         |
 | **Windows** | x64                         | [`.msi`](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_x64_en-US.msi)         |
 | **Linux**   | Debian / Ubuntu             | [`.deb` (amd64)](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_amd64.deb)     |
 | **Linux**   | Fedora / RHEL               | [`.rpm` (x86_64)](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_x86_64.rpm)   |
 | **Linux**   | Universal                   | [`.AppImage`](https://github.com/alphahumanai/alphahuman/releases/latest/download/AlphaHuman_amd64.AppImage)   |
-| **Android** | —                           | Coming soon                                                                                                   |
-| **iOS**     | —                           | Coming soon                                                                                                   |
+| **Android** | —                           | Coming soon                                                                                                    |
+| **iOS**     | —                           | Coming soon                                                                                                    |
 
 Browse all releases: [github.com/alphahumanai/alphahuman/releases](https://github.com/alphahumanai/alphahuman/releases)
 
