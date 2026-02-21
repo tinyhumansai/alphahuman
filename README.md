@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/k23Kn8nK">Discord</a> ·
-  <a href="https://www.reddit.com/r/alphahuman">Reddit</a> ·
-  <a href="https://x.com/alphahumanxyz">Twitter/X</a>
+  <a target="_blank" href="https://discord.gg/k23Kn8nK"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a target="_blank" href="https://www.reddit.com/r/alphahuman"><img src="https://img.shields.io/badge/Reddit-FF4500?style=for-the-badge&logo=reddit&logoColor=white" alt="Reddit" /></a>
+  <a target="_blank" href="https://x.com/alphahumanxyz"><img src="https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white" alt="Twitter/X" /></a>
 </p>
 
 ![The Tet](./docs/the-tet.png)
