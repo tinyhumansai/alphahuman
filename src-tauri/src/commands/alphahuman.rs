@@ -587,7 +587,10 @@ pub async fn alphahuman_service_start() -> Result<CommandResponse<service::Servi
     log::info!("[alphahuman:cmd] service_start called");
     let config = load_alphahuman_config().await?;
     service::start(&config)
-        .map(|status| command_response(status, vec!["service start completed".to_string()]))
+        .map(|status| {
+            log::info!("[alphahuman:cmd] External daemon service started - health events should be emitted from service process");
+            command_response(status, vec!["service start completed".to_string()])
+        })
         .map_err(|e| {
             log::error!("[alphahuman:cmd] service_start failed: {}", e);
             e.to_string()

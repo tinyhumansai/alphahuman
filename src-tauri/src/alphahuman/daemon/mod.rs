@@ -55,7 +55,9 @@ pub async fn run(
         let data_dir = config.data_dir.clone();
         let cancel_clone = cancel.clone();
         handles.push(tokio::spawn(async move {
+            log::info!("[alphahuman] Starting health event writer task");
             spawn_state_writer(app, data_dir, cancel_clone).await;
+            log::info!("[alphahuman] Health event writer task terminated");
         }));
     }
 
@@ -69,12 +71,13 @@ pub async fn run(
         initial_backoff,
         max_backoff
     );
+    log::info!("[alphahuman]   health:    Events will be emitted every {}s to frontend", STATUS_FLUSH_SECONDS);
 
     // Wait for cancellation (Tauri exit)
     cancel.cancelled().await;
 
     crate::alphahuman::health::mark_component_error("daemon", "shutdown requested");
-    log::info!("[alphahuman] Daemon supervisor shutting down");
+    log::info!("[alphahuman] Daemon supervisor shutting down (health events will stop)");
 
     for handle in &handles {
         handle.abort();
@@ -195,7 +198,9 @@ pub async fn run_full(
     Ok(())
 }
 
-pub(crate) fn state_file_path(config: &Config) -> PathBuf {
+
+/// Get the path to the daemon state file shared between internal and external processes.
+pub fn state_file_path(config: &Config) -> PathBuf {
     config
         .config_path
         .parent()
@@ -322,12 +327,24 @@ async fn spawn_state_writer(
         let _ = tokio::fs::create_dir_all(parent).await;
     }
 
+    log::info!("[alphahuman] Health state writer starting ({}s intervals)", STATUS_FLUSH_SECONDS);
+    log::info!("[alphahuman] Health state file: {}", state_path.display());
+
     let mut interval = tokio::time::interval(Duration::from_secs(STATUS_FLUSH_SECONDS));
+    let mut event_count = 0u64;
 
     loop {
         tokio::select! {
-            _ = interval.tick() => {},
-            _ = cancel.cancelled() => break,
+            _ = interval.tick() => {
+                event_count += 1;
+                if event_count % 12 == 1 { // Log every minute (12 * 5s = 60s)
+                    log::info!("[alphahuman] Health monitoring active (event #{})", event_count);
+                }
+            },
+            _ = cancel.cancelled() => {
+                log::info!("[alphahuman] Health state writer received shutdown signal");
+                break;
+            }
         }
 
         let mut json = crate::alphahuman::health::snapshot_json();
@@ -336,15 +353,26 @@ async fn spawn_state_writer(
                 "written_at".into(),
                 serde_json::json!(Utc::now().to_rfc3339()),
             );
+            obj.insert(
+                "event_count".into(),
+                serde_json::json!(event_count),
+            );
         }
 
         // Emit Tauri event for frontend consumption
-        let _ = app_handle.emit("alphahuman:health", &json);
+        log::debug!("[alphahuman] Emitting health event #{}: {:?}", event_count, json);
+        if let Err(e) = app_handle.emit("alphahuman:health", &json) {
+            log::error!("[alphahuman] Failed to emit health event #{}: {}", event_count, e);
+        } else {
+            log::debug!("[alphahuman] Health event #{} emitted successfully", event_count);
+        }
 
         // Also persist to disk
         let data =
             serde_json::to_vec_pretty(&json).unwrap_or_else(|_| b"{}".to_vec());
-        let _ = tokio::fs::write(&state_path, data).await;
+        if let Err(e) = tokio::fs::write(&state_path, data).await {
+            log::debug!("[alphahuman] Failed to write health state to disk: {}", e);
+        }
     }
 }
 

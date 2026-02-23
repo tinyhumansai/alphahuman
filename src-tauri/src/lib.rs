@@ -505,7 +505,10 @@ pub fn run() {
                 if cfg!(target_os = "macos")
                     && !daemon_mode
                     && !daemon_foreground_requested()
+                    && !cfg!(debug_assertions)  // Always use internal supervisor in debug builds
+                    && std::env::var("ALPHAHUMAN_DAEMON_INTERNAL").is_err()  // Allow override via env var
                 {
+                    // On macOS, start external LaunchAgent service for background daemon
                     tauri::async_runtime::spawn(async move {
                         match alphahuman::config::Config::load_or_init().await {
                             Ok(config) => {
@@ -528,8 +531,16 @@ pub fn run() {
                         }
                     });
                 } else {
+                    // Run internal daemon supervisor with health event emission
+                    // This path is taken when:
+                    // - Not macOS, OR
+                    // - macOS with daemon mode enabled, OR
+                    // - macOS with foreground daemon requested, OR
+                    // - macOS debug build (for easier development), OR
+                    // - macOS with ALPHAHUMAN_DAEMON_INTERNAL=true env var
                     let app_handle_for_daemon = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
+                        log::info!("[alphahuman] Starting daemon supervisor with health monitoring");
                         if let Err(e) = alphahuman::daemon::run(
                             daemon_config,
                             app_handle_for_daemon,
