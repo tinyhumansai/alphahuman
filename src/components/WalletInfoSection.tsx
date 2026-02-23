@@ -113,7 +113,8 @@ export default function WalletInfoSection() {
       }
       const eth = balanceData.balance_eth ?? '0';
       const symbol = balanceData.symbol ?? 'ETH';
-      const value = parseFloat(eth);
+      const parsed = parseFloat(eth);
+      const value = Number.isFinite(parsed) ? parsed : 0;
       const display = value < 0.0001 ? '0' : value.toFixed(4);
       if (!cancelledRef.current) {
         setBalance(`${display} ${symbol}`);

@@ -3,6 +3,7 @@ import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { skillManager } from '../lib/skills/manager';
 import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
+import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
 import { setSkillState } from '../store/skillsSlice';
@@ -24,7 +25,9 @@ function getCurrentUserId(): string | null {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payloadJson = atob(payloadBase64);
+    const padLen = (4 - (payloadBase64.length % 4)) % 4;
+    const padded = padLen ? payloadBase64 + '='.repeat(padLen) : payloadBase64;
+    const payloadJson = atob(padded);
     const payload = JSON.parse(payloadJson);
     return payload.tgUserId || payload.userId || payload.sub || null;
   } catch {
@@ -137,10 +140,20 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
       const trimmedHex = encryptionKeyHex.trim().replace(/^0x/i, '');
       if (!trimmedHex || trimmedHex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(trimmedHex)) {
-        console.error(
-          '[DeepLink] Cannot fetch integration tokens: encryption key must be non-empty hex (even length, [0-9a-fA-F])',
-          { userId, encryptionKeyHex }
-        );
+        const msg =
+          '[DeepLink] Cannot fetch integration tokens: encryption key must be non-empty hex (even length, [0-9a-fA-F])';
+        console.error(msg, { userId, encryptionKeyHex });
+        enqueueError({
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          source: 'manual',
+          title: 'Deep link integration tokens: invalid encryption key',
+          message: msg,
+          sentryEvent: buildManualSentryEvent(
+            { type: 'DeepLinkIntegrationTokensInvalidKey', value: msg },
+            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
+          ),
+        });
         return;
       }
 
@@ -148,17 +161,39 @@ const handleOAuthDeepLink = async (parsed: URL) => {
       try {
         keyForBackend = hexToBase64(trimmedHex);
       } catch (e) {
-        console.error(
-          '[DeepLink] Cannot fetch integration tokens: encryption key conversion failed',
-          { userId, encryptionKeyHex, error: e }
-        );
+        const msg =
+          '[DeepLink] Cannot fetch integration tokens: encryption key conversion failed';
+        console.error(msg, { userId, encryptionKeyHex, error: e });
+        const err = e instanceof Error ? e : new Error(String(e));
+        enqueueError({
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          source: 'manual',
+          title: 'Deep link integration tokens: encryption key conversion failed',
+          message: err.message,
+          sentryEvent: buildManualSentryEvent(
+            { type: 'DeepLinkIntegrationTokensHexToBase64Error', value: err.message },
+            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
+          ),
+          originalError: err,
+        });
         return;
       }
       if (!keyForBackend) {
-        console.error(
-          '[DeepLink] Cannot fetch integration tokens: encryption key produced empty base64',
-          { userId, encryptionKeyHex }
-        );
+        const msg =
+          '[DeepLink] Cannot fetch integration tokens: encryption key produced empty base64';
+        console.error(msg, { userId, encryptionKeyHex });
+        enqueueError({
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          source: 'manual',
+          title: 'Deep link integration tokens: empty key for backend',
+          message: msg,
+          sentryEvent: buildManualSentryEvent(
+            { type: 'DeepLinkIntegrationTokensEmptyKey', value: msg },
+            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
+          ),
+        });
         return;
       }
 
@@ -189,10 +224,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
       let extraCredential: { accessToken?: string } | undefined;
       if (skillId === 'gmail') {
         try {
-          const decryptedJson = await decryptIntegrationTokens(
-            response.data.encrypted,
-            trimmedHex
-          );
+          const decryptedJson = await decryptIntegrationTokens(response.data.encrypted, trimmedHex);
           const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
           if (payload.accessToken) {
             extraCredential = { accessToken: payload.accessToken };
