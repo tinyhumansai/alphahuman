@@ -161,8 +161,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
       try {
         keyForBackend = hexToBase64(trimmedHex);
       } catch (e) {
-        const msg =
-          '[DeepLink] Cannot fetch integration tokens: encryption key conversion failed';
+        const msg = '[DeepLink] Cannot fetch integration tokens: encryption key conversion failed';
         console.error(msg, { userId, encryptionKeyHex, error: e });
         const err = e instanceof Error ? e : new Error(String(e));
         enqueueError({
@@ -222,16 +221,15 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
       // For Gmail, pass decrypted access token so the skill uses it instead of the proxy
       let extraCredential: { accessToken?: string } | undefined;
-      if (skillId === 'gmail') {
-        try {
-          const decryptedJson = await decryptIntegrationTokens(response.data.encrypted, trimmedHex);
-          const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
-          if (payload.accessToken) {
-            extraCredential = { accessToken: payload.accessToken };
-          }
-        } catch (e) {
-          console.warn('[DeepLink] Could not decrypt Gmail token for skill:', e);
+
+      try {
+        const decryptedJson = await decryptIntegrationTokens(response.data.encrypted, trimmedHex);
+        const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
+        if (payload.accessToken) {
+          extraCredential = { accessToken: payload.accessToken };
         }
+      } catch (e) {
+        console.warn('[DeepLink] Could not decrypt Gmail token for skill:', e);
       }
 
       await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, extraCredential);

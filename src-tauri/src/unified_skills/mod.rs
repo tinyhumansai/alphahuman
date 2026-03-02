@@ -91,6 +91,7 @@ impl UnifiedSkillRegistry {
                     version: manifest.version.clone().unwrap_or_else(|| "0.1.0".to_string()),
                     description: manifest.description.clone().unwrap_or_default(),
                     tools,
+                    setup: manifest.setup.clone(),
                 });
             }
         }
@@ -126,6 +127,7 @@ impl UnifiedSkillRegistry {
                 version: skill.version.clone(),
                 description: skill.description.clone(),
                 tools,
+                setup: None,
             });
         }
 
@@ -208,6 +210,7 @@ impl UnifiedSkillRegistry {
                     version: "1.0.0".to_string(),
                     description: spec.description,
                     tools: vec![],
+                    setup: None,
                 })
             }
             "openclaw" => {
@@ -221,6 +224,7 @@ impl UnifiedSkillRegistry {
                     version: "1.0.0".to_string(),
                     description: spec.description,
                     tools: vec![],
+                    setup: None,
                 })
             }
             other => Err(format!("Unknown skill_type: '{other}'. Use 'alphahuman' or 'openclaw'.")),

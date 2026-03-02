@@ -92,6 +92,7 @@ export function SkillActionButton({
         version: '0.0.0',
         description: skill.description,
         runtime: 'quickjs',
+        setup: skill.hasSetup ? { required: true } : undefined,
       });
       if (skill.hasSetup) {
         onOpenModal();

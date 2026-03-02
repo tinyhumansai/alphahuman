@@ -19,16 +19,24 @@ import SkillSetupModal from './skills/SkillSetupModal';
 
 /** Normalize a raw unified registry entry into a SkillListEntry for display. */
 function normalizeUnifiedEntry(e: Record<string, unknown>): SkillListEntry {
-  const setup = e.setup as Record<string, unknown> | undefined;
+  const setup = e.setup as { required?: boolean; oauth?: unknown } | undefined;
+  // Treat both interactive setup steps and OAuth-only flows as "has setup"
+  // so that clicking a skill (e.g. Gmail) opens the connection/setup wizard
+  // instead of jumping straight to the management panel.
+  const hasSetup =
+    !!setup &&
+    (setup.required === true ||
+      // OAuth config means we still need a connection step in the wizard
+      !!setup.oauth);
+
   return {
     id: e.id as string,
     name:
-      (e.name as string) ||
-      (e.id as string).charAt(0).toUpperCase() + (e.id as string).slice(1),
+      (e.name as string) || (e.id as string).charAt(0).toUpperCase() + (e.id as string).slice(1),
     description: (e.description as string) || '',
     icon: SKILL_ICONS[e.id as string],
     ignoreInProduction: (e.ignoreInProduction as boolean) ?? false,
-    hasSetup: !!(setup && setup.required),
+    hasSetup,
     skill_type: (e.skill_type as 'alphahuman' | 'openclaw') ?? 'alphahuman',
   };
 }
@@ -47,9 +55,7 @@ function SkillTypeBadge({ type }: { type?: string }) {
   return (
     <span
       className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${
-        isOpenclaw
-          ? 'bg-sage-500/15 text-sage-400'
-          : 'bg-primary-500/15 text-primary-400'
+        isOpenclaw ? 'bg-sage-500/15 text-sage-400' : 'bg-primary-500/15 text-primary-400'
       }`}>
       {type}
     </span>
@@ -149,14 +155,19 @@ export default function SkillsGrid() {
         const processed: SkillListEntry[] = manifests
           .filter(m => !(m.id as string).includes('_'))
           .map(m => {
-            const setup = m.setup as Record<string, unknown> | undefined;
+            const setup = m.setup as { required?: boolean; oauth?: unknown } | undefined;
+            const hasSetup =
+              !!setup &&
+              (setup.required === true ||
+                // OAuth-only skills still need a setup/connect flow
+                !!setup.oauth);
             return {
               id: m.id as string,
               name: (m.name as string) || (m.id as string),
               description: (m.description as string) || '',
               icon: SKILL_ICONS[m.id as string],
               ignoreInProduction: (m.ignoreInProduction as boolean) ?? false,
-              hasSetup: !!(setup && setup.required),
+              hasSetup,
               skill_type: 'alphahuman' as const,
             };
           })
@@ -183,7 +194,6 @@ export default function SkillsGrid() {
     };
     detectMobile();
     refreshSkills();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sort skills by connection status (connected first)
@@ -270,11 +280,7 @@ export default function SkillsGrid() {
               }}
               className="text-xs text-primary-400 hover:text-primary-300 transition-colors flex items-center gap-1">
               {/* Sparkle / robot icon */}
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -296,7 +302,7 @@ export default function SkillsGrid() {
                       description: 'Auto-generated skill demonstrating the unified registry',
                       skill_type: 'alphahuman',
                       tool_code:
-                        "return { message: `Hello from generated skill! args=${JSON.stringify(args)}` };",
+                        'return { message: `Hello from generated skill! args=${JSON.stringify(args)}` };',
                     },
                   });
                   await refreshSkills();
@@ -312,7 +318,11 @@ export default function SkillsGrid() {
                 <span className="opacity-60">Generating…</span>
               ) : (
                 <>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -387,10 +397,7 @@ export default function SkillsGrid() {
 
       {/* Self-Evolve modal */}
       {selfEvolveOpen && (
-        <SelfEvolveModal
-          onClose={() => setSelfEvolveOpen(false)}
-          onSkillCreated={refreshSkills}
-        />
+        <SelfEvolveModal onClose={() => setSelfEvolveOpen(false)} onSkillCreated={refreshSkills} />
       )}
 
       {/* Skills Management Modal */}

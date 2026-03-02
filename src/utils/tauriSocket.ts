@@ -27,7 +27,14 @@ export const isTauri = (): boolean => {
   const isTauriEnv = coreIsTauri();
   const windowTauri = typeof window !== 'undefined' ? !!window.__TAURI__ : 'undefined';
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'undefined';
-  console.log('[TauriSocket] isTauri() check:', isTauriEnv, 'window.__TAURI__:', windowTauri, 'userAgent:', userAgent);
+  console.log(
+    '[TauriSocket] isTauri() check:',
+    isTauriEnv,
+    'window.__TAURI__:',
+    windowTauri,
+    'userAgent:',
+    userAgent
+  );
   return isTauriEnv;
 };
 

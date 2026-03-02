@@ -185,6 +185,9 @@ pub struct UnifiedSkillEntry {
     pub description: String,
     /// Tools exposed by this skill.
     pub tools: Vec<ToolDefinition>,
+    /// Setup configuration from manifest.json (e.g. whether setup is required).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup: Option<crate::runtime::manifest::SkillSetup>,
 }
 
 /// Standardized result returned by any skill execution in the unified registry.

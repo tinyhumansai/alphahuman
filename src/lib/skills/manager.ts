@@ -81,7 +81,14 @@ class SkillManager {
       // Dead runtime — clean up
       this.runtimes.delete(skillId);
     }
-
+// Ensure the skill is registered in Redux before dispatching status updates.
+    // Self-evolved skills are started directly by the Rust engine and never go
+    // through registerSkill(), so state.skills[skillId] is undefined. Every
+    // setSkillStatus / setSkillSetupComplete / setSkillTools reducer silently
+    // no-ops when the key is missing, making the Enable button appear broken.
+    if (!store.getState().skills.skills[skillId]) {
+      store.dispatch(addSkill({ manifest }));
+    }
     store.dispatch(setSkillStatus({ skillId, status: "starting" }));
 
     const runtime = new SkillRuntime(manifest);

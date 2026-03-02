@@ -9,18 +9,13 @@ import { listen } from '@tauri-apps/api/event';
 import { type ReactNode, useEffect, useRef } from 'react';
 
 import {
-  type GmailStateForSync,
+  type GmailProfileLike,
   syncGmailMetadataToBackend,
 } from '../lib/gmail/services/metadataSync';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillManifest } from '../lib/skills/types';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
-import {
-  type GmailEmailSummary,
-  type GmailProfile,
-  setGmailEmails,
-  setGmailProfile,
-} from '../store/gmailSlice';
+import { type GmailProfile, setGmailProfile } from '../store/gmailSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
@@ -88,12 +83,7 @@ function syncGmailStateToSlice(
         : null
     )
   );
-  dispatch(
-    setGmailEmails(
-      Array.isArray(gmailState.emails) ? (gmailState.emails as GmailEmailSummary[]) : []
-    )
-  );
-  syncGmailMetadataToBackend(gmailState.profile as GmailStateForSync);
+  syncGmailMetadataToBackend(gmailState.profile as GmailProfileLike);
 }
 
 export default function SkillProvider({ children }: { children: ReactNode }) {
