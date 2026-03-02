@@ -1,12 +1,12 @@
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
-import { skillManager } from '../lib/skills/manager';
 import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
 import { setSkillState } from '../store/skillsSlice';
+import { skillManager } from '../lib/skills/manager';
 import {
   decryptIntegrationTokens,
   hexToBase64,
@@ -219,7 +219,8 @@ const handleOAuthDeepLink = async (parsed: URL) => {
         })
       );
 
-      // For Gmail, pass decrypted access token so the skill uses it instead of the proxy
+      // For OAuth-capable skills (e.g. Gmail, Notion), pass decrypted access token so the
+      // skill can use it directly when supported instead of always going through the proxy.
       let extraCredential: { accessToken?: string } | undefined;
 
       try {
@@ -229,7 +230,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
           extraCredential = { accessToken: payload.accessToken };
         }
       } catch (e) {
-        console.warn('[DeepLink] Could not decrypt Gmail token for skill:', e);
+        console.warn('[DeepLink] Could not decrypt integration token for skill:', e);
       }
 
       await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, extraCredential);

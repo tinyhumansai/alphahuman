@@ -20,6 +20,7 @@ import authReducer, { setOnboardedForUser, setToken } from './authSlice';
 import daemonReducer from './daemonSlice';
 import gmailReducer from './gmailSlice';
 import inviteReducer from './inviteSlice';
+import notionReducer from './notionSlice';
 import skillsReducer from './skillsSlice';
 import socketReducer from './socketSlice';
 import teamReducer from './teamSlice';
@@ -96,6 +97,7 @@ export const store = configureStore({
     team: teamReducer,
     thread: persistedThreadReducer,
     invite: inviteReducer,
+    notion: notionReducer,
   },
   middleware: getDefaultMiddleware => {
     const middleware = getDefaultMiddleware({

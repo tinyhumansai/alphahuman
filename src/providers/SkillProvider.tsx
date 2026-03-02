@@ -12,10 +12,12 @@ import {
   type GmailProfileLike,
   syncGmailMetadataToBackend,
 } from '../lib/gmail/services/metadataSync';
+import { syncNotionMetadataToBackend } from '../lib/notion/services/metadataSync';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillManifest } from '../lib/skills/types';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { type GmailProfile, setGmailProfile } from '../store/gmailSlice';
+import { setNotionProfile, type NotionUserProfile } from '../store/notionSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
@@ -86,12 +88,40 @@ function syncGmailStateToSlice(
   syncGmailMetadataToBackend(gmailState.profile as GmailProfileLike);
 }
 
+async function syncNotionUserOnConnect(
+  dispatch: ReturnType<typeof useAppDispatch>
+): Promise<void> {
+  try {
+    const toolResult = await skillManager.callTool('notion', 'get-user', { user_id: 'me' });
+    if (!toolResult || toolResult.isError || toolResult.content.length === 0) {
+      console.warn('[SkillProvider] Notion get-user tool returned no content or an error');
+      return;
+    }
+    const first = toolResult.content[0];
+    const raw = first?.text;
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw) as NotionUserProfile | { error?: string };
+    if ('error' in parsed && parsed.error) {
+      console.warn('[SkillProvider] Notion get-user error:', parsed.error);
+      return;
+    }
+
+    const profile = parsed as NotionUserProfile;
+    dispatch(setNotionProfile(profile));
+    syncNotionMetadataToBackend(profile);
+  } catch (e) {
+    console.error('[SkillProvider] Failed to call Notion get-user tool after connect:', e);
+  }
+}
+
 export default function SkillProvider({ children }: { children: ReactNode }) {
   const { token } = useAppSelector(state => state.auth);
   const skillsState = useAppSelector(state => state.skills.skills);
   const skillStates = useAppSelector(state => state.skills.skillStates);
   const dispatch = useAppDispatch();
   const initRef = useRef(false);
+  const lastNotionConnectionStatusRef = useRef<string | undefined>(undefined);
 
   // Keep gmailSlice in sync with skills.skillStates.gmail (event handler + rehydration)
   const gmailSkillState = skillStates?.gmail as Record<string, unknown> | undefined;
@@ -99,6 +129,20 @@ export default function SkillProvider({ children }: { children: ReactNode }) {
     if (!gmailSkillState) return;
     syncGmailStateToSlice(gmailSkillState, dispatch);
   }, [gmailSkillState, dispatch]);
+
+  // When Notion connection_status transitions to "connected", fetch the current user
+  // via the notion get-user tool, store it in notionSlice, and sync metadata to backend.
+  const notionSkillState = skillStates?.notion as Record<string, unknown> | undefined;
+  useEffect(() => {
+    if (!notionSkillState || typeof notionSkillState !== 'object') return;
+    const connectionStatus = notionSkillState.connection_status as string | undefined;
+    const prev = lastNotionConnectionStatusRef.current;
+    lastNotionConnectionStatusRef.current = connectionStatus;
+
+    if (connectionStatus === 'connected' && prev !== 'connected') {
+      void syncNotionUserOnConnect(dispatch);
+    }
+  }, [notionSkillState, dispatch]);
 
   // Listen for skill state changes emitted from the Rust runtime event loop
   useEffect(() => {
