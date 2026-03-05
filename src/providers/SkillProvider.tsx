@@ -9,16 +9,21 @@ import { listen } from '@tauri-apps/api/event';
 import { type ReactNode, useEffect, useRef } from 'react';
 
 import {
-  type GmailProfileLike,
+  type GmailStateForSync,
   syncGmailMetadataToBackend,
 } from '../lib/gmail/services/metadataSync';
 import { syncNotionMetadataToBackend } from '../lib/notion/services/metadataSync';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillManifest } from '../lib/skills/types';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
-import { type GmailProfile, setGmailProfile } from '../store/gmailSlice';
-import { setNotionProfile, type NotionUserProfile } from '../store/notionSlice';
+import {
+  GmailEmailSummary,
+  type GmailProfile,
+  setGmailEmails,
+  setGmailProfile,
+} from '../store/gmailSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { type NotionUserProfile, setNotionProfile } from '../store/notionSlice';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
 
@@ -85,12 +90,16 @@ function syncGmailStateToSlice(
         : null
     )
   );
-  syncGmailMetadataToBackend(gmailState.profile as GmailProfileLike);
+  dispatch(
+    setGmailEmails(
+      Array.isArray(gmailState.emails) ? (gmailState.emails as GmailEmailSummary[]) : []
+    )
+  );
+
+  syncGmailMetadataToBackend(gmailState as GmailStateForSync);
 }
 
-async function syncNotionUserOnConnect(
-  dispatch: ReturnType<typeof useAppDispatch>
-): Promise<void> {
+async function syncNotionUserOnConnect(dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
   try {
     const toolResult = await skillManager.callTool('notion', 'get-user', { user_id: 'me' });
     if (!toolResult || toolResult.isError || toolResult.content.length === 0) {
