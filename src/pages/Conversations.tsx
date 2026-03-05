@@ -10,8 +10,7 @@ import Markdown from 'react-markdown';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { inferenceApi, type ModelInfo } from '../services/api/inferenceApi';
-import { loadSoul } from '../lib/ai/soul/loader';
-import { injectSoulIntoMessage } from '../lib/ai/soul/injector';
+import { injectAll } from '../lib/ai/injector';
 import type { Message } from '../lib/ai/providers/interface';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import {
@@ -253,16 +252,15 @@ const Conversations = () => {
     setIsSending(true);
 
     try {
-      // Process user message with SOUL injection
+      // Process user message with SOUL + TOOLS injection
       let processedUserContent = trimmed;
       try {
-        const soulConfig = await loadSoul();
         const userMessage: Message = {
           role: 'user',
           content: [{ type: 'text', text: trimmed }]
         };
 
-        const injectedMessage = injectSoulIntoMessage(userMessage, soulConfig, {
+        const injectedMessage = await injectAll(userMessage, {
           mode: 'context-block',
           includeMetadata: false
         });
@@ -273,9 +271,9 @@ const Conversations = () => {
           .map(block => (block as { text: string }).text)
           .join('\n');
 
-        console.log('✅ SOUL injection successful in Conversations page');
-      } catch (soulError) {
-        console.warn('⚠️ SOUL injection failed in Conversations page:', soulError);
+        console.log('✅ SOUL + TOOLS injection successful in Conversations page');
+      } catch (injectionError) {
+        console.warn('⚠️ SOUL + TOOLS injection failed in Conversations page:', injectionError);
         // Continue with original message
       }
 

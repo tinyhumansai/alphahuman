@@ -2,8 +2,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 import { threadApi } from '../services/api/threadApi';
 import type { Thread, ThreadMessage } from '../types/thread';
-import { loadSoul } from '../lib/ai/soul/loader';
-import { injectSoulIntoMessage } from '../lib/ai/soul/injector';
+import { injectAll } from '../lib/ai/injector';
 import type { Message } from '../lib/ai/providers/interface';
 
 interface ThreadState {
@@ -98,16 +97,15 @@ export const sendMessage = createAsyncThunk(
     try {
       dispatch(addMessageLocal({ threadId, message: userMessage }));
 
-      // 2. Process message with SOUL injection before sending to API
+      // 2. Process message with SOUL + TOOLS injection before sending to API
       let processedMessage = message;
       try {
-        const soulConfig = await loadSoul();
         const userMessage: Message = {
           role: 'user',
           content: [{ type: 'text', text: message }]
         };
 
-        const injectedMessage = injectSoulIntoMessage(userMessage, soulConfig, {
+        const injectedMessage = await injectAll(userMessage, {
           mode: 'context-block',
           includeMetadata: false
         });
@@ -118,9 +116,9 @@ export const sendMessage = createAsyncThunk(
           .map(block => (block as { text: string }).text)
           .join('\n');
 
-        console.log('✅ SOUL injection successful in Redux sendMessage thunk');
-      } catch (soulError) {
-        console.warn('⚠️ SOUL injection failed in Redux sendMessage thunk:', soulError);
+        console.log('✅ SOUL + TOOLS injection successful in Redux sendMessage thunk');
+      } catch (injectionError) {
+        console.warn('⚠️ SOUL + TOOLS injection failed in Redux sendMessage thunk:', injectionError);
         // Continue with original message
       }
 

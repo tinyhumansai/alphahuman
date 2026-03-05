@@ -10,8 +10,7 @@ import type {
   ThreadsListData,
 } from '../../types/thread';
 import { apiClient } from '../apiClient';
-import { loadSoul } from '../../lib/ai/soul/loader';
-import { injectSoulIntoMessage } from '../../lib/ai/soul/injector';
+import { injectAll } from '../../lib/ai/injector';
 import type { Message } from '../../lib/ai/providers/interface';
 
 export const threadApi = {
@@ -46,7 +45,7 @@ export const threadApi = {
     return response.data;
   },
 
-  /** POST /chat/sendMessage — send a user message with SOUL injection */
+  /** POST /chat/sendMessage — send a user message with SOUL + TOOLS injection */
   sendMessage: async (
     message: string,
     conversationId: string,
@@ -56,13 +55,12 @@ export const threadApi = {
 
     if (options.injectSoul) {
       try {
-        const soulConfig = await loadSoul();
         const userMessage: Message = {
           role: 'user',
           content: [{ type: 'text', text: message }]
         };
 
-        const injectedMessage = injectSoulIntoMessage(userMessage, soulConfig, {
+        const injectedMessage = await injectAll(userMessage, {
           mode: 'context-block',
           includeMetadata: false
         });
@@ -74,9 +72,10 @@ export const threadApi = {
           .join('\n');
 
         processedMessage = textContent;
+        console.log('✅ SOUL + TOOLS injection successful in threadApi sendMessage');
       } catch (error) {
         // Graceful degradation - log error but continue with original message
-        console.warn('SOUL injection failed, using original message:', error);
+        console.warn('⚠️ SOUL + TOOLS injection failed in threadApi sendMessage:', error);
       }
     }
 

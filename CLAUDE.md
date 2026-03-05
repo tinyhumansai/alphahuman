@@ -71,6 +71,9 @@ yarn tauri ios build
 yarn skills:build   # Build skills in development mode
 yarn skills:watch   # Watch skills for changes
 
+# AI Configuration
+yarn tools:generate # Discover tools from V8 runtime and generate TOOLS.md
+
 # Rust checks
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml
@@ -223,6 +226,115 @@ Set in `.env` (Vite exposes `VITE_*` prefixed vars):
 
 Production defaults are in `src/utils/config.ts`.
 
+## AI Configuration System
+
+AlphaHuman uses an OpenClaw-compliant AI configuration system that automatically injects persona and tool context into every user message for consistent AI behavior.
+
+### Configuration Files
+
+All AI configuration lives in the `/ai/` directory:
+
+- **`/ai/SOUL.md`** - AI personality, voice, tone, and behavior patterns
+- **`/ai/TOOLS.md`** - Auto-generated documentation of all available tools (generated via `yarn tools:generate`)
+- **`/ai/IDENTITY.md`** - Core identity and values (TODO)
+- **`/ai/AGENTS.md`** - Agent roles and specializations (TODO)
+- **`/ai/USER.md`** - User adaptation strategies (TODO)
+- **`/ai/BOOTSTRAP.md`** - Initialization procedures (TODO)
+- **`/ai/MEMORY.md`** - Long-term knowledge and patterns (TODO)
+
+### Modular Loader System
+
+```typescript
+// Individual loaders with multi-layer caching
+loadSoul() → SoulConfig     // Personality, voice, behavior
+loadTools() → ToolsConfig   // Available tools and capabilities
+
+// Unified loader
+loadAIConfig() → AIConfig   // Combined SOUL + TOOLS configuration
+```
+
+**Caching Strategy:**
+- Memory cache (immediate)
+- localStorage cache (30min TTL)
+- GitHub remote (latest)
+- Bundled fallback (reliable)
+
+### Unified Injection System
+
+Every user message automatically gets AI context injected:
+
+```typescript
+// Unified injection (recommended)
+import { injectAll } from '../lib/ai/injector';
+const injectedMessage = await injectAll(userMessage);
+
+// Individual injections (for specific needs)
+import { injectSoul, injectTools } from '../lib/ai/injector';
+const soulMessage = await injectSoul(userMessage);
+const toolsMessage = await injectTools(userMessage);
+```
+
+**Message Format:**
+```
+[PERSONA_CONTEXT]
+I am AlphaHuman: that incredibly smart, funny friend who loves helping people get stuff done
+Personality: Curious & Enthusiastic, Witty & Engaging, Empathetic
+Voice: Conversational, Use humor naturally but don't force it
+[/PERSONA_CONTEXT]
+
+[TOOLS_CONTEXT]
+4 tools across 3 skills
+Categories: Communication (2), Productivity (1), Email (1)
+Key skills: telegram, notion, gmail
+[/TOOLS_CONTEXT]
+
+User message: Hello!
+```
+
+### Dynamic TOOLS.md Generation
+
+TOOLS.md is automatically generated from the V8 skills runtime:
+
+```bash
+# Discover tools and generate documentation
+yarn tools:generate
+
+# Integration in build pipeline
+yarn skills:build && yarn tools:generate && tsc && vite build
+```
+
+**Process:**
+1. **Discovery**: Spawns Tauri runtime to call `runtime_all_tools()`
+2. **Parsing**: Extracts tool definitions with JSON Schema
+3. **Formatting**: Generates OpenClaw-compliant markdown
+4. **Bundling**: Includes in app for AI context injection
+
+**Generated Output:**
+- Professional documentation with usage examples
+- Environment-specific configurations
+- Tool categorization by skill
+- Statistics and metadata
+
+### Integration Points
+
+AI context injection happens in 4 places:
+
+1. **`src/pages/Conversations.tsx`** - Main chat interface
+2. **`src/store/threadSlice.ts`** - Redux sendMessage thunk
+3. **`src/services/api/threadApi.ts`** - API layer
+4. **`src/utils/tauriCommands.ts`** - Tauri agent chat
+
+All use the unified `injectAll()` function for consistency.
+
+### Settings UI
+
+View and manage AI configuration in **Settings → AI Configuration**:
+- Live SOUL personality preview
+- TOOLS statistics and categories
+- Individual refresh buttons
+- Source indicators (GitHub vs bundled)
+- Combined "Refresh All" functionality
+
 ## Recent Changes
 
 Key updates from recent commits (cd9ebcd to current):
@@ -356,6 +468,7 @@ Key updates from recent commits (cd9ebcd to current):
 - **No dynamic imports**: All imports must be static `import` statements at the top of the file. Do not use `await import()` or `import().then()` inside functions or code blocks. Use try/catch around Tauri API calls for non-Tauri environments instead.
 - **No localStorage**: Avoid `localStorage` and `sessionStorage`; use Redux (and persist) for app state. Remove any direct usage when working on affected code.
 - **AI System Integration**: Use `src/lib/ai/` for memory management, constitution loading, entity queries, and session capture. AI providers abstracted through interface pattern.
+- **AI Configuration System**: OpenClaw-compliant AI configuration with dynamic TOOLS.md generation. Use `loadSoul()`, `loadTools()`, `loadAIConfig()` for configuration loading, and `injectAll()` for unified SOUL + TOOLS injection into user messages.
 - **V8 Skills Runtime**: Skills execute in V8 JavaScript engine on desktop platforms. Use `SkillProvider` for GitHub sync, `SkillsGrid` for management interface, and Rust runtime commands for lifecycle management. Platform filtering ensures skills only run on supported platforms.
 - **Team Collaboration**: Team features in `src/components/settings/panels/Team*`. Use Redux `teamSlice` for state management and `teamApi` for backend operations.
 - **Device Detection**: Use `deviceDetection.ts` utilities for platform/architecture detection. Support multiple architectures per platform (x64, aarch64) with intelligent preference logic.

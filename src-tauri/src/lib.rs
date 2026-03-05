@@ -44,11 +44,52 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Write AI configuration files to the project's ./ai/ directory
+#[tauri::command]
+async fn write_ai_config_file(filename: String, content: String) -> Result<bool, String> {
+    use std::env;
+
+    // Get the project root directory (parent of src-tauri)
+    let current_dir = env::current_dir()
+        .map_err(|e| format!("Failed to get current directory: {e}"))?;
+
+    // Go up one level to get project root (since we're in src-tauri/)
+    let project_root = current_dir
+        .parent()
+        .ok_or("Failed to get project root directory")?;
+
+    // Ensure filename is safe (only allow .md files)
+    if !filename.ends_with(".md") {
+        return Err("Only .md files are allowed".to_string());
+    }
+
+    // Prevent path traversal by checking for dangerous characters
+    if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
+        return Err("Invalid filename: path traversal not allowed".to_string());
+    }
+
+    // Create path to ai/ directory in project root
+    let ai_dir = project_root.join("ai");
+    let file_path = ai_dir.join(&filename);
+
+    // Ensure ai directory exists
+    std::fs::create_dir_all(&ai_dir)
+        .map_err(|e| format!("Failed to create ai directory: {e}"))?;
+
+    // Write the file
+    std::fs::write(&file_path, content)
+        .map_err(|e| format!("Failed to write file {}: {e}", filename))?;
+
+    Ok(true)
+}
+
 // Macro to define common handlers shared across all platforms
 macro_rules! common_handlers {
     () => {
         // Demo
         greet,
+        // AI config file writing
+        write_ai_config_file,
         // Auth commands
         get_auth_state,
         get_session_token,
@@ -649,6 +690,8 @@ pub fn run() {
                 tauri::generate_handler![
                     // Common handlers (expanded from common_handlers! macro)
                     greet,
+                    // AI config file writing
+                    write_ai_config_file,
                     get_auth_state,
                     get_session_token,
                     get_current_user,
@@ -775,6 +818,8 @@ pub fn run() {
                 tauri::generate_handler![
                     // Common handlers (expanded from common_handlers! macro)
                     greet,
+                    // AI config file writing
+                    write_ai_config_file,
                     get_auth_state,
                     get_session_token,
                     get_current_user,

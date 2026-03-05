@@ -360,12 +360,11 @@ async fn spawn_state_writer(
         }
 
         // Emit Tauri event for frontend consumption
-        log::debug!("[alphahuman] Emitting health event #{}: {:?}", event_count, json);
+        // log::debug!("[alphahuman] Emitting health event #{}: {:?}", event_count, json); // Removed noisy log
         if let Err(e) = app_handle.emit("alphahuman:health", &json) {
             log::error!("[alphahuman] Failed to emit health event #{}: {}", event_count, e);
-        } else {
-            log::debug!("[alphahuman] Health event #{} emitted successfully", event_count);
         }
+        // log::debug!("[alphahuman] Health event #{} emitted successfully", event_count); // Removed noisy log
 
         // Also persist to disk
         let data =

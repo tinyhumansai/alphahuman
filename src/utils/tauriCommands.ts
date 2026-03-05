@@ -4,8 +4,7 @@
  * Helper functions for invoking Tauri commands from the frontend.
  */
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
-import { loadSoul } from '../lib/ai/soul/loader';
-import { injectSoulIntoMessage } from '../lib/ai/soul/injector';
+import { injectAll } from '../lib/ai/injector';
 import type { Message } from '../lib/ai/providers/interface';
 
 // Check if we're running in Tauri
@@ -406,13 +405,12 @@ export async function alphahumanAgentChat(
 
   if (options.injectSoul) {
     try {
-      const soulConfig = await loadSoul();
       const userMessage: Message = {
         role: 'user',
         content: [{ type: 'text', text: message }]
       };
 
-      const injectedMessage = injectSoulIntoMessage(userMessage, soulConfig, {
+      const injectedMessage = await injectAll(userMessage, {
         mode: 'context-block',
         includeMetadata: false
       });
@@ -424,8 +422,9 @@ export async function alphahumanAgentChat(
         .join('\n');
 
       processedMessage = textContent;
+      console.log('✅ SOUL + TOOLS injection successful in alphahumanAgentChat');
     } catch (error) {
-      console.warn('SOUL injection failed, using original message:', error);
+      console.warn('⚠️ SOUL + TOOLS injection failed in alphahumanAgentChat:', error);
     }
   }
 

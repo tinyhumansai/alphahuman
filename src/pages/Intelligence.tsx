@@ -14,6 +14,7 @@ import SkillSetupModal from '../components/skills/SkillSetupModal';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
 import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/hooks';
 import { skillManager } from '../lib/skills/manager';
+import { updateToolsDocumentation } from '../lib/tools/auto-update';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
@@ -269,6 +270,18 @@ export default function Intelligence() {
     setSetupModalOpen(true);
   };
 
+  // Test function to manually update TOOLS.md
+  const handleUpdateTools = async () => {
+    console.log('🚀 Intelligence Page: Update TOOLS.md button clicked');
+    try {
+      console.log('🚀 Intelligence Page: Calling updateToolsDocumentation...');
+      await updateToolsDocumentation();
+      console.log('✅ Intelligence Page: TOOLS.md update completed successfully');
+    } catch (error) {
+      console.error('❌ Intelligence Page: Failed to update TOOLS.md:', error);
+    }
+  };
+
   // AI status indicator
   const aiStatusLabel =
     aiStatus === 'ready'
@@ -326,11 +339,20 @@ export default function Intelligence() {
             <div className="animate-fade-up" style={{ animationDelay: '100ms' }}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-white opacity-80">Active Skills</h2>
-                <button
-                  onClick={() => setManagementModalOpen(true)}
-                  className="text-xs text-primary-400 hover:text-primary-300 transition-colors">
-                  Manage Skills
-                </button>
+                <div className="flex items-center gap-3">
+                  {IS_DEV && (
+                    <button
+                      onClick={handleUpdateTools}
+                      className="text-xs text-sage-400 hover:text-sage-300 transition-colors">
+                      Update TOOLS.md
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setManagementModalOpen(true)}
+                    className="text-xs text-primary-400 hover:text-primary-300 transition-colors">
+                    Manage Skills
+                  </button>
+                </div>
               </div>
 
               {skillsLoading ? (
