@@ -19,6 +19,7 @@ import {
   type Tool,
 } from '../services/api/inferenceApi';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
+import type { NotionPageSummary, NotionSummary, NotionUserProfile } from '../store/notionSlice';
 import {
   addInferenceResponse,
   addOptimisticMessage,
@@ -37,6 +38,51 @@ import {
 
 const MIN_PANEL_WIDTH = 200;
 const MAX_PANEL_WIDTH = 480;
+
+// ---------------------------------------------------------------------------
+// Notion context builder
+// ---------------------------------------------------------------------------
+
+function buildNotionContext(
+  profile: NotionUserProfile | null,
+  pages: NotionPageSummary[],
+  summaries: NotionSummary[],
+  workspaceName: string | null
+): string | null {
+  if (!profile && pages.length === 0) return null;
+
+  const lines: string[] = ['[NOTION_CONTEXT]'];
+
+  if (workspaceName) lines.push(`Workspace: ${workspaceName}`);
+  if (profile) {
+    const who = [profile.name, profile.email].filter(Boolean).join(' · ');
+    if (who) lines.push(`Connected as: ${who}`);
+  }
+
+  if (pages.length > 0) {
+    lines.push(`\nRecent Pages (${pages.length} total):`);
+    const top = pages.slice(0, 10);
+    for (const p of top) {
+      const urlPart = p.url ? ` — ${p.url}` : '';
+      lines.push(`• ${p.title}${urlPart}`);
+    }
+  }
+
+  if (summaries.length > 0) {
+    lines.push('\nAI Page Summaries:');
+    const top = summaries.slice(0, 5);
+    for (const s of top) {
+      const meta = [s.category, s.sentiment !== 'neutral' ? s.sentiment : null]
+        .filter(Boolean)
+        .join(', ');
+      const topicStr = s.topics.length > 0 ? ` | Topics: ${s.topics.slice(0, 4).join(', ')}` : '';
+      lines.push(`• ${s.summary}${meta ? ` [${meta}]` : ''}${topicStr}`);
+    }
+  }
+
+  lines.push('[/NOTION_CONTEXT]');
+  return lines.join('\n');
+}
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -70,6 +116,12 @@ const Conversations = () => {
   } = useAppSelector(state => state.thread);
 
   const skillsState = useAppSelector(state => state.skills);
+  const notionProfile = useAppSelector(state => state.notion.profile);
+  const notionPages = useAppSelector(state => state.notion.pages);
+  const notionSummaries = useAppSelector(state => state.notion.summaries);
+  const notionWorkspaceName = useAppSelector(
+    state => (state.skills.skillStates?.notion as Record<string, unknown> | undefined)?.workspaceName as string | null ?? null
+  );
 
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -280,6 +332,17 @@ const Conversations = () => {
       } catch (injectionError) {
         console.warn('⚠️ SOUL + TOOLS injection failed in Conversations page:', injectionError);
         // Continue with original message
+      }
+
+      // Prepend Notion workspace context if connected
+      const notionContext = buildNotionContext(
+        notionProfile,
+        notionPages,
+        notionSummaries,
+        notionWorkspaceName
+      );
+      if (notionContext) {
+        processedUserContent = `${notionContext}\n\n${processedUserContent}`;
       }
 
       const chatMessages: ChatMessage[] = [

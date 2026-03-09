@@ -227,9 +227,17 @@ const threadSlice = createSlice({
           const persistedMessages = state.messagesByThreadId[state.selectedThreadId];
           const userMessageExists = persistedMessages.some(m => m.id === lastUserMessage.id);
 
-          // If user message isn't persisted yet, add it first
+          // If user message isn't persisted yet, add it first.
+          // Replace optimistic- prefix with a stable id so historySnapshot
+          // (which filters out optimistic- ids) includes it on future sends.
           if (!userMessageExists) {
-            persistedMessages.push(lastUserMessage);
+            const stableMessage = lastUserMessage.id.startsWith('optimistic-')
+              ? { ...lastUserMessage, id: `msg_${Date.now()}_user` }
+              : lastUserMessage;
+            persistedMessages.push(stableMessage);
+            // Keep state.messages in sync with the stable id
+            const idx = state.messages.findLastIndex(m => m.id === lastUserMessage.id);
+            if (idx !== -1) state.messages[idx] = stableMessage;
           }
         }
 

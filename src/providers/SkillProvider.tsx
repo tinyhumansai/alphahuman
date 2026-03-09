@@ -23,7 +23,14 @@ import {
   setGmailProfile,
 } from '../store/gmailSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { type NotionUserProfile, setNotionProfile } from '../store/notionSlice';
+import {
+  type NotionPageSummary,
+  type NotionSummary,
+  type NotionUserProfile,
+  setNotionPages,
+  setNotionProfile,
+  setNotionSummaries,
+} from '../store/notionSlice';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
 
@@ -99,6 +106,20 @@ function syncGmailStateToSlice(
   syncGmailMetadataToBackend(gmailState as GmailStateForSync);
 }
 
+/** Sync pages and summaries from notion skill state into notionSlice. */
+function syncNotionStateToSlice(
+  notionState: Record<string, unknown> | undefined,
+  dispatch: ReturnType<typeof useAppDispatch>
+): void {
+  if (!notionState || typeof notionState !== 'object') return;
+  if (Array.isArray(notionState.pages)) {
+    dispatch(setNotionPages(notionState.pages as NotionPageSummary[]));
+  }
+  if (Array.isArray(notionState.summaries)) {
+    dispatch(setNotionSummaries(notionState.summaries as NotionSummary[]));
+  }
+}
+
 async function syncNotionUserOnConnect(dispatch: ReturnType<typeof useAppDispatch>): Promise<void> {
   try {
     const toolResult = await skillManager.callTool('notion', 'get-user', { user_id: 'me' });
@@ -137,9 +158,15 @@ export default function SkillProvider({ children }: { children: ReactNode }) {
     syncGmailStateToSlice(gmailSkillState, dispatch);
   }, [gmailSkillState, dispatch]);
 
+  // Keep notionSlice pages in sync with skills.skillStates.notion
+  const notionSkillState = skillStates?.notion as Record<string, unknown> | undefined;
+  useEffect(() => {
+    if (!notionSkillState) return;
+    syncNotionStateToSlice(notionSkillState, dispatch);
+  }, [notionSkillState, dispatch]);
+
   // When Notion connection_status transitions to "connected", fetch the current user
   // via the notion get-user tool, store it in notionSlice, and sync metadata to backend.
-  const notionSkillState = skillStates?.notion as Record<string, unknown> | undefined;
   useEffect(() => {
     if (!notionSkillState || typeof notionSkillState !== 'object') return;
     const connectionStatus = notionSkillState.connection_status as string | undefined;
@@ -157,13 +184,19 @@ export default function SkillProvider({ children }: { children: ReactNode }) {
 
     listen<{ skillId: string; state: Record<string, unknown> }>('skill-state-changed', event => {
       const parsed = parseSkillStatePayload(event.payload);
+      console.log('🚀 ~ SkillProvider ~ parsed:', parsed);
       if (!parsed) return;
       const { skillId, state: newState } = parsed;
+      console.log('🚀 ~ SkillProvider ~ newState:', skillId, newState);
       dispatch(setSkillState({ skillId, state: newState }));
 
       // Transfer Gmail skill state to gmail store (also synced by effect from skillStates.gmail)
       if (skillId === 'gmail') {
         syncGmailStateToSlice(newState, dispatch);
+      }
+      // Transfer Notion skill state to notion store (also synced by effect from skillStates.notion)
+      if (skillId === 'notion') {
+        syncNotionStateToSlice(newState, dispatch);
       }
     })
       .then(fn => {
