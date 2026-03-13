@@ -1,13 +1,17 @@
-import {invoke, isTauri as coreIsTauri} from '@tauri-apps/api/core';
-import {getCurrent, onOpenUrl} from '@tauri-apps/plugin-deep-link';
+import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
-import {skillManager} from '../lib/skills/manager';
-import {consumeLoginToken, fetchIntegrationTokens} from '../services/api/authApi';
-import {buildManualSentryEvent, enqueueError} from '../services/errorReportQueue';
-import {store} from '../store';
-import {setToken} from '../store/authSlice';
-import {setSkillState} from '../store/skillsSlice';
-import {decryptIntegrationTokens, hexToBase64, type IntegrationTokensPayload,} from './integrationTokensCrypto';
+import { skillManager } from '../lib/skills/manager';
+import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
+import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
+import { store } from '../store';
+import { setToken } from '../store/authSlice';
+import { setSkillState } from '../store/skillsSlice';
+import {
+  decryptIntegrationTokens,
+  hexToBase64,
+  type IntegrationTokensPayload,
+} from './integrationTokensCrypto';
 
 function getCurrentUserId(): string | null {
   const state = store.getState();
@@ -42,7 +46,6 @@ const handleAuthDeepLink = async (parsed: URL) => {
     return;
   }
 
-
   console.log('[DeepLink] Received auth token');
 
   try {
@@ -59,8 +62,6 @@ const handleAuthDeepLink = async (parsed: URL) => {
     store.dispatch(setToken(jwtToken));
     window.location.hash = '/onboarding';
   }
-
-
 };
 
 /**

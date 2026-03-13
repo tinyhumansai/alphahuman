@@ -50,7 +50,11 @@ export interface IAgentToolRegistry {
   /**
    * Execute a tool using the skill system
    */
-  executeTool(skillId: string, toolName: string, toolArguments: string): Promise<AgentToolExecution>;
+  executeTool(
+    skillId: string,
+    toolName: string,
+    toolArguments: string
+  ): Promise<AgentToolExecution>;
 
   /**
    * Get a specific tool by name

@@ -337,7 +337,9 @@ const Conversations = () => {
     }
 
     // Snapshot history for AI request (excluding the just-added user message since we'll add it manually)
-    const historySnapshot = messages.filter(m => !m.id.startsWith('optimistic-') && m.id !== userMessage.id);
+    const historySnapshot = messages.filter(
+      m => !m.id.startsWith('optimistic-') && m.id !== userMessage.id
+    );
 
     setInputValue('');
     setSendError(null);
@@ -529,7 +531,9 @@ const Conversations = () => {
       // Remove the user message from persistent storage on error
       // We'll use a thunk-like approach to access current state
       dispatch((dispatch, getState) => {
-        const state = getState() as { thread: { messagesByThreadId: Record<string, ThreadMessage[]> } };
+        const state = getState() as {
+          thread: { messagesByThreadId: Record<string, ThreadMessage[]> };
+        };
         const persistedMessages = state.thread.messagesByThreadId[sendingThreadId] || [];
         const currentMessages = persistedMessages.filter(m => m.id !== userMessage.id);
         dispatch(updateMessagesForThread({ threadId: sendingThreadId, messages: currentMessages }));
@@ -978,7 +982,9 @@ const Conversations = () => {
                         key={i}
                         type="button"
                         onClick={() => handleSendMessage(s.text)}
-                        disabled={isSending || !!(activeThreadId && activeThreadId !== selectedThreadId)}
+                        disabled={
+                          isSending || !!(activeThreadId && activeThreadId !== selectedThreadId)
+                        }
                         className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[12px] whitespace-nowrap bg-white/5 text-stone-400 hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         {s.text}
                       </button>
@@ -993,7 +999,8 @@ const Conversations = () => {
                 {activeThreadId && activeThreadId !== selectedThreadId && (
                   <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <p className="text-xs text-amber-400">
-                      Another conversation is active. Please wait for it to complete before sending messages here.
+                      Another conversation is active. Please wait for it to complete before sending
+                      messages here.
                     </p>
                   </div>
                 )}
@@ -1039,14 +1046,22 @@ const Conversations = () => {
                     value={inputValue}
                     onChange={e => setInputValue(e.target.value)}
                     onKeyDown={handleInputKeyDown}
-                    placeholder={activeThreadId && activeThreadId !== selectedThreadId ? "Another conversation is active..." : "Type a message..."}
+                    placeholder={
+                      activeThreadId && activeThreadId !== selectedThreadId
+                        ? 'Another conversation is active...'
+                        : 'Type a message...'
+                    }
                     rows={1}
                     disabled={!!(activeThreadId && activeThreadId !== selectedThreadId)}
                     className="flex-1 resize-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm placeholder:text-stone-500 focus:outline-none focus:ring-1 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all max-h-32 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     onClick={() => handleSendMessage()}
-                    disabled={!inputValue.trim() || isSending || !!(activeThreadId && activeThreadId !== selectedThreadId)}
+                    disabled={
+                      !inputValue.trim() ||
+                      isSending ||
+                      !!(activeThreadId && activeThreadId !== selectedThreadId)
+                    }
                     className="p-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0">
                     {isSending ? (
                       <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

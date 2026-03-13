@@ -1,9 +1,10 @@
 import { useState } from 'react';
+
+import { skillManager } from '../../lib/skills/manager';
+import { persistor } from '../../store';
 import SettingsHeader from './components/SettingsHeader';
 import SettingsMenuItem from './components/SettingsMenuItem';
 import { useSettingsNavigation } from './hooks/useSettingsNavigation';
-import { persistor } from '../../store';
-import { skillManager } from '../../lib/skills/manager';
 
 const SettingsHome = () => {
   const { navigateToSettings } = useSettingsNavigation();
@@ -31,7 +32,7 @@ const SettingsHome = () => {
 
     // Complete reset - redirect to login for fresh start
     window.location.href = '/login';
-  }
+  };
 
   const handleLogoutAndClearData = async () => {
     try {
@@ -42,7 +43,7 @@ const SettingsHome = () => {
       setError('Failed to clear data and logout. Please try again.');
       setIsLoading(false);
     }
-  }
+  };
 
   // const handleViewEncryptionKey = () => {
   //   // TODO: Show encryption key in a secure modal
@@ -281,11 +282,16 @@ const SettingsHome = () => {
       description: 'Sign out and permanently clear all local data',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+          />
         </svg>
       ),
       onClick: () => setShowLogoutAndClearModal(true),
-      dangerous: true
+      dangerous: true,
     },
     {
       id: 'logout',
@@ -352,8 +358,17 @@ const SettingsHome = () => {
           <div className="bg-stone-900 rounded-2xl max-w-md w-full p-6 border border-stone-700/50">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                <svg
+                  className="w-5 h-5 text-amber-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
                 </svg>
               </div>
               <div>
@@ -363,13 +378,11 @@ const SettingsHome = () => {
 
             <div className="mb-6">
               <p className="text-stone-300 text-sm leading-relaxed">
-                This will sign you out and permanently delete ALL data including:
-                • App settings and conversations
-                • Email data from Gmail
-                • Chat history from Telegram
-                • Cached files from Notion
-                • All other skills data
-                <br /><br />
+                This will sign you out and permanently delete ALL data including: • App settings and
+                conversations • Email data from Gmail • Chat history from Telegram • Cached files
+                from Notion • All other skills data
+                <br />
+                <br />
                 This action cannot be undone and may take a few moments to complete.
               </p>
 
@@ -387,19 +400,28 @@ const SettingsHome = () => {
                   setError(null);
                 }}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 rounded-lg border border-stone-600 text-stone-300 hover:bg-stone-800 transition-colors disabled:opacity-50"
-              >
+                className="flex-1 px-4 py-2 rounded-lg border border-stone-600 text-stone-300 hover:bg-stone-800 transition-colors disabled:opacity-50">
                 Cancel
               </button>
               <button
                 onClick={handleLogoutAndClearData}
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
+                className="flex-1 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                 {isLoading && (
                   <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                 )}
                 {isLoading ? 'Clearing All Data...' : 'Log Out & Clear Everything'}

@@ -7,6 +7,7 @@ This document lists all available tools that AlphaHuman can use to interact with
 AlphaHuman has access to **4 tools** across **3 integrations** organized into **6 categories**.
 
 **Quick Statistics:**
+
 - **Telegram**: 2 tools
 - **Notion**: 1 tools
 - **Gmail**: 1 tools
@@ -73,6 +74,7 @@ This skill provides 1 tool for gmail integration.
 **Description**: Send an email via Gmail
 
 **Parameters**:
+
 - **body** (string) **(required)**: Email body content
 - **subject** (string) **(required)**: Email subject line
 - **to** (string) **(required)**: Recipient email address
@@ -80,14 +82,11 @@ This skill provides 1 tool for gmail integration.
 **Usage Context**: Available in all environments
 
 **Example**:
+
 ```json
 {
   "tool": "send_email",
-  "parameters": {
-    "body": "example_body",
-    "subject": "example_subject",
-    "to": "example_to"
-  }
+  "parameters": { "body": "example_body", "subject": "example_subject", "to": "example_to" }
 }
 ```
 
@@ -104,6 +103,7 @@ This skill provides 1 tool for notion integration.
 **Description**: Create a new page in Notion workspace
 
 **Parameters**:
+
 - **content** (array): Page content blocks
 - **parent_id** (string) **(required)**: Parent database or page ID
 - **title** (string) **(required)**: Page title
@@ -111,14 +111,11 @@ This skill provides 1 tool for notion integration.
 **Usage Context**: Available in all environments
 
 **Example**:
+
 ```json
 {
   "tool": "create_page",
-  "parameters": {
-    "content": [],
-    "parent_id": "example_parent_id",
-    "title": "example_title"
-  }
+  "parameters": { "content": [], "parent_id": "example_parent_id", "title": "example_title" }
 }
 ```
 
@@ -135,6 +132,7 @@ This skill provides 2 tools for telegram integration.
 **Description**: Send a message to a Telegram chat or user
 
 **Parameters**:
+
 - **chat_id** (string) **(required)**: Telegram chat ID or username
 - **message** (string) **(required)**: Message text to send
 - **parse_mode** (string): Message formatting mode
@@ -142,6 +140,7 @@ This skill provides 2 tools for telegram integration.
 **Usage Context**: Available in all environments
 
 **Example**:
+
 ```json
 {
   "tool": "send_message",
@@ -160,20 +159,16 @@ This skill provides 2 tools for telegram integration.
 **Description**: Retrieve message history from a Telegram chat
 
 **Parameters**:
+
 - **chat_id** (string) **(required)**: Telegram chat ID or username
 - **limit** (number): Number of messages to retrieve
 
 **Usage Context**: Available in all environments
 
 **Example**:
+
 ```json
-{
-  "tool": "get_chat_history",
-  "parameters": {
-    "chat_id": "example_chat_id",
-    "limit": 10
-  }
-}
+{ "tool": "get_chat_history", "parameters": { "chat_id": "example_chat_id", "limit": 10 } }
 ```
 
 ---
@@ -181,36 +176,42 @@ This skill provides 2 tools for telegram integration.
 ## Tool Usage Guidelines
 
 ### Authentication
+
 - All tools require proper authentication setup through the Skills system
 - OAuth credentials are managed securely and refreshed automatically
 - API keys are stored encrypted in the application keychain
 - Test credentials are available for development and testing environments
 
 ### Rate Limiting
+
 - Tools automatically respect API rate limits of external services
 - Intelligent retry logic handles temporary failures with exponential backoff
 - Bulk operations are automatically chunked to avoid hitting limits
 - Rate limit status is monitored and reported in real-time
 
 ### Error Handling
+
 - All tools return structured error responses with detailed information
 - Network failures trigger automatic retry with configurable attempts
 - Invalid parameters return clear validation messages with examples
 - Tool execution timeouts are handled gracefully with partial results
 
 ### Security & Privacy
+
 - Input validation is performed on all parameters using JSON Schema
 - Output sanitization prevents injection attacks and data leakage
 - Sensitive data is never logged or exposed in error messages
 - All API communications use secure protocols (HTTPS/TLS)
 
 ### Performance Optimization
+
 - Tool results are cached when appropriate to reduce API calls
 - Parallel execution is used for independent operations
 - Connection pooling minimizes overhead for repeated API calls
 - Background sync keeps data fresh without blocking operations
 
 ### Monitoring & Observability
+
 - Tool execution metrics are collected for performance analysis
 - Error rates and response times are monitored continuously
 - Debug logging is available in development environments
@@ -229,18 +230,21 @@ Tools are provided by Skills, which are JavaScript modules running in a secure V
 ## Integration Architecture
 
 ### V8 Runtime
+
 - Skills execute in isolated V8 JavaScript contexts on desktop platforms
 - Mobile platforms use lightweight alternatives with server-side execution
 - Memory limits and execution timeouts prevent resource exhaustion
 - Inter-skill communication is managed through secure message passing
 
 ### API Bridge
+
 - Tools communicate with external services through standardized API bridges
 - Rate limiting, retry logic, and error handling are implemented at the bridge level
 - Authentication tokens are managed centrally and shared across tools
 - Response caching and optimization are handled transparently
 
 ### Data Flow
+
 1. Tool request received from AI agent
 2. Input validation and parameter processing
 3. Skill execution in secure V8 context
@@ -251,18 +255,21 @@ Tools are provided by Skills, which are JavaScript modules running in a secure V
 ## Support & Troubleshooting
 
 ### Common Issues
+
 1. **Tool Not Available**: Check if the associated skill is enabled in Settings → Skills
 2. **Authentication Errors**: Verify credentials in the skill's configuration panel
 3. **Rate Limit Exceeded**: Wait for the limit to reset or upgrade your API plan
 4. **Invalid Parameters**: Review the parameter documentation and examples above
 
 ### Getting Help
+
 - **Skill Documentation**: Each skill has detailed setup and usage instructions
 - **Debug Logs**: Enable verbose logging in development mode for detailed error information
 - **Community Support**: Join our Discord community for help from other users
 - **Technical Support**: Contact our support team for critical issues
 
 ### Contributing
+
 - **New Tools**: Submit tool requests through our GitHub repository
 - **Bug Reports**: Report issues with specific tools and include error logs
 - **Improvements**: Suggest enhancements to existing tools and their documentation
@@ -270,10 +277,11 @@ Tools are provided by Skills, which are JavaScript modules running in a secure V
 ---
 
 **Tool Statistics**
+
 - Total Tools: 4
 - Active Skills: 3
 - Categories: 6
 - Last Updated: 2026-03-11T23:23:47.633Z
 
-*This file was automatically generated at build time from the V8 skills runtime.*
-*For the most up-to-date information, regenerate this file by running `yarn tools:generate`.*
+_This file was automatically generated at build time from the V8 skills runtime._
+_For the most up-to-date information, regenerate this file by running `yarn tools:generate`._
