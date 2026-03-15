@@ -12,3 +12,4 @@
 # TDLib built from source (see scripts/build-tdlib-from-source.sh)
 /tdlib-local/
 /tdlib-build/
+/tdlib-cache/
