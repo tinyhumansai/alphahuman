@@ -5,27 +5,18 @@
 * [Welcome](README.md)
 * [Getting Started](overview/getting-started.md)
 * [How Does It Work?](overview/how-it-works.md)
-* [Architecture](overview/architecture.md)
+* [Architecture](technology/architecture.md)
 
 ## Features
 
-* [Neocortex](features/neocortex/README.md)
-  * [Subconscious Loop](features/neocortex/the-subconscious.md)
-* [Platform & Availability](features/platform.md)
-* [Skills & Integrations](features/skills-and-integrations.md)
-* [Teams & Organizations](features/teams.md)
-* [Privacy & Security](features/privacy-and-security.md)
-* [Pricing](features/pricing.md)
-
-## Use Cases
-
-* [Overview](use-cases/overview.md)
+* [Neocortex](technology/neocortex.md)
+  * [Subconscious Loop](technology/the-subconscious.md)
+* [Platform & Availability](product/platform.md)
+* [Skills & Integrations](product/skills-and-integrations.md)
+* [Teams & Organizations](product/teams.md)
+* [Privacy & Security](product/privacy-and-security.md)
+* [Pricing](product/pricing.md)
 
 ## Resources
 
 * [FAQ & Troubleshooting](resources/faq.md)
-
-## Legal
-
-* [Terms & Conditions](legal/terms-of-use.md)
-* [Privacy Policy](legal/privacy-policy.md)

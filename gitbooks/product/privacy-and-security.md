@@ -110,7 +110,7 @@ Trust and risk intelligence operates at different levels:
 
 * **Personal:** Visible only to you. Your own analysis, trust assessments, and risk alerts.
 * **Community:** Aggregated patterns within a group or organization, supporting shared coordination and moderation. Never exposes individual message content.
-* **Network:** Anonymized patterns across the broader OpenHuman user base, improving early detection of shared risks like recurring scam vectors.&#x20;
+* **Network:** Anonymized patterns across the broader OpenHuman user base, improving early detection of shared risks like recurring scam vectors.
 
 Information does not move between scopes without abstraction and anonymization.
 

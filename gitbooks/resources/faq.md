@@ -101,7 +101,7 @@ OpenHuman currently integrates with **Telegram** (read and analyze conversations
 
 OpenHuman offers individual and team plans with core analysis included. Deeper features are available in higher tiers. A credit system provides usage-metered flexibility, and credits can be earned through referrals.
 
-See [Pricing](../features/pricing.md) for details.
+See [Pricing](../product/pricing.md) for details.
 
 ***
 

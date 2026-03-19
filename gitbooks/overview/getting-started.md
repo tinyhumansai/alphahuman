@@ -78,7 +78,7 @@ After your first request, explore what else OpenHuman can do:
 * **Integrations** let you push structured results to Notion, Google Sheets, and other tools
 * **Workflows** turn conversation decisions into trackable actions you can follow through on
 
-Learn more in [Skills & Integrations](../features/skills-and-integrations.md).
+Learn more in [Skills & Integrations](../product/skills-and-integrations.md).
 
 ***
 

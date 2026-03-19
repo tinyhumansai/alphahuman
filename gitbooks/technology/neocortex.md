@@ -6,7 +6,7 @@ icon: brain
 
 Neocortex is OpenHuman's memory engine. It is a human-like AI memory system designed to work accurately with over 1 billion tokens of data while supporting the computational demands of a subconscious system.
 
-<figure><img src="../../.gitbook/assets/V09 — Neocortex Hero@2x.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/V09 — Neocortex Hero@2x.png" alt=""><figcaption></figcaption></figure>
 
 Neocortex goes far beyond vector databases that simply store embeddings and retrieve whatever is semantically similar. It understands time, entities, and relationships. It builds knowledge graphs. It forgets strategically. It models memory the way the human brain does.
 
@@ -48,13 +48,13 @@ Neocortex uses a tiered memory architecture modeled on how the human brain manag
 
 Intelligent pruning moves memories between tiers based on recency, frequency of access, and contextual relevance. Nothing is ever permanently deleted. Memories can always be reactivated.
 
-<figure><img src="../../.gitbook/assets/V11 — Tiered Memory Deep Dive@2x (2).png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/V11 — Tiered Memory Deep Dive@2x (2).png" alt=""><figcaption></figcaption></figure>
 
 #### The neuroscience of forgetting
 
 The tiered architecture is grounded in neuroscience research.
 
-<figure><img src="../../.gitbook/assets/V12_Neuroscience_of_Forgetting@2x.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/V12_Neuroscience_of_Forgetting@2x.png" alt=""><figcaption></figcaption></figure>
 
 A Carnegie Mellon University study demonstrated that intentionally forgetting some things helps us remember others by freeing up working memory resources. Memory formation depletes a limited working memory resource that recovers over time.
 
@@ -68,7 +68,7 @@ This validates the core design principle of Neocortex. AI systems that try to re
 
 Neocortex does not store flat text. It builds knowledge graphs: structured representations of entities, relationships, and temporal chains.
 
-<figure><img src="../../.gitbook/assets/V10_Knowledge_Graph_Visualization@2x.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/V10_Knowledge_Graph_Visualization@2x.png" alt=""><figcaption></figcaption></figure>
 
 **Semantic deduplication** strips redundant noise before it enters the graph. In group chats, 80%+ of messages are repetitive. Neocortex removes this automatically.
 
