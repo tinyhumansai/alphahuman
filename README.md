@@ -81,10 +81,24 @@ Browse all releases: [github.com/tinyhumansai/openhuman/releases](https://github
 
 ---
 
-<p align="center">
-  Made with love in India 🇮🇳
-</p>
+# Star us on Github
+
+_Like contributing towards AGI 🧠? Give this repo a star and spread the love ❤️_
 
 <p align="center">
-  <sub>OpenHuman is in early beta. Features may change, break, or disappear. Use at your own risk.</sub>
+  <a href="https://www.star-history.com/#tinyhumansai/openhuman&type=date&legend=top-left">
+    <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tinyhumansai/openhuman&type=date&theme=dark&legend=top-left" />
+     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tinyhumansai/openhuman&type=date&legend=top-left" />
+     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tinyhumansai/openhuman&type=date&legend=top-left" />
+    </picture>
+  </a>
 </p>
+
+# Contributors Hall of Fame
+
+Show some love and end up in the hall of fame
+
+<a href="https://github.com/tinyhumansai/openhuman/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=tinyhumansai/openhuman" alt="openhuman contributors" />
+</a>
