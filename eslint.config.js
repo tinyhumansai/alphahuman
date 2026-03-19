@@ -27,7 +27,6 @@ export default [
       'src-tauri/**',
       'skills/**',
       'references/**',
-      'deploy/**',
       'scripts/**',
       '*.config.js',
       '*.config.ts',
