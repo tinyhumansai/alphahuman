@@ -19,3 +19,4 @@
 ## Resources
 
 * [FAQ & Troubleshooting](resources/faq.md)
+* [Neocortex Docs](https://tinyhumans.gitbook.io/neocortex/)
