@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { skillManager } from '../../lib/skills/manager';
 import { persistor } from '../../store';
+import { IS_DEV } from '../../utils/config';
 import SettingsHeader from './components/SettingsHeader';
 import SettingsMenuItem from './components/SettingsMenuItem';
 import { useSettingsNavigation } from './hooks/useSettingsNavigation';
@@ -83,6 +84,7 @@ const SettingsHome = () => {
       id: 'skills',
       title: 'Skills',
       description: 'Configure Slack, Discord, and other skills',
+      devOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -100,6 +102,7 @@ const SettingsHome = () => {
       id: 'ai',
       title: 'AI Configuration',
       description: 'Configure SOUL persona and AI behavior',
+      devOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -117,6 +120,7 @@ const SettingsHome = () => {
       id: 'agent-chat',
       title: 'Agent Chat',
       description: 'Send messages directly to your agent',
+      devOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -242,6 +246,7 @@ const SettingsHome = () => {
       id: 'tauri-commands',
       title: 'Tauri Command Console',
       description: 'Run Alphahuman Tauri commands for quick testing',
+      devOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -320,7 +325,7 @@ const SettingsHome = () => {
         <div className="p-4 space-y-6">
           {/* Main Settings */}
           <div>
-            {mainMenuItems.map((item, index) => (
+            {mainMenuItems.filter(item => !item.devOnly || IS_DEV).map((item, index, filtered) => (
               <SettingsMenuItem
                 key={item.id}
                 icon={item.icon}
@@ -329,7 +334,7 @@ const SettingsHome = () => {
                 onClick={item.onClick}
                 dangerous={item.dangerous}
                 isFirst={index === 0}
-                isLast={index === mainMenuItems.length - 1}
+                isLast={index === filtered.length - 1}
               />
             ))}
           </div>
