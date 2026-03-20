@@ -9,6 +9,7 @@ import Conversations from './pages/Conversations';
 import Home from './pages/Home';
 import Intelligence from './pages/Intelligence';
 import Invites from './pages/Invites';
+import Skills from './pages/Skills';
 import Login from './pages/Login';
 import Mnemonic from './pages/Mnemonic';
 import Onboarding from './pages/onboarding/Onboarding';
@@ -116,6 +117,16 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute requireAuth={true}>
               <Intelligence />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Skills */}
+        <Route
+          path="/skills"
+          element={
+            <ProtectedRoute requireAuth={true}>
+              <Skills />
             </ProtectedRoute>
           }
         />
