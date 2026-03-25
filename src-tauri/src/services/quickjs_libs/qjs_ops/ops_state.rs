@@ -2,7 +2,7 @@
 
 use parking_lot::RwLock;
 use rquickjs::{Ctx, Function, Object};
-use std::sync::Arc;
+use tauri::Manager;
 
 use super::types::{js_err, SkillContext, SkillState};
 
@@ -72,11 +72,62 @@ pub fn register<'js>(
     }
 
     {
-        let sc = skill_context;
+        let sc = skill_context.clone();
         ops.set("data_write", Function::new(ctx.clone(),
             move |filename: String, content: String| -> rquickjs::Result<()> {
                 let path = sc.data_dir.join(&filename);
                 std::fs::write(&path, content).map_err(|e| js_err(e.to_string()))
+            },
+        ))?;
+    }
+
+    // ========================================================================
+    // Memory Bridge (1)
+    // ========================================================================
+
+    {
+        let sc = skill_context;
+        ops.set("memory_insert", Function::new(ctx.clone(),
+            move |provider: String, metadata_json: String| -> rquickjs::Result<()> {
+                if provider.trim().is_empty() {
+                    return Err(js_err("provider must be a non-empty string"));
+                }
+
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&metadata_json).map_err(|e| js_err(e.to_string()))?;
+
+                let app_handle = sc
+                    .app_handle
+                    .clone()
+                    .ok_or_else(|| js_err("App handle not available for memory insert"))?;
+
+                let memory_state = app_handle
+                    .try_state::<crate::commands::memory::MemoryState>()
+                    .ok_or_else(|| js_err("Memory state not available"))?;
+
+                let client_opt = memory_state
+                    .0
+                    .lock()
+                    .map_err(|_| js_err("Failed to lock memory state"))?
+                    .clone();
+
+                let client = client_opt.ok_or_else(|| js_err("Memory client is not initialized"))?;
+                let skill_id = sc.skill_id.clone();
+                let integration_id = provider;
+                let title = format!("{} memory insert — {}", skill_id, integration_id);
+                let content = serde_json::to_string_pretty(&metadata)
+                    .map_err(|e| js_err(e.to_string()))?;
+
+                tokio::spawn(async move {
+                    if let Err(e) = client
+                        .store_skill_sync(&skill_id, &integration_id, &title, &content)
+                        .await
+                    {
+                        log::warn!("[quickjs] memory_insert failed for '{}': {}", integration_id, e);
+                    }
+                });
+
+                Ok(())
             },
         ))?;
     }

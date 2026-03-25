@@ -742,6 +742,35 @@ globalThis.platform = {
 };
 
 // ============================================================================
+// Memory Bridge (for skills to send memory payloads to backend)
+// ============================================================================
+globalThis.memory = {
+  /**
+   * Insert a memory payload through the native memory bridge.
+   * @param {string} provider - Integration/provider ID (e.g. "notion", "google").
+   * @param {object} metadata - Memory payload metadata.
+   * @returns {boolean}
+   */
+  insert: function (provider, metadata) {
+    if (!provider || typeof provider !== 'string') {
+      throw new Error('memory.insert requires a provider string');
+    }
+
+    var requestId =
+      (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+        ? globalThis.crypto.randomUUID()
+        : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+
+    var payload = metadata && typeof metadata === 'object' ? metadata : {};
+    payload.requestId = requestId;
+    payload.provider = provider;
+
+    __ops.memory_insert(provider, JSON.stringify(payload));
+    return true;
+  },
+};
+
+// ============================================================================
 // State Bridge API (for skills to publish state)
 // ============================================================================
 globalThis.__state = {

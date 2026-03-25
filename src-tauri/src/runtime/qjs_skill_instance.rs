@@ -178,6 +178,7 @@ impl QjsSkillInstance {
                 let skill_context = qjs_ops::SkillContext {
                     skill_id: skill_id.clone(),
                     data_dir: data_dir.clone(),
+                    app_handle: _deps.app_handle.clone(),
                 };
 
                 if let Err(e) = qjs_ops::register_ops(
