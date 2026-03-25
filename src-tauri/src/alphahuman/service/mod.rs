@@ -15,6 +15,30 @@ fn windows_task_name() -> &'static str {
     WINDOWS_TASK_NAME
 }
 
+fn daemon_program_args(exe: &std::path::Path) -> Vec<String> {
+    let file_name = exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if file_name.contains("alphahuman-core") {
+        vec!["serve".to_string()]
+    } else {
+        vec!["core".to_string(), "serve".to_string()]
+    }
+}
+
+fn daemon_command_line(exe: &std::path::Path) -> String {
+    let args = daemon_program_args(exe);
+    let exe_quoted = format!("\"{}\"", exe.display());
+    if args.is_empty() {
+        exe_quoted
+    } else {
+        format!("{} {}", exe_quoted, args.join(" "))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServiceState {
     Running,
@@ -325,6 +349,11 @@ fn install_macos(config: &Config) -> Result<()> {
 
     let stdout = logs_dir.join("daemon.stdout.log");
     let stderr = logs_dir.join("daemon.stderr.log");
+    let daemon_args = daemon_program_args(&exe);
+    let program_args_xml = std::iter::once(exe.display().to_string())
+        .chain(daemon_args)
+        .map(|arg| format!("    <string>{}</string>\n", xml_escape(&arg)))
+        .collect::<String>();
 
     let plist = format!(
         r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -335,10 +364,7 @@ fn install_macos(config: &Config) -> Result<()> {
   <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{exe}</string>
-    <string>core</string>
-    <string>serve</string>
-  </array>
+{program_args}  </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -347,13 +373,30 @@ fn install_macos(config: &Config) -> Result<()> {
   <string>{stdout}</string>
   <key>StandardErrorPath</key>
   <string>{stderr}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ALPHAHUMAN_DAEMON_INTERNAL</key>
+    <string>false</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>{workdir}</string>
+  <key>ProcessType</key>
+  <string>Background</string>
 </dict>
 </plist>
 "#,
         label = SERVICE_LABEL,
-        exe = xml_escape(&exe.display().to_string()),
+        program_args = program_args_xml,
         stdout = xml_escape(&stdout.display().to_string()),
-        stderr = xml_escape(&stderr.display().to_string())
+        stderr = xml_escape(&stderr.display().to_string()),
+        workdir = xml_escape(
+            &config
+                .config_path
+                .parent()
+                .map_or_else(|| PathBuf::from("."), PathBuf::from)
+                .display()
+                .to_string(),
+        )
     );
 
     fs::write(&file, plist)?;
@@ -376,10 +419,11 @@ fn install_linux(config: &Config) -> Result<()> {
 
     let stdout = logs_dir.join("daemon.stdout.log");
     let stderr = logs_dir.join("daemon.stderr.log");
+    let exec_start = daemon_command_line(&exe);
 
     let unit = format!(
-        "[Unit]\nDescription=Alphahuman Daemon\n\n[Service]\nExecStart={} core serve\nRestart=always\nRestartSec=3\n\nStandardOutput=append:{}\nStandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
-        exe.display(),
+        "[Unit]\nDescription=Alphahuman Daemon\n\n[Service]\nExecStart={}\nRestart=always\nRestartSec=3\n\nStandardOutput=append:{}\nStandardError=append:{}\n\n[Install]\nWantedBy=default.target\n",
+        exec_start,
         stdout.display(),
         stderr.display(),
     );
@@ -401,10 +445,11 @@ fn install_windows(config: &Config) -> Result<()> {
     let wrapper = logs_dir.join("alphahuman-daemon.cmd");
     let stdout = logs_dir.join("daemon.stdout.log");
     let stderr = logs_dir.join("daemon.stderr.log");
+    let daemon_cmd = daemon_command_line(&exe);
 
     let cmd = format!(
-        "@echo off\n\"{}\" core serve >> \"{}\" 2>> \"{}\"\n",
-        exe.display(),
+        "@echo off\n{} >> \"{}\" 2>> \"{}\"\n",
+        daemon_cmd,
         stdout.display(),
         stderr.display()
     );

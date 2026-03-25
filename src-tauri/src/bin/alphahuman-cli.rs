@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 #[derive(Debug, Serialize)]
 struct RpcRequest {
@@ -123,6 +124,7 @@ enum ServiceCommand {
     Start,
     Stop,
     Status,
+    Reinstall,
     Uninstall,
 }
 
@@ -221,17 +223,15 @@ fn execute(cli: Cli) -> Result<serde_json::Value, String> {
             ConfigCommand::Get => call(&url, "alphahuman.get_config", serde_json::json!({})),
         },
         Command::Service { command } => match command {
-            ServiceCommand::Install => {
-                call(&url, "alphahuman.service_install", serde_json::json!({}))
+            ServiceCommand::Install => local_service_install(),
+            ServiceCommand::Start => local_service_start(),
+            ServiceCommand::Stop => local_service_stop(),
+            ServiceCommand::Status => local_service_status(),
+            ServiceCommand::Reinstall => {
+                let _ = local_service_uninstall()?;
+                local_service_install()
             }
-            ServiceCommand::Start => call(&url, "alphahuman.service_start", serde_json::json!({})),
-            ServiceCommand::Stop => call(&url, "alphahuman.service_stop", serde_json::json!({})),
-            ServiceCommand::Status => {
-                call(&url, "alphahuman.service_status", serde_json::json!({}))
-            }
-            ServiceCommand::Uninstall => {
-                call(&url, "alphahuman.service_uninstall", serde_json::json!({}))
-            }
+            ServiceCommand::Uninstall => local_service_uninstall(),
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Report => call(&url, "alphahuman.doctor_report", serde_json::json!({})),
@@ -312,6 +312,65 @@ fn execute(cli: Cli) -> Result<serde_json::Value, String> {
             }),
         ),
     }
+}
+
+fn load_config() -> Result<alphahuman::alphahuman::config::Config, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("failed to build runtime: {e}"))?;
+    runtime
+        .block_on(alphahuman::alphahuman::config::Config::load_or_init())
+        .map_err(|e| format!("failed to load config: {e}"))
+}
+
+fn status_value(status: alphahuman::alphahuman::service::ServiceStatus) -> Result<serde_json::Value, String> {
+    serde_json::to_value(status).map_err(|e| format!("failed to serialize service status: {e}"))
+}
+
+fn command_response_json(
+    status: alphahuman::alphahuman::service::ServiceStatus,
+    log: &str,
+) -> Result<serde_json::Value, String> {
+    Ok(json!({
+        "result": status_value(status)?,
+        "logs": [log],
+    }))
+}
+
+fn local_service_install() -> Result<serde_json::Value, String> {
+    let config = load_config()?;
+    let status = alphahuman::alphahuman::service::install(&config)
+        .map_err(|e| format!("service install failed: {e}"))?;
+    command_response_json(status, "service install completed")
+}
+
+fn local_service_start() -> Result<serde_json::Value, String> {
+    let config = load_config()?;
+    let status = alphahuman::alphahuman::service::start(&config)
+        .map_err(|e| format!("service start failed: {e}"))?;
+    command_response_json(status, "service start completed")
+}
+
+fn local_service_stop() -> Result<serde_json::Value, String> {
+    let config = load_config()?;
+    let status = alphahuman::alphahuman::service::stop(&config)
+        .map_err(|e| format!("service stop failed: {e}"))?;
+    command_response_json(status, "service stop completed")
+}
+
+fn local_service_status() -> Result<serde_json::Value, String> {
+    let config = load_config()?;
+    let status = alphahuman::alphahuman::service::status(&config)
+        .map_err(|e| format!("service status failed: {e}"))?;
+    command_response_json(status, "service status fetched")
+}
+
+fn local_service_uninstall() -> Result<serde_json::Value, String> {
+    let config = load_config()?;
+    let status = alphahuman::alphahuman::service::uninstall(&config)
+        .map_err(|e| format!("service uninstall failed: {e}"))?;
+    command_response_json(status, "service uninstall completed")
 }
 
 fn main() {
