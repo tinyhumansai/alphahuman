@@ -23,6 +23,14 @@ path = "src/main.rs"
 name = "alphahuman-tools-discovery"
 path = "src/bin/alphahuman-tools-discovery.rs"
 
+[[bin]]
+name = "alphahuman-core"
+path = "src/bin/alphahuman-core.rs"
+
+[[bin]]
+name = "alphahuman-cli"
+path = "src/bin/alphahuman-cli.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
