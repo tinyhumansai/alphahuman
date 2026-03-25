@@ -644,6 +644,38 @@ async fn health_handler() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
+async fn root_handler() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "name": "alphahuman-core",
+            "ok": true,
+            "endpoints": {
+                "health": "/health",
+                "rpc": "/rpc"
+            },
+            "usage": {
+                "jsonrpc": {
+                    "version": "2.0",
+                    "method": "core.ping",
+                    "params": {}
+                }
+            }
+        })),
+    )
+}
+
+async fn not_found_handler() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "ok": false,
+            "error": "not_found",
+            "message": "Route not found. Try /, /health, or /rpc."
+        })),
+    )
+}
+
 fn core_port() -> u16 {
     std::env::var("ALPHAHUMAN_CORE_PORT")
         .ok()
@@ -657,8 +689,10 @@ pub async fn run_server(port: Option<u16>) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
     let app = Router::new()
+        .route("/", get(root_handler))
         .route("/health", get(health_handler))
         .route("/rpc", post(rpc_handler))
+        .fallback(not_found_handler)
         .with_state(AppState {
             core_version: env!("CARGO_PKG_VERSION").to_string(),
         });

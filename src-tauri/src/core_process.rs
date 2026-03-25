@@ -1,4 +1,3 @@
-use std::process::Stdio;
 use std::sync::Arc;
 
 use tokio::process::{Child, Command};
@@ -24,6 +23,7 @@ impl CoreProcessHandle {
 
     pub async fn ensure_running(&self) -> Result<(), String> {
         if crate::core_rpc::ping().await {
+            log::info!("[core] found existing core rpc endpoint at {}", self.rpc_url());
             return Ok(());
         }
 
@@ -36,9 +36,9 @@ impl CoreProcessHandle {
             cmd.arg("core")
                 .arg("serve")
                 .arg("--port")
-                .arg(self.port.to_string())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .arg(self.port.to_string());
+
+            log::info!("[core] spawning core process: {:?} core serve --port {}", cmd.as_std().get_program(), self.port);
 
             let child = cmd
                 .spawn()
@@ -50,8 +50,21 @@ impl CoreProcessHandle {
 
         for _ in 0..40 {
             if crate::core_rpc::ping().await {
+                log::info!("[core] core rpc became ready at {}", self.rpc_url());
                 return Ok(());
             }
+
+            let mut guard = self.child.lock().await;
+            if let Some(child) = guard.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Err(format!("core process exited before ready: {status}"));
+                    }
+                    Ok(None) => {}
+                    Err(e) => return Err(format!("failed checking core process status: {e}")),
+                }
+            }
+            drop(guard);
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
