@@ -51,19 +51,14 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-/// Write AI configuration files to the project's ./ai/ directory
+/// Write AI configuration files to the src-tauri/ai/ directory
 #[tauri::command]
 async fn write_ai_config_file(filename: String, content: String) -> Result<bool, String> {
     use std::env;
 
-    // Get the project root directory (parent of src-tauri)
+    // Determine runtime working directory
     let current_dir =
         env::current_dir().map_err(|e| format!("Failed to get current directory: {e}"))?;
-
-    // Go up one level to get project root (since we're in src-tauri/)
-    let project_root = current_dir
-        .parent()
-        .ok_or("Failed to get project root directory")?;
 
     // Ensure filename is safe (only allow .md files)
     if !filename.ends_with(".md") {
@@ -75,8 +70,14 @@ async fn write_ai_config_file(filename: String, content: String) -> Result<bool,
         return Err("Invalid filename: path traversal not allowed".to_string());
     }
 
-    // Create path to ai/ directory in project root
-    let ai_dir = project_root.join("ai");
+    // Resolve ai directory for both common dev cwd variants:
+    // 1) repo root       -> {cwd}/src-tauri/ai
+    // 2) src-tauri dir   -> {cwd}/ai
+    let ai_dir = if current_dir.join("src-tauri").is_dir() {
+        current_dir.join("src-tauri").join("ai")
+    } else {
+        current_dir.join("ai")
+    };
     let file_path = ai_dir.join(&filename);
 
     // Ensure ai directory exists

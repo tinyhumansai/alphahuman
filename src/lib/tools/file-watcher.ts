@@ -44,7 +44,7 @@ export function stopToolsFileWatcher(): void {
 async function checkForToolsChanges(): Promise<void> {
   try {
     // Check if the bundled TOOLS.md has changed by fetching from public directory
-    const response = await fetch('/ai/TOOLS.md');
+    const response = await fetch('/src-tauri/ai/TOOLS.md');
     if (!response.ok) return;
 
     const content = await response.text();

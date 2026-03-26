@@ -39,7 +39,7 @@
     ],
     "resources": [
       "../skills/skills",
-      "../ai"
+      "ai"
     ],
     "createUpdaterArtifacts": true,
     "macOS": {

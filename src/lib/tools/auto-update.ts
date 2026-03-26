@@ -73,8 +73,8 @@ export async function updateToolsDocumentation(): Promise<void> {
     const markdownContent = generateToolsMarkdown(toolsBySkill);
     console.log(`🔧 Generated markdown length: ${markdownContent.length} characters`);
 
-    // Write to ai/TOOLS.md using new Tauri command
-    console.log('🔍 Step 6: Writing to ai/TOOLS.md file...');
+    // Write to src-tauri/ai/TOOLS.md using Tauri command
+    console.log('🔍 Step 6: Writing to src-tauri/ai/TOOLS.md file...');
     console.log('🔧 About to call write_ai_config_file with filename: TOOLS.md');
     console.log('🔧 Content length:', markdownContent.length);
 
