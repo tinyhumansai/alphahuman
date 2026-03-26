@@ -6,7 +6,7 @@ icon: layer-plus
 
 OpenHuman is a native **desktop** application. It is not a web-only tool, browser extension, or Electron wrapper. It is built for performance, security, and a small footprint on the machines where we officially support it today.
 
-***
+---
 
 ## Supported today: desktop
 
@@ -20,7 +20,7 @@ OpenHuman ships native installers for:
 
 **Android, iOS, and a standalone web client are not supported** in documentation or releases yet. The codebase may contain experimental mobile or web targets; they are out of scope for current user-facing docs.
 
-***
+---
 
 ## Why Native Matters
 
@@ -32,7 +32,7 @@ OpenHuman is built as a native application rather than a web wrapper for three r
 
 **OS-level security.** On desktop platforms, OpenHuman stores credentials in your operating system's secure keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Sensitive data never sits in browser storage or plain text files.
 
-***
+---
 
 ## Architecture at a Glance
 
@@ -48,7 +48,7 @@ OpenHuman operates across three layers:
 The intelligence layer is not part of the client application. It performs analysis, coordination, and trust scoring separately from the frontend.
 {% endhint %}
 
-***
+---
 
 ## Real-Time Communication
 
@@ -56,7 +56,7 @@ OpenHuman maintains a persistent connection between the application and the inte
 
 The connection is designed for resilience. If the network drops, OpenHuman reconnects automatically with progressive backoff. There is no manual reconnection process.
 
-***
+---
 
 ## Offline Behavior
 

@@ -67,4 +67,3 @@ Depending on your location, you may have rights to access, correct, delete, rest
 ## Changes to This Policy
 
 We may update this Privacy Policy from time to time. Material changes will be communicated as required by law. Changes will not apply retroactively in a manner that reduces existing privacy protections.
-

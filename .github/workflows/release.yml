@@ -214,7 +214,7 @@ jobs:
           - platform: macos-latest
             args: --target x86_64-apple-darwin
           - platform: ubuntu-22.04
-            args: ""
+            args: ''
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -263,7 +263,7 @@ jobs:
         env:
           BASE_URL: ${{ vars.BASE_URL }}
           UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY }}
-          WITH_UPDATER: "true"
+          WITH_UPDATER: 'true'
         with:
           script: |
             const workspacePath = process.env.GITHUB_WORKSPACE.replace(/\\/g, '/');
@@ -293,7 +293,7 @@ jobs:
           BASE_URL: ${{ vars.BASE_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WITH_UPDATER: "true"
+          WITH_UPDATER: 'true'
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
           args: -c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}

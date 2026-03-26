@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 
 import { useIntelligenceSocketManager } from '../hooks/useIntelligenceSocket';
-import { setInitialized, setConnectionStatus } from '../store/intelligenceSlice';
+import { setConnectionStatus, setInitialized } from '../store/intelligenceSlice';
 
 /**
  * Intelligence context for managing system-wide Intelligence state
@@ -49,9 +49,7 @@ export function IntelligenceProvider({ children }: IntelligenceProviderProps) {
   };
 
   return (
-    <IntelligenceContext.Provider value={contextValue}>
-      {children}
-    </IntelligenceContext.Provider>
+    <IntelligenceContext.Provider value={contextValue}>{children}</IntelligenceContext.Provider>
   );
 }
 

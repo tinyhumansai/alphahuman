@@ -48,7 +48,8 @@ function buildMetricsText(state: SkillStateRecord): string | null {
   };
 
   const parts: string[] = [];
-  if (values.newEmailsCount != null) parts.push(`${formatNumber(values.newEmailsCount)} new emails`);
+  if (values.newEmailsCount != null)
+    parts.push(`${formatNumber(values.newEmailsCount)} new emails`);
   if (values.totalEmails != null) parts.push(`${formatNumber(values.totalEmails)} emails`);
   if (values.totalDocuments != null) parts.push(`${formatNumber(values.totalDocuments)} docs`);
   if (values.totalPages != null) parts.push(`${formatNumber(values.totalPages)} pages`);
@@ -77,12 +78,7 @@ export function deriveSkillSyncUiState(
   skillState: SkillStateRecord | undefined
 ): SkillSyncUiState {
   if (!skillState) {
-    return {
-      isSyncing: false,
-      progressPercent: null,
-      progressMessage: null,
-      metricsText: null,
-    };
+    return { isSyncing: false, progressPercent: null, progressMessage: null, metricsText: null };
   }
 
   const isSyncing = readBoolean(skillState.syncInProgress) === true;

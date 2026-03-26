@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { MOCK_ACTIONABLE_ITEMS } from '../components/intelligence/mockData';
-import { intelligenceApi, type ConnectedTool } from '../services/intelligenceApi';
+import { type ConnectedTool, intelligenceApi } from '../services/intelligenceApi';
 import type { ActionableItem, ActionableItemStatus } from '../types/intelligence';
-import { transformBackendItemsToFrontend, transformBackendMessagesToFrontend } from '../utils/intelligenceTransforms';
+import {
+  transformBackendItemsToFrontend,
+  transformBackendMessagesToFrontend,
+} from '../utils/intelligenceTransforms';
 
 /**
  * Fallback implementation of Intelligence API hooks without React Query
@@ -62,12 +65,7 @@ export const useActionableItems = (options?: {
     }
   }, [options?.refetchInterval, fetchItems]);
 
-  return {
-    data,
-    loading,
-    error,
-    refetch: fetchItems,
-  };
+  return { data, loading, error, refetch: fetchItems };
 };
 
 interface UseUpdateActionableItemResult {
@@ -86,29 +84,25 @@ export const useUpdateActionableItem = (): UseUpdateActionableItemResult => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutateAsync = useCallback(async (variables: {
-    itemId: string;
-    status: ActionableItemStatus;
-  }) => {
-    try {
-      setLoading(true);
-      setError(null);
-      await intelligenceApi.updateItemStatus(variables.itemId, variables.status);
-      return { ...variables, updatedAt: new Date() };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update item';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const mutateAsync = useCallback(
+    async (variables: { itemId: string; status: ActionableItemStatus }) => {
+      try {
+        setLoading(true);
+        setError(null);
+        await intelligenceApi.updateItemStatus(variables.itemId, variables.status);
+        return { ...variables, updatedAt: new Date() };
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to update item';
+        setError(errorMessage);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
-  return {
-    mutateAsync,
-    loading,
-    error,
-  };
+  return { mutateAsync, loading, error };
 };
 
 interface UseSnoozeActionableItemResult {
@@ -127,10 +121,7 @@ export const useSnoozeActionableItem = (): UseSnoozeActionableItemResult => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutateAsync = useCallback(async (variables: {
-    itemId: string;
-    snoozeUntil: Date;
-  }) => {
+  const mutateAsync = useCallback(async (variables: { itemId: string; snoozeUntil: Date }) => {
     try {
       setLoading(true);
       setError(null);
@@ -145,18 +136,11 @@ export const useSnoozeActionableItem = (): UseSnoozeActionableItemResult => {
     }
   }, []);
 
-  return {
-    mutateAsync,
-    loading,
-    error,
-  };
+  return { mutateAsync, loading, error };
 };
 
 interface UseChatSessionResult {
-  data: {
-    threadId: string;
-    messages: any[];
-  } | null;
+  data: { threadId: string; messages: any[] } | null;
   loading: boolean;
   error: string | null;
 }
@@ -193,22 +177,14 @@ export const useChatSession = (itemId: string | null): UseChatSessionResult => {
     fetchSession();
   }, [itemId]);
 
-  return {
-    data,
-    loading,
-    error,
-  };
+  return { data, loading, error };
 };
 
 interface UseExecuteTaskResult {
   mutateAsync: (variables: {
     itemId: string;
     connectedTools: ConnectedTool[];
-  }) => Promise<{
-    executionId: string;
-    sessionId: string;
-    status: string;
-  }>;
+  }) => Promise<{ executionId: string; sessionId: string; status: string }>;
   loading: boolean;
   error: string | null;
 }
@@ -220,29 +196,28 @@ export const useExecuteTask = (): UseExecuteTaskResult => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutateAsync = useCallback(async (variables: {
-    itemId: string;
-    connectedTools: ConnectedTool[];
-  }) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await intelligenceApi.executeTask(variables.itemId, variables.connectedTools);
-      return result;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to execute task';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const mutateAsync = useCallback(
+    async (variables: { itemId: string; connectedTools: ConnectedTool[] }) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await intelligenceApi.executeTask(
+          variables.itemId,
+          variables.connectedTools
+        );
+        return result;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to execute task';
+        setError(errorMessage);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
-  return {
-    mutateAsync,
-    loading,
-    error,
-  };
+  return { mutateAsync, loading, error };
 };
 
 // Export query key utilities for consistency

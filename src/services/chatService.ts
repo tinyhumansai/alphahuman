@@ -88,12 +88,7 @@ export interface ChatSendParams {
   model: string;
   authToken: string;
   backendUrl: string;
-  messages: Array<{
-    role: string;
-    content: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
-  }>;
+  messages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>;
   notionContext?: string | null;
 }
 

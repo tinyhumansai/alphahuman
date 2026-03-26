@@ -2,14 +2,14 @@ import type { MCPTool } from '../lib/mcp';
 import type {
   BackendActionableItem,
   BackendChatMessage,
-  ConnectedTool
+  ConnectedTool,
 } from '../services/intelligenceApi';
 import type {
   ActionableItem,
   ActionableItemPriority,
   ActionableItemSource,
   ActionableItemStatus,
-  ChatMessage
+  ChatMessage,
 } from '../types/intelligence';
 
 /**
@@ -43,7 +43,9 @@ export function transformBackendItemToFrontend(backendItem: BackendActionableIte
 /**
  * Transform multiple backend items to frontend format
  */
-export function transformBackendItemsToFrontend(backendItems: BackendActionableItem[]): ActionableItem[] {
+export function transformBackendItemsToFrontend(
+  backendItems: BackendActionableItem[]
+): ActionableItem[] {
   return backendItems.map(transformBackendItemToFrontend);
 }
 
@@ -62,7 +64,9 @@ export function transformBackendMessageToFrontend(backendMessage: BackendChatMes
 /**
  * Transform multiple backend messages to frontend format
  */
-export function transformBackendMessagesToFrontend(backendMessages: BackendChatMessage[]): ChatMessage[] {
+export function transformBackendMessagesToFrontend(
+  backendMessages: BackendChatMessage[]
+): ChatMessage[] {
   return backendMessages.map(transformBackendMessageToFrontend);
 }
 
@@ -105,10 +109,7 @@ export function transformConnectedToolsToMCP(connectedTools: ConnectedTool[]): M
   return connectedTools.map(tool => ({
     name: `${tool.skillId}__${tool.name}`,
     description: tool.description,
-    inputSchema: {
-      type: 'object',
-      properties: tool.parameters || {},
-    },
+    inputSchema: { type: 'object', properties: tool.parameters || {} },
   }));
 }
 
@@ -174,23 +175,11 @@ export function getPriorityInfo(priority: ActionableItemPriority): {
 } {
   switch (priority) {
     case 'critical':
-      return {
-        label: 'Critical',
-        className: 'text-coral-400 bg-coral-500/10',
-        color: 'coral',
-      };
+      return { label: 'Critical', className: 'text-coral-400 bg-coral-500/10', color: 'coral' };
     case 'important':
-      return {
-        label: 'Important',
-        className: 'text-amber-400 bg-amber-500/10',
-        color: 'amber',
-      };
+      return { label: 'Important', className: 'text-amber-400 bg-amber-500/10', color: 'amber' };
     case 'normal':
-      return {
-        label: 'Normal',
-        className: 'text-sage-400 bg-sage-500/10',
-        color: 'sage',
-      };
+      return { label: 'Normal', className: 'text-sage-400 bg-sage-500/10', color: 'sage' };
   }
 }
 
@@ -204,46 +193,18 @@ export function getSourceInfo(source: ActionableItemSource): {
 } {
   switch (source) {
     case 'email':
-      return {
-        label: 'Email',
-        icon: '📧',
-        className: 'text-blue-400 bg-blue-500/10',
-      };
+      return { label: 'Email', icon: '📧', className: 'text-blue-400 bg-blue-500/10' };
     case 'calendar':
-      return {
-        label: 'Calendar',
-        icon: '📅',
-        className: 'text-green-400 bg-green-500/10',
-      };
+      return { label: 'Calendar', icon: '📅', className: 'text-green-400 bg-green-500/10' };
     case 'telegram':
-      return {
-        label: 'Telegram',
-        icon: '💬',
-        className: 'text-blue-400 bg-blue-500/10',
-      };
+      return { label: 'Telegram', icon: '💬', className: 'text-blue-400 bg-blue-500/10' };
     case 'ai_insight':
-      return {
-        label: 'AI Insight',
-        icon: '🤖',
-        className: 'text-purple-400 bg-purple-500/10',
-      };
+      return { label: 'AI Insight', icon: '🤖', className: 'text-purple-400 bg-purple-500/10' };
     case 'system':
-      return {
-        label: 'System',
-        icon: '⚙️',
-        className: 'text-stone-400 bg-stone-500/10',
-      };
+      return { label: 'System', icon: '⚙️', className: 'text-stone-400 bg-stone-500/10' };
     case 'trading':
-      return {
-        label: 'Trading',
-        icon: '📈',
-        className: 'text-yellow-400 bg-yellow-500/10',
-      };
+      return { label: 'Trading', icon: '📈', className: 'text-yellow-400 bg-yellow-500/10' };
     case 'security':
-      return {
-        label: 'Security',
-        icon: '🔒',
-        className: 'text-red-400 bg-red-500/10',
-      };
+      return { label: 'Security', icon: '🔒', className: 'text-red-400 bg-red-500/10' };
   }
 }

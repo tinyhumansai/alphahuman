@@ -63,7 +63,9 @@ export class IntelligenceApiService {
    */
   async getActionableItems(): Promise<BackendActionableItem[]> {
     try {
-      const response = await apiClient.get<{ items: BackendActionableItem[] }>('/telegram/actionable-items');
+      const response = await apiClient.get<{ items: BackendActionableItem[] }>(
+        '/telegram/actionable-items'
+      );
       return response.items || [];
     } catch (error) {
       console.error('Failed to fetch actionable items:', error);
@@ -90,7 +92,7 @@ export class IntelligenceApiService {
     try {
       await apiClient.patch(`/actionable-items/${itemId}`, {
         status: 'snoozed',
-        snoozeUntil: snoozeUntil.toISOString()
+        snoozeUntil: snoozeUntil.toISOString(),
       });
     } catch (error) {
       console.error('Failed to snooze item:', error);
@@ -116,7 +118,9 @@ export class IntelligenceApiService {
    */
   async getChatHistory(threadId: string): Promise<BackendChatMessage[]> {
     try {
-      const response = await apiClient.get<{ messages: BackendChatMessage[] }>(`/threads/${threadId}/messages`);
+      const response = await apiClient.get<{ messages: BackendChatMessage[] }>(
+        `/threads/${threadId}/messages`
+      );
       return response.messages || [];
     } catch (error) {
       console.error('Failed to get chat history:', error);
@@ -127,10 +131,13 @@ export class IntelligenceApiService {
   /**
    * Start task execution for an actionable item with connected tools
    */
-  async executeTask(itemId: string, connectedTools: ConnectedTool[]): Promise<BackendExecutionResponse> {
+  async executeTask(
+    itemId: string,
+    connectedTools: ConnectedTool[]
+  ): Promise<BackendExecutionResponse> {
     try {
       const response = await apiClient.post<BackendExecutionResponse>(`/${itemId}/execute`, {
-        connectedTools
+        connectedTools,
       });
       return response;
     } catch (error) {
@@ -142,11 +149,9 @@ export class IntelligenceApiService {
   /**
    * Get execution status for a specific execution ID
    */
-  async getExecutionStatus(executionId: string): Promise<{
-    status: 'running' | 'completed' | 'failed';
-    progress?: any[];
-    result?: any;
-  }> {
+  async getExecutionStatus(
+    executionId: string
+  ): Promise<{ status: 'running' | 'completed' | 'failed'; progress?: any[]; result?: any }> {
     try {
       const response = await apiClient.get(`/executions/${executionId}/status`);
       return response as {
