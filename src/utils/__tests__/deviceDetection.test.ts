@@ -40,14 +40,14 @@ describe('getDownloadLink', () => {
 
   it('falls back to dummy links when no release links', () => {
     const link = getDownloadLink('linux');
-    expect(link).toContain('example.com');
+    expect(link).toContain('tryopenhuman.com');
     expect(link).toContain('linux');
   });
 
   it('falls back for unknown and ios platforms', () => {
     const releaseLinks = { windows: 'https://example.com/w.exe' };
     const unknownLink = getDownloadLink('unknown', releaseLinks);
-    expect(unknownLink).toBe('https://example.com/download');
+    expect(unknownLink).toBe('https://tryopenhuman.com/download');
 
     const iosLink = getDownloadLink('ios', releaseLinks);
     expect(iosLink).toContain('apple.com');
