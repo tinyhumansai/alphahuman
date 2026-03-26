@@ -19,8 +19,6 @@ env:
   SHOULD_PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
   PUBLISH_REPO: openhumanxyz/openhuman
   XGH_TOKEN: ${{ secrets.XGH_TOKEN }}
-  UPDATER_GIST_URL: ${{ secrets.UPDATER_GIST_URL }}
-  UPDATER_GIST_ID: ${{ secrets.UPDATER_GIST_ID }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
