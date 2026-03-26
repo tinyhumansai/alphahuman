@@ -20,7 +20,7 @@
 ![The Tet](./docs/the-tet.png)
 
 <p align="center" style="font-style: italic">
-  "No Soul. No Humanity. The Tet. What a brilliant machine" — Morgan Freeman <a href="https://youtu.be/SveLVpqy_Rc?si=y83aZNokPiUjILN0&t=60">on alien superintelligence</a> in <em>Oblivion</em>
+  "The Tet. What a brilliant machine" — Morgan Freeman <a href="https://youtu.be/SveLVpqy_Rc?si=y83aZNokPiUjILN0&t=60">on alien superintelligence</a> in <em>Oblivion</em>
 </p>
 
 **Agentic system are everywhere.** Models wired into a script that call APIs, search, and file tools until the task looks done. That pattern is powerful for _tasks_, but it is not a self. It has no lasting inner model of _you_, no stable values across sessions, and no architecture for continuity at the scale of a life.
