@@ -1,14 +1,8 @@
-import { useNavigate } from 'react-router-dom';
-
+import OAuthLoginSection from '../components/oauth/OAuthLoginSection';
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
+import TypewriterGreeting from '../components/TypewriterGreeting';
 
-interface WelcomeProps {
-  isWeb?: boolean;
-}
-
-const Welcome = ({ isWeb }: WelcomeProps) => {
-  const navigate = useNavigate();
-
+const Welcome = () => {
   return (
     <div className="min-h-full relative flex items-center justify-center">
       <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-7 text-center mx-4 animate-fade-up">
@@ -16,18 +10,18 @@ const Welcome = ({ isWeb }: WelcomeProps) => {
           <RotatingTetrahedronCanvas />
         </div>
 
-        <h1 className="text-4xl font-semibold tracking-tight text-white md:text-6xl">OpenHuman</h1>
+        <TypewriterGreeting
+          greetings={['Hello HAL9000! 👋', "Let's cook! 🔥", 'The A-Team is here! 👊']}
+        />
 
-        <p className="max-w-xl text-sm opacity-70 md:text-base">
-          Your AI superhuman for personal and business life.
+        <p className="max-w-xl text-sm text-gray-400 md:text-base">
+          Welcome to <span className="color-white">OpenHuman</span>! Your Personal AI super
+          intelligence. Private, Simple and extremely powerful.
         </p>
 
-        <button
-          className="btn-primary px-8 py-3 text-sm font-medium rounded-xl"
-          type="button"
-          onClick={() => navigate('/login')}>
-          {isWeb ? 'Download OpenHuman' : 'Continue'}
-        </button>
+        {/* <div className="glass rounded-3xl p-8 text-center animate-fade-up shadow-large"> */}
+        <OAuthLoginSection />
+        {/* </div> */}
       </div>
     </div>
   );

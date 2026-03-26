@@ -463,9 +463,9 @@ Key updates from recent commits (cd9ebcd to current):
 
 ## Git Workflow
 
-- **Push target**: All pushes go to the **user's private repo** (your fork). Do not push directly to the org repository.
-- **PR target**: All pull requests are opened **from your fork** against the **org's private repo**, targeting the **`develop`** branch (not `main`).
-- **No direct pushes to org**: The org repo does not allow direct pushes. All changes reach the org repo via PRs from your fork.
+- **Repository visibility**: The project is public.
+- **Push target**: Pushes should go to your working branch in the public repository (or your fork if your access model requires it).
+- **PR target**: Open pull requests against the public upstream repository, targeting the **`main`** branch.
 
 ## Key Patterns
 

@@ -8,7 +8,6 @@ import Conversations from './pages/Conversations';
 import Home from './pages/Home';
 import Intelligence from './pages/Intelligence';
 import Invites from './pages/Invites';
-import Login from './pages/Login';
 import Mnemonic from './pages/Mnemonic';
 import Onboarding from './pages/onboarding/Onboarding';
 import Settings from './pages/Settings';
@@ -62,14 +61,6 @@ const AppRoutes = () => {
           element={
             <PublicRoute>
               <Welcome />
-            </PublicRoute>
-          }
-        />
-        <Route
-          path="/login"
-          element={
-            <PublicRoute>
-              <Login />
             </PublicRoute>
           }
         />
