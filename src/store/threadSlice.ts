@@ -83,7 +83,7 @@ export const sendMessage = createAsyncThunk(
   'thread/sendMessage',
   async (
     { threadId, message }: { threadId: string; message: string },
-    { dispatch, getState, rejectWithValue }
+    { dispatch, rejectWithValue }
   ) => {
     // 1. Add user message locally immediately (optimistic update)
     const userMessage: ThreadMessage = {
@@ -116,10 +116,7 @@ export const sendMessage = createAsyncThunk(
     } catch (error) {
       // Add an error message as an agent response so the conversation flow continues
       dispatch(
-        addInferenceResponse({
-          content: 'Something went wrong — please try again.',
-          threadId,
-        })
+        addInferenceResponse({ content: 'Something went wrong — please try again.', threadId })
       );
 
       const msg =

@@ -21,15 +21,14 @@ import {
 import {
   chatCancel,
   chatSend,
-  subscribeChatEvents,
-  useRustChat,
   type ChatToolCallEvent,
   type ChatToolResultEvent,
+  subscribeChatEvents,
+  useRustChat,
 } from '../services/chatService';
+import { store } from '../store';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { NotionPageSummary, NotionSummary, NotionUserProfile } from '../store/notionSlice';
-import { store } from '../store';
-import { BACKEND_URL } from '../utils/config';
 import {
   addInferenceResponse,
   addMessageLocal,
@@ -46,6 +45,7 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
+import { BACKEND_URL } from '../utils/config';
 
 const MIN_PANEL_WIDTH = 200;
 const MAX_PANEL_WIDTH = 480;
@@ -406,7 +406,6 @@ const Conversations = () => {
   const handleSendMessageWeb = async (
     sendingThreadId: string,
     trimmed: string,
-    userMessage: ThreadMessage,
     historySnapshot: ThreadMessage[]
   ) => {
     // Safety-net timeout: force-clear loading states if everything hangs
@@ -729,7 +728,7 @@ const Conversations = () => {
       }
     } else {
       // ── Web fallback (existing orchestration logic) ───────────────────────
-      await handleSendMessageWeb(sendingThreadId, trimmed, userMessage, historySnapshot);
+      await handleSendMessageWeb(sendingThreadId, trimmed, historySnapshot);
     }
   };
 
