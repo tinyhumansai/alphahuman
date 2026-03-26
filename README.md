@@ -1,25 +1,23 @@
-<h1 align="center">AlphaHuman</h1>
+<h1 align="center">OpenHuman</h1>
 
 <p align="center">
-  <strong>Your most productive co-worker</strong><br>
-  A user-friendly (GUI-first) AI agent. AlphaHuman uses the
-  <a href="https://github.com/tinyhumansai/neocortex/tree/main/mk1">Neocortex Mk1 model</a> to understand memories &
-  realtime context at incredibly low costs.
+  <strong>The age of super intelligence is here. OpenHuman is your artificially conscious human.</strong>
+</p>
+
+<p align="center">
+  <a href="https://discord.com/invite/k23Kn8nK">Discord</a> •
+  <a href="https://www.reddit.com/r/tinyhumansai/">Reddit</a> •
+  <a href="https://x.com/tinyhumansai">X/Twitter</a> •
+  <a href="https://tinyhumans.gitbook.io/openhuman/">Docs</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-early%20beta-orange" alt="Early Beta" />
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-blue" alt="Platforms" />
-  <a href="https://github.com/alphahumanai/alphahuman/releases/latest"><img src="https://img.shields.io/github/v/release/alphahumanai/alphahuman?label=latest" alt="Latest Release" /></a>
+  <img src="https://img.shields.io/badge/platform-desktop-macOS%20%7C%20Windows%20%7C%20Linux-blue" alt="Platforms: desktop only" />
+  <a href="https://github.com/tinyhumansai/openhuman/releases/latest"><img src="https://img.shields.io/github/v/release/tinyhumansai/openhuman?label=latest" alt="Latest Release" /></a>
 </p>
 
-<p align="center">
-  <a target="_blank" href="https://discord.gg/k23Kn8nK"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
-  <a target="_blank" href="https://www.reddit.com/r/alphahuman"><img src="https://img.shields.io/badge/Reddit-FF4500?style=for-the-badge&logo=reddit&logoColor=white" alt="Reddit" /></a>
-  <a target="_blank" href="https://x.com/alphahumanxyz"><img src="https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white" alt="Twitter/X" /></a>
-</p>
-
-![The Tet](./docs/the-tet.png)
+![The Tet](./docs/the-tet.jpg)
 
 <p align="center" style="font-style: italic">
   "No Soul. No Humanity. The Tet. What a brilliant machine" — Morgan Freeman <a href="https://youtu.be/SveLVpqy_Rc?si=y83aZNokPiUjILN0&t=60">on alien superintelligence</a> in <em>Oblivion</em>
