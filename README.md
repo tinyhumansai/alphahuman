@@ -1,7 +1,7 @@
 <h1 align="center">OpenHuman</h1>
 
 <p align="center">
-  <strong>The age of super intelligence is here. OpenHuman is your artificially conscious human.</strong>
+  <strong>The age of super intelligence is here. OpenHuman is your Personal AI super intelligence. Private, Simple and extremely powerful.</strong>
 </p>
 
 <p align="center">
