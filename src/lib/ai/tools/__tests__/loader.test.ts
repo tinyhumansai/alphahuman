@@ -159,7 +159,7 @@ describe('Tools Loader', () => {
 - *None*
 
 #### get_history
-**Description**: Get history
+**Description**: Get chat history
 **Parameters**:
 - *None*
 

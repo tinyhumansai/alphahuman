@@ -78,7 +78,7 @@ export const TOOL_CATEGORIES = {
  * @returns {string} Formatted markdown for parameters
  */
 export function formatParameters(schema) {
-  if (!schema || !schema.properties) {
+  if (!schema || !schema.properties || Object.keys(schema.properties).length === 0) {
     return '- *None*';
   }
 

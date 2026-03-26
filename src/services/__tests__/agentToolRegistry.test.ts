@@ -314,7 +314,7 @@ describe('AgentToolRegistry', () => {
       expect(extractMethod('notion_create_page')).toBe('notion_create');
       expect(extractMethod('complex_skill_name_tool_name')).toBe('complex_skill_name_tool');
       expect(extractMethod('invalid_format')).toBe('invalid');
-      expect(extractMethod('no_underscore')).toBeNull();
+      expect(extractMethod('simpletool')).toBeNull();
     });
 
     test('extractCategoryFromSkillId should categorize skills correctly', () => {
