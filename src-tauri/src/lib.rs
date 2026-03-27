@@ -894,9 +894,17 @@ pub fn run() {
 
             // Start/ensure standalone core process for business logic RPC.
             {
+                let core_run_mode = core_process::default_core_run_mode(daemon_mode);
+                let core_bin = if matches!(core_run_mode, core_process::CoreRunMode::ChildProcess)
+                {
+                    core_process::default_core_bin()
+                } else {
+                    None
+                };
                 let core_handle = core_process::CoreProcessHandle::new(
                     core_process::default_core_port(),
-                    core_process::default_core_bin(),
+                    core_bin,
+                    core_run_mode,
                 );
                 std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
                 app.manage(core_handle.clone());

@@ -3,20 +3,31 @@ use std::sync::Arc;
 
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoreRunMode {
+    InProcess,
+    ChildProcess,
+}
 
 #[derive(Clone)]
 pub struct CoreProcessHandle {
     child: Arc<Mutex<Option<Child>>>,
+    task: Arc<Mutex<Option<JoinHandle<()>>>>,
     port: u16,
     core_bin: Option<PathBuf>,
+    run_mode: CoreRunMode,
 }
 
 impl CoreProcessHandle {
-    pub fn new(port: u16, core_bin: Option<PathBuf>) -> Self {
+    pub fn new(port: u16, core_bin: Option<PathBuf>, run_mode: CoreRunMode) -> Self {
         Self {
             child: Arc::new(Mutex::new(None)),
+            task: Arc::new(Mutex::new(None)),
             port,
             core_bin,
+            run_mode,
         }
     }
 
@@ -33,43 +44,62 @@ impl CoreProcessHandle {
             return Ok(());
         }
 
-        let mut guard = self.child.lock().await;
-        if guard.is_none() {
-            let mut cmd = if let Some(core_bin) = &self.core_bin {
-                let mut cmd = Command::new(core_bin);
-                if is_current_exe_path(core_bin) {
-                    // Safety: if core_bin resolves to this GUI executable, force the
-                    // explicit subcommand path so we don't accidentally relaunch clients.
-                    cmd.arg("core");
+        match self.run_mode {
+            CoreRunMode::InProcess => {
+                let mut guard = self.task.lock().await;
+                if guard.is_none() {
+                    let port = self.port;
+                    log::info!("[core] launching in-process core server on port {}", port);
+                    let task = tokio::spawn(async move {
+                        if let Err(err) = openhuman_core::core_server::run_server(Some(port)).await
+                        {
+                            log::error!("[core] in-process core server exited with error: {err}");
+                        } else {
+                            log::warn!("[core] in-process core server exited");
+                        }
+                    });
+                    *guard = Some(task);
                 }
-                cmd.arg("serve").arg("--port").arg(self.port.to_string());
-                log::info!(
-                    "[core] spawning dedicated core binary: {:?} serve --port {}",
-                    cmd.as_std().get_program(),
-                    self.port
-                );
-                cmd
-            } else {
-                let exe = std::env::current_exe()
-                    .map_err(|e| format!("failed to resolve current executable: {e}"))?;
-                let mut cmd = Command::new(exe);
-                cmd.arg("core")
-                    .arg("serve")
-                    .arg("--port")
-                    .arg(self.port.to_string());
-                log::warn!(
-                    "[core] dedicated core binary not found; falling back to self subcommand"
-                );
-                cmd
-            };
+            }
+            CoreRunMode::ChildProcess => {
+                let mut guard = self.child.lock().await;
+                if guard.is_none() {
+                    let mut cmd = if let Some(core_bin) = &self.core_bin {
+                        let mut cmd = Command::new(core_bin);
+                        if is_current_exe_path(core_bin) {
+                            // Safety: if core_bin resolves to this GUI executable, force the
+                            // explicit subcommand path so we don't accidentally relaunch clients.
+                            cmd.arg("core");
+                        }
+                        cmd.arg("serve").arg("--port").arg(self.port.to_string());
+                        log::info!(
+                            "[core] spawning dedicated core binary: {:?} serve --port {}",
+                            cmd.as_std().get_program(),
+                            self.port
+                        );
+                        cmd
+                    } else {
+                        let exe = std::env::current_exe()
+                            .map_err(|e| format!("failed to resolve current executable: {e}"))?;
+                        let mut cmd = Command::new(exe);
+                        cmd.arg("core")
+                            .arg("serve")
+                            .arg("--port")
+                            .arg(self.port.to_string());
+                        log::warn!(
+                            "[core] dedicated core binary not found; falling back to self subcommand"
+                        );
+                        cmd
+                    };
 
-            let child = cmd
-                .spawn()
-                .map_err(|e| format!("failed to spawn core process: {e}"))?;
+                    let child = cmd
+                        .spawn()
+                        .map_err(|e| format!("failed to spawn core process: {e}"))?;
 
-            *guard = Some(child);
+                    *guard = Some(child);
+                }
+            }
         }
-        drop(guard);
 
         for _ in 0..40 {
             if crate::core_rpc::ping().await {
@@ -77,17 +107,44 @@ impl CoreProcessHandle {
                 return Ok(());
             }
 
-            let mut guard = self.child.lock().await;
-            if let Some(child) = guard.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        return Err(format!("core process exited before ready: {status}"));
+            match self.run_mode {
+                CoreRunMode::InProcess => {
+                    let mut guard = self.task.lock().await;
+                    if let Some(task) = guard.as_ref() {
+                        if task.is_finished() {
+                            let task = guard.take().expect("checked is_some");
+                            drop(guard);
+                            match task.await {
+                                Ok(_) => {
+                                    return Err(
+                                        "in-process core server exited before becoming ready"
+                                            .to_string(),
+                                    )
+                                }
+                                Err(err) => {
+                                    return Err(format!(
+                                        "in-process core server task failed before ready: {err}"
+                                    ))
+                                }
+                            }
+                        }
                     }
-                    Ok(None) => {}
-                    Err(e) => return Err(format!("failed checking core process status: {e}")),
+                }
+                CoreRunMode::ChildProcess => {
+                    let mut guard = self.child.lock().await;
+                    if let Some(child) = guard.as_mut() {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                return Err(format!("core process exited before ready: {status}"));
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                return Err(format!("failed checking core process status: {e}"));
+                            }
+                        }
+                    }
                 }
             }
-            drop(guard);
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
@@ -95,11 +152,18 @@ impl CoreProcessHandle {
     }
 
     pub async fn shutdown(&self) {
-        let mut guard = self.child.lock().await;
-        if let Some(child) = guard.as_mut() {
+        let mut child_guard = self.child.lock().await;
+        if let Some(child) = child_guard.as_mut() {
             let _ = child.kill().await;
         }
-        *guard = None;
+        *child_guard = None;
+        drop(child_guard);
+
+        let mut task_guard = self.task.lock().await;
+        if let Some(task) = task_guard.take() {
+            task.abort();
+            let _ = task.await;
+        }
     }
 }
 
@@ -125,6 +189,27 @@ pub fn default_core_port() -> u16 {
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(7788)
+}
+
+pub fn default_core_run_mode(daemon_mode: bool) -> CoreRunMode {
+    if let Ok(value) = std::env::var("OPENHUMAN_CORE_RUN_MODE") {
+        let normalized = value.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "inprocess" | "in-process" | "internal") {
+            return CoreRunMode::InProcess;
+        }
+        if matches!(
+            normalized.as_str(),
+            "child" | "process" | "external" | "sidecar"
+        ) {
+            return CoreRunMode::ChildProcess;
+        }
+    }
+
+    if daemon_mode {
+        CoreRunMode::ChildProcess
+    } else {
+        CoreRunMode::InProcess
+    }
 }
 
 pub fn default_core_bin() -> Option<PathBuf> {
