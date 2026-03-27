@@ -17,11 +17,11 @@ use parking_lot::RwLock;
 use tokio::sync::mpsc;
 
 use crate::runtime::cron_scheduler::CronScheduler;
+use crate::runtime::quickjs_libs::{qjs_ops, IdbStorage};
 use crate::runtime::skill_registry::SkillRegistry;
 use crate::runtime::types::{
     SkillConfig, SkillMessage, SkillSnapshot, SkillStatus, ToolContent, ToolDefinition, ToolResult,
 };
-use crate::runtime::quickjs_libs::{qjs_ops, IdbStorage};
 use tauri::Manager;
 
 /// Dependencies passed to a skill instance for bridge installation.

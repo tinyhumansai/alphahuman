@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 
-use crate::commands::memory::MemoryState;
+use crate::memory::MemoryState;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

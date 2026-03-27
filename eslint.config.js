@@ -27,6 +27,7 @@ export default [
       'dist/**',
       'coverage/**',
       'src-tauri/**',
+      'rust-core/**',
       'skills/**',
       'references/**',
       'scripts/**',

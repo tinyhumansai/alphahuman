@@ -919,7 +919,7 @@ pub fn run() {
             }
 
             // Initialize TinyHumans memory state (empty until the frontend provides the JWT)
-            app.manage(commands::memory::MemoryState(std::sync::Mutex::new(None)));
+            app.manage(crate::memory::MemoryState(std::sync::Mutex::new(None)));
             log::info!("[memory] Memory state registered — awaiting JWT from frontend");
 
             // Spawn conscious loop periodic timer (desktop only; mobile skips inside the fn)

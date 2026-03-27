@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
-use crate::commands::memory::MemoryState;
+use crate::memory::MemoryState;
 
 // ─── Event types (Rust → frontend) ──────────────────────────────────────────
 

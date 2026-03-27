@@ -147,11 +147,14 @@ globalThis.fetch = async function (url, options = {}) {
   }
 
   // __ops.fetch expects a JSON string for options (not a JS object)
-  const resultJson = await __ops.fetch(url.toString(), JSON.stringify({
-    method,
-    headers: headersObj,
-    body: typeof body === 'string' ? body : body ? JSON.stringify(body) : null,
-  }));
+  const resultJson = await __ops.fetch(
+    url.toString(),
+    JSON.stringify({
+      method,
+      headers: headersObj,
+      body: typeof body === 'string' ? body : body ? JSON.stringify(body) : null,
+    })
+  );
 
   // __ops.fetch returns a JSON string — parse it to access status/headers/body
   const parsed = JSON.parse(resultJson);
@@ -310,13 +313,7 @@ class WebSocket {
     WebSocket._instances.delete(this._id);
 
     if (this.onclose) {
-      this.onclose({
-        type: 'close',
-        code,
-        reason,
-        wasClean: code === 1000,
-        target: this,
-      });
+      this.onclose({ type: 'close', code, reason, wasClean: code === 1000, target: this });
     }
   }
 
@@ -693,7 +690,6 @@ globalThis.__db = {
   },
 };
 
-
 globalThis.__platform = {
   os: function () {
     return __ops.platform_os();
@@ -849,7 +845,8 @@ globalThis.data = {
       var backendUrl = __platform.env('BACKEND_URL') || 'https://api.tinyhumans.ai';
       var jwtToken = __ops.get_session_token() || '';
       var cleanPath = path.charAt(0) === '/' ? path.slice(1) : path;
-      var proxyUrl = backendUrl + '/proxy/by-id/' + globalThis.__oauthCredential.credentialId + '/' + cleanPath;
+      var proxyUrl =
+        backendUrl + '/proxy/by-id/' + globalThis.__oauthCredential.credentialId + '/' + cleanPath;
       var method = (options && options.method) || 'GET';
       var headers = { 'Content-Type': 'application/json' };
       if (jwtToken) {
@@ -879,10 +876,7 @@ globalThis.data = {
           var jwtToken = __ops.get_session_token() || '';
           var revokeOpts = JSON.stringify({
             method: 'DELETE',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: 'Bearer ' + jwtToken,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwtToken },
           });
           await net.fetch(
             backendUrl + '/auth/integrations/' + __oauthCredential.credentialId,
@@ -961,10 +955,7 @@ globalThis.model = {
     if (options && options.temperature) body.temperature = options.temperature;
     var result = await net.fetch(backendUrl + '/api/ai/generate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + jwtToken,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwtToken },
       body: JSON.stringify(body),
       timeout: 30000,
     });
@@ -990,10 +981,7 @@ globalThis.model = {
     if (options && options.maxTokens) body.maxTokens = options.maxTokens;
     var result = await net.fetch(backendUrl + '/api/ai/summarize', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + jwtToken,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jwtToken },
       body: JSON.stringify(body),
       timeout: 30000,
     });

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::memory::{MemoryClient, MemoryClientRef, MemoryState};
+use crate::memory::{MemoryClient, MemoryState};
 
 fn extract_namespaces_from_documents(payload: &serde_json::Value) -> Vec<String> {
     fn collect_from_value(value: &serde_json::Value, out: &mut BTreeSet<String>) {
