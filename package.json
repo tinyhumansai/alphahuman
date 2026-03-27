@@ -20,8 +20,6 @@
     "macos:build:sign:release": "yarn macos:build:release:signed",
     "macos:run": "open 'src-tauri/target/debug/bundle/macos/OpenHuman.app'",
     "macos:dev": "yarn macos:build:debug && open 'src-tauri/target/debug/bundle/macos/OpenHuman.app'",
-    "android:dev": "tauri android dev",
-    "android:build": "tauri android build",
     "test": "vitest run --config test/vitest.config.ts",
     "test:unit": "vitest run --config test/vitest.config.ts",
     "test:unit:watch": "vitest --config test/vitest.config.ts",

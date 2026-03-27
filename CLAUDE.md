@@ -2,6 +2,12 @@
 
 Cross-platform crypto community communication platform built with **Tauri v2** (React 19 + Rust). Targets desktop (Windows, macOS) and mobile (Android, iOS). Features deep Telegram integration via MTProto, real-time Socket.io communication, V8-based skill execution engine, and an MCP (Model Context Protocol) tool system for AI-driven Telegram interactions.
 
+## Runtime Scope
+
+- Tauri host/runtime is desktop-only.
+- Always run and validate Tauri codepaths as desktop (`windows`, `macOS`, `linux`).
+- Do not add or maintain Android/iOS/web runtime branches inside `src-tauri`.
+
 ## App Theme & Design System
 
 **Design Philosophy**: Premium, sophisticated crypto platform with calm, trustworthy aesthetic.
