@@ -13,7 +13,7 @@ import type { AgentToolExecution, AgentToolSchema, IAgentToolRegistry } from '..
 // ZeroClaw format types from Rust
 interface ZeroClawToolSchema {
   type: string;
-  function: { name: string; description: string; parameters: any };
+  function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
 interface ZeroClawToolResult {
@@ -61,10 +61,13 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         const skillTools = await invoke<ZeroClawToolSchema[]>('runtime_get_tool_schemas');
 
         // Filter out telegram tools to avoid duplicates
-        const nonTelegramTools = skillTools.filter(tool =>
-          !tool.function.name.includes('telegram') &&
-          !tool.function.name.includes('tg') &&
-          !this.extractCategoryFromSkillId(this.extractSkillIdFromToolName(tool.function.name) || '').includes('Telegram')
+        const nonTelegramTools = skillTools.filter(
+          tool =>
+            !tool.function.name.includes('telegram') &&
+            !tool.function.name.includes('tg') &&
+            !this.extractCategoryFromSkillId(
+              this.extractSkillIdFromToolName(tool.function.name) || ''
+            ).includes('Telegram')
         );
 
         const skillSchemas = nonTelegramTools.map(tool => ({
@@ -72,7 +75,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
           function: {
             name: tool.function.name,
             description: tool.function.description,
-            parameters: tool.function.parameters,
+            parameters: tool.function.parameters as AgentToolSchema['function']['parameters'],
           },
         }));
 
@@ -131,9 +134,12 @@ export class AgentToolRegistry implements IAgentToolRegistry {
 
     try {
       // Determine if this is a Telegram tool
-      const isTelegramTool = skillId.includes('telegram') || skillId.includes('tg') ||
-                            toolName.includes('telegram') || toolName.includes('tg') ||
-                            this.extractCategoryFromSkillId(skillId).includes('Telegram');
+      const isTelegramTool =
+        skillId.includes('telegram') ||
+        skillId.includes('tg') ||
+        toolName.includes('telegram') ||
+        toolName.includes('tg') ||
+        this.extractCategoryFromSkillId(skillId).includes('Telegram');
 
       let result: ZeroClawToolResult;
 
@@ -154,7 +160,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         console.log(`   args type: ${typeof toolArguments}`);
 
         result = await invoke<ZeroClawToolResult>('runtime_execute_tool', {
-          toolId: toolId,
+          toolId,
           args: toolArguments,
         });
       }

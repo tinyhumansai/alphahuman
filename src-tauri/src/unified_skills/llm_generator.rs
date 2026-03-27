@@ -8,7 +8,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 /// System prompt embedded at compile time.
-const SYSTEM_PROMPT: &str = "You are a skill generator for the AlphaHuman platform.
+const SYSTEM_PROMPT: &str = "You are a skill generator for the OpenHuman platform.
 Generate a complete QuickJS skill as a single index.js file.
 
 CRITICAL CONSTRAINTS:
@@ -197,9 +197,9 @@ impl LlmGenerator {
                 .chars()
                 .take(200)
                 .collect::<String>(),
-            skill_type: "alphahuman".to_string(),
+            skill_type: "openhuman".to_string(),
             // `tool_code` holds the full source when `full_index_js` is set;
-            // this ensures the fallback path in `generate_alphahuman` also has
+            // this ensures the fallback path in `generate_openhuman` also has
             // something reasonable to log.
             tool_code: Some(full_index_js.clone()),
             markdown_content: None,

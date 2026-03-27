@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  type MemoryDebugDocument,
   memoryDeleteDocument,
   memoryListDocuments,
   memoryListNamespaces,
   memoryQueryNamespace,
   memoryRecallNamespace,
-  type MemoryDebugDocument,
 } from '../../../utils/tauriCommands';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
@@ -109,7 +109,11 @@ const MemoryDebugPanel = () => {
     setQueryError(null);
     setQueryResult(null);
     try {
-      const result = await memoryQueryNamespace(namespaceInput.trim(), queryInput.trim(), maxChunks);
+      const result = await memoryQueryNamespace(
+        namespaceInput.trim(),
+        queryInput.trim(),
+        maxChunks
+      );
       setQueryResult(result);
     } catch (error) {
       setQueryError(error instanceof Error ? error.message : String(error));
@@ -179,8 +183,12 @@ const MemoryDebugPanel = () => {
                     key={`${doc.namespace}:${doc.documentId}`}
                     className="rounded border border-stone-700 bg-black/20 p-2">
                     <div className="text-xs text-white break-all">ID: {doc.documentId}</div>
-                    <div className="text-xs text-stone-300 break-all">Namespace: {doc.namespace}</div>
-                    {doc.title ? <div className="text-xs text-stone-400">Title: {doc.title}</div> : null}
+                    <div className="text-xs text-stone-300 break-all">
+                      Namespace: {doc.namespace}
+                    </div>
+                    {doc.title ? (
+                      <div className="text-xs text-stone-400">Title: {doc.title}</div>
+                    ) : null}
                     <div className="pt-2">
                       <PrimaryButton
                         variant="outline"

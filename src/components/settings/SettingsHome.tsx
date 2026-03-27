@@ -303,17 +303,17 @@ const SettingsHome = () => {
           {/* Main Settings */}
           <div>
             {mainMenuItems.map((item, index) => (
-                <SettingsMenuItem
-                  key={item.id}
-                  icon={item.icon}
-                  title={item.title}
-                  description={item.description}
-                  onClick={item.onClick}
-                  dangerous={item.dangerous}
-                  isFirst={index === 0}
-                  isLast={index === mainMenuItems.length - 1}
-                />
-              ))}
+              <SettingsMenuItem
+                key={item.id}
+                icon={item.icon}
+                title={item.title}
+                description={item.description}
+                onClick={item.onClick}
+                dangerous={item.dangerous}
+                isFirst={index === 0}
+                isLast={index === mainMenuItems.length - 1}
+              />
+            ))}
           </div>
 
           {/* Destructive Actions */}

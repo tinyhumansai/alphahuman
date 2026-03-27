@@ -213,8 +213,9 @@ static AI_CONFIG_CACHE: once_cell::sync::Lazy<parking_lot::RwLock<Option<String>
 ///
 /// Tries these locations in order:
 /// 1. Tauri resource directory (production builds — files bundled via `tauri.conf.json` resources)
-/// 2. `{cwd}/../ai/` (dev mode — project root relative to `src-tauri/`)
-/// 3. `{cwd}/ai/` (fallback)
+/// 2. `{cwd}/src-tauri/ai/` (dev mode when cwd is project root)
+/// 3. `{cwd}/ai/` (dev mode when cwd is `src-tauri/`)
+/// 4. `{cwd}/../ai/` (legacy fallback)
 ///
 /// Returns an empty string if no files are found (non-fatal).
 fn load_openclaw_context(app: &tauri::AppHandle) -> String {
@@ -268,19 +269,18 @@ fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         }
     }
 
-    // 2. Try cwd/../ai/ (dev mode; cwd is src-tauri/)
+    // 2. Try cwd/src-tauri/ai/ (dev mode; cwd is project root)
     if let Ok(cwd) = std::env::current_dir() {
-        let dev_dir = cwd.parent().map(|p| p.join("ai"));
-        if let Some(ref dir) = dev_dir {
-            if dir.is_dir() {
-                log::info!(
-                    "[chat] Using AI config from dev dir: {}",
-                    dir.display()
-                );
-                return dev_dir;
-            }
+        let root_dev_dir = cwd.join("src-tauri").join("ai");
+        if root_dev_dir.is_dir() {
+            log::info!(
+                "[chat] Using AI config from root dev dir: {}",
+                root_dev_dir.display()
+            );
+            return Some(root_dev_dir);
         }
-        // 3. Try cwd/ai/ (fallback)
+
+        // 3. Try cwd/ai/ (dev mode; cwd is src-tauri/)
         let fallback = cwd.join("ai");
         if fallback.is_dir() {
             log::info!(
@@ -288,6 +288,17 @@ fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
                 fallback.display()
             );
             return Some(fallback);
+        }
+
+        // 4. Legacy fallback: cwd/../ai/
+        if let Some(legacy_dir) = cwd.parent().map(|p| p.join("ai")) {
+            if legacy_dir.is_dir() {
+                log::info!(
+                    "[chat] Using AI config from legacy dev dir: {}",
+                    legacy_dir.display()
+                );
+                return Some(legacy_dir);
+            }
         }
     }
 

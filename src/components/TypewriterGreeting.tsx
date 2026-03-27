@@ -68,7 +68,7 @@ const TypewriterGreeting = ({
   ]);
 
   return (
-    <h1 className={`text-2xl font-bold mb-4 ${className}`}>
+    <h1 className={`text-2xl font-bold mb-2 ${className}`}>
       {displayedText}
       <span className="animate-pulse">|</span>
     </h1>

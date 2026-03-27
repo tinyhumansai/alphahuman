@@ -10,7 +10,7 @@ The Skills System is a Python-based plugin architecture that allows AI agents to
 
 - Skills modal shows "Setup Failed" with "Skill process exited with code: 1"
 - Console shows `ModuleNotFoundError: No module named 'pydantic'`
-- Error paths like `/Users/cyrus/alphahuman/skills/skills/telegram/`
+- Error paths like `/Users/cyrus/openhuman/skills/skills/telegram/`
 - Python import failures and subprocess stderr messages
 
 ### Root Cause Analysis
@@ -51,7 +51,7 @@ git submodule init
 git submodule update
 ```
 
-This downloads the skills repository from `https://github.com/alphahumanxyz/skills`.
+This downloads the skills repository from `https://github.com/openhumanxyz/skills`.
 
 #### 2. Create Python Virtual Environment
 
@@ -87,7 +87,7 @@ This installs:
 #### Development vs Production Paths
 
 - **Development**: Skills in git submodule at `./skills/skills/`
-- **Production**: Skills in `~/.alphahuman/skills/`
+- **Production**: Skills in `~/.openhuman/skills/`
 - **Configuration**: `src/lib/skills/paths.ts` handles path resolution
 
 #### Skill Execution Process

@@ -1,4 +1,4 @@
-import soulMd from '../../../../ai/SOUL.md?raw';
+import soulMd from '../../../../src-tauri/ai/SOUL.md?raw';
 import type {
   BehaviorPattern,
   EmergencyResponse,
@@ -12,8 +12,8 @@ import type {
 } from './types';
 
 const SOUL_GITHUB_URL =
-  'https://raw.githubusercontent.com/alphahumanxyz/alphahuman/refs/heads/main/ai/SOUL.md';
-const SOUL_CACHE_KEY = 'alphahuman.soul.cache';
+  'https://raw.githubusercontent.com/openhumanxyz/openhuman/refs/heads/main/src-tauri/ai/SOUL.md';
+const SOUL_CACHE_KEY = 'openhuman.soul.cache';
 const SOUL_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
 
 let cachedSoulConfig: SoulConfig | null = null;

@@ -1,4 +1,4 @@
-import toolsMd from '../../../../ai/TOOLS.md?raw';
+import toolsMd from '../../../../src-tauri/ai/TOOLS.md?raw';
 import type {
   SkillGroup,
   ToolCategory,
@@ -11,7 +11,7 @@ import type {
 } from './types';
 
 // GitHub URL removed - always use bundled file updated by auto-update system
-const TOOLS_CACHE_KEY = 'alphahuman.tools.cache';
+const TOOLS_CACHE_KEY = 'openhuman.tools.cache';
 const TOOLS_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
 const CACHE_VERSION = '1.0.0';
 
@@ -164,8 +164,8 @@ function parseToolBlock(block: string, defaultSkillId: string): ToolDefinition |
   const descriptionMatch = block.match(/\*\*Description\*\*:\s*(.+)/);
   const description = descriptionMatch?.[1]?.trim() || 'No description available';
 
-  // Extract parameters and build input schema
-  const parametersSection = extractSection(block, 'Parameters');
+  // Extract parameters and build input schema (tool blocks use **Parameters**: not ## headings)
+  const parametersSection = extractParametersSectionFromToolBlock(block);
   const inputSchema = parseParametersToSchema(parametersSection);
 
   // Try to determine actual skillId from tool name or description
@@ -359,6 +359,12 @@ function generateStatistics(
 /**
  * Utility functions
  */
+/** Parameters under a tool block use `**Parameters**:` (see OpenClaw TOOLS.md format). */
+function extractParametersSectionFromToolBlock(block: string): string {
+  const m = block.match(/\*\*Parameters\*\*:\s*\n([\s\S]*)/i);
+  return m?.[1]?.trim() ?? '';
+}
+
 function extractSection(raw: string, heading: string): string {
   const regex = new RegExp(`## ${heading}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i');
   const match = raw.match(regex);

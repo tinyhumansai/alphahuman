@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AlphaHuman Tools Discovery Script
+ * OpenHuman Tools Discovery Script
  *
  * Discovers all available tools from the V8 skills runtime and generates
  * a comprehensive TOOLS.md file following OpenClaw framework standards.
@@ -21,7 +21,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '../..');
-const AI_DIR = join(PROJECT_ROOT, 'ai');
+const AI_DIR = join(PROJECT_ROOT, 'src-tauri', 'ai');
 const TOOLS_OUTPUT = join(AI_DIR, 'TOOLS.md');
 
 // Environment categories for OpenClaw compatibility
@@ -160,7 +160,7 @@ function generateMockToolsForDevelopment() {
  */
 async function main() {
   try {
-    console.log('🚀 Starting AlphaHuman tools discovery...');
+    console.log('🚀 Starting OpenHuman tools discovery...');
 
     // Discover all available tools
     const tools = await discoverTools();
@@ -210,7 +210,7 @@ async function discoverToolsFromTauri() {
       '--manifest-path',
       join(PROJECT_ROOT, 'src-tauri', 'Cargo.toml'),
       '--bin',
-      'alphahuman-tools-discovery',
+      'openhuman-tools-discovery',
     ];
 
     console.log('🔧 Attempting to run tools discovery via Cargo...');

@@ -17,9 +17,9 @@ function getAppPath(): string {
 
   switch (process.platform) {
     case 'darwin':
-      return path.join(base, 'macos', 'AlphaHuman.app');
+      return path.join(base, 'macos', 'OpenHuman.app');
     case 'win32':
-      return path.join('src-tauri', 'target', 'debug', 'AlphaHuman.exe');
+      return path.join('src-tauri', 'target', 'debug', 'OpenHuman.exe');
     case 'linux':
       return path.join('src-tauri', 'target', 'debug', 'alpha-human');
     default:
@@ -39,7 +39,7 @@ export const config: Options.Testrunner = {
       // @ts-expect-error -- Appium capabilities are not in standard WebDriver types
       'appium:automationName': 'Mac2',
       'appium:app': getAppPath(),
-      'appium:bundleId': 'com.alphahuman.app',
+      'appium:bundleId': 'com.openhuman.app',
       'appium:showServerLogs': true,
     },
   ],

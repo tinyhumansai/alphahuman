@@ -8,7 +8,7 @@ import { clearToolsCache, loadTools, parseTools } from '../loader';
 import type { ToolsConfig } from '../types';
 
 // Mock the bundled tools markdown
-vi.mock('../../../../../ai/TOOLS.md?raw', () => ({
+vi.mock('../../../../../src-tauri/ai/TOOLS.md?raw', () => ({
   default: `# OpenHuman Tools
 
 ## Overview
@@ -66,9 +66,6 @@ const localStorageMock = {
 };
 
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
-
-// Mock fetch
-global.fetch = vi.fn();
 
 describe('Tools Loader', () => {
   beforeEach(() => {
@@ -162,7 +159,7 @@ describe('Tools Loader', () => {
 - *None*
 
 #### get_history
-**Description**: Get history
+**Description**: Get chat history
 **Parameters**:
 - *None*
 
@@ -192,7 +189,7 @@ describe('Tools Loader', () => {
   });
 
   describe('loadTools', () => {
-    it('should load from cache when available', async () => {
+    it('should load from localStorage when cache is valid', async () => {
       const mockConfig: ToolsConfig = {
         raw: 'cached markdown',
         tools: [],
@@ -217,10 +214,9 @@ describe('Tools Loader', () => {
       const result = await loadTools();
 
       expect(result).toEqual(mockConfig);
-      expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('should load from GitHub when cache is expired', async () => {
+    it('should load bundled TOOLS when cache is expired', async () => {
       const expiredCacheEntry = {
         config: {} as ToolsConfig,
         timestamp: Date.now() - 1000 * 60 * 60, // 1 hour ago
@@ -229,37 +225,28 @@ describe('Tools Loader', () => {
 
       localStorageMock.getItem.mockReturnValue(JSON.stringify(expiredCacheEntry));
 
-      (fetch as any).mockResolvedValue({ ok: true, text: () => Promise.resolve('# Remote Tools') });
-
       const result = await loadTools();
 
-      expect(fetch).toHaveBeenCalledWith(
-        'https://raw.githubusercontent.com/alphahumanxyz/alphahuman/refs/heads/main/ai/TOOLS.md'
-      );
-      expect(result.raw).toBe('# Remote Tools');
+      expect(result.tools.length).toBeGreaterThan(0);
+      expect(result.raw).toBeDefined();
       expect(result.isDefault).toBe(false);
     });
 
-    it('should fallback to bundled tools when GitHub fails', async () => {
+    it('should load bundled tools when localStorage is empty', async () => {
       localStorageMock.getItem.mockReturnValue(null);
-
-      (fetch as any).mockRejectedValue(new Error('Network error'));
 
       const result = await loadTools();
 
-      expect(result.isDefault).toBe(true);
-      expect(result.tools).toHaveLength(4); // From mocked bundled tools
+      expect(result.tools.length).toBeGreaterThan(0);
     });
 
-    it('should cache the loaded configuration', async () => {
+    it('should persist loaded configuration to localStorage', async () => {
       localStorageMock.getItem.mockReturnValue(null);
-
-      (fetch as any).mockResolvedValue({ ok: true, text: () => Promise.resolve('# Remote Tools') });
 
       await loadTools();
 
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'alphahuman.tools.cache',
+        'openhuman.tools.cache',
         expect.stringContaining('"version":"1.0.0"')
       );
     });
@@ -269,7 +256,7 @@ describe('Tools Loader', () => {
     it('should clear localStorage cache', () => {
       clearToolsCache();
 
-      expect(localStorageMock.removeItem).toHaveBeenCalledWith('alphahuman.tools.cache');
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith('openhuman.tools.cache');
     });
 
     it('should handle localStorage errors gracefully', () => {

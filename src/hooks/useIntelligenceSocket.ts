@@ -3,7 +3,12 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import { socketService } from '../services/socketService';
 import type { RootState } from '../store';
-import { addMessage, setExecutionResult, setTyping, updateExecutionProgress } from '../store/intelligenceSlice';
+import {
+  addMessage,
+  setExecutionResult,
+  setTyping,
+  updateExecutionProgress,
+} from '../store/intelligenceSlice';
 import { createChatMessage } from '../utils/intelligenceTransforms';
 import { emitViaRustSocket } from '../utils/tauriSocket';
 
@@ -14,7 +19,7 @@ interface ProcessMessagePayload {
   message: string;
   threadId: string;
   sessionId?: string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 interface AgentResponsePayload {
@@ -22,8 +27,8 @@ interface AgentResponsePayload {
   threadId: string;
   sessionId?: string;
   shouldExecute?: boolean;
-  executionPlan?: any;
-  metadata?: Record<string, any>;
+  executionPlan?: unknown;
+  metadata?: Record<string, unknown>;
 }
 
 interface ExecutionProgressPayload {
@@ -47,21 +52,16 @@ interface ExecutionCompletePayload {
   executionId: string;
   sessionId: string;
   status: 'completed' | 'failed';
-  result?: any;
+  result?: unknown;
   error?: string;
-  artifacts?: Array<{
-    type: string;
-    url: string;
-    title: string;
-    description?: string;
-  }>;
+  artifacts?: Array<{ type: string; url: string; title: string; description?: string }>;
 }
 
 interface ChatInitPayload {
-  tools: any[];
+  tools: Record<string, unknown>[];
   threadId: string;
   sessionId?: string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 /**
@@ -69,7 +69,7 @@ interface ChatInitPayload {
  */
 function isTauri(): boolean {
   try {
-    return (window as any)?.__TAURI__ !== undefined;
+    return typeof window !== 'undefined' && '__TAURI__' in window;
   } catch {
     return false;
   }
@@ -93,44 +93,53 @@ export const useIntelligenceSocket = () => {
   /**
    * Send message to AI agent via WebSocket
    */
-  const sendMessage = useCallback(async (payload: ProcessMessagePayload) => {
-    if (isTauri()) {
-      // Use Rust socket for Tauri environment
-      emitViaRustSocket('processMessageForUser', payload);
-    } else if (socket?.connected) {
-      socket.emit('processMessageForUser', payload);
-    } else {
-      console.warn('Cannot send message - socket not connected');
-      throw new Error('Socket not connected');
-    }
-  }, [socket]);
+  const sendMessage = useCallback(
+    async (payload: ProcessMessagePayload) => {
+      if (isTauri()) {
+        // Use Rust socket for Tauri environment
+        emitViaRustSocket('processMessageForUser', payload);
+      } else if (socket?.connected) {
+        socket.emit('processMessageForUser', payload);
+      } else {
+        console.warn('Cannot send message - socket not connected');
+        throw new Error('Socket not connected');
+      }
+    },
+    [socket]
+  );
 
   /**
    * Initialize chat session with tools
    */
-  const sendChatInit = useCallback(async (payload: ChatInitPayload) => {
-    if (isTauri()) {
-      emitViaRustSocket('chat:init', payload);
-    } else if (socket?.connected) {
-      socket.emit('chat:init', payload);
-    } else {
-      console.warn('Cannot initialize chat - socket not connected');
-      throw new Error('Socket not connected');
-    }
-  }, [socket]);
+  const sendChatInit = useCallback(
+    async (payload: ChatInitPayload) => {
+      if (isTauri()) {
+        emitViaRustSocket('chat:init', payload);
+      } else if (socket?.connected) {
+        socket.emit('chat:init', payload);
+      } else {
+        console.warn('Cannot initialize chat - socket not connected');
+        throw new Error('Socket not connected');
+      }
+    },
+    [socket]
+  );
 
   /**
    * Send typing indicator
    */
-  const sendTyping = useCallback((threadId: string, isTyping: boolean) => {
-    const payload = { threadId, isTyping };
+  const sendTyping = useCallback(
+    (threadId: string, isTyping: boolean) => {
+      const payload = { threadId, isTyping };
 
-    if (isTauri()) {
-      emitViaRustSocket('chat:typing', payload);
-    } else if (socket?.connected) {
-      socket.emit('chat:typing', payload);
-    }
-  }, [socket]);
+      if (isTauri()) {
+        emitViaRustSocket('chat:typing', payload);
+      } else if (socket?.connected) {
+        socket.emit('chat:typing', payload);
+      }
+    },
+    [socket]
+  );
 
   /**
    * Register WebSocket event handlers
@@ -148,17 +157,11 @@ export const useIntelligenceSocket = () => {
 
       if (data.message && data.threadId) {
         const aiMessage = createChatMessage(data.message, 'ai');
-        dispatch(addMessage({
-          threadId: data.threadId,
-          message: aiMessage,
-        }));
+        dispatch(addMessage({ threadId: data.threadId, message: aiMessage }));
       }
 
       // Stop typing indicator
-      dispatch(setTyping({
-        threadId: data.threadId,
-        isTyping: false,
-      }));
+      dispatch(setTyping({ threadId: data.threadId, isTyping: false }));
 
       // Handle execution trigger
       if (data.shouldExecute && data.executionPlan) {
@@ -179,10 +182,9 @@ export const useIntelligenceSocket = () => {
       });
 
       if (data.progress) {
-        dispatch(updateExecutionProgress({
-          executionId: data.executionId,
-          progress: data.progress,
-        }));
+        dispatch(
+          updateExecutionProgress({ executionId: data.executionId, progress: data.progress })
+        );
       }
     };
 
@@ -195,12 +197,14 @@ export const useIntelligenceSocket = () => {
         hasArtifacts: !!data.artifacts?.length,
       });
 
-      dispatch(setExecutionResult({
-        executionId: data.executionId,
-        result: data.result,
-        status: data.status,
-        error: data.error,
-      }));
+      dispatch(
+        setExecutionResult({
+          executionId: data.executionId,
+          result: data.result,
+          status: data.status,
+          error: data.error,
+        })
+      );
 
       // Send completion message if we have artifacts
       if (data.artifacts?.length && data.sessionId) {
@@ -215,10 +219,7 @@ export const useIntelligenceSocket = () => {
 
     // Typing indicator handler
     const handleTyping = (data: { threadId: string; isTyping: boolean }) => {
-      dispatch(setTyping({
-        threadId: data.threadId,
-        isTyping: data.isTyping,
-      }));
+      dispatch(setTyping({ threadId: data.threadId, isTyping: data.isTyping }));
     };
 
     // Register all handlers
@@ -309,12 +310,7 @@ export const useIntelligenceSocketManager = () => {
     }
   }, [token, isConnected, connect]);
 
-  return {
-    connect,
-    disconnect,
-    isConnected,
-    isReady: isConnected && !!token,
-  };
+  return { connect, disconnect, isConnected, isReady: isConnected && !!token };
 };
 
 /**
@@ -326,63 +322,59 @@ export const useIntelligenceEvents = () => {
   /**
    * Subscribe to agent responses for a specific thread
    */
-  const onAgentResponse = useCallback((
-    threadId: string,
-    callback: (data: AgentResponsePayload) => void
-  ) => {
-    if (!socket) return () => {};
+  const onAgentResponse = useCallback(
+    (threadId: string, callback: (data: AgentResponsePayload) => void) => {
+      if (!socket) return () => {};
 
-    const handler = (data: AgentResponsePayload) => {
-      if (data.threadId === threadId) {
-        callback(data);
-      }
-    };
+      const handler = (data: AgentResponsePayload) => {
+        if (data.threadId === threadId) {
+          callback(data);
+        }
+      };
 
-    socket.on('agentResponse', handler);
-    return () => socket.off('agentResponse', handler);
-  }, [socket]);
+      socket.on('agentResponse', handler);
+      return () => socket.off('agentResponse', handler);
+    },
+    [socket]
+  );
 
   /**
    * Subscribe to execution progress for a specific execution
    */
-  const onExecutionProgress = useCallback((
-    executionId: string,
-    callback: (data: ExecutionProgressPayload) => void
-  ) => {
-    if (!socket) return () => {};
+  const onExecutionProgress = useCallback(
+    (executionId: string, callback: (data: ExecutionProgressPayload) => void) => {
+      if (!socket) return () => {};
 
-    const handler = (data: ExecutionProgressPayload) => {
-      if (data.executionId === executionId) {
-        callback(data);
-      }
-    };
+      const handler = (data: ExecutionProgressPayload) => {
+        if (data.executionId === executionId) {
+          callback(data);
+        }
+      };
 
-    socket.on('execution:step_progress', handler);
-    return () => socket.off('execution:step_progress', handler);
-  }, [socket]);
+      socket.on('execution:step_progress', handler);
+      return () => socket.off('execution:step_progress', handler);
+    },
+    [socket]
+  );
 
   /**
    * Subscribe to execution completion for a specific execution
    */
-  const onExecutionComplete = useCallback((
-    executionId: string,
-    callback: (data: ExecutionCompletePayload) => void
-  ) => {
-    if (!socket) return () => {};
+  const onExecutionComplete = useCallback(
+    (executionId: string, callback: (data: ExecutionCompletePayload) => void) => {
+      if (!socket) return () => {};
 
-    const handler = (data: ExecutionCompletePayload) => {
-      if (data.executionId === executionId) {
-        callback(data);
-      }
-    };
+      const handler = (data: ExecutionCompletePayload) => {
+        if (data.executionId === executionId) {
+          callback(data);
+        }
+      };
 
-    socket.on('execution:complete', handler);
-    return () => socket.off('execution:complete', handler);
-  }, [socket]);
+      socket.on('execution:complete', handler);
+      return () => socket.off('execution:complete', handler);
+    },
+    [socket]
+  );
 
-  return {
-    onAgentResponse,
-    onExecutionProgress,
-    onExecutionComplete,
-  };
+  return { onAgentResponse, onExecutionProgress, onExecutionComplete };
 };

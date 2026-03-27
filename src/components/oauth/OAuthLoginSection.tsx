@@ -1,4 +1,3 @@
-import TelegramLoginButton from '../TelegramLoginButton';
 import OAuthProviderButton from './OAuthProviderButton';
 import { oauthProviderConfigs } from './providerConfigs';
 
@@ -8,33 +7,24 @@ interface OAuthLoginSectionProps {
   showTelegram?: boolean;
 }
 
-const OAuthLoginSection = ({
-  className = '',
-  disabled = false,
-  showTelegram = true,
-}: OAuthLoginSectionProps) => {
+const OAuthLoginSection = ({ className = '', disabled = false }: OAuthLoginSectionProps) => {
   return (
     <div className={`space-y-4 ${className}`}>
-      {/* OAuth Providers */}
       <div className="space-y-3">
-        {oauthProviderConfigs.map(provider => (
-          <OAuthProviderButton key={provider.id} provider={provider} disabled={disabled} />
-        ))}
+        <h3 className="block w-full text-center text-sm opacity-30 mb-3 font-semibold tracking-wide">
+          Continue with
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          {oauthProviderConfigs.map(provider => (
+            <OAuthProviderButton
+              key={provider.id}
+              provider={provider}
+              disabled={disabled}
+              className="w-full min-w-0"
+            />
+          ))}
+        </div>
       </div>
-
-      {/* Divider */}
-      {showTelegram && (
-        <>
-          <div className="relative flex items-center">
-            <div className="flex-1 border-t border-white/20"></div>
-            <div className="px-4 text-sm text-white/50 bg-transparent">or</div>
-            <div className="flex-1 border-t border-white/20"></div>
-          </div>
-
-          {/* Telegram Login */}
-          <TelegramLoginButton disabled={disabled} />
-        </>
-      )}
     </div>
   );
 };

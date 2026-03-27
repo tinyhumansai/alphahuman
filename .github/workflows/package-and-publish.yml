@@ -17,10 +17,8 @@ on:
 env:
   IS_PR: ${{ github.event_name == 'pull_request' }}
   SHOULD_PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-  PUBLISH_REPO: alphahumanxyz/alphahuman
+  PUBLISH_REPO: openhumanxyz/openhuman
   XGH_TOKEN: ${{ secrets.XGH_TOKEN }}
-  UPDATER_GIST_URL: ${{ secrets.UPDATER_GIST_URL }}
-  UPDATER_GIST_ID: ${{ secrets.UPDATER_GIST_ID }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
@@ -48,7 +46,7 @@ jobs:
         run: |
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           TAG_NAME="v${PACKAGE_VERSION}"
-          RELEASE_NAME="AlphaHuman v${PACKAGE_VERSION}"
+          RELEASE_NAME="OpenHuman v${PACKAGE_VERSION}"
           echo "package-version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
           echo "tag-name=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "release-name=$RELEASE_NAME" >> $GITHUB_OUTPUT
@@ -162,15 +160,15 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin"
-            target: "x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: ""
-            target: ""
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            target: ''
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -191,7 +189,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: "yarn"
+          cache: 'yarn'
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -307,14 +305,14 @@ jobs:
           # macOS 10.15+ required for std::filesystem used by llama.cpp
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
-          args: "-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}"
+          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
           # TDLib dylibs are now bundled natively via build.rs + tauri.conf.json macOS.frameworks
           # No post-build scripts needed - Tauri bundler handles copying and signing
           releaseId: ${{ needs.create-release.outputs.releaseId }}
-          owner: alphahumanxyz
-          repo: alphahuman
+          owner: openhumanxyz
+          repo: openhuman
 
       - name: Get file info
         id: file-info

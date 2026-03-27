@@ -11,8 +11,8 @@ import debug from 'debug';
 import type { ConnectedTool } from '../../services/intelligenceApi';
 import { socketService } from '../../services/socketService';
 import { store } from '../../store';
-import { emitViaRustSocket } from '../../utils/tauriSocket';
 import { transformMCPToConnectedTools } from '../../utils/intelligenceTransforms';
+import { emitViaRustSocket } from '../../utils/tauriSocket';
 import type { MCPTool } from '../mcp';
 import { deriveConnectionStatus } from '../skills/hooks';
 
@@ -146,7 +146,7 @@ export function initializeChatWithTools(
       connectedTools,
       sessionId,
       threadId,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     // Detailed logging of available tools

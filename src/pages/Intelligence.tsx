@@ -10,15 +10,16 @@ import {
   useSnoozeActionableItem,
   useUpdateActionableItem,
 } from '../hooks/useIntelligenceApiFallback';
-import { useIntelligenceSocket, useIntelligenceSocketManager } from '../hooks/useIntelligenceSocket';
+import {
+  useIntelligenceSocket,
+  useIntelligenceSocketManager,
+} from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
 import type { RootState } from '../store';
-import {
-  setSourceFilter,
-  setSearchFilter,
-} from '../store/intelligenceSlice';
+import { setSearchFilter, setSourceFilter } from '../store/intelligenceSlice';
 import type {
   ActionableItem,
+  ActionableItemSource,
   ActionableItemStatus,
   ConfirmationModal as ConfirmationModalType,
   ToastNotification,
@@ -57,8 +58,16 @@ export default function Intelligence() {
     onCancel: () => {},
   });
 
-  // Use API data or fallback to empty array
-  const items = apiItems || [];
+  const addToast = useCallback((toast: Omit<ToastNotification, 'id'>) => {
+    const newToast: ToastNotification = { ...toast, id: `toast-${Date.now()}-${Math.random()}` };
+    setToasts(prev => [...prev, newToast]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
+
+  const items = useMemo(() => apiItems ?? [], [apiItems]);
 
   // Initialize socket connection
   useEffect(() => {
@@ -67,16 +76,18 @@ export default function Intelligence() {
     }
   }, [socketConnected, socketManager]);
 
-  // Handle API errors with toast notifications
+  // Handle API errors with toast notifications (defer to avoid setState-in-effect)
   useEffect(() => {
-    if (itemsError) {
+    if (!itemsError) return;
+    const t = window.setTimeout(() => {
       addToast({
         type: 'error',
         title: 'Failed to load items',
         message: typeof itemsError === 'string' ? itemsError : 'Unable to fetch actionable items',
       });
-    }
-  }, [itemsError]);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [itemsError, addToast]);
 
   // Filter and group items
   const filteredItems = useMemo(() => {
@@ -96,55 +107,47 @@ export default function Intelligence() {
     return getItemStats(filteredItems);
   }, [filteredItems]);
 
-  // Toast utilities
-  const addToast = useCallback((toast: Omit<ToastNotification, 'id'>) => {
-    const newToast: ToastNotification = { ...toast, id: `toast-${Date.now()}-${Math.random()}` };
-    setToasts(prev => [...prev, newToast]);
-  }, []);
-
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  }, []);
-
   // Item action handlers with real backend integration
-  const handleUpdateItemStatus = useCallback(async (itemId: string, status: ActionableItemStatus) => {
-    try {
-      await updateItemStatus({ itemId, status });
+  const handleUpdateItemStatus = useCallback(
+    async (itemId: string, status: ActionableItemStatus) => {
+      try {
+        await updateItemStatus({ itemId, status });
 
-      // Success toast
-      let message = '';
-      switch (status) {
-        case 'completed':
-          message = 'Task marked as completed';
-          break;
-        case 'dismissed':
-          message = 'Task dismissed';
-          break;
-        case 'active':
-          message = 'Task reactivated';
-          break;
-        default:
-          message = 'Status updated';
+        // Success toast
+        let message = '';
+        switch (status) {
+          case 'completed':
+            message = 'Task marked as completed';
+            break;
+          case 'dismissed':
+            message = 'Task dismissed';
+            break;
+          case 'active':
+            message = 'Task reactivated';
+            break;
+          default:
+            message = 'Status updated';
+        }
+
+        addToast({ type: 'success', title: 'Status Updated', message });
+      } catch (error) {
+        console.error('Failed to update item status:', error);
+        addToast({
+          type: 'error',
+          title: 'Update Failed',
+          message: error instanceof Error ? error.message : 'Failed to update item status',
+        });
       }
+    },
+    [updateItemStatus, addToast]
+  );
 
-      addToast({
-        type: 'success',
-        title: 'Status Updated',
-        message,
-      });
-    } catch (error) {
-      console.error('Failed to update item status:', error);
-      addToast({
-        type: 'error',
-        title: 'Update Failed',
-        message: error instanceof Error ? error.message : 'Failed to update item status',
-      });
-    }
-  }, [updateItemStatus]);
-
-  const handleComplete = useCallback(async (item: ActionableItem) => {
-    await handleUpdateItemStatus(item.id, 'completed');
-  }, [handleUpdateItemStatus]);
+  const handleComplete = useCallback(
+    async (item: ActionableItem) => {
+      await handleUpdateItemStatus(item.id, 'completed');
+    },
+    [handleUpdateItemStatus]
+  );
 
   const handleDismiss = useCallback(
     (item: ActionableItem) => {
@@ -166,10 +169,7 @@ export default function Intelligence() {
               type: 'info',
               title: 'Dismissed',
               message: item.title.length > 40 ? `${item.title.substring(0, 40)}...` : item.title,
-              action: {
-                label: 'Undo',
-                handler: () => handleUpdateItemStatus(item.id, 'active'),
-              },
+              action: { label: 'Undo', handler: () => handleUpdateItemStatus(item.id, 'active') },
             });
           } catch (error) {
             console.error('Failed to dismiss item:', error);
@@ -206,23 +206,40 @@ export default function Intelligence() {
   );
 
   // Combined AI and socket status indicator
-  const systemStatus = socketConnected && aiStatus === 'ready' ? 'ready' :
-                      itemsLoading ? 'loading' :
-                      !socketConnected ? 'disconnected' : aiStatus;
+  const systemStatus =
+    socketConnected && aiStatus === 'ready'
+      ? 'ready'
+      : itemsLoading
+        ? 'loading'
+        : !socketConnected
+          ? 'disconnected'
+          : aiStatus;
 
   const systemStatusLabel =
-    systemStatus === 'ready' ? 'System Ready' :
-    systemStatus === 'loading' ? 'Loading...' :
-    systemStatus === 'disconnected' ? 'Connecting...' :
-    systemStatus === 'initializing' ? 'Initializing...' :
-    systemStatus === 'error' ? 'System Error' : 'System Idle';
+    systemStatus === 'ready'
+      ? 'System Ready'
+      : systemStatus === 'loading'
+        ? 'Loading...'
+        : systemStatus === 'disconnected'
+          ? 'Connecting...'
+          : systemStatus === 'initializing'
+            ? 'Initializing...'
+            : systemStatus === 'error'
+              ? 'System Error'
+              : 'System Idle';
 
   const systemStatusDot =
-    systemStatus === 'ready' ? 'bg-sage-400' :
-    systemStatus === 'loading' ? 'bg-amber-400 animate-pulse' :
-    systemStatus === 'disconnected' ? 'bg-amber-400 animate-pulse' :
-    systemStatus === 'initializing' ? 'bg-amber-400 animate-pulse' :
-    systemStatus === 'error' ? 'bg-coral-400' : 'bg-stone-600';
+    systemStatus === 'ready'
+      ? 'bg-sage-400'
+      : systemStatus === 'loading'
+        ? 'bg-amber-400 animate-pulse'
+        : systemStatus === 'disconnected'
+          ? 'bg-amber-400 animate-pulse'
+          : systemStatus === 'initializing'
+            ? 'bg-amber-400 animate-pulse'
+            : systemStatus === 'error'
+              ? 'bg-coral-400'
+              : 'bg-stone-600';
 
   return (
     <div className="min-h-full relative">
@@ -258,7 +275,9 @@ export default function Intelligence() {
               </div>
               <select
                 value={filters.source}
-                onChange={e => dispatch(setSourceFilter(e.target.value as any))}
+                onChange={e =>
+                  dispatch(setSourceFilter(e.target.value as ActionableItemSource | 'all'))
+                }
                 className="px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-primary-500/50 transition-colors">
                 <option value="all">All Sources</option>
                 <option value="email">Email</option>
@@ -304,8 +323,7 @@ export default function Intelligence() {
                 </p>
                 <button
                   onClick={() => refetchItems()}
-                  className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg transition-colors"
-                >
+                  className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg transition-colors">
                   Try Again
                 </button>
               </div>

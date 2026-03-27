@@ -3,9 +3,9 @@ import { useEffect, useRef } from 'react';
 import { useDaemonLifecycle } from '../hooks/useDaemonLifecycle';
 import { socketService } from '../services/socketService';
 import { store } from '../store';
-import { IS_DEV } from '../utils/config';
 import { useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
+import { IS_DEV } from '../utils/config';
 import {
   cleanupTauriSocketListeners,
   connectRustSocket,

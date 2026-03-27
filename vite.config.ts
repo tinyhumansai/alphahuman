@@ -29,7 +29,7 @@ export default defineConfig(async () => ({
     strictPort: true,
     host: host || false,
     allowedHosts: [
-      "frontend-runner-alphahuman-git-main-vezuresxyz.vercel.app",
+      "frontend-runner-openhuman-git-main-vezuresxyz.vercel.app",
     ],
     hmr: host
       ? {
@@ -39,8 +39,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri` and `ai` directories
-      ignored: ["**/src-tauri/**", "**/ai/**"],
+      // 3. tell Vite to ignore watching `src-tauri` directory (includes src-tauri/ai)
+      ignored: ["**/src-tauri/**"],
     },
   },
   resolve: {

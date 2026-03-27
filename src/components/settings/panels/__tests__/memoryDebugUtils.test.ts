@@ -35,4 +35,3 @@ describe('normalizeMemoryDocuments', () => {
     expect(normalizeMemoryDocuments(null)).toEqual([]);
   });
 });
-

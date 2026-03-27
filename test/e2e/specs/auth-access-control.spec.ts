@@ -114,7 +114,7 @@ async function waitForHomePage(timeout = 15_000) {
     'Good morning',
     'Good afternoon',
     'Good evening',
-    'Message AlphaHuman',
+    'Message OpenHuman',
     'Upgrade to Premium',
   ];
 
@@ -133,7 +133,7 @@ async function waitForHomePage(timeout = 15_000) {
  * Returns the matched text or null.
  */
 async function waitForPublicPage(timeout = 15_000) {
-  const candidates = ['Welcome', 'Log in', 'Sign in', 'Get Started', 'alphahuman'];
+  const candidates = ['Welcome', 'Log in', 'Sign in', 'Get Started', 'openhuman'];
 
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -658,7 +658,7 @@ describe('Auth & Access Control', () => {
     console.log(`[AuthAccess] Post-logout public page confirmed: found "${publicText}"`);
 
     // Verify no protected content is visible
-    const homeStillVisible = await textExists('Message AlphaHuman');
+    const homeStillVisible = await textExists('Message OpenHuman');
     expect(homeStillVisible).toBe(false);
   });
 

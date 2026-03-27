@@ -1,13 +1,16 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-import { intelligenceApi } from '../services/intelligenceApi';
+import { type ConnectedTool, intelligenceApi } from '../services/intelligenceApi';
 import type {
   ActionableItem,
   ActionableItemSource,
   ActionableItemStatus,
-  ChatMessage
+  ChatMessage,
 } from '../types/intelligence';
-import { transformBackendItemsToFrontend, transformBackendMessagesToFrontend } from '../utils/intelligenceTransforms';
+import {
+  transformBackendItemsToFrontend,
+  transformBackendMessagesToFrontend,
+} from '../utils/intelligenceTransforms';
 
 /**
  * Chat session state for managing individual conversations
@@ -35,7 +38,7 @@ export interface ExecutionState {
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
     timestamp?: Date;
   }>;
-  result?: any;
+  result?: unknown;
   error?: string;
 }
 
@@ -83,11 +86,7 @@ const initialState: IntelligenceState = {
   activeExecutions: {},
 
   // UI State
-  filters: {
-    source: 'all',
-    priority: 'all',
-    search: '',
-  },
+  filters: { source: 'all', priority: 'all', search: '' },
 
   // System state
   initialized: false,
@@ -142,10 +141,7 @@ export const updateItemStatus = createAsyncThunk(
  */
 export const snoozeItem = createAsyncThunk(
   'intelligence/snoozeItem',
-  async (
-    { itemId, snoozeUntil }: { itemId: string; snoozeUntil: Date },
-    { rejectWithValue }
-  ) => {
+  async ({ itemId, snoozeUntil }: { itemId: string; snoozeUntil: Date }, { rejectWithValue }) => {
     try {
       await intelligenceApi.snoozeItem(itemId, snoozeUntil);
       return { itemId, snoozeUntil, updatedAt: new Date() };
@@ -169,11 +165,7 @@ export const createChatSession = createAsyncThunk(
       const threadResponse = await intelligenceApi.getOrCreateThread(itemId);
       const messages = transformBackendMessagesToFrontend(threadResponse.messages);
 
-      return {
-        threadId: threadResponse.threadId,
-        itemId,
-        messages,
-      };
+      return { threadId: threadResponse.threadId, itemId, messages };
     } catch (error) {
       return rejectWithValue(
         error && typeof error === 'object' && 'error' in error
@@ -190,7 +182,7 @@ export const createChatSession = createAsyncThunk(
 export const executeTask = createAsyncThunk(
   'intelligence/executeTask',
   async (
-    { itemId, connectedTools }: { itemId: string; connectedTools: any[] },
+    { itemId, connectedTools }: { itemId: string; connectedTools: ConnectedTool[] },
     { rejectWithValue }
   ) => {
     try {
@@ -251,7 +243,10 @@ export const intelligenceSlice = createSlice({
       state.filters.source = action.payload;
     },
 
-    setPriorityFilter: (state, action: PayloadAction<'critical' | 'important' | 'normal' | 'all'>) => {
+    setPriorityFilter: (
+      state,
+      action: PayloadAction<'critical' | 'important' | 'normal' | 'all'>
+    ) => {
       state.filters.priority = action.payload;
     },
 
@@ -262,11 +257,7 @@ export const intelligenceSlice = createSlice({
     // Chat session actions
     setChatSession: (
       state,
-      action: PayloadAction<{
-        threadId: string;
-        itemId: string;
-        messages?: ChatMessage[];
-      }>
+      action: PayloadAction<{ threadId: string; itemId: string; messages?: ChatMessage[] }>
     ) => {
       const { threadId, itemId, messages = [] } = action.payload;
       state.activeSessions[threadId] = {
@@ -279,13 +270,7 @@ export const intelligenceSlice = createSlice({
       state.currentChatSession = threadId;
     },
 
-    addMessage: (
-      state,
-      action: PayloadAction<{
-        threadId: string;
-        message: ChatMessage;
-      }>
-    ) => {
+    addMessage: (state, action: PayloadAction<{ threadId: string; message: ChatMessage }>) => {
       const { threadId, message } = action.payload;
       const session = state.activeSessions[threadId];
       if (session) {
@@ -294,13 +279,7 @@ export const intelligenceSlice = createSlice({
       }
     },
 
-    setTyping: (
-      state,
-      action: PayloadAction<{
-        threadId: string;
-        isTyping: boolean;
-      }>
-    ) => {
+    setTyping: (state, action: PayloadAction<{ threadId: string; isTyping: boolean }>) => {
       const { threadId, isTyping } = action.payload;
       const session = state.activeSessions[threadId];
       if (session) {
@@ -323,10 +302,7 @@ export const intelligenceSlice = createSlice({
     // Execution actions
     setExecution: (
       state,
-      action: PayloadAction<{
-        executionId: string;
-        execution: ExecutionState;
-      }>
+      action: PayloadAction<{ executionId: string; execution: ExecutionState }>
     ) => {
       const { executionId, execution } = action.payload;
       state.activeExecutions[executionId] = execution;
@@ -334,10 +310,7 @@ export const intelligenceSlice = createSlice({
 
     updateExecutionProgress: (
       state,
-      action: PayloadAction<{
-        executionId: string;
-        progress: ExecutionState['progress'];
-      }>
+      action: PayloadAction<{ executionId: string; progress: ExecutionState['progress'] }>
     ) => {
       const { executionId, progress } = action.payload;
       const execution = state.activeExecutions[executionId];
@@ -351,7 +324,7 @@ export const intelligenceSlice = createSlice({
       state,
       action: PayloadAction<{
         executionId: string;
-        result: any;
+        result: unknown;
         status: 'completed' | 'failed';
         error?: string;
       }>
@@ -371,15 +344,15 @@ export const intelligenceSlice = createSlice({
     },
 
     // Error handling
-    clearError: (state) => {
+    clearError: state => {
       state.error = null;
     },
   },
 
-  extraReducers: (builder) => {
+  extraReducers: builder => {
     // Fetch actionable items
     builder
-      .addCase(fetchActionableItems.pending, (state) => {
+      .addCase(fetchActionableItems.pending, state => {
         state.loading = true;
         state.error = null;
       })

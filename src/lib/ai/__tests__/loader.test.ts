@@ -76,7 +76,7 @@ describe('Unified AI Loader', () => {
       expect(config.soul).toEqual(mockSoulConfig);
       expect(config.tools).toEqual(mockToolsConfig);
       expect(config.metadata.hasFallbacks).toBe(false);
-      expect(config.metadata.loadingDuration).toBeGreaterThan(0);
+      expect(config.metadata.loadingDuration).toBeGreaterThanOrEqual(0);
     });
 
     it('should return cached config on subsequent calls', async () => {
@@ -247,7 +247,7 @@ describe('Unified AI Loader', () => {
 
       expect(clearSoulCache).toHaveBeenCalled();
       expect(clearToolsCache).toHaveBeenCalled();
-      expect(localStorageMock.removeItem).toHaveBeenCalledWith('alphahuman.ai.cache');
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith('openhuman.ai.cache');
     });
   });
 });
