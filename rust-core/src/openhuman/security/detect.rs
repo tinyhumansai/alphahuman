@@ -18,8 +18,7 @@ pub fn create_sandbox(config: &SecurityConfig) -> Arc<dyn Sandbox> {
         SandboxBackend::Landlock => {
             #[cfg(feature = "sandbox-landlock")]
             {
-                #[cfg(target_os = "linux")]
-                {
+                if std::env::consts::OS == "linux" {
                     if let Ok(sandbox) = super::landlock::LandlockSandbox::new() {
                         return Arc::new(sandbox);
                     }
@@ -29,8 +28,7 @@ pub fn create_sandbox(config: &SecurityConfig) -> Arc<dyn Sandbox> {
             Arc::new(super::traits::NoopSandbox)
         }
         SandboxBackend::Firejail => {
-            #[cfg(target_os = "linux")]
-            {
+            if std::env::consts::OS == "linux" {
                 if let Ok(sandbox) = super::firejail::FirejailSandbox::new() {
                     return Arc::new(sandbox);
                 }
@@ -41,8 +39,7 @@ pub fn create_sandbox(config: &SecurityConfig) -> Arc<dyn Sandbox> {
         SandboxBackend::Bubblewrap => {
             #[cfg(feature = "sandbox-bubblewrap")]
             {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                {
+                if matches!(std::env::consts::OS, "linux" | "macos") {
                     if let Ok(sandbox) = super::bubblewrap::BubblewrapSandbox::new() {
                         return Arc::new(sandbox);
                     }
@@ -67,8 +64,7 @@ pub fn create_sandbox(config: &SecurityConfig) -> Arc<dyn Sandbox> {
 
 /// Auto-detect the best available sandbox
 fn detect_best_sandbox() -> Arc<dyn Sandbox> {
-    #[cfg(target_os = "linux")]
-    {
+    if std::env::consts::OS == "linux" {
         // Try Landlock first (native, no dependencies)
         #[cfg(feature = "sandbox-landlock")]
         {
@@ -85,8 +81,7 @@ fn detect_best_sandbox() -> Arc<dyn Sandbox> {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    {
+    if std::env::consts::OS == "macos" {
         // Try Bubblewrap on macOS
         #[cfg(feature = "sandbox-bubblewrap")]
         {

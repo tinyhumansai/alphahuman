@@ -56,13 +56,13 @@ pub struct ServiceStatus {
 }
 
 pub fn install(config: &Config) -> Result<ServiceStatus> {
-    if cfg!(target_os = "macos") {
+    if std::env::consts::OS == "macos" {
         install_macos(config)?;
         status(config)
-    } else if cfg!(target_os = "linux") {
+    } else if std::env::consts::OS == "linux" {
         install_linux(config)?;
         status(config)
-    } else if cfg!(target_os = "windows") {
+    } else if std::env::consts::OS == "windows" {
         install_windows(config)?;
         status(config)
     } else {
@@ -71,7 +71,7 @@ pub fn install(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn start(config: &Config) -> Result<ServiceStatus> {
-    if cfg!(target_os = "macos") {
+    if std::env::consts::OS == "macos" {
         let plist = macos_service_file()?;
         let domain = macos_gui_domain()?;
         let primary_target = macos_target(SERVICE_LABEL)?;
@@ -115,7 +115,7 @@ pub fn start(config: &Config) -> Result<ServiceStatus> {
         return status(config);
     }
 
-    if cfg!(target_os = "linux") {
+    if std::env::consts::OS == "linux" {
         // Check if service is enabled before trying to start
         if !is_service_enabled_linux()? {
             log::info!("[service] Enabling systemd service");
@@ -146,7 +146,7 @@ pub fn start(config: &Config) -> Result<ServiceStatus> {
         return status(config);
     }
 
-    if cfg!(target_os = "windows") {
+    if std::env::consts::OS == "windows" {
         let task_name = windows_task_name();
 
         // Check if task exists before trying to run
@@ -179,7 +179,7 @@ pub fn start(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn stop(config: &Config) -> Result<ServiceStatus> {
-    if cfg!(target_os = "macos") {
+    if std::env::consts::OS == "macos" {
         let plist = macos_service_file()?;
         let domain = macos_gui_domain()?;
         let primary_target = macos_target(SERVICE_LABEL)?;
@@ -223,13 +223,13 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
         return status(config);
     }
 
-    if cfg!(target_os = "linux") {
+    if std::env::consts::OS == "linux" {
         let _ =
             run_checked(Command::new("systemctl").args(["--user", "stop", "openhuman.service"]));
         return status(config);
     }
 
-    if cfg!(target_os = "windows") {
+    if std::env::consts::OS == "windows" {
         let _ = config;
         let task_name = windows_task_name();
         let _ = run_checked(Command::new("schtasks").args(["/End", "/TN", task_name]));
@@ -240,7 +240,7 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn status(config: &Config) -> Result<ServiceStatus> {
-    if cfg!(target_os = "macos") {
+    if std::env::consts::OS == "macos" {
         let out = run_capture(Command::new("launchctl").arg("list"))?;
         let running = out
             .lines()
@@ -257,7 +257,7 @@ pub fn status(config: &Config) -> Result<ServiceStatus> {
         });
     }
 
-    if cfg!(target_os = "linux") {
+    if std::env::consts::OS == "linux" {
         let out = run_capture(Command::new("systemctl").args([
             "--user",
             "is-active",
@@ -277,7 +277,7 @@ pub fn status(config: &Config) -> Result<ServiceStatus> {
         });
     }
 
-    if cfg!(target_os = "windows") {
+    if std::env::consts::OS == "windows" {
         let _ = config;
         let task_name = windows_task_name();
         let out =
@@ -313,7 +313,7 @@ pub fn status(config: &Config) -> Result<ServiceStatus> {
 pub fn uninstall(config: &Config) -> Result<ServiceStatus> {
     let _ = stop(config);
 
-    if cfg!(target_os = "macos") {
+    if std::env::consts::OS == "macos" {
         let file = macos_service_file()?;
         if file.exists() {
             fs::remove_file(&file)
@@ -331,7 +331,7 @@ pub fn uninstall(config: &Config) -> Result<ServiceStatus> {
         });
     }
 
-    if cfg!(target_os = "linux") {
+    if std::env::consts::OS == "linux" {
         let file = linux_service_file(config)?;
         if file.exists() {
             fs::remove_file(&file)
@@ -346,7 +346,7 @@ pub fn uninstall(config: &Config) -> Result<ServiceStatus> {
         });
     }
 
-    if cfg!(target_os = "windows") {
+    if std::env::consts::OS == "windows" {
         let task_name = windows_task_name();
         let _ = run_checked(Command::new("schtasks").args(["/Delete", "/TN", task_name, "/F"]));
         // Remove the wrapper script

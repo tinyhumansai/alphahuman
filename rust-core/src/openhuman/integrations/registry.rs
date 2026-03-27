@@ -682,7 +682,7 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             description: "Native support + AppleScript",
             category: IntegrationCategory::Platform,
             status_fn: |_| {
-                if cfg!(target_os = "macos") {
+                if std::env::consts::OS == "macos" {
                     IntegrationStatus::Active
                 } else {
                     IntegrationStatus::Available
@@ -694,7 +694,7 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             description: "Native support",
             category: IntegrationCategory::Platform,
             status_fn: |_| {
-                if cfg!(target_os = "linux") {
+                if std::env::consts::OS == "linux" {
                     IntegrationStatus::Active
                 } else {
                     IntegrationStatus::Available
@@ -913,7 +913,7 @@ mod tests {
         let entries = all_integrations();
         let macos = entries.iter().find(|e| e.name == "macOS").unwrap();
         let status = (macos.status_fn)(&config);
-        if cfg!(target_os = "macos") {
+        if std::env::consts::OS == "macos" {
             assert!(matches!(status, IntegrationStatus::Active));
         } else {
             assert!(matches!(status, IntegrationStatus::Available));

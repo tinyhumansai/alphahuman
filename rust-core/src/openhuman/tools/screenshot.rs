@@ -27,13 +27,13 @@ impl ScreenshotTool {
 
     /// Determine the screenshot command for the current platform.
     fn screenshot_command(output_path: &str) -> Option<Vec<String>> {
-        if cfg!(target_os = "macos") {
+        if std::env::consts::OS == "macos" {
             Some(vec![
                 "screencapture".into(),
                 "-x".into(), // no sound
                 output_path.into(),
             ])
-        } else if cfg!(target_os = "linux") {
+        } else if std::env::consts::OS == "linux" {
             Some(vec![
                 "sh".into(),
                 "-c".into(),
@@ -92,7 +92,7 @@ impl ScreenshotTool {
         };
 
         // macOS region flags
-        if cfg!(target_os = "macos") {
+        if std::env::consts::OS == "macos" {
             if let Some(region) = args.get("region").and_then(|v| v.as_str()) {
                 match region {
                     "selection" => cmd_args.insert(1, "-s".into()),
