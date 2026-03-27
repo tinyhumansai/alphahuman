@@ -61,13 +61,9 @@ enum Command {
         command: HardwareCommand,
     },
     /// Encrypt a secret
-    Encrypt {
-        plaintext: String,
-    },
+    Encrypt { plaintext: String },
     /// Decrypt a secret
-    Decrypt {
-        ciphertext: String,
-    },
+    Decrypt { ciphertext: String },
     /// Toggle browser allow-all runtime flag
     BrowserAllowAll {
         #[arg(long)]
@@ -94,17 +90,35 @@ enum ConfigCommand {
     /// Get full config snapshot
     Get,
     /// Update model settings with a JSON object
-    UpdateModel { #[arg(long)] json: String },
+    UpdateModel {
+        #[arg(long)]
+        json: String,
+    },
     /// Update memory settings with a JSON object
-    UpdateMemory { #[arg(long)] json: String },
+    UpdateMemory {
+        #[arg(long)]
+        json: String,
+    },
     /// Update gateway settings with a JSON object
-    UpdateGateway { #[arg(long)] json: String },
+    UpdateGateway {
+        #[arg(long)]
+        json: String,
+    },
     /// Update runtime settings with a JSON object
-    UpdateRuntime { #[arg(long)] json: String },
+    UpdateRuntime {
+        #[arg(long)]
+        json: String,
+    },
     /// Update browser settings with a JSON object
-    UpdateBrowser { #[arg(long)] json: String },
+    UpdateBrowser {
+        #[arg(long)]
+        json: String,
+    },
     /// Replace tunnel settings with a JSON object
-    UpdateTunnel { #[arg(long)] json: String },
+    UpdateTunnel {
+        #[arg(long)]
+        json: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -213,9 +227,7 @@ async fn execute(cli: Cli) -> Result<serde_json::Value, String> {
                 call_local("openhuman.service_uninstall", json!({})).await?;
                 call_local("openhuman.service_install", json!({})).await
             }
-            ServiceCommand::Uninstall => {
-                call_local("openhuman.service_uninstall", json!({})).await
-            }
+            ServiceCommand::Uninstall => call_local("openhuman.service_uninstall", json!({})).await,
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Report => call_local("openhuman.doctor_report", json!({})).await,
@@ -258,13 +270,25 @@ async fn execute(cli: Cli) -> Result<serde_json::Value, String> {
             }
         },
         Command::Encrypt { plaintext } => {
-            call_local("openhuman.encrypt_secret", json!({ "plaintext": plaintext })).await
+            call_local(
+                "openhuman.encrypt_secret",
+                json!({ "plaintext": plaintext }),
+            )
+            .await
         }
         Command::Decrypt { ciphertext } => {
-            call_local("openhuman.decrypt_secret", json!({ "ciphertext": ciphertext })).await
+            call_local(
+                "openhuman.decrypt_secret",
+                json!({ "ciphertext": ciphertext }),
+            )
+            .await
         }
         Command::BrowserAllowAll { enabled } => {
-            call_local("openhuman.set_browser_allow_all", json!({ "enabled": enabled })).await
+            call_local(
+                "openhuman.set_browser_allow_all",
+                json!({ "enabled": enabled }),
+            )
+            .await
         }
         Command::ModelsRefresh { provider, force } => {
             call_local(

@@ -54,3 +54,42 @@ jobs:
           name: coverage-report
           path: coverage
           retention-days: 7
+
+  rust-tests:
+    name: Run Rust Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Match build.yml: lockfile body only (skip workspace version header noise)
+      - name: Cargo.lock fingerprint (deps only)
+        id: cargo-lock-fingerprint
+        shell: bash
+        run: |
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo registry and git sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-rust-test-cargo-${{ steps.cargo-lock-fingerprint.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-rust-test-cargo-
+
+      - name: Run workspace tests
+        run: cargo test --workspace

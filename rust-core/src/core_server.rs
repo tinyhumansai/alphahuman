@@ -640,7 +640,10 @@ async fn dispatch(
     }
 }
 
-pub async fn call_method(method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+pub async fn call_method(
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     dispatch(
         AppState {
             core_version: env!("CARGO_PKG_VERSION").to_string(),

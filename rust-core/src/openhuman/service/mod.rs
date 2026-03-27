@@ -16,10 +16,7 @@ fn windows_task_name() -> &'static str {
 }
 
 fn daemon_program_args(exe: &std::path::Path) -> Vec<String> {
-    let raw_file_name = exe
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
+    let raw_file_name = exe.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     let file_name = raw_file_name.to_ascii_lowercase();
     let standalone_core_binary = file_name.contains("openhuman-core")
         || file_name.starts_with("openhuman-")

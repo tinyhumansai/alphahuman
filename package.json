@@ -25,7 +25,7 @@
     "test:unit:watch": "vitest --config test/vitest.config.ts",
     "test:watch": "vitest --config test/vitest.config.ts",
     "test:coverage": "vitest run --config test/vitest.config.ts --coverage",
-    "test:rust": "source $HOME/.cargo/env 2>/dev/null; cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "source $HOME/.cargo/env 2>/dev/null; cargo test --workspace",
     "test:e2e:build": "bash scripts/e2e-build.sh",
     "test:e2e:login": "bash scripts/e2e-login.sh",
     "test:e2e:auth": "bash scripts/e2e-auth.sh",
