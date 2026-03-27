@@ -52,6 +52,6 @@ export default defineConfig(async () => ({
     },
   },
   optimizeDeps: {
-    include: ["buffer", "process", "util", "os-browserify", "telegram"],
+    include: ["buffer", "process", "util", "os-browserify"],
   },
 }));
