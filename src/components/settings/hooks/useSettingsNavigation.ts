@@ -16,6 +16,7 @@ export type SettingsRoute =
   | 'accessibility'
   | 'skills'
   | 'ai'
+  | 'local-model'
   | 'tauri-commands'
   | 'memory-debug';
 
@@ -52,6 +53,7 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     if (path.includes('/settings/accessibility')) return 'accessibility';
     if (path.includes('/settings/skills')) return 'skills';
     if (path.includes('/settings/ai')) return 'ai';
+    if (path.includes('/settings/local-model')) return 'local-model';
     if (path.includes('/settings/tauri-commands')) return 'tauri-commands';
     if (path.includes('/settings/memory-debug')) return 'memory-debug';
     return 'home';
@@ -77,7 +79,13 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     [navigate]
   );
 
-  const developerSubRoutes: SettingsRoute[] = ['skills', 'ai', 'tauri-commands', 'memory-debug'];
+  const developerSubRoutes: SettingsRoute[] = [
+    'skills',
+    'ai',
+    'local-model',
+    'tauri-commands',
+    'memory-debug',
+  ];
 
   const navigateBack = useCallback(() => {
     if (currentRoute === 'home') {

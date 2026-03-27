@@ -79,3 +79,10 @@ Activated for workflow creation, scheduled tasks, and skill management.
 ## PR Authoring Rule
 
 When an agent prepares or suggests pull request content, it must follow `.github/pull_request_template.md` and keep all sections/checklists intact.
+
+## Engineering Ownership Rules
+
+- Prefer writing core business logic in `rust-core/`.
+- Keep user interaction logic in the UI layer (`src/`), and validate user flows with UI E2E tests.
+- Keep functionality validation in Rust tests for `rust-core`.
+- Keep `src-tauri/` focused on command registration and bridge code only, so frontend and `rust-core` communicate reliably.

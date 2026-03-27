@@ -10,13 +10,13 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type { AgentToolExecution, AgentToolSchema, IAgentToolRegistry } from '../types/agent';
 
-// ZeroClaw format types from Rust
-interface ZeroClawToolSchema {
+// OpenClaw format types from Rust
+interface OpenClawToolSchema {
   type: string;
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
-interface ZeroClawToolResult {
+interface OpenClawToolResult {
   success: boolean;
   output: string;
   error?: string;
@@ -58,7 +58,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
       // 2. Load other tools from skill system (fallback for non-Telegram)
       try {
         console.log('🔧 Loading non-Telegram tools from skill system...');
-        const skillTools = await invoke<ZeroClawToolSchema[]>('runtime_get_tool_schemas');
+        const skillTools = await invoke<OpenClawToolSchema[]>('runtime_get_tool_schemas');
 
         // Filter out telegram tools to avoid duplicates
         const nonTelegramTools = skillTools.filter(
@@ -141,7 +141,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         toolName.includes('tg') ||
         this.extractCategoryFromSkillId(skillId).includes('Telegram');
 
-      let result: ZeroClawToolResult;
+      let result: OpenClawToolResult;
 
       if (isTelegramTool) {
         // Telegram tools no longer available
@@ -159,7 +159,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         console.log(`   args: ${toolArguments}`);
         console.log(`   args type: ${typeof toolArguments}`);
 
-        result = await invoke<ZeroClawToolResult>('runtime_execute_tool', {
+        result = await invoke<OpenClawToolResult>('runtime_execute_tool', {
           toolId,
           args: toolArguments,
         });

@@ -13,12 +13,13 @@ pub use schema::{
     CloudflareTunnelConfig, ComposioConfig, Config, CostConfig, CronConfig, CustomTunnelConfig,
     DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig, EmbeddingRouteConfig, GatewayConfig,
     HardwareConfig, HardwareTransport, HeartbeatConfig, HttpRequestConfig, IMessageConfig,
-    IdentityConfig, LarkConfig, MatrixConfig, MemoryConfig, ModelRouteConfig, MultimodalConfig,
-    NgrokTunnelConfig, ObservabilityConfig, PeripheralBoardConfig, PeripheralsConfig, ProxyConfig,
-    ProxyScope, QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig,
-    SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig, SlackConfig,
-    StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
-    TailscaleTunnelConfig, TelegramConfig, TunnelConfig, WebSearchConfig, WebhookConfig,
+    IdentityConfig, LarkConfig, LocalAiConfig, MatrixConfig, MemoryConfig, ModelRouteConfig,
+    MultimodalConfig, NgrokTunnelConfig, ObservabilityConfig, PeripheralBoardConfig,
+    PeripheralsConfig, ProxyConfig, ProxyScope, QueryClassificationConfig, ReliabilityConfig,
+    ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig,
+    SecretsConfig, SecurityConfig, SlackConfig, StorageConfig, StorageProviderConfig,
+    StorageProviderSection, StreamMode, TailscaleTunnelConfig, TelegramConfig, TunnelConfig,
+    WebSearchConfig, WebhookConfig,
 };
 
 #[cfg(test)]

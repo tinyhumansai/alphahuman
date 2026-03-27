@@ -8,8 +8,6 @@ pub fn get_platform() -> &'static str {
         "macos" => "macos",
         "windows" => "windows",
         "linux" => "linux",
-        "android" => "android",
-        "ios" => "ios",
         _ => "unknown",
     }
 }
@@ -20,9 +18,6 @@ pub fn send_notification(
     title: &str,
     body: &str,
 ) -> Result<(), String> {
-    if matches!(get_platform(), "android" | "ios") {
-        return Err("Notifications not available on this platform".to_string());
-    }
     log::info!("[runtime] notification requested: {title} - {body}");
     Ok(())
 }
