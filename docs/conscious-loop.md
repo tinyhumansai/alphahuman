@@ -17,6 +17,7 @@ The structured prompt that tells the LLM how to extract actionable items from re
 ### 2. `src-tauri/src/commands/conscious_loop.rs` — Core implementation (~250 lines)
 
 **Structs:**
+
 - `ConsciousLoopStartedEvent` — emitted when a run begins
 - `ConsciousLoopCompletedEvent` — emitted on success (includes actionable count, duration)
 - `ConsciousLoopErrorEvent` — emitted on failure
@@ -24,11 +25,13 @@ The structured prompt that tells the LLM how to extract actionable items from re
 **Functions:**
 
 #### `conscious_loop_run` (Tauri command)
+
 - Params: `app: AppHandle`, `auth_token`, `backend_url`, `model`, `memory_state: State<MemoryState>`
 - Spawns `conscious_loop_run_inner` as background task, returns immediately
 - Enables manual triggering from frontend
 
 #### `conscious_loop_run_inner` (core logic)
+
 1. **Emit** `conscious_loop:started`
 2. **Get skill IDs** — call `engine.all_tools()` to obtain the set of active `skill_ids` (same source used by `chat_send_inner`). No separate API call needed — each skill ID is directly its memory namespace
 3. **Recall memory** for each skill via `memory_client.recall_skill_context(&skill_id, &skill_id, 10)`. Collect as `Vec<(skill_id, context_text)>`. Skip skills that return `None`
@@ -41,6 +44,7 @@ The structured prompt that tells the LLM how to extract actionable items from re
 10. **Emit** `conscious_loop:completed`
 
 #### `conscious_loop_timer` (periodic runner)
+
 - Spawned from `lib.rs` setup, runs on `tokio::time::interval(Duration::from_secs(300))` (5 min)
 - 60s initial delay for skills to boot and memory to initialize
 - Checks: memory client initialized? auth token present? If not, skip silently
@@ -48,6 +52,7 @@ The structured prompt that tells the LLM how to extract actionable items from re
 - Uses `gpt-4o-mini` as default model (configurable via `OPENHUMAN_CONSCIOUS_MODEL` env var)
 
 **Error handling:**
+
 - Memory client not initialized → skip (timer) or return Err (manual command)
 - No skill IDs found → emit completed with 0 items (not an error)
 - Individual skill recall fails → log warning, skip, continue
@@ -60,13 +65,16 @@ The structured prompt that tells the LLM how to extract actionable items from re
 ## Files to Modify
 
 ### 3. `src-tauri/src/commands/memory.rs`
+
 - Make `extract_namespaces_from_documents` **`pub(crate)`** (currently private `fn`)
 
 ### 4. `src-tauri/src/commands/mod.rs`
+
 - Add `pub mod conscious_loop;`
 - Add `pub use conscious_loop::*;`
 
 ### 5. `src-tauri/src/lib.rs`
+
 - **Desktop handler list** (~line 1088): Add `conscious_loop_run` command
 - **Mobile handler list** (~line 1095): Add no-op stub
 - **Setup block** (~line 928): Spawn `conscious_loop_timer` after memory state is registered:
@@ -81,24 +89,24 @@ The structured prompt that tells the LLM how to extract actionable items from re
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|---|---|
-| **Rust-side timer** (not frontend setInterval) | App runs in tray mode where webview is hidden. Tokio interval survives this. Matches `watch_daemon_health_file` pattern |
+| Decision                                              | Rationale                                                                                                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rust-side timer** (not frontend setInterval)        | App runs in tray mode where webview is hidden. Tokio interval survives this. Matches `watch_daemon_health_file` pattern                                             |
 | **`recall_skill_context`** (via `engine.all_tools()`) | Consistent with `chat_send_inner`. No extra API call — skill IDs are already available from the runtime. `integration_id` is passed as `skill_id` (same convention) |
-| **`gpt-4o-mini` default** | Background summarization, not conversational. Faster + cheaper. Configurable via env var |
-| **5-minute interval** | Frequent enough for time-sensitive items, conservative on tokens |
-| **Deterministic document_id** | Hash of title+source enables dedup on repeated runs |
-| **`conscious` namespace** | Clean separation from skill data. Avoids polluting skill namespaces |
+| **`gpt-4o-mini` default**                             | Background summarization, not conversational. Faster + cheaper. Configurable via env var                                                                            |
+| **5-minute interval**                                 | Frequent enough for time-sensitive items, conservative on tokens                                                                                                    |
+| **Deterministic document_id**                         | Hash of title+source enables dedup on repeated runs                                                                                                                 |
+| **`conscious` namespace**                             | Clean separation from skill data. Avoids polluting skill namespaces                                                                                                 |
 
 ---
 
 ## Event Protocol (Rust → Frontend)
 
-| Event | Payload | Purpose |
-|---|---|---|
-| `conscious_loop:started` | `{ run_id, timestamp, namespaces[] }` | UI can show loading state |
+| Event                      | Payload                                     | Purpose                          |
+| -------------------------- | ------------------------------------------- | -------------------------------- |
+| `conscious_loop:started`   | `{ run_id, timestamp, namespaces[] }`       | UI can show loading state        |
 | `conscious_loop:completed` | `{ run_id, actionable_count, duration_ms }` | UI can refresh Intelligence view |
-| `conscious_loop:error` | `{ run_id, message, error_type }` | UI can show error indicator |
+| `conscious_loop:error`     | `{ run_id, message, error_type }`           | UI can show error indicator      |
 
 ---
 
@@ -150,14 +158,14 @@ items that are:
 Return a JSON array of actionable items. Each item must have this exact structure:
 
 {
-  "title": "Short descriptive title (under 80 chars)",
-  "description": "1-2 sentence explanation with context",
-  "source": "email|calendar|telegram|ai_insight|system|trading|security",
-  "priority": "critical|important|normal",
-  "actionable": true,
-  "requires_confirmation": false,
-  "has_complex_action": false,
-  "source_label": "Human-readable source name (e.g. Gmail, Telegram, Notion)"
+"title": "Short descriptive title (under 80 chars)",
+"description": "1-2 sentence explanation with context",
+"source": "email|calendar|telegram|ai_insight|system|trading|security",
+"priority": "critical|important|normal",
+"actionable": true,
+"requires_confirmation": false,
+"has_complex_action": false,
+"source_label": "Human-readable source name (e.g. Gmail, Telegram, Notion)"
 }
 
 ## Rules
