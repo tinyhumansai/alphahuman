@@ -352,7 +352,7 @@ jobs:
         run: |
           # Temporarily inject [[bin]] entries that were removed from Cargo.toml
           # to prevent Tauri's bundler from trying to copy them into app bundles.
-          printf '\n[[bin]]\nname = "openhuman-core"\npath = "src/bin/openhuman-core.rs"\n\n[[bin]]\nname = "openhuman-cli"\npath = "src/bin/openhuman-cli.rs"\n' >> src-tauri/Cargo.toml
+          printf '\n[[bin]]\nname = "openhuman-core"\npath = "src/standalone/openhuman-core.rs"\n\n[[bin]]\nname = "openhuman-cli"\npath = "src/standalone/openhuman-cli.rs"\n' >> src-tauri/Cargo.toml
 
           CARGO_TARGET=""
           if [ -n "$MATRIX_TARGET" ]; then

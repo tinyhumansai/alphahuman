@@ -21,11 +21,11 @@ name = "OpenHuman"
 path = "src/main.rs"
 
 # NOTE: openhuman-core and openhuman-cli bin entries are NOT declared here.
-# Tauri's bundler tries to copy ALL [[bin]] targets into the app bundle,
-# even when they are gated behind required-features and not compiled.
+# Tauri's bundler and Cargo auto-discover src/bin/*.rs as binary targets,
+# so the standalone sources live in src/standalone/ to avoid bundling.
 # The standalone bins are built separately in release.yml by temporarily
 # injecting [[bin]] entries before `cargo build --features standalone-bins`.
-# Source files: src/bin/openhuman-core.rs, src/bin/openhuman-cli.rs
+# Source files: src/standalone/openhuman-core.rs, src/standalone/openhuman-cli.rs
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
