@@ -25,10 +25,7 @@ const testRootReducer = combineReducers({
 });
 
 export function createTestStore(preloadedState?: Record<string, unknown>) {
-  return configureStore({
-    reducer: testRootReducer,
-    preloadedState: preloadedState as never,
-  });
+  return configureStore({ reducer: testRootReducer, preloadedState: preloadedState as never });
 }
 
 type TestStore = ReturnType<typeof createTestStore>;

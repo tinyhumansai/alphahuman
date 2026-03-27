@@ -8,11 +8,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 
-import type {
-  AgentToolExecution,
-  AgentToolSchema,
-  IAgentToolRegistry,
-} from '../types/agent';
+import type { AgentToolExecution, AgentToolSchema, IAgentToolRegistry } from '../types/agent';
 
 // ZeroClaw format types from Rust
 interface ZeroClawToolSchema {

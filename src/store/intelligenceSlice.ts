@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-import { intelligenceApi, type ConnectedTool } from '../services/intelligenceApi';
+import { type ConnectedTool, intelligenceApi } from '../services/intelligenceApi';
 import type {
   ActionableItem,
   ActionableItemSource,

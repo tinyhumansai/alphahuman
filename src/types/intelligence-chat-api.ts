@@ -351,12 +351,7 @@ export function isAPIResponse<T>(obj: unknown): obj is APIResponse<T> {
 export function isExecutionStepProgressEvent(obj: unknown): obj is ExecutionStepProgressEvent {
   if (!isWebSocketMessage(obj) || obj.type !== 'execution_step_progress') return false;
   const d = obj.data;
-  return (
-    typeof d === 'object' &&
-    d !== null &&
-    'step_id' in d &&
-    'progress_percentage' in d
-  );
+  return typeof d === 'object' && d !== null && 'step_id' in d && 'progress_percentage' in d;
 }
 
 // ===== Utility Types =====
