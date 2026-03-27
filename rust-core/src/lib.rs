@@ -1,3 +1,4 @@
+#[cfg(feature = "tauri-host")]
 pub mod ai;
 pub mod auth;
 pub mod core_server;

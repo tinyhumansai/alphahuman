@@ -19,14 +19,14 @@ items that are:
 Return a JSON array of actionable items. Each item must have this exact structure:
 
 {
-  "title": "Short descriptive title (under 80 chars)",
-  "description": "1-2 sentence explanation with context",
-  "source": "email|calendar|telegram|ai_insight|system|trading|security",
-  "priority": "critical|important|normal",
-  "actionable": true,
-  "requires_confirmation": false,
-  "has_complex_action": false,
-  "source_label": "Human-readable source name (e.g. Gmail, Telegram, Notion)"
+"title": "Short descriptive title (under 80 chars)",
+"description": "1-2 sentence explanation with context",
+"source": "email|calendar|telegram|ai_insight|system|trading|security",
+"priority": "critical|important|normal",
+"actionable": true,
+"requires_confirmation": false,
+"has_complex_action": false,
+"source_label": "Human-readable source name (e.g. Gmail, Telegram, Notion)"
 }
 
 ## Rules
