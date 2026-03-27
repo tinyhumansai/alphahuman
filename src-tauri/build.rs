@@ -7,7 +7,7 @@ fn main() {
 
 fn maybe_override_tauri_config_for_local_builds() {
     let profile = env::var("PROFILE").unwrap_or_default();
-    let skip_resources = env::var("TAURI_SKIP_RESOURCES").is_ok() || profile == "test";
+    let skip_resources = env::var("TAURI_SKIP_RESOURCES").is_ok() || profile != "release";
 
     if !skip_resources {
         return;

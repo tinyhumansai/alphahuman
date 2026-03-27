@@ -2101,6 +2101,8 @@ fn host_matches_allowlist(host: &str, allowed: &[String]) -> bool {
 mod tests {
     use super::*;
 
+    static BROWSER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn normalize_domains_works() {
         let domains = vec![
@@ -2393,6 +2395,7 @@ mod tests {
 
     #[test]
     fn browser_tool_empty_allowlist_blocks() {
+        let _guard = BROWSER_ENV_LOCK.lock().expect("env lock poisoned");
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec![], None);
         std::env::remove_var("OPENHUMAN_BROWSER_ALLOW_ALL");
@@ -2401,6 +2404,7 @@ mod tests {
 
     #[test]
     fn browser_tool_empty_allowlist_allows_with_env_flag() {
+        let _guard = BROWSER_ENV_LOCK.lock().expect("env lock poisoned");
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec![], None);
         std::env::set_var("OPENHUMAN_BROWSER_ALLOW_ALL", "1");
