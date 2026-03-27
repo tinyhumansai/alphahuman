@@ -8,7 +8,9 @@
 //! - Secure session storage
 //! - Native notifications
 
-mod ai;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+compile_error!("src-tauri host is desktop-only. Android/iOS support has been removed.");
+
 mod commands;
 mod core_process;
 mod core_rpc;
@@ -20,12 +22,12 @@ mod services;
 mod unified_skills;
 mod utils;
 
-use ai::*;
 use commands::chat::ChatState;
 use commands::unified_skills::{
     unified_execute_skill, unified_generate_skill, unified_list_skills, unified_self_evolve_skill,
 };
 use commands::*;
+use openhuman_core::ai::*;
 use serde::Serialize;
 use services::socket_service::SOCKET_SERVICE;
 use std::collections::HashMap;
@@ -211,9 +213,17 @@ fn resolve_ai_directory(app: &tauri::AppHandle) -> Option<(PathBuf, &'static str
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        let root_dev_dir = cwd.join("src-tauri").join("ai");
+        let root_dev_dir = cwd.join("rust-core").join("ai");
         if root_dev_dir.is_dir() {
             return Some((root_dev_dir, "bundled"));
+        }
+
+        let src_tauri_dev_dir = cwd
+            .parent()
+            .map(|p| p.join("rust-core").join("ai"))
+            .filter(|p| p.is_dir());
+        if let Some(path) = src_tauri_dev_dir {
+            return Some((path, "bundled"));
         }
 
         let fallback = cwd.join("ai");
@@ -280,7 +290,7 @@ async fn ai_refresh_config(app: tauri::AppHandle) -> Result<AIPreview, String> {
     Ok(build_ai_preview(&app))
 }
 
-/// Write AI configuration files to the src-tauri/ai/ directory
+/// Write AI configuration files to the rust-core/ai/ directory
 #[tauri::command]
 async fn write_ai_config_file(filename: String, content: String) -> Result<bool, String> {
     use std::env;
@@ -299,11 +309,20 @@ async fn write_ai_config_file(filename: String, content: String) -> Result<bool,
         return Err("Invalid filename: path traversal not allowed".to_string());
     }
 
-    // Resolve ai directory for both common dev cwd variants:
-    // 1) repo root       -> {cwd}/src-tauri/ai
-    // 2) src-tauri dir   -> {cwd}/ai
-    let ai_dir = if current_dir.join("src-tauri").is_dir() {
-        current_dir.join("src-tauri").join("ai")
+    // Resolve ai directory for common dev cwd variants:
+    // 1) repo root       -> {cwd}/rust-core/ai
+    // 2) src-tauri dir   -> {cwd}/../rust-core/ai
+    // 3) rust-core dir   -> {cwd}/ai
+    let ai_dir = if current_dir.join("rust-core").is_dir() {
+        current_dir.join("rust-core").join("ai")
+    } else if current_dir
+        .file_name()
+        .is_some_and(|name| name == "src-tauri")
+    {
+        current_dir
+            .parent()
+            .map(|p| p.join("rust-core").join("ai"))
+            .unwrap_or_else(|| current_dir.join("ai"))
     } else {
         current_dir.join("ai")
     };

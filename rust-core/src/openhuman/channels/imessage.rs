@@ -247,7 +247,7 @@ end tell"#
     }
 
     async fn health_check(&self) -> bool {
-        if !std::env::consts::OS == "macos" {
+        if std::env::consts::OS != "macos" {
             return false;
         }
 
