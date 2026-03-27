@@ -36,7 +36,7 @@ We are especially interested in:
 - Data exfiltration or exposure (credentials, messages, user data)
 - Remote code execution (frontend, Tauri/Rust backend, or skills runtime)
 - Issues in dependency chain (npm, Cargo) that affect our build or runtime
-- Platform-specific issues (macOS, Windows, Linux, Android, iOS) that compromise user data or device security
+- Platform-specific issues (macOS, Windows, Linux) that compromise user data or device security
 
 Out-of-scope for this process: general bugs, feature requests, and issues in third-party services we integrate with (e.g., Telegram, Notion) unless they are specific to how OpenHuman uses them.
 

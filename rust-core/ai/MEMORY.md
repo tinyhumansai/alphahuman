@@ -2,7 +2,7 @@
 
 ## Platform Capabilities
 
-OpenHuman is a cross-platform crypto community platform built with Tauri (React + Rust). It runs on Windows, macOS, Android, and iOS.
+OpenHuman is a desktop crypto community platform built with Tauri (React + Rust). It runs on Windows, macOS, and Linux.
 
 **Core features:**
 

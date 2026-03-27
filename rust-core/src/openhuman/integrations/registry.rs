@@ -499,7 +499,7 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
         },
         IntegrationEntry {
             name: "Apple Notes",
-            description: "Native macOS/iOS notes",
+            description: "Native macOS notes",
             category: IntegrationCategory::Productivity,
             status_fn: |_| IntegrationStatus::ComingSoon,
         },
@@ -704,18 +704,6 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
         IntegrationEntry {
             name: "Windows",
             description: "WSL2 recommended",
-            category: IntegrationCategory::Platform,
-            status_fn: |_| IntegrationStatus::Available,
-        },
-        IntegrationEntry {
-            name: "iOS",
-            description: "Chat via Telegram/Discord",
-            category: IntegrationCategory::Platform,
-            status_fn: |_| IntegrationStatus::Available,
-        },
-        IntegrationEntry {
-            name: "Android",
-            description: "Chat via Telegram/Discord",
             category: IntegrationCategory::Platform,
             status_fn: |_| IntegrationStatus::Available,
         },

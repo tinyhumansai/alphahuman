@@ -46,7 +46,7 @@ pub struct SkillManifest {
     #[serde(default)]
     pub setup: Option<SkillSetup>,
     /// Platform filter. When present, only these platforms will load the skill.
-    /// Valid values: "windows", "macos", "linux", "android", "ios".
+    /// Valid values: "windows", "macos", "linux".
     /// When absent or empty, the skill is available on all platforms.
     #[serde(default)]
     pub platforms: Option<Vec<String>>,
@@ -75,8 +75,6 @@ fn current_platform() -> &'static str {
         "windows" => "windows",
         "macos" => "macos",
         "linux" => "linux",
-        "android" => "android",
-        "ios" => "ios",
         _ => "unknown",
     }
 }

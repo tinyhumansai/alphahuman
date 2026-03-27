@@ -17,25 +17,25 @@ use crate::runtime::qjs_engine::RuntimeEngine;
 use crate::runtime::types::{SkillSnapshot, ToolResult};
 
 // =============================================================================
-// ZeroClaw Format Compatibility Types
+// OpenClaw Format Compatibility Types
 // =============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeroClawToolSchema {
+pub struct OpenClawToolSchema {
     #[serde(rename = "type")]
     pub type_field: String,
-    pub function: ZeroClawFunction,
+    pub function: OpenClawFunction,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeroClawFunction {
+pub struct OpenClawFunction {
     pub name: String,
     pub description: String,
     pub parameters: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeroClawToolResult {
+pub struct OpenClawToolResult {
     pub success: bool,
     pub output: String,
     pub error: Option<String>,
@@ -260,16 +260,16 @@ mod desktop {
     }
 
     // =============================================================================
-    // ZeroClaw Format Compatibility Commands
+    // OpenClaw Format Compatibility Commands
     // =============================================================================
 
-    /// Generate ZeroClaw-compatible tool schemas from all available QuickJS tools.
+    /// Generate OpenClaw-compatible tool schemas from all available QuickJS tools.
     /// This bridges the gap between QuickJS runtime and OpenAI function calling format.
     #[tauri::command]
     pub async fn runtime_get_tool_schemas(
         engine: State<'_, Arc<RuntimeEngine>>,
-    ) -> Result<Vec<ZeroClawToolSchema>, String> {
-        log::info!("🔧 [RUNTIME] Generating ZeroClaw-compatible tool schemas");
+    ) -> Result<Vec<OpenClawToolSchema>, String> {
+        log::info!("🔧 [RUNTIME] Generating OpenClaw-compatible tool schemas");
 
         let tools = engine.all_tools();
         log::info!("🔧 [RUNTIME] Found {} tools from engine", tools.len());
@@ -290,9 +290,9 @@ mod desktop {
             // Convert input schema to OpenAI-compatible format
             let openai_parameters = convert_to_openai_schema(tool.input_schema)?;
 
-            let schema = ZeroClawToolSchema {
+            let schema = OpenClawToolSchema {
                 type_field: "function".to_string(),
-                function: ZeroClawFunction {
+                function: OpenClawFunction {
                     name: tool_name,
                     description,
                     parameters: openai_parameters,
@@ -303,7 +303,7 @@ mod desktop {
         }
 
         log::info!(
-            "🔧 [RUNTIME] Generated {} ZeroClaw tool schemas",
+            "🔧 [RUNTIME] Generated {} OpenClaw tool schemas",
             schemas.len()
         );
 
@@ -324,17 +324,17 @@ mod desktop {
     }
 
     /// Execute a specific tool based on agent decision with enhanced validation.
-    /// This wraps the existing runtime_call_tool with ZeroClaw format compatibility.
+    /// This wraps the existing runtime_call_tool with OpenClaw format compatibility.
     #[tauri::command]
     pub async fn runtime_execute_tool(
         engine: State<'_, Arc<RuntimeEngine>>,
         tool_id: String,
         args: serde_json::Value,
-    ) -> Result<ZeroClawToolResult, String> {
+    ) -> Result<OpenClawToolResult, String> {
         let start_time = std::time::Instant::now();
 
         log::info!(
-            "🔧 [RUNTIME] Executing ZeroClaw tool: {} with args: {}",
+            "🔧 [RUNTIME] Executing OpenClaw tool: {} with args: {}",
             tool_id,
             args
         );
@@ -352,7 +352,7 @@ mod desktop {
             Err(e) => {
                 log::error!("🔧 [RUNTIME] Failed to parse tool_id '{}': {}", tool_id, e);
                 let execution_time = start_time.elapsed().as_millis() as u64;
-                return Ok(ZeroClawToolResult {
+                return Ok(OpenClawToolResult {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Invalid tool ID format: {}", e)),
@@ -421,7 +421,7 @@ mod desktop {
                         error_message
                     );
 
-                    Ok(ZeroClawToolResult {
+                    Ok(OpenClawToolResult {
                         success: false,
                         output: String::new(),
                         error: Some(error_message),
@@ -441,9 +441,9 @@ mod desktop {
                         .collect::<Vec<_>>()
                         .join("\n");
 
-                    log::info!("ZeroClaw tool execution completed in {}ms", execution_time);
+                    log::info!("OpenClaw tool execution completed in {}ms", execution_time);
 
-                    Ok(ZeroClawToolResult {
+                    Ok(OpenClawToolResult {
                         success: true,
                         output,
                         error: None,
@@ -455,7 +455,7 @@ mod desktop {
                 let execution_time = start_time.elapsed().as_millis() as u64;
                 log::error!("🔧 [RUNTIME] Engine call_tool failed: {}", e);
 
-                Ok(ZeroClawToolResult {
+                Ok(OpenClawToolResult {
                     success: false,
                     output: String::new(),
                     error: Some(e),
@@ -571,9 +571,9 @@ mod tests {
             // In a real test environment, you would mock the engine or use a test instance
 
             // For now, we'll test the struct format and serialization
-            let schema = ZeroClawToolSchema {
+            let schema = OpenClawToolSchema {
                 type_field: "function".to_string(),
-                function: ZeroClawFunction {
+                function: OpenClawFunction {
                     name: "test_tool".to_string(),
                     description: "A test tool".to_string(),
                     parameters: serde_json::json!({
@@ -596,15 +596,15 @@ mod tests {
             assert!(json.contains("A test tool"));
 
             // Test deserialization
-            let deserialized: ZeroClawToolSchema =
+            let deserialized: OpenClawToolSchema =
                 serde_json::from_str(&json).expect("Should deserialize from JSON");
             assert_eq!(deserialized.type_field, "function");
             assert_eq!(deserialized.function.name, "test_tool");
         }
 
         #[tokio::test]
-        async fn test_zeroclaw_tool_result_format() {
-            let result = ZeroClawToolResult {
+        async fn test_openclaw_tool_result_format() {
+            let result = OpenClawToolResult {
                 success: true,
                 output: "Test output".to_string(),
                 error: None,
@@ -618,7 +618,7 @@ mod tests {
             assert!(json.contains("1500"));
 
             // Test error case
-            let error_result = ZeroClawToolResult {
+            let error_result = OpenClawToolResult {
                 success: false,
                 output: String::new(),
                 error: Some("Tool not found".to_string()),
@@ -702,11 +702,11 @@ mod tests {
         }
 
         #[test]
-        fn test_zeroclaw_format_compliance() {
-            // Test that our ZeroClaw format matches expected OpenAI structure
-            let schema = ZeroClawToolSchema {
+        fn test_openclaw_format_compliance() {
+            // Test that our OpenClaw format matches expected OpenAI structure
+            let schema = OpenClawToolSchema {
                 type_field: "function".to_string(),
-                function: ZeroClawFunction {
+                function: OpenClawFunction {
                     name: "github_list_issues".to_string(),
                     description: "List GitHub issues for a repository".to_string(),
                     parameters: serde_json::json!({
@@ -740,9 +740,9 @@ mod tests {
     }
 
     #[test]
-    fn test_zeroclaw_struct_defaults() {
-        // Test that ZeroClaw structs can be created with serde_json
-        let tool_schema: ZeroClawToolSchema = serde_json::from_value(serde_json::json!({
+    fn test_openclaw_struct_defaults() {
+        // Test that OpenClaw structs can be created with serde_json
+        let tool_schema: OpenClawToolSchema = serde_json::from_value(serde_json::json!({
             "type": "function",
             "function": {
                 "name": "test",
@@ -756,7 +756,7 @@ mod tests {
         assert_eq!(tool_schema.function.name, "test");
 
         // Test tool result
-        let tool_result: ZeroClawToolResult = serde_json::from_value(serde_json::json!({
+        let tool_result: OpenClawToolResult = serde_json::from_value(serde_json::json!({
             "success": true,
             "output": "result",
             "error": null,
@@ -772,7 +772,7 @@ mod tests {
     #[test]
     fn test_error_handling_structures() {
         // Test that error scenarios can be properly serialized
-        let error_result = ZeroClawToolResult {
+        let error_result = OpenClawToolResult {
             success: false,
             output: String::new(),
             error: Some("Connection timeout".to_string()),
@@ -785,7 +785,7 @@ mod tests {
         assert!(json.contains("30000"));
 
         // Test deserialization back
-        let parsed: ZeroClawToolResult =
+        let parsed: OpenClawToolResult =
             serde_json::from_str(&json).expect("Should parse error result");
         assert!(!parsed.success);
         assert_eq!(parsed.error, Some("Connection timeout".to_string()));
