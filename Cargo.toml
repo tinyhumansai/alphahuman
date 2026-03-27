@@ -1,0 +1,3 @@
+[workspace]
+members = ["rust-core", "src-tauri"]
+resolver = "2"

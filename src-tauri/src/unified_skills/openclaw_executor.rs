@@ -4,9 +4,9 @@
 //! - SKILL.toml → structured tool definitions (shell/http commands)
 //! - SKILL.md   → markdown prompt content (returned as text)
 
-use crate::openhuman::skills::{Skill, SkillTool};
 use crate::runtime::types::{ToolContent, UnifiedSkillResult};
 use chrono::Utc;
+use rust_core::openhuman::skills::{Skill, SkillTool};
 use std::collections::HashMap;
 use std::net::IpAddr;
 

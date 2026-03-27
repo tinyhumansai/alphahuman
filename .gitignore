@@ -51,3 +51,4 @@ coverage/
 
 tauri.key
 tauri.key.pub
+/target/

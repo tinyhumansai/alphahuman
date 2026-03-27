@@ -9,14 +9,12 @@
 //! - Native notifications
 
 mod ai;
-mod auth;
 mod commands;
 mod core_process;
 mod core_rpc;
-pub mod core_server;
 pub mod memory;
 mod models;
-pub mod openhuman;
+mod openhuman_daemon;
 mod runtime;
 mod services;
 mod unified_skills;
@@ -827,9 +825,11 @@ pub fn run() {
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
                             .join(".openhuman")
                     });
-                let daemon_config = openhuman::config::DaemonConfig::from_app_data_dir(&data_dir);
+                let daemon_config = rust_core::openhuman::config::DaemonConfig::from_app_data_dir(
+                    &data_dir,
+                );
                 let cancel = tokio_util::sync::CancellationToken::new();
-                let daemon_handle = openhuman::daemon::DaemonHandle {
+                let daemon_handle = openhuman_daemon::DaemonHandle {
                     cancel: cancel.clone(),
                 };
                 app.manage(daemon_handle);
@@ -851,12 +851,9 @@ pub fn run() {
                     let app_handle_for_daemon = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         log::info!("[openhuman] Starting daemon supervisor with health monitoring");
-                        if let Err(e) = openhuman::daemon::run(
-                            daemon_config,
-                            app_handle_for_daemon,
-                            cancel,
-                        )
-                        .await
+                        if let Err(e) =
+                            openhuman_daemon::run(daemon_config, app_handle_for_daemon, cancel)
+                                .await
                         {
                             log::error!("[openhuman] Daemon supervisor error: {e}");
                         }
@@ -876,13 +873,13 @@ pub fn run() {
 
                     // Start the external platform service
                     tauri::async_runtime::spawn(async move {
-                        match openhuman::config::Config::load_or_init().await {
+                        match rust_core::openhuman::config::Config::load_or_init().await {
                             Ok(config) => {
-                                match openhuman::service::install(&config) {
+                                match rust_core::openhuman::service::install(&config) {
                                     Ok(status) => log::info!("[openhuman] External daemon service installed: {:?}", status),
                                     Err(e) => log::error!("[openhuman] Failed to install external daemon service: {e}"),
                                 }
-                                match openhuman::service::start(&config) {
+                                match rust_core::openhuman::service::start(&config) {
                                     Ok(status) => log::info!("[openhuman] External daemon service started: {:?}", status),
                                     Err(e) => log::error!("[openhuman] Failed to start external daemon service: {e}"),
                                 }
@@ -900,7 +897,10 @@ pub fn run() {
             // Start/ensure standalone core process for business logic RPC.
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
-                let core_handle = core_process::CoreProcessHandle::new(core_process::default_core_port());
+                let core_handle = core_process::CoreProcessHandle::new(
+                    core_process::default_core_port(),
+                    core_process::default_core_bin(),
+                );
                 std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
                 app.manage(core_handle.clone());
                 tauri::async_runtime::spawn(async move {
@@ -1256,7 +1256,8 @@ pub fn run() {
                     log::info!("[app] Exit event received, shutting down");
 
                     // Cancel the openhuman daemon supervisor
-                    if let Some(daemon) = app_handle.try_state::<openhuman::daemon::DaemonHandle>() {
+                    if let Some(daemon) = app_handle.try_state::<openhuman_daemon::DaemonHandle>()
+                    {
                         daemon.cancel.cancel();
                         log::info!("[openhuman] Daemon shutdown signalled");
                     }
@@ -1279,5 +1280,5 @@ pub fn run() {
 }
 
 pub fn run_core_from_args(args: &[String]) -> anyhow::Result<()> {
-    core_server::run_from_cli_args(args)
+    rust_core::run_core_from_args(args)
 }

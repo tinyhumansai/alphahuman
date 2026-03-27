@@ -14,11 +14,11 @@ pub mod openclaw_executor;
 pub mod self_evolve;
 pub mod skill_tester;
 
-use crate::openhuman::skills::{load_skills, Skill};
 use crate::runtime::qjs_engine::RuntimeEngine;
 use crate::runtime::types::{ToolDefinition, UnifiedSkillEntry, UnifiedSkillResult};
 use chrono::Utc;
 use directories::UserDirs;
+use rust_core::openhuman::skills::{load_skills, Skill};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
