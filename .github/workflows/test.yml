@@ -91,5 +91,50 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-test-cargo-
 
-      - name: Run workspace tests
-        run: cargo test --workspace
+      - name: Test rust-core (openhuman-core)
+        run: cargo test -p openhuman-core
+
+      - name: Test src-tauri (OpenHuman)
+        run: cargo test -p OpenHuman
+
+  e2e-macos:
+    name: E2E (macOS / Appium)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: 'yarn'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install skills dependencies
+        run: cd skills && yarn install --frozen-lockfile
+
+      - name: Ensure .env exists for E2E build
+        run: touch .env
+
+      - name: Install Appium and mac2 driver
+        run: |
+          npm install -g appium
+          appium driver install mac2
+
+      - name: Build E2E app bundle
+        run: yarn test:e2e:build
+        env:
+          E2E_SKIP_CARGO_CLEAN: '1'
+
+      - name: Run all E2E flows
+        run: yarn test:e2e:all:flows
