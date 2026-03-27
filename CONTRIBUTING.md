@@ -28,7 +28,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
 
 - [Node.js](https://nodejs.org/) (LTS) and [Yarn](https://yarnpkg.com/)
 - [Rust](https://rustup.rs/) (for Tauri and the Rust backend)
-- Platform-specific tools for the targets you care about (e.g., Xcode for macOS/iOS, Android SDK for Android)
+- Platform-specific tools for the desktop targets you care about
 
 ### Clone and Install
 
@@ -44,8 +44,6 @@ Use your own fork in place of `YOUR_USERNAME` when cloning.
 
 - **Web only**: `yarn dev` (Vite dev server, typically port 1420)
 - **Desktop (Tauri)**: `yarn tauri dev` or `yarn dev:app` for enhanced debugging
-- **Android**: `yarn tauri android dev`
-- **iOS**: `yarn tauri ios dev`
 
 See the main [README](README.md) and project docs for more commands (e.g., `yarn skills:build`, `yarn skills:watch`).
 

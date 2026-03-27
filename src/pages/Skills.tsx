@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { platform } from '@tauri-apps/plugin-os';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -203,17 +202,6 @@ export default function Skills() {
   useEffect(() => {
     const loadSkills = async () => {
       try {
-        // Check if mobile
-        try {
-          const p = await platform();
-          if (p === 'android' || p === 'ios') {
-            setSkillsLoading(false);
-            return;
-          }
-        } catch {
-          // not Tauri env
-        }
-
         const manifests = await invoke<Array<Record<string, unknown>>>('runtime_discover_skills');
         const ALLOWED_SKILLS = new Set(['gmail', 'notion']);
         const validManifests = manifests.filter(m => {

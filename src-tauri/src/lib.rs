@@ -8,8 +8,8 @@
 //! - Secure session storage
 //! - Native notifications
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
-compile_error!("src-tauri host is desktop-only. Android/iOS support has been removed.");
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supported.");
 
 mod commands;
 mod core_process;

@@ -126,7 +126,7 @@ export const store = configureStore({
 setStoreForApiClient(() => store.getState().auth.token);
 
 export const persistor = persistStore(store, null, () => {
-  // Dev-only: auto-inject JWT token for testing (e.g. Android without login flow)
+  // Dev-only: auto-inject JWT token for local testing without login flow.
   const devToken = import.meta.env.VITE_DEV_JWT_TOKEN;
   if (devToken && !store.getState().auth.token) {
     store.dispatch(setToken(devToken));

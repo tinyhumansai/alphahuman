@@ -17,7 +17,7 @@ describe('AgentToolRegistry', () => {
   });
 
   describe('loadToolSchemas', () => {
-    test('should load tool schemas from Tauri using ZeroClaw format', async () => {
+    test('should load tool schemas from Tauri using OpenClaw format', async () => {
       const mockSchemas = [
         {
           type: 'function',
@@ -128,7 +128,7 @@ describe('AgentToolRegistry', () => {
   });
 
   describe('executeTool', () => {
-    test('should execute tool using ZeroClaw format with success', async () => {
+    test('should execute tool using OpenClaw format with success', async () => {
       const mockResult = {
         success: true,
         output: '{"issues": [{"title": "Bug fix", "number": 1}]}',

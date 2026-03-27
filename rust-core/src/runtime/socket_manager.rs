@@ -10,7 +10,7 @@
 //! - Connection state emitted to the frontend via Tauri events
 //! - Automatic reconnection with exponential backoff
 //!
-//! Note: On Android, this is a stub. The frontend handles its own Socket.io connection.
+//! Desktop runtime Socket.IO manager.
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::socket::{ConnectionStatus, SocketState};
 
-// WebSocket-based Socket.IO client (desktop + iOS)
+// WebSocket-based Socket.IO client (desktop)
 use {
     futures_util::{SinkExt, StreamExt},
     tokio::sync::{mpsc, watch},
@@ -53,13 +53,13 @@ struct SharedState {
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket stream type alias (desktop + iOS)
+// WebSocket stream type alias (desktop)
 // ---------------------------------------------------------------------------
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 // ---------------------------------------------------------------------------
-// Connection outcome (desktop + iOS)
+// Connection outcome (desktop)
 // ---------------------------------------------------------------------------
 enum ConnectionOutcome {
     /// Clean shutdown requested.
@@ -122,7 +122,7 @@ impl SocketManager {
     }
 
     // -----------------------------------------------------------------------
-    // Connection lifecycle (desktop + iOS)
+    // Connection lifecycle (desktop)
     // -----------------------------------------------------------------------
     pub async fn connect(&self, url: &str, token: &str) -> Result<(), String> {
         self.disconnect().await?;
@@ -220,7 +220,7 @@ impl Default for SocketManager {
 }
 
 // ===========================================================================
-// WebSocket Engine.IO/Socket.IO implementation (desktop + iOS)
+// WebSocket Engine.IO/Socket.IO implementation (desktop)
 // ===========================================================================
 async fn ws_loop(
     url: String,

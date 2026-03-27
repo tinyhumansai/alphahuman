@@ -2,7 +2,7 @@
  * Agent Tool Registry Types
  *
  * Minimal type definitions for agent tool registry functionality.
- * Based on ZeroClaw compatibility requirements.
+ * Based on OpenClaw compatibility requirements.
  */
 
 /**

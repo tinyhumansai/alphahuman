@@ -7,7 +7,7 @@
 // Skill Manifest (from manifest.json)
 // ---------------------------------------------------------------------------
 
-export type SkillPlatform = "windows" | "macos" | "linux" | "android" | "ios";
+export type SkillPlatform = "windows" | "macos" | "linux";
 
 /** Unified registry skill type discriminant. */
 export type SkillType = 'openhuman' | 'openclaw';

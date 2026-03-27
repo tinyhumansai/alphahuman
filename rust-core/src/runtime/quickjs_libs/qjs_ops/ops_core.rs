@@ -96,8 +96,6 @@ pub fn register<'js>(
                 "windows" => "windows",
                 "macos" => "macos",
                 "linux" => "linux",
-                "android" => "android",
-                "ios" => "ios",
                 _ => "unknown",
             }
         }),
