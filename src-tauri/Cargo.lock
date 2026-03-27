@@ -8457,9 +8457,9 @@ dependencies = [
 
 [[package]]
 name = "tinyhumansai"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "691a096ecaaeec23ac7bbcfb276058de9d4aff1c574ee074125d5e5080e17b7d"
+checksum = "8c731df99d616c1918cab54ee749e51f1e181675e2df1f30be3f46f1e9d9d727"
 dependencies = [
  "log",
  "reqwest 0.12.28",

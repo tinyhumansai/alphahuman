@@ -85,7 +85,7 @@ impl MemoryClient {
         let insert_resp = self
             .inner
             .insert_memory(InsertMemoryParams {
-                document_id: Some(document_id_final),
+                document_id: document_id_final,
                 title: title.to_string(),
                 content: content.to_string(),
                 namespace: namespace.clone(),
@@ -118,7 +118,7 @@ impl MemoryClient {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 
-                match self.inner.ingestion_job_status(&job_id).await {
+                match self.inner.get_ingestion_job(&job_id).await {
                     Ok(status_resp) => {
                         let state = status_resp
                             .data
@@ -241,7 +241,7 @@ impl MemoryClient {
     /// List all ingested memory documents as returned by the API.
     pub async fn list_documents(&self) -> Result<serde_json::Value, String> {
         self.inner
-            .list_documents()
+            .list_documents(tinyhumansai::ListDocumentsParams::default())
             .await
             .map_err(|e| format!("Memory list documents failed: {e}"))
     }
@@ -295,9 +295,9 @@ impl MemoryClient {
     pub async fn clear_skill_memory(
         &self,
         skill_id: &str,
-        integration_id: &str,
+        _integration_id: &str,
     ) -> Result<(), String> {
-        let namespace = format!("skill:{skill_id}:{integration_id}");
+        let namespace = skill_id.to_string();
         log::info!("[memory] clear_skill_memory: entry (namespace={namespace})");
         log::debug!("[memory] clear_skill_memory: payload → namespace={namespace}");
         let result = self.inner

@@ -106,3 +106,35 @@ OpenHuman is a cross-platform crypto community platform built with Tauri (React 
 - **Respect rate limits** on all integrations — batch operations when possible
 - **Handle errors gracefully** — network issues and API failures are common in crypto infrastructure
 - **Default to caution** with financial topics — frame analysis as information, not advice
+
+## Memory Layer
+
+OpenHuman maintains a persistent memory layer (TinyHumans Neocortex) that stores skill sync data, conversation history, and integration state.
+
+### recall_memory
+
+Automatically called before every conversation turn. Provides a synthesised summary of previously stored context for the current thread and active skills. Injected into your context as `[MEMORY_CONTEXT]`.
+
+### queryMemory
+
+An active semantic search over stored memory. Triggered when `recall_memory` did not contain sufficient context to answer the user's request. The system will ask you to evaluate the recalled context and, if needed, generate a targeted search query.
+
+**When asked for a sufficiency check, respond in JSON only — no other text:**
+
+- If the recalled context is sufficient to answer the user: `{"needs_query": false}`
+- If more specific context is needed: `{"needs_query": true, "skill_id": "<skill namespace>", "query": "<your targeted question>"}`
+
+**Choosing `skill_id`:**
+
+- Use the skill namespace that holds the relevant data (e.g. `"notion"`, `"gmail"`, `"slack"`, `"github"`)
+- Use `"conversations"` for general conversation history not tied to a specific integration
+- The available skill namespaces are listed in the sufficiency-check prompt under `Available skill namespaces`
+
+**Writing a good query:**
+
+- Be specific and targeted — generic terms return poor results
+- Base the query on exactly what information is missing for the user's request
+- Bad: `"gmail data"` — Good: `"What emails arrived from alice@example.com about the Q1 budget report this week?"`
+- Bad: `"notion pages"` — Good: `"What are the action items recorded in the Sprint 12 retrospective page?"`
+
+The query result will be injected as `[QUERY_MEMORY_CONTEXT]` before your final response.

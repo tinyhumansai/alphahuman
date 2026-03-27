@@ -615,6 +615,160 @@ async fn chat_send_inner(
         skill_contexts.len()
     );
 
+    // ── Step 2c: Query memory if recall context is insufficient ──────────
+    //
+    // Ask the LLM whether the recalled context is sufficient to answer the
+    // user. If not, it generates a targeted query and we call queryMemory
+    // to fetch extended context before building the final prompt.
+    let query_memory_context: Option<String> = if let Some(ref mem) = memory_client {
+        if cancel.is_cancelled() {
+            return Err("Request cancelled".to_string());
+        }
+
+        let recall_summary = memory_context.as_deref().unwrap_or("");
+        let skill_summary = skill_contexts.join("\n");
+
+        // Build the list of valid skill IDs for the LLM to choose from.
+        // "conversations" covers general conversation history.
+        let mut available_skills: Vec<String> = skill_ids.iter().cloned().collect();
+        available_skills.sort();
+        available_skills.push("conversations".to_string());
+        let skill_list = available_skills.join(", ");
+
+        let sufficiency_prompt = format!(
+            "You are a memory sufficiency checker. Given the recalled memory context and the \
+            user's question, decide if the recalled context contains enough specific information \
+            to answer the user.\n\n\
+            Recalled context:\n{recall_summary}\n{skill_summary}\n\n\
+            User message: {user_message}\n\n\
+            Available skill namespaces: {skill_list}\n\n\
+            Respond in JSON only:\n\
+            - If sufficient: {{\"needs_query\": false}}\n\
+            - If more context needed: {{\"needs_query\": true, \"skill_id\": \"<skill namespace that holds the relevant data>\", \"query\": \"<specific targeted question>\"}}"
+        );
+
+        let check_body = serde_json::json!({
+            "model": model,
+            "messages": [{"role": "user", "content": sufficiency_prompt}],
+        });
+
+        let check_url = format!("{}/openai/v1/chat/completions", backend_url);
+
+        log::info!("[chat] Step 2c: running memory sufficiency check");
+        log::info!(
+            "[chat] Step 2c request body: {}",
+            serde_json::to_string_pretty(&check_body).unwrap_or_default()
+        );
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            client
+                .post(&check_url)
+                .header("Authorization", format!("Bearer {}", auth_token))
+                .header("Content-Type", "application/json")
+                .json(&check_body)
+                .send(),
+        )
+        .await
+        {
+            Ok(Ok(resp)) if resp.status().is_success() => {
+                match resp.json::<ChatCompletionResponse>().await {
+                    Ok(completion) => {
+                        let content = completion
+                            .choices
+                            .first()
+                            .and_then(|c| c.message.content.as_deref())
+                            .unwrap_or("");
+
+                        match serde_json::from_str::<serde_json::Value>(content) {
+                            Ok(parsed) => {
+                                if parsed.get("needs_query").and_then(|v| v.as_bool())
+                                    == Some(true)
+                                {
+                                    if let Some(query) =
+                                        parsed.get("query").and_then(|v| v.as_str())
+                                    {
+                                        let skill_id = parsed
+                                            .get("skill_id")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("conversations");
+                                        log::info!(
+                                            "[chat] Sufficiency check: needs_query=true, skill_id={skill_id:?}, query={query:?}"
+                                        );
+                                        match mem
+                                            .query_skill_context(
+                                                skill_id,
+                                                thread_id,
+                                                query,
+                                                10,
+                                            )
+                                            .await
+                                        {
+                                            Ok(result) if !result.is_empty() => {
+                                                log::info!(
+                                                    "[chat] queryMemory returned {} chars",
+                                                    result.len()
+                                                );
+                                                Some(result)
+                                            }
+                                            Ok(_) => {
+                                                log::info!(
+                                                    "[chat] queryMemory returned empty result"
+                                                );
+                                                None
+                                            }
+                                            Err(e) => {
+                                                log::warn!("[chat] queryMemory failed: {e}");
+                                                None
+                                            }
+                                        }
+                                    } else {
+                                        log::warn!(
+                                            "[chat] Sufficiency check: needs_query=true but no query field"
+                                        );
+                                        None
+                                    }
+                                } else {
+                                    log::info!(
+                                        "[chat] Sufficiency check: recall context is sufficient"
+                                    );
+                                    None
+                                }
+                            }
+                            Err(_) => {
+                                log::warn!(
+                                    "[chat] Sufficiency check: failed to parse JSON response: {content}"
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[chat] Sufficiency check: failed to parse inference response: {e}");
+                        None
+                    }
+                }
+            }
+            Ok(Ok(resp)) => {
+                log::warn!(
+                    "[chat] Sufficiency check: inference returned HTTP {}",
+                    resp.status()
+                );
+                None
+            }
+            Ok(Err(e)) => {
+                log::warn!("[chat] Sufficiency check: network error: {e}");
+                None
+            }
+            Err(_) => {
+                log::warn!("[chat] Sufficiency check: timed out after 30s, skipping queryMemory");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // ── Step 3: Build processed user message ────────────────────────────
     let mut processed = user_message.to_string();
 
@@ -631,6 +785,12 @@ async fn chat_send_inner(
 
     if !skill_contexts.is_empty() {
         processed = format!("{}\n\n{}", skill_contexts.join("\n\n"), processed);
+    }
+
+    if let Some(ref qctx) = query_memory_context {
+        processed = format!(
+            "[QUERY_MEMORY_CONTEXT]\n{qctx}\n[/QUERY_MEMORY_CONTEXT]\n\n{processed}"
+        );
     }
 
     if let Some(ref notion) = notion_context {
@@ -699,7 +859,7 @@ async fn chat_send_inner(
             loop_messages.len(),
             url
         );
-        log::debug!(
+        log::info!(
             "[chat] Request body: {}",
             serde_json::to_string_pretty(&request_body).unwrap_or_default()
         );
@@ -1077,6 +1237,10 @@ async fn chat_send_mobile(
         "[chat] Mobile inference: model={}, msgs={}",
         model,
         messages.len()
+    );
+    log::info!(
+        "[chat] Request body: {}",
+        serde_json::to_string_pretty(&request_body).unwrap_or_default()
     );
 
     let response = tokio::select! {
