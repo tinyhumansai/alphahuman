@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { aiGetConfig, aiRefreshConfig, type AIPreview } from '../../../utils/tauriCommands';
+import { aiGetConfig, type AIPreview, aiRefreshConfig } from '../../../utils/tauriCommands';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -117,7 +117,9 @@ const AIPanel = () => {
 
               {aiConfig.soul.personalityPreview.length > 0 && (
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Personality</label>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">
+                    Personality
+                  </label>
                   <div className="text-xs text-gray-300 mt-1 leading-relaxed">
                     {aiConfig.soul.personalityPreview.join(' • ')}
                   </div>
@@ -126,7 +128,9 @@ const AIPanel = () => {
 
               {aiConfig.soul.safetyRulesPreview.length > 0 && (
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Safety Rules</label>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">
+                    Safety Rules
+                  </label>
                   <div className="text-xs text-yellow-300 mt-1 leading-relaxed">
                     {aiConfig.soul.safetyRulesPreview.join(' • ')}
                   </div>
@@ -134,7 +138,9 @@ const AIPanel = () => {
               )}
 
               <div className="flex items-center justify-between pt-2 border-t border-gray-700">
-                <div className="text-xs text-gray-400">Source: {aiConfig.metadata.sources.soul}</div>
+                <div className="text-xs text-gray-400">
+                  Source: {aiConfig.metadata.sources.soul}
+                </div>
                 <div className="text-xs text-gray-400">
                   Loaded: {new Date(aiConfig.soul.loadedAt).toLocaleTimeString()}
                 </div>
@@ -158,13 +164,17 @@ const AIPanel = () => {
             <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Tools Available</label>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">
+                    Tools Available
+                  </label>
                   <div className="text-sm text-green-400 font-medium mt-1">
                     {aiConfig.tools.totalTools} tools
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Active Skills</label>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">
+                    Active Skills
+                  </label>
                   <div className="text-sm text-green-400 font-medium mt-1">
                     {aiConfig.tools.activeSkills} skills
                   </div>
@@ -173,7 +183,9 @@ const AIPanel = () => {
 
               {aiConfig.tools.skillsPreview.length > 0 && (
                 <div>
-                  <label className="text-xs text-gray-400 uppercase tracking-wide">Skills Overview</label>
+                  <label className="text-xs text-gray-400 uppercase tracking-wide">
+                    Skills Overview
+                  </label>
                   <div className="text-xs text-gray-300 mt-1 leading-relaxed">
                     {aiConfig.tools.skillsPreview.join(' • ')}
                   </div>
@@ -181,7 +193,9 @@ const AIPanel = () => {
               )}
 
               <div className="flex items-center justify-between pt-2 border-t border-gray-700">
-                <div className="text-xs text-gray-400">Source: {aiConfig.metadata.sources.tools}</div>
+                <div className="text-xs text-gray-400">
+                  Source: {aiConfig.metadata.sources.tools}
+                </div>
                 <div className="text-xs text-gray-400">
                   Loaded: {new Date(aiConfig.tools.loadedAt).toLocaleTimeString()}
                 </div>
