@@ -1,2 +1,2 @@
-pub mod auth;
-pub mod socket;
+pub use rust_core::models::auth;
+pub use rust_core::models::socket;

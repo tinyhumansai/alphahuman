@@ -6,13 +6,9 @@
 //! Note: The skill runtime is only available on desktop platforms.
 //! On mobile (Android/iOS), the skill runtime is disabled.
 
-// Platform-agnostic modules
-pub mod loader;
-pub mod manifest;
-pub mod preferences;
+// Portable runtime modules now live in rust-core.
+pub use rust_core::runtime::{loader, manifest, preferences, types, utils};
 pub mod socket_manager;
-pub mod types;
-pub mod utils;
 
 // QuickJS modules - desktop only (not available on Android/iOS)
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
