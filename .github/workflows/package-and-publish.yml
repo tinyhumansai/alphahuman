@@ -167,8 +167,8 @@ jobs:
             args: '--target x86_64-apple-darwin'
             target: 'x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
-            args: ''
-            target: ''
+            args: '--target x86_64-unknown-linux-gnu'
+            target: 'x86_64-unknown-linux-gnu'
     runs-on: ${{ matrix.settings.platform }}
     steps:
       - name: Checkout
@@ -288,6 +288,28 @@ jobs:
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
 
+      - name: Build sidecar core binary
+        shell: bash
+        run: |
+          cargo build \
+            --manifest-path rust-core/Cargo.toml \
+            --release \
+            --target "$MATRIX_TARGET" \
+            --bin openhuman-core
+        env:
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+
+      - name: Stage sidecar for Tauri bundler
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          SOURCE="rust-core/target/$MATRIX_TARGET/release/openhuman-core"
+          DEST="src-tauri/binaries/openhuman-core-$MATRIX_TARGET"
+          cp "$SOURCE" "$DEST"
+          chmod +x "$DEST"
+        env:
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+
       - name: Build, package and publish
         uses: tauri-apps/tauri-action@v0.6.2
         id: build-tauri
@@ -305,7 +327,7 @@ jobs:
           # macOS 10.15+ required for std::filesystem used by llama.cpp
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
-          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}'
+          args: '-c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }} -- -- --bin OpenHuman'
           includeDebug: ${{ needs.get-version.outputs.should-publish == '' && inputs.forceRelease != 'true' }}
           includeRelease: ${{ needs.get-version.outputs.should-publish != '' || inputs.forceRelease == 'true' }}
           # TDLib dylibs are now bundled natively via build.rs + tauri.conf.json macOS.frameworks

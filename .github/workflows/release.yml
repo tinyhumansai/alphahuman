@@ -219,8 +219,8 @@ jobs:
           #   target: x86_64-apple-darwin
           #   artifact_suffix: x86_64-apple-darwin
           - platform: ubuntu-22.04
-            args: ''
-            target: ''
+            args: --target x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-gnu
             artifact_suffix: ubuntu
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -305,6 +305,28 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
 
+      - name: Build sidecar core binary
+        shell: bash
+        run: |
+          cargo build \
+            --manifest-path rust-core/Cargo.toml \
+            --release \
+            --target "$MATRIX_TARGET" \
+            --bin openhuman-core
+        env:
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+
+      - name: Stage sidecar for Tauri bundler
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          SOURCE="rust-core/target/$MATRIX_TARGET/release/openhuman-core"
+          DEST="src-tauri/binaries/openhuman-core-$MATRIX_TARGET"
+          cp "$SOURCE" "$DEST"
+          chmod +x "$DEST"
+        env:
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+
       - name: Build, package and upload to release
         uses: tauri-apps/tauri-action@v0.6.2
         id: tauri-build
@@ -328,47 +350,43 @@ jobs:
           # the desktop UI app binary is packaged.
           # Yarn v1 strips one "--" layer when invoking scripts, hence the
           # double-separator when forwarding flags to Cargo.
-          args: -c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}
+          args: -c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }} -- -- --bin OpenHuman
           includeDebug: false
           includeRelease: true
           releaseId: ${{ needs.create-release.outputs.release_id }}
           owner: tinyhumansai
           repo: openhuman
 
-      - name: Verify macOS app bundle excludes standalone core binary
+      - name: Verify macOS app bundle sidecar layout
         if: matrix.settings.platform == 'macos-latest'
         shell: bash
         run: |
           APP_PATH="src-tauri/target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
           echo "Inspecting bundle at: $APP_PATH"
           ls -la "$APP_PATH/Contents/MacOS"
+          ls -la "$APP_PATH/Contents/Resources" | grep openhuman-core || true
           if [ -f "$APP_PATH/Contents/MacOS/openhuman-core" ]; then
-            echo "Unexpected standalone binary found inside app bundle: openhuman-core"
+            echo "Unexpected standalone core binary found in MacOS dir"
+            exit 1
+          fi
+          if ! ls "$APP_PATH/Contents/Resources"/openhuman-core-* >/dev/null 2>&1; then
+            echo "Sidecar core binary missing from app resources"
             exit 1
           fi
 
-      - name: Build standalone CLI binaries
+      - name: Build standalone CLI binary
         shell: bash
         run: |
-          CARGO_TARGET=""
-          if [ -n "$MATRIX_TARGET" ]; then
-            CARGO_TARGET="--target $MATRIX_TARGET"
-          fi
-          cargo build --manifest-path rust-core/Cargo.toml --release $CARGO_TARGET --bin openhuman-core --bin openhuman-cli
+          cargo build --manifest-path rust-core/Cargo.toml --release --target "$MATRIX_TARGET" --bin openhuman-cli
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
 
-      - name: Resolve standalone CLI artifact paths
+      - name: Resolve standalone CLI artifact path
         id: cli-paths
         shell: bash
         run: |
-          if [ -n "$MATRIX_TARGET" ]; then
-            BASE_DIR="rust-core/target/$MATRIX_TARGET/release"
-          else
-            BASE_DIR="rust-core/target/release"
-          fi
+          BASE_DIR="rust-core/target/$MATRIX_TARGET/release"
           echo "base_dir=$BASE_DIR" >> "$GITHUB_OUTPUT"
-          echo "core_path=$BASE_DIR/openhuman-core" >> "$GITHUB_OUTPUT"
           echo "cli_path=$BASE_DIR/openhuman-cli" >> "$GITHUB_OUTPUT"
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
@@ -378,7 +396,6 @@ jobs:
         with:
           name: standalone-bins-${{ matrix.settings.platform }}-${{ matrix.settings.artifact_suffix }}
           path: |
-            ${{ steps.cli-paths.outputs.core_path }}
             ${{ steps.cli-paths.outputs.cli_path }}
 
   cleanup-failed-release:
