@@ -121,9 +121,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         execution.status = 'success';
         execution.result = result.output;
 
-        console.log(
-          `[tool-registry] Tool completed: ${toolName} (${execution.executionTimeMs}ms)`
-        );
+        console.log(`[tool-registry] Tool completed: ${toolName} (${execution.executionTimeMs}ms)`);
       }
 
       return execution;

@@ -8,12 +8,7 @@ import { clearSoulCache, loadSoul } from './soul/loader';
 import type { SoulConfig } from './soul/types';
 import { clearToolsCache, loadTools } from './tools/loader';
 import type { ToolsConfig } from './tools/types';
-import type {
-  AIConfig,
-  AIConfigLoadOptions,
-  AIConfigLoadResult,
-  AIConfigMetadata,
-} from './types';
+import type { AIConfig, AIConfigLoadOptions, AIConfigLoadResult, AIConfigMetadata } from './types';
 
 let cachedAIConfig: AIConfig | null = null;
 

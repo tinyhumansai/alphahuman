@@ -198,10 +198,10 @@ export default function Intelligence() {
       : systemStatus === 'loading'
         ? 'Loading...'
         : systemStatus === 'initializing'
-            ? 'Initializing...'
-            : systemStatus === 'error'
-              ? 'System Error'
-              : 'System Idle';
+          ? 'Initializing...'
+          : systemStatus === 'error'
+            ? 'System Error'
+            : 'System Idle';
 
   const systemStatusDot =
     systemStatus === 'ready'
@@ -209,10 +209,10 @@ export default function Intelligence() {
       : systemStatus === 'loading'
         ? 'bg-amber-400 animate-pulse'
         : systemStatus === 'initializing'
-            ? 'bg-amber-400 animate-pulse'
-            : systemStatus === 'error'
-              ? 'bg-coral-400'
-              : 'bg-stone-600';
+          ? 'bg-amber-400 animate-pulse'
+          : systemStatus === 'error'
+            ? 'bg-coral-400'
+            : 'bg-stone-600';
 
   return (
     <div className="min-h-full relative">

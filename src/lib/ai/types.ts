@@ -24,10 +24,7 @@ export interface AIConfigMetadata {
   /** Whether any component used fallback data */
   hasFallbacks: boolean;
   /** Sources used for loading */
-  sources: {
-    soul: 'memory' | 'bundled';
-    tools: 'memory' | 'bundled';
-  };
+  sources: { soul: 'memory' | 'bundled'; tools: 'memory' | 'bundled' };
   /** Loading errors (non-fatal) */
   errors?: string[];
 }
