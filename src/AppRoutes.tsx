@@ -124,7 +124,7 @@ const AppRoutes = () => {
           path="/conversations/:threadId"
           element={
             <ProtectedRoute requireAuth={true}>
-              <Conversations />
+              <Navigate to="/conversations" replace />
             </ProtectedRoute>
           }
         />
