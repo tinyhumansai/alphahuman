@@ -305,27 +305,57 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
 
+      - name: Resolve core manifest and binary names
+        id: core-paths
+        shell: bash
+        run: |
+          if [ -f "openhuman_core/Cargo.toml" ]; then
+            CORE_DIR="openhuman_core"
+          elif [ -f "rust-core/Cargo.toml" ]; then
+            CORE_DIR="rust-core"
+          else
+            echo "No core Cargo manifest found (expected openhuman_core/Cargo.toml or rust-core/Cargo.toml)"
+            exit 1
+          fi
+
+          SIDE_CAR_BASE="$(node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));const b=(c.bundle&&Array.isArray(c.bundle.externalBin)&&c.bundle.externalBin[0])||'binaries/openhuman';process.stdout.write(String(b).split('/').pop());")"
+          CORE_BIN_NAME="${SIDE_CAR_BASE}"
+
+          echo "core_dir=$CORE_DIR" >> "$GITHUB_OUTPUT"
+          echo "core_manifest=$CORE_DIR/Cargo.toml" >> "$GITHUB_OUTPUT"
+          # Cargo workspace: release artifacts are under repo root target/, not <member>/target/
+          echo "core_target_dir=target/$MATRIX_TARGET/release" >> "$GITHUB_OUTPUT"
+          echo "core_bin_name=$CORE_BIN_NAME" >> "$GITHUB_OUTPUT"
+          echo "sidecar_base=$SIDE_CAR_BASE" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+
       - name: Build sidecar core binary
         shell: bash
         run: |
           cargo build \
-            --manifest-path rust-core/Cargo.toml \
+            --manifest-path "$CORE_MANIFEST" \
             --release \
             --target "$MATRIX_TARGET" \
-            --bin openhuman-core
+            --bin "$CORE_BIN_NAME"
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
+          CORE_MANIFEST: ${{ steps.core-paths.outputs.core_manifest }}
+          CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
 
       - name: Stage sidecar for Tauri bundler
         shell: bash
         run: |
           mkdir -p src-tauri/binaries
-          SOURCE="rust-core/target/$MATRIX_TARGET/release/openhuman-core"
-          DEST="src-tauri/binaries/openhuman-core-$MATRIX_TARGET"
+          SOURCE="$CORE_TARGET_DIR/$CORE_BIN_NAME"
+          DEST="src-tauri/binaries/$SIDECAR_BASE-$MATRIX_TARGET"
           cp "$SOURCE" "$DEST"
           chmod +x "$DEST"
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
+          CORE_TARGET_DIR: ${{ steps.core-paths.outputs.core_target_dir }}
+          CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
+          SIDECAR_BASE: ${{ steps.core-paths.outputs.sidecar_base }}
 
       - name: Build, package and upload to release
         uses: tauri-apps/tauri-action@v0.6.2
@@ -364,32 +394,36 @@ jobs:
           APP_PATH="src-tauri/target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
           echo "Inspecting bundle at: $APP_PATH"
           ls -la "$APP_PATH/Contents/MacOS"
-          ls -la "$APP_PATH/Contents/Resources" | grep openhuman-core || true
-          if [ -f "$APP_PATH/Contents/MacOS/openhuman-core" ]; then
+          ls -la "$APP_PATH/Contents/Resources" | grep openhuman || true
+          if [ -f "$APP_PATH/Contents/MacOS/openhuman" ]; then
             echo "Unexpected standalone core binary found in MacOS dir"
             exit 1
           fi
-          if ! ls "$APP_PATH/Contents/Resources"/openhuman-core-* >/dev/null 2>&1; then
+          if ! ls "$APP_PATH/Contents/Resources"/openhuman-* >/dev/null 2>&1; then
             echo "Sidecar core binary missing from app resources"
             exit 1
           fi
 
-      - name: Build standalone CLI binary
+      - name: Build standalone core CLI binary
         shell: bash
         run: |
-          cargo build --manifest-path rust-core/Cargo.toml --release --target "$MATRIX_TARGET" --bin openhuman-cli
+          cargo build --manifest-path "$CORE_MANIFEST" --release --target "$MATRIX_TARGET" --bin "$CORE_BIN_NAME"
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
+          CORE_MANIFEST: ${{ steps.core-paths.outputs.core_manifest }}
+          CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
 
-      - name: Resolve standalone CLI artifact path
+      - name: Resolve standalone core CLI artifact path
         id: cli-paths
         shell: bash
         run: |
-          BASE_DIR="rust-core/target/$MATRIX_TARGET/release"
+          BASE_DIR="$CORE_TARGET_DIR"
           echo "base_dir=$BASE_DIR" >> "$GITHUB_OUTPUT"
-          echo "cli_path=$BASE_DIR/openhuman-cli" >> "$GITHUB_OUTPUT"
+          echo "cli_path=$BASE_DIR/$CORE_BIN_NAME" >> "$GITHUB_OUTPUT"
         env:
           MATRIX_TARGET: ${{ matrix.settings.target }}
+          CORE_TARGET_DIR: ${{ steps.core-paths.outputs.core_target_dir }}
+          CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
 
       - name: Upload standalone CLI artifacts
         uses: actions/upload-artifact@v4

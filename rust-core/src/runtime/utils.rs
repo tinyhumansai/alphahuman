@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(result.unwrap(), "test");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_safe_async_execute_with_runtime() {
         let result = safe_async_execute(async { "test".to_string() });
         assert!(result.is_ok());

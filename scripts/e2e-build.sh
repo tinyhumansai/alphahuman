@@ -14,16 +14,22 @@ export VITE_BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT:-18473}"
 
 echo "Building E2E app bundle with VITE_BACKEND_URL=$VITE_BACKEND_URL"
 
-# Clean Rust build cache so frontend assets get re-embedded
-cargo clean --manifest-path src-tauri/Cargo.toml
+if [ -z "${E2E_SKIP_CARGO_CLEAN:-}" ]; then
+  cargo clean --manifest-path src-tauri/Cargo.toml
+else
+  echo "Skipping cargo clean (E2E_SKIP_CARGO_CLEAN is set)."
+fi
 
-# Load .env for other vars (Telegram API keys, etc.)
-source scripts/load-dotenv.sh
+if [ -f .env ]; then
+  # shellcheck source=/dev/null
+  source scripts/load-dotenv.sh
+else
+  echo "No .env file — skipping load-dotenv (optional for CI)."
+fi
 
-# Re-export mock URL in case load-dotenv.sh clobbered it
 export VITE_BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT:-18473}"
 
-# Build .app only (skip DMG to avoid bundle_dmg.sh failures)
-tauri build --bundles app --debug
+# Use npx so CI does not require a global Tauri CLI
+npx tauri build --bundles app --debug
 
 echo "E2E build complete."

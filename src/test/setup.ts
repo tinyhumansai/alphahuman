@@ -30,8 +30,6 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ open: vi.fn() }));
 
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: vi.fn().mockResolvedValue('macos') }));
 
-vi.mock('@tauri-apps/plugin-shell', () => ({ Command: vi.fn(), open: vi.fn() }));
-
 // Mock tauriCommands to prevent Tauri API calls in tests
 vi.mock('../utils/tauriCommands', () => ({
   isTauri: () => false,

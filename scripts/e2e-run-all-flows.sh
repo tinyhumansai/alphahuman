@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Run all E2E WDIO specs sequentially (Appium restarted per spec).
+# Requires a prior E2E app build: yarn test:e2e:build
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+run() {
+  "$ROOT/scripts/e2e-run-spec.sh" "$1" "$2"
+}
+
+run "test/e2e/specs/login-flow.spec.ts" "login"
+run "test/e2e/specs/auth-access-control.spec.ts" "auth"
+run "test/e2e/specs/telegram-flow.spec.ts" "telegram"
+run "test/e2e/specs/gmail-flow.spec.ts" "gmail"
+run "test/e2e/specs/notion-flow.spec.ts" "notion"
+run "test/e2e/specs/card-payment-flow.spec.ts" "card-payment"
+run "test/e2e/specs/crypto-payment-flow.spec.ts" "crypto-payment"
+run "test/e2e/specs/navigation.spec.ts" "navigation"
+run "test/e2e/specs/smoke.spec.ts" "smoke"
+run "test/e2e/specs/tauri-commands.spec.ts" "tauri-commands"
+
+echo "All E2E flows completed."
