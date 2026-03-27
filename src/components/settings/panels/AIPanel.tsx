@@ -12,7 +12,7 @@ import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
 const AIPanel = () => {
-  const { navigateBack } = useSettingsNavigation();
+  const { navigateBack, navigateToSettings } = useSettingsNavigation();
   const [aiConfig, setAiConfig] = useState<AIPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshingComponent, setRefreshingComponent] = useState<'soul' | 'tools' | 'all' | null>(
@@ -111,14 +111,21 @@ const AIPanel = () => {
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Local Model Runtime</h3>
-            <button
-              onClick={async () => {
-                await openhumanLocalAiDownload(true);
-                await loadLocalAiStatus();
-              }}
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
-              Retry Download
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigateToSettings('local-model')}
+                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors">
+                Open Manager
+              </button>
+              <button
+                onClick={async () => {
+                  await openhumanLocalAiDownload(true);
+                  await loadLocalAiStatus();
+                }}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                Retry Download
+              </button>
+            </div>
           </div>
           {localAiStatus ? (
             <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 space-y-2">

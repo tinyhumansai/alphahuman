@@ -440,6 +440,26 @@ export interface LocalAiSuggestion {
   confidence: number;
 }
 
+function tauriErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  if (typeof err === 'string') {
+    return err;
+  }
+  if (err && typeof err === 'object') {
+    const maybeMessage = (err as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+    const maybeError = (err as { error?: unknown }).error;
+    if (typeof maybeError === 'string' && maybeError.trim().length > 0) {
+      return maybeError;
+    }
+  }
+  return 'Unknown Tauri invoke error';
+}
+
 export interface TunnelConfig {
   provider: string;
   cloudflare?: { token: string } | null;
@@ -551,7 +571,17 @@ export async function openhumanLocalAiStatus(): Promise<CommandResponse<LocalAiS
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_status');
+  try {
+    return await invoke('openhuman_local_ai_status');
+  } catch (err) {
+    const message = tauriErrorMessage(err);
+    if (message.includes('unknown method: openhuman.local_ai_status')) {
+      throw new Error(
+        'Local model runtime is unavailable in this core build. Restart app after updating to the latest build.'
+      );
+    }
+    throw new Error(message);
+  }
 }
 
 export async function openhumanLocalAiDownload(
@@ -560,7 +590,15 @@ export async function openhumanLocalAiDownload(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_download', { force: force ?? false });
+  try {
+    return await invoke('openhuman_local_ai_download', { force: force ?? false });
+  } catch (err) {
+    const message = tauriErrorMessage(err);
+    if (message.includes('unknown method: openhuman.local_ai_download')) {
+      return await openhumanLocalAiStatus();
+    }
+    throw new Error(message);
+  }
 }
 
 export async function openhumanLocalAiSummarize(

@@ -1,15 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import ConnectionIndicator from '../components/ConnectionIndicator';
 import { useUser } from '../hooks/useUser';
-import { isTauri, type LocalAiStatus, openhumanLocalAiStatus } from '../utils/tauriCommands';
+import {
+  isTauri,
+  type LocalAiStatus,
+  openhumanLocalAiDownload,
+  openhumanLocalAiStatus,
+} from '../utils/tauriCommands';
+
+const progressFromStatus = (status: LocalAiStatus | null): number => {
+  if (!status) return 0;
+  if (typeof status.download_progress === 'number') {
+    return Math.max(0, Math.min(1, status.download_progress));
+  }
+  switch (status.state) {
+    case 'ready':
+      return 1;
+    case 'loading':
+      return 0.92;
+    case 'downloading':
+      return 0.25;
+    case 'idle':
+      return 0.05;
+    default:
+      return 0;
+  }
+};
 
 const Home = () => {
   const { user } = useUser();
   const navigate = useNavigate();
   const userName = user?.firstName || 'User';
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
+  const [downloadBusy, setDownloadBusy] = useState(false);
 
   // Get greeting based on time
   const getGreeting = () => {
@@ -43,6 +68,8 @@ const Home = () => {
     };
   }, []);
 
+  const modelProgress = useMemo(() => progressFromStatus(localAiStatus), [localAiStatus]);
+
   return (
     <div className="min-h-full relative">
       {/* Content overlay */}
@@ -59,13 +86,6 @@ const Home = () => {
 
               {/* Connection indicators */}
               <ConnectionIndicator />
-
-              {localAiStatus?.warning && (
-                <div className="my-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-xs text-amber-200">
-                  Local model warning: {localAiStatus.warning}
-                </div>
-              )}
-
               {/* Get Access button */}
               <button
                 onClick={handleStartCooking}
@@ -73,6 +93,77 @@ const Home = () => {
                 Message OpenHuman 🔥
               </button>
             </div>
+
+            {isTauri() && (
+              <div className="my-3 rounded-3xl border border-stone-700/80 bg-black/45 px-3 py-3 text-left">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-stone-400">
+                    Local model runtime
+                  </div>
+                  <button
+                    onClick={() => navigate('/settings/local-model')}
+                    className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors">
+                    Manage
+                  </button>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <span className="text-stone-300">{localAiStatus?.model_id ?? 'qwen3.5-1b'}</span>
+                  <span className="text-stone-200 capitalize">
+                    {localAiStatus?.state ?? 'starting'}
+                  </span>
+                </div>
+
+                <div className="mt-2 h-2 rounded-full bg-stone-800 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
+                    style={{ width: `${Math.round(modelProgress * 100)}%` }}
+                  />
+                </div>
+
+                <div className="mt-2 flex items-center justify-between text-[11px] text-stone-400">
+                  <span>{Math.round(modelProgress * 100)}%</span>
+                  {localAiStatus?.warning && (
+                    <span className="max-w-[72%] truncate text-amber-300">
+                      {localAiStatus.warning}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      setDownloadBusy(true);
+                      try {
+                        await openhumanLocalAiDownload(false);
+                        const status = await openhumanLocalAiStatus();
+                        setLocalAiStatus(status.result);
+                      } finally {
+                        setDownloadBusy(false);
+                      }
+                    }}
+                    disabled={downloadBusy}
+                    className="rounded-md bg-blue-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-60">
+                    {downloadBusy ? 'Working...' : 'Bootstrap'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setDownloadBusy(true);
+                      try {
+                        await openhumanLocalAiDownload(true);
+                        const status = await openhumanLocalAiStatus();
+                        setLocalAiStatus(status.result);
+                      } finally {
+                        setDownloadBusy(false);
+                      }
+                    }}
+                    disabled={downloadBusy}
+                    className="rounded-md border border-stone-600 px-2.5 py-1.5 text-[11px] font-medium text-stone-200 hover:border-stone-500 disabled:opacity-60">
+                    Re-bootstrap
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 mb-8">
               <button
