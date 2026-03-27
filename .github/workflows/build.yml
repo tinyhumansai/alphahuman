@@ -78,7 +78,8 @@ jobs:
       - name: Stage sidecar for Tauri bundler
         run: |
           mkdir -p src-tauri/binaries
-          cp rust-core/target/x86_64-unknown-linux-gnu/release/openhuman src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
+          # Workspace root target/ (not rust-core/target/) — see root Cargo.toml [workspace]
+          cp target/x86_64-unknown-linux-gnu/release/openhuman src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
           chmod +x src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
 
       - name: Build Tauri app

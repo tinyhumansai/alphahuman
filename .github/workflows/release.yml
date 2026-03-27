@@ -323,7 +323,8 @@ jobs:
 
           echo "core_dir=$CORE_DIR" >> "$GITHUB_OUTPUT"
           echo "core_manifest=$CORE_DIR/Cargo.toml" >> "$GITHUB_OUTPUT"
-          echo "core_target_dir=$CORE_DIR/target/$MATRIX_TARGET/release" >> "$GITHUB_OUTPUT"
+          # Cargo workspace: release artifacts are under repo root target/, not <member>/target/
+          echo "core_target_dir=target/$MATRIX_TARGET/release" >> "$GITHUB_OUTPUT"
           echo "core_bin_name=$CORE_BIN_NAME" >> "$GITHUB_OUTPUT"
           echo "sidecar_base=$SIDE_CAR_BASE" >> "$GITHUB_OUTPUT"
         env:
