@@ -18,3 +18,4 @@ todo
 [] - add a local model that can read through the screen and also go through voice using an API like whisper
 [] - add a screener recorder that goes through the intefaces in the screen and locally summarizes what is happening and brings more assitance to the user
 [] clean up the core so that we can run it as a binary on a server or as docker
+[] we need to get reverse tunneling solutions added
