@@ -1,4 +1,5 @@
-import { invoke, isTauri as coreIsTauri } from '@tauri-apps/api/core';
+import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
+
 import soulMd from '../../../../rust-core/ai/SOUL.md?raw';
 import type {
   BehaviorPattern,

@@ -3,10 +3,7 @@ import { beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 
 import type { ServiceState } from '../tauriCommands';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-  isTauri: vi.fn(),
-}));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn() }));
 
 describe('Web → Tauri → Core bridge', () => {
   const mockInvoke = invoke as Mock;
@@ -24,12 +21,7 @@ describe('Web → Tauri → Core bridge', () => {
 
   test('routes service status request through Tauri command and returns core payload', async () => {
     const expectedState: ServiceState = 'Running';
-    const tauriResponse = {
-      result: {
-        state: expectedState,
-      },
-      logs: ['service status fetched'],
-    };
+    const tauriResponse = { result: { state: expectedState }, logs: ['service status fetched'] };
 
     mockInvoke.mockResolvedValueOnce(tauriResponse);
 
@@ -42,10 +34,7 @@ describe('Web → Tauri → Core bridge', () => {
 
   test('routes agent server status through Tauri command and returns core_rpc status', async () => {
     const tauriResponse = {
-      result: {
-        running: true,
-        url: 'http://127.0.0.1:8421/rpc',
-      },
+      result: { running: true, url: 'http://127.0.0.1:8421/rpc' },
       logs: ['agent server status checked'],
     };
 

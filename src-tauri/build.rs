@@ -16,6 +16,7 @@ fn maybe_override_tauri_config_for_local_builds() {
     let mut merge_config = serde_json::json!({});
     if skip_resources {
         merge_config["bundle"]["resources"] = serde_json::json!([]);
+        merge_config["bundle"]["externalBin"] = serde_json::json!([]);
     }
 
     match serde_json::to_string(&merge_config) {
