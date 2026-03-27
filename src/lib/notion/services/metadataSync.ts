@@ -1,15 +1,8 @@
 /**
- * Send Notion metadata to the backend via the
- * `integration:metadata-sync` socket event so the server can merge it
- * into the user's Notion OAuth integration metadata.
+ * Send Notion metadata to backend integration APIs.
  *
- * Mirrors the Gmail metadata sync pattern: we send the primary profile plus
- * additional Notion data (pages, summaries) when available.
+ * Socket-based metadata sync is currently disabled.
  */
-import { emitViaRustSocket } from '../../../utils/tauriSocket';
-
-const INTEGRATION_METADATA_SYNC_EVENT = 'integration:metadata-sync';
-const PROVIDER_NOTION = 'notion';
 
 export interface NotionUserProfileLike {
   id: string;
@@ -59,28 +52,5 @@ export interface NotionStateForSync {
 export function syncNotionMetadataToBackend(
   notionState: NotionStateForSync | null | undefined
 ): void {
-  const profile = notionState?.profile;
-  if (!profile || !profile.id) return;
-
-  const metadata: Record<string, unknown> = {
-    id: profile.id,
-    name: profile.name ?? null,
-    email: profile.email ?? null,
-    type: profile.type ?? null,
-    avatar_url: profile.avatar_url ?? null,
-  };
-
-  if (Array.isArray(notionState.pages) && notionState.pages.length > 0) {
-    metadata.pages = notionState.pages;
-    metadata.pages_total = notionState.pages.length;
-  }
-
-  if (Array.isArray(notionState.summaries) && notionState.summaries.length > 0) {
-    metadata.summaries = notionState.summaries;
-    metadata.summaries_total = notionState.summaries.length;
-  }
-
-  const payload = { requestId: crypto.randomUUID(), provider: PROVIDER_NOTION, metadata };
-
-  void emitViaRustSocket(INTEGRATION_METADATA_SYNC_EVENT, payload);
+  void notionState;
 }

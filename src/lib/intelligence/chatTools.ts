@@ -9,10 +9,8 @@ import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 import debug from 'debug';
 
 import type { ConnectedTool } from '../../services/intelligenceApi';
-import { socketService } from '../../services/socketService';
 import { store } from '../../store';
 import { transformMCPToConnectedTools } from '../../utils/intelligenceTransforms';
-import { emitViaRustSocket } from '../../utils/tauriSocket';
 import type { MCPTool } from '../mcp';
 import { deriveConnectionStatus } from '../skills/hooks';
 
@@ -55,7 +53,7 @@ export interface ChatInitPayload {
  * 1. Retrieves all skills from Redux store
  * 2. Filters for active/ready skills with completed setup
  * 3. Extracts and formats tool definitions in both MCP and Connected formats
- * 4. Emits 'chat:init' event via appropriate socket method
+ * 4. Returns prepared context for HTTP chat initialization
  *
  * @param sessionId - Optional chat session identifier
  * @param threadId - Optional thread identifier for chat session
@@ -177,19 +175,8 @@ export function initializeChatWithTools(
       chatToolsLog('⚠️  No active tools available - chat will have no tool capabilities');
     }
 
-    // Emit via appropriate socket method based on environment
-    if (isTauri()) {
-      chatToolsLog('Emitting chat:init via Rust socket');
-      emitViaRustSocket('chat:init', payload);
-    } else {
-      chatToolsLog('Emitting chat:init via web socket');
-      if (socketService.isConnected()) {
-        socketService.emit('chat:init', payload);
-      } else {
-        chatToolsWarn('Socket not connected - chat initialization may be delayed');
-        // Could potentially queue the initialization for when socket connects
-      }
-    }
+    // Socket emission intentionally disabled in HTTP chat mode.
+    void payload;
 
     chatToolsLog('Chat tools initialization completed', {
       sessionId,
@@ -237,18 +224,8 @@ export function initializeIntelligenceChatSession(
       toolCount: finalConnectedTools.length,
     });
 
-    // Emit via appropriate socket method based on environment
-    if (isTauri()) {
-      chatToolsLog('Intelligence: Emitting chat:init via Rust socket');
-      emitViaRustSocket('chat:init', payload);
-    } else {
-      chatToolsLog('Intelligence: Emitting chat:init via web socket');
-      if (socketService.isConnected()) {
-        socketService.emit('chat:init', payload);
-      } else {
-        chatToolsWarn('Intelligence: Socket not connected - chat initialization may be delayed');
-      }
-    }
+    // Socket emission intentionally disabled in HTTP chat mode.
+    void payload;
   } catch (error) {
     chatToolsWarn('Intelligence: Failed to initialize chat session', {
       sessionId,

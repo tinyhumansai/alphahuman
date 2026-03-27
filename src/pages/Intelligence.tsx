@@ -10,10 +10,6 @@ import {
   useSnoozeActionableItem,
   useUpdateActionableItem,
 } from '../hooks/useIntelligenceApiFallback';
-import {
-  useIntelligenceSocket,
-  useIntelligenceSocketManager,
-} from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
 import type { RootState } from '../store';
 import { setSearchFilter, setSourceFilter } from '../store/intelligenceSlice';
@@ -44,10 +40,6 @@ export default function Intelligence() {
   const { mutateAsync: updateItemStatus } = useUpdateActionableItem();
   const { mutateAsync: snoozeItem } = useSnoozeActionableItem();
 
-  // Socket integration
-  const socketManager = useIntelligenceSocketManager();
-  const { isConnected: socketConnected } = useIntelligenceSocket();
-
   // Local state for UI
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const [confirmationModal, setConfirmationModal] = useState<ConfirmationModalType>({
@@ -68,13 +60,6 @@ export default function Intelligence() {
   }, []);
 
   const items = useMemo(() => apiItems ?? [], [apiItems]);
-
-  // Initialize socket connection
-  useEffect(() => {
-    if (!socketConnected) {
-      socketManager.connect();
-    }
-  }, [socketConnected, socketManager]);
 
   // Handle API errors with toast notifications (defer to avoid setState-in-effect)
   useEffect(() => {
@@ -205,24 +190,14 @@ export default function Intelligence() {
     [snoozeItem, addToast]
   );
 
-  // Combined AI and socket status indicator
-  const systemStatus =
-    socketConnected && aiStatus === 'ready'
-      ? 'ready'
-      : itemsLoading
-        ? 'loading'
-        : !socketConnected
-          ? 'disconnected'
-          : aiStatus;
+  const systemStatus = aiStatus === 'ready' ? 'ready' : itemsLoading ? 'loading' : aiStatus;
 
   const systemStatusLabel =
     systemStatus === 'ready'
       ? 'System Ready'
       : systemStatus === 'loading'
         ? 'Loading...'
-        : systemStatus === 'disconnected'
-          ? 'Connecting...'
-          : systemStatus === 'initializing'
+        : systemStatus === 'initializing'
             ? 'Initializing...'
             : systemStatus === 'error'
               ? 'System Error'
@@ -233,9 +208,7 @@ export default function Intelligence() {
       ? 'bg-sage-400'
       : systemStatus === 'loading'
         ? 'bg-amber-400 animate-pulse'
-        : systemStatus === 'disconnected'
-          ? 'bg-amber-400 animate-pulse'
-          : systemStatus === 'initializing'
+        : systemStatus === 'initializing'
             ? 'bg-amber-400 animate-pulse'
             : systemStatus === 'error'
               ? 'bg-coral-400'

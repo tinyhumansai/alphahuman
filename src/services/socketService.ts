@@ -2,12 +2,11 @@ import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 import debug from 'debug';
 import { io, Socket } from 'socket.io-client';
 
-import { MCPTool, MCPToolCall, SocketIOMCPTransportImpl } from '../lib/mcp';
-import { skillManager, syncToolsToBackend } from '../lib/skills';
+import { SocketIOMCPTransportImpl } from '../lib/mcp';
 import { store } from '../store';
 import { resetForUser, setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
-import { BACKEND_URL, IS_DEV } from '../utils/config';
-import { createSafeLogData, sanitizeError } from '../utils/sanitize';
+import { BACKEND_URL, HTTP_CHAT_ONLY, IS_DEV } from '../utils/config';
+import { sanitizeError } from '../utils/sanitize';
 
 // Socket service logger using debug package
 // Enable logging by setting DEBUG=socket* in environment or localStorage
@@ -46,9 +45,7 @@ function getSocketUserId(): string {
 }
 
 /**
- * Check if running in Tauri (where Rust handles Socket.io).
- * When true, this service should NOT create its own socket connection
- * because the Rust-native SocketManager handles the connection and MCP.
+ * Check if running in Tauri (where native transport may handle socket lifecycle).
  */
 function isRustSocketMode(): boolean {
   try {
@@ -65,17 +62,17 @@ class SocketService {
 
   /**
    * Connect to the socket server with authentication.
-   *
-   * NOTE: In Tauri mode, this is a NO-OP. The Rust-native SocketManager
-   * handles the connection. The frontend calls `connectRustSocket()` instead.
    */
   connect(token: string): void {
     if (!token) return;
+    if (HTTP_CHAT_ONLY) {
+      socketLog('HTTP_CHAT_ONLY enabled — skipping socket connect');
+      this.token = token;
+      return;
+    }
 
-    // In Tauri mode, Rust handles the socket connection.
-    // Don't create a duplicate frontend socket.
     if (isRustSocketMode()) {
-      socketLog('Skipping frontend socket — Rust SocketManager handles connection');
+      socketLog('Skipping frontend socket while running in Tauri');
       this.token = token;
       return;
     }
@@ -134,7 +131,6 @@ class SocketService {
       socketLog('Connected', { socketId, userId: uid });
       store.dispatch(setStatusForUser({ userId: uid, status: 'connected' }));
       store.dispatch(setSocketIdForUser({ userId: uid, socketId }));
-      syncToolsToBackend();
     });
 
     this.socket.on('ready', () => {
@@ -160,80 +156,6 @@ class SocketService {
       store.dispatch(setStatusForUser({ userId: uid, status: 'disconnected' }));
     });
 
-    // MCP handlers — only in web mode (Rust handles MCP in Tauri mode)
-    this.socket.on('mcp:listTools', (data: { requestId: string }) => {
-      socketLog('MCP list tools request', { requestId: data.requestId });
-
-      // Aggregate tools from all ready skills
-      const skillsState = store.getState().skills.skills;
-      const allTools: MCPTool[] = [];
-
-      for (const [skillId, skill] of Object.entries(skillsState)) {
-        if (skill.status === 'ready' && skill.tools?.length) {
-          for (const tool of skill.tools) {
-            allTools.push({
-              name: `${skillId}__${tool.name}`,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-            });
-          }
-        }
-      }
-
-      socketLog('MCP list tools response', {
-        requestId: data.requestId,
-        toolCount: allTools.length,
-      });
-
-      this.socket?.emit('mcp:listToolsResponse', { requestId: data.requestId, tools: allTools });
-    });
-
-    this.socket.on('mcp:toolCall', async (data: { requestId: string; toolCall: MCPToolCall }) => {
-      const { requestId, toolCall } = data;
-      socketLog('MCP tool call', createSafeLogData({ requestId, toolName: toolCall?.name }, data));
-
-      const separatorIdx = toolCall.name.indexOf('__');
-      if (separatorIdx === -1) {
-        socketError('MCP tool call - invalid tool name format', { requestId, name: toolCall.name });
-        this.socket?.emit('mcp:toolCallResponse', {
-          requestId,
-          result: {
-            content: [
-              {
-                type: 'text',
-                text: `Invalid tool name: ${toolCall.name}. Expected format: skillId__toolName`,
-              },
-            ],
-            isError: true,
-          },
-        });
-        return;
-      }
-
-      const skillId = toolCall.name.substring(0, separatorIdx);
-      const toolName = toolCall.name.substring(separatorIdx + 2);
-
-      try {
-        const result = await skillManager.callTool(skillId, toolName, toolCall.arguments);
-
-        socketLog('MCP tool call success', { requestId, skillId, toolName });
-
-        this.socket?.emit('mcp:toolCallResponse', { requestId, result });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        socketError('MCP tool call failed', {
-          requestId,
-          skillId,
-          toolName,
-          error: sanitizeError(err),
-        });
-        this.socket?.emit('mcp:toolCallResponse', {
-          requestId,
-          result: { content: [{ type: 'text', text: msg }], isError: true },
-        });
-      }
-    });
-
     this.socket.connect();
   }
 
@@ -241,6 +163,13 @@ class SocketService {
    * Disconnect from the socket server
    */
   disconnect(): void {
+    if (HTTP_CHAT_ONLY) {
+      this.socket = null;
+      this.token = null;
+      this.mcpTransport = null;
+      return;
+    }
+
     if (this.socket) {
       const uid = getSocketUserId();
       socketLog('Disconnecting', { userId: uid });
@@ -263,6 +192,7 @@ class SocketService {
    * Get the MCP transport for making client→server MCP requests
    */
   getMCPTransport(): SocketIOMCPTransportImpl | null {
+    if (HTTP_CHAT_ONLY) return null;
     return this.mcpTransport;
   }
 
@@ -277,8 +207,9 @@ class SocketService {
    * Emit an event to the server
    */
   emit(event: string, data?: unknown): void {
+    if (HTTP_CHAT_ONLY) return;
     if (this.socket?.connected) {
-      socketLog('Emitting event', createSafeLogData({ event }, data));
+      socketLog('Emitting event', { event, hasData: typeof data !== 'undefined' });
       this.socket.emit(event, data);
     } else {
       socketWarn('Cannot emit event - socket not connected', { event });

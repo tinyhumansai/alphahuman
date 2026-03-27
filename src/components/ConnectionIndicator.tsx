@@ -1,5 +1,4 @@
 import { useAppSelector } from '../store/hooks';
-import { selectSocketStatus } from '../store/socketSelectors';
 
 interface ConnectionIndicatorProps {
   status?: 'connected' | 'disconnected' | 'connecting';
@@ -12,9 +11,8 @@ const ConnectionIndicator = ({
   description = 'Your device is now connected to the OpenHuman AI. Keep the app running to keep the connection alive. You can message your assistant with the button below.',
   className = '',
 }: ConnectionIndicatorProps) => {
-  // Use socket store status, but allow override via props
-  const storeStatus = useAppSelector(selectSocketStatus);
-  const status = overrideStatus || storeStatus;
+  const hasToken = useAppSelector(state => Boolean(state.auth.token));
+  const status = overrideStatus || (hasToken ? 'connected' : 'disconnected');
   const statusConfig = {
     connected: {
       color: 'bg-sage-500',

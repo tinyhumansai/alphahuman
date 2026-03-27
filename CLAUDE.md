@@ -1,6 +1,6 @@
 ## Project Summary
 
-Cross-platform crypto community communication platform built with **Tauri v2** (React 19 + Rust). Targets desktop (Windows, macOS) and mobile (Android, iOS). Features deep Telegram integration via MTProto, real-time Socket.io communication, V8-based skill execution engine, and an MCP (Model Context Protocol) tool system for AI-driven Telegram interactions.
+Cross-platform crypto community communication platform built with **Tauri v2** (React 19 + Rust). Targets desktop (Windows, macOS) and mobile (Android, iOS). Features deep Telegram integration via MTProto, HTTP-first AI chat orchestration, optional Socket.io reverse-proxy transport, V8-based skill execution engine, and an MCP (Model Context Protocol) tool system for AI-driven Telegram interactions.
 
 ## App Theme & Design System
 
@@ -81,7 +81,7 @@ No test framework is currently configured. **ESLint and Prettier are configured*
 
 ### Provider Chain (App.tsx)
 
-The app wraps in this order: `Redux Provider` → `PersistGate` → `SocketProvider` → `TelegramProvider` → `HashRouter` → `AppRoutes`. **Note**: Now uses HashRouter instead of BrowserRouter. This ordering matters because Socket.io and Telegram providers depend on Redux auth state.
+The app wraps in this order: `Redux Provider` → `PersistGate` → `UserProvider` → `AIProvider` → `SkillProvider` → `HashRouter` → `AppRoutes`. **Note**: Uses HashRouter instead of BrowserRouter.
 
 ### State Management (Redux Toolkit + Persist)
 
@@ -107,12 +107,12 @@ Redux Persist stores auth and telegram state (storage backend is configurable; d
 ### Service Layer (Singletons)
 
 - **mtprotoService** (`src/services/mtprotoService.ts`) — Telegram MTProto client via `telegram` npm package. Session stored in Redux (`telegram.byUser[userId].sessionString`), not localStorage. Auto-retries FLOOD_WAIT up to 60s.
-- **socketService** (`src/services/socketService.ts`) — Socket.io client. Auth token passed in socket `auth` object (not query string). Transports: polling first, then WebSocket. Enhanced with Rust-native Socket.io client for persistent connections.
+- **socketService** (`src/services/socketService.ts`) — Retained for optional Socket.io reverse-proxy transport. Backend-pushed tool orchestration events are currently disabled.
 - **apiClient** (`src/services/apiClient.ts`) — HTTP client for REST backend.
 
 ### MCP System (`src/lib/mcp/`)
 
-Model Context Protocol implementation for AI tool execution over Socket.io:
+Model Context Protocol utilities used by the runtime and chat pipelines (HTTP chat is the default orchestration path):
 
 - `transport.ts` — Socket.io JSON-RPC 2.0 transport with 30s timeout
 - `telegram/server.ts` — TelegramMCPServer manages 99 tool definitions
@@ -493,8 +493,8 @@ Key updates from recent commits (cd9ebcd to current):
 - **Integration Libraries**: Each integration (Telegram, future Gmail, etc.) lives under `src/lib/<integration>/` with its own `state/`, `services/`, `api/` subdirectories. Domain-specific services belong in the integration folder, not in `src/services/` (which holds only cross-cutting services like socketService, apiClient).
 - **Unit Tests**: All unit tests live in `__tests__/` folders co-located with the code they test. Use Jest with TypeScript support.
 - **Runtime Platform Differences**: V8 runtime is desktop-only. Mobile platforms use feature detection and graceful degradation. Skills with platform restrictions are filtered during discovery.
-- **Socket Management**: Rust-native Socket.io client provides persistent connections with automatic reconnection. Use `connect_to_socket` command instead of frontend-only socket connections for reliability.
-- **Dual Socket Codebase**: Socket event handling exists in **both** the TypeScript frontend (`src/services/socketService.ts`, `src/utils/tauriSocket.ts`) and the Rust backend (`src-tauri/src/runtime/socket_manager.rs`). **Any new socket event or protocol change must be implemented in both codebases.** The web frontend handles events directly via Socket.io; the Rust backend handles them over raw WebSocket with Engine.IO/Socket.IO framing. Example: `tool:sync` is emitted from both `src/lib/skills/sync.ts` (web mode) and `socket_manager.rs` (Rust mode, on connect + skill lifecycle changes).
+- **Socket Management**: Socket transport remains optional and is kept for reverse-proxy scenarios.
+- **Orchestration Policy**: Chat/tool orchestration is HTTP-first. Do not add backend-pushed socket orchestration hooks/events unless explicitly requested.
 
 ## Platform Gotchas
 
