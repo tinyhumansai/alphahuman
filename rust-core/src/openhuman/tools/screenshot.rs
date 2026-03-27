@@ -292,8 +292,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn screenshot_command_exists() {
+        if !matches!(std::env::consts::OS, "macos" | "linux") {
+            return;
+        }
         let cmd = ScreenshotTool::screenshot_command("/tmp/test.png");
         assert!(cmd.is_some());
         let args = cmd.unwrap();

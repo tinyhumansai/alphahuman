@@ -21,7 +21,7 @@ pub mod uno_q_bridge;
 #[cfg(feature = "hardware")]
 pub mod uno_q_setup;
 
-#[cfg(all(feature = "peripheral-rpi", target_os = "linux"))]
+#[cfg(feature = "peripheral-rpi")]
 pub mod rpi;
 
 pub use traits::Peripheral;
@@ -62,18 +62,25 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
         }
 
         // Native transport: RPi GPIO (Linux only)
-        #[cfg(all(feature = "peripheral-rpi", target_os = "linux"))]
+        #[cfg(feature = "peripheral-rpi")]
         if board.transport == "native"
             && (board.board == "rpi-gpio" || board.board == "raspberry-pi")
         {
-            match rpi::RpiGpioPeripheral::connect_from_config(board).await {
-                Ok(peripheral) => {
-                    tools.extend(peripheral.tools());
-                    tracing::info!(board = %board.board, "RPi GPIO peripheral connected");
+            if std::env::consts::OS == "linux" {
+                match rpi::RpiGpioPeripheral::connect_from_config(board).await {
+                    Ok(peripheral) => {
+                        tools.extend(peripheral.tools());
+                        tracing::info!(board = %board.board, "RPi GPIO peripheral connected");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to connect RPi GPIO {}: {}", board.board, e);
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to connect RPi GPIO {}: {}", board.board, e);
-                }
+            } else {
+                tracing::warn!(
+                    "Skipping RPi GPIO peripheral {} on non-Linux host",
+                    board.board
+                );
             }
             continue;
         }

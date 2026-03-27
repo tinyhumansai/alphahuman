@@ -27,39 +27,35 @@ pub fn ensure_arduino_cli() -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        println!("arduino-cli not found. Installing via Homebrew...");
-        let status = Command::new("brew")
-            .args(["install", "arduino-cli"])
-            .status()
-            .context("Failed to run brew install")?;
-        if !status.success() {
-            anyhow::bail!("brew install arduino-cli failed. Install manually: https://arduino.github.io/arduino-cli/");
+    match std::env::consts::OS {
+        "macos" => {
+            println!("arduino-cli not found. Installing via Homebrew...");
+            let status = Command::new("brew")
+                .args(["install", "arduino-cli"])
+                .status()
+                .context("Failed to run brew install")?;
+            if !status.success() {
+                anyhow::bail!("brew install arduino-cli failed. Install manually: https://arduino.github.io/arduino-cli/");
+            }
+            println!("arduino-cli installed.");
+            if !arduino_cli_available() {
+                anyhow::bail!("arduino-cli still not found after install. Ensure it's in PATH.");
+            }
         }
-        println!("arduino-cli installed.");
-        if !arduino_cli_available() {
-            anyhow::bail!("arduino-cli still not found after install. Ensure it's in PATH.");
+        "linux" => {
+            println!("arduino-cli not found. Run the install script:");
+            println!("  curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh");
+            println!();
+            println!(
+                "Or install via package manager (e.g. apt install arduino-cli on Debian/Ubuntu)."
+            );
+            anyhow::bail!("arduino-cli not installed. Install it and try again.");
+        }
+        _ => {
+            println!("arduino-cli not found. Install it: https://arduino.github.io/arduino-cli/");
+            anyhow::bail!("arduino-cli not installed.");
         }
     }
-
-    #[cfg(target_os = "linux")]
-    {
-        println!("arduino-cli not found. Run the install script:");
-        println!("  curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh");
-        println!();
-        println!("Or install via package manager (e.g. apt install arduino-cli on Debian/Ubuntu).");
-        anyhow::bail!("arduino-cli not installed. Install it and try again.");
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        println!("arduino-cli not found. Install it: https://arduino.github.io/arduino-cli/");
-        anyhow::bail!("arduino-cli not installed.");
-    }
-
-    #[allow(unreachable_code)]
-    Ok(())
 }
 
 /// Ensure arduino:avr core is installed.

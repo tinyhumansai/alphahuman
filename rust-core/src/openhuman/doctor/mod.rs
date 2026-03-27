@@ -564,25 +564,21 @@ fn check_workspace(config: &Config, items: &mut Vec<DiagnosticItem>) {
 }
 
 fn available_disk_space_mb(path: &Path) -> Option<u64> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = path;
+    if std::env::consts::OS == "windows" {
+        let _ = path; // TODO: add a Windows-specific implementation
         return None;
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = std::process::Command::new("df")
-            .arg("-m")
-            .arg(path)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_df_available_mb(&stdout)
+    let output = std::process::Command::new("df")
+        .arg("-m")
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_df_available_mb(&stdout)
 }
 
 fn parse_df_available_mb(stdout: &str) -> Option<u64> {

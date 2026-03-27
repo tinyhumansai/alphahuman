@@ -125,62 +125,54 @@ impl Tool for BrowserOpenTool {
 }
 
 async fn open_in_brave(url: &str) -> anyhow::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        for app in ["Brave Browser", "Brave"] {
-            let status = tokio::process::Command::new("open")
-                .arg("-a")
-                .arg(app)
-                .arg(url)
+    match std::env::consts::OS {
+        "macos" => {
+            for app in ["Brave Browser", "Brave"] {
+                let status = tokio::process::Command::new("open")
+                    .arg("-a")
+                    .arg(app)
+                    .arg(url)
+                    .status()
+                    .await;
+
+                if let Ok(s) = status {
+                    if s.success() {
+                        return Ok(());
+                    }
+                }
+            }
+            anyhow::bail!(
+                "Brave Browser was not found (tried macOS app names 'Brave Browser' and 'Brave')"
+            );
+        }
+        "linux" => {
+            let mut last_error = String::new();
+            for cmd in ["brave-browser", "brave"] {
+                match tokio::process::Command::new(cmd).arg(url).status().await {
+                    Ok(status) if status.success() => return Ok(()),
+                    Ok(status) => {
+                        last_error = format!("{cmd} exited with status {status}");
+                    }
+                    Err(e) => {
+                        last_error = format!("{cmd} not runnable: {e}");
+                    }
+                }
+            }
+            anyhow::bail!("{last_error}");
+        }
+        "windows" => {
+            let status = tokio::process::Command::new("cmd")
+                .args(["/C", "start", "", "brave", url])
                 .status()
-                .await;
+                .await?;
 
-            if let Ok(s) = status {
-                if s.success() {
-                    return Ok(());
-                }
+            if status.success() {
+                return Ok(());
             }
+
+            anyhow::bail!("cmd start brave exited with status {status}");
         }
-        anyhow::bail!(
-            "Brave Browser was not found (tried macOS app names 'Brave Browser' and 'Brave')"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let mut last_error = String::new();
-        for cmd in ["brave-browser", "brave"] {
-            match tokio::process::Command::new(cmd).arg(url).status().await {
-                Ok(status) if status.success() => return Ok(()),
-                Ok(status) => {
-                    last_error = format!("{cmd} exited with status {status}");
-                }
-                Err(e) => {
-                    last_error = format!("{cmd} not runnable: {e}");
-                }
-            }
-        }
-        anyhow::bail!("{last_error}");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let status = tokio::process::Command::new("cmd")
-            .args(["/C", "start", "", "brave", url])
-            .status()
-            .await?;
-
-        if status.success() {
-            return Ok(());
-        }
-
-        anyhow::bail!("cmd start brave exited with status {status}");
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        let _ = url;
-        anyhow::bail!("browser_open is not supported on this OS");
+        _ => anyhow::bail!("browser_open is not supported on this OS"),
     }
 }
 

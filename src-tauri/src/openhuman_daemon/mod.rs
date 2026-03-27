@@ -107,10 +107,11 @@ pub async fn run_full(
     openhuman_core::openhuman::health::mark_component_ok("daemon");
 
     if config.heartbeat.enabled {
-        let _ = openhuman_core::openhuman::heartbeat::engine::HeartbeatEngine::ensure_heartbeat_file(
-            &config.workspace_dir,
-        )
-        .await;
+        let _ =
+            openhuman_core::openhuman::heartbeat::engine::HeartbeatEngine::ensure_heartbeat_file(
+                &config.workspace_dir,
+            )
+            .await;
     }
 
     let mut handles: Vec<JoinHandle<()>> =

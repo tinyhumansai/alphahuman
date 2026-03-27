@@ -4,35 +4,19 @@ pub mod preferences;
 pub mod types;
 pub mod utils;
 
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod bridge;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod cron_scheduler;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod ping_scheduler;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod qjs_engine;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod qjs_skill_instance;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod quickjs_libs;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod skill_registry;
-#[cfg(all(
-    feature = "tauri-host"
-))]
+#[cfg(all(feature = "tauri-host"))]
 pub mod socket_manager;
