@@ -17,7 +17,7 @@ use crate::runtime::skill_registry::SkillRegistry;
 use crate::runtime::socket_manager::SocketManager;
 use crate::runtime::types::{events, SkillMessage, SkillSnapshot, SkillStatus, ToolResult};
 use crate::runtime::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
-// IdbStorage removed with TDLib cleanup
+// IdbStorage removed during runtime cleanup
 
 /// The central runtime engine using QuickJS.
 pub struct RuntimeEngine {
@@ -463,20 +463,20 @@ impl RuntimeEngine {
     }
 
     /// Read a KV value from a skill's database.
-    /// TODO: Removed with TDLib cleanup - reimplement if needed
+    /// TODO: Removed during runtime cleanup - reimplement if needed
     pub fn kv_get(&self, _skill_id: &str, _key: &str) -> Result<serde_json::Value, String> {
-        Err("KV storage removed with TDLib cleanup".to_string())
+        Err("KV storage removed during runtime cleanup".to_string())
     }
 
     /// Write a KV value into a skill's database.
-    /// TODO: Removed with TDLib cleanup - reimplement if needed
+    /// TODO: Removed during runtime cleanup - reimplement if needed
     pub fn kv_set(
         &self,
         _skill_id: &str,
         _key: &str,
         _value: &serde_json::Value,
     ) -> Result<(), String> {
-        Err("KV storage removed with TDLib cleanup".to_string())
+        Err("KV storage removed during runtime cleanup".to_string())
     }
 
     /// Route a JSON-RPC method call.

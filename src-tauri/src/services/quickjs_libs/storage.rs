@@ -1,7 +1,7 @@
 //! IndexedDB Storage Layer (SQLite-backed)
 //!
 //! Provides persistent storage for:
-//! - IndexedDB API (for tdweb)
+//! - IndexedDB API
 //! - Skill databases (db bridge)
 //! - Skill key-value store (store bridge)
 
@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Result of opening an IndexedDB database.
-/// Used by the IndexedDB emulation layer for tdweb.
+/// Used by the IndexedDB emulation layer.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct IdbOpenResult {
     /// Whether a version upgrade is needed.

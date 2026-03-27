@@ -1004,8 +1004,7 @@ pub fn run() {
                     }
                 }
 
-                // Gracefully shut down TDLib before process exit to prevent
-                // use-after-free crash in the blocking receive loop.
+                // Gracefully shut down background services before process exit.
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 RunEvent::Exit => {
                     log::info!("[app] Exit event received, shutting down");

@@ -1,7 +1,7 @@
 /**
  * Bootstrap JavaScript for QuickJS Runtime
  *
- * Provides browser-like API shims that tdweb expects.
+ * Provides browser-like API shims for skill execution.
  * These shims call Rust "ops" for actual I/O.
  */
 
@@ -343,7 +343,7 @@ WebSocket._instances = new Map();
 globalThis.WebSocket = WebSocket;
 
 // ============================================================================
-// IndexedDB API (for tdweb persistence)
+// IndexedDB API (persistent local storage)
 // ============================================================================
 class IDBFactory {
   open(name, version = 1) {
@@ -937,74 +937,6 @@ globalThis.skills = {
   callTool: function (skillId, toolName, args) {
     console.warn('[skills] callTool not implemented in QuickJS runtime yet');
     return { error: 'Not implemented' };
-  },
-};
-
-// ============================================================================
-// TDLib Bridge API (telegram skill only)
-// ============================================================================
-// Provides native TDLib access for the telegram skill.
-// This is only available on desktop - Android uses Tauri invoke() instead.
-
-globalThis.tdlib = {
-  /**
-   * Check if TDLib ops are available.
-   * @returns {boolean} True on desktop, false on mobile/web.
-   */
-  isAvailable: function () {
-    try {
-      return typeof __ops?.tdlib_is_available === 'function'
-        ? __ops.tdlib_is_available()
-        : false;
-    } catch (e) {
-      return false;
-    }
-  },
-
-  /**
-   * Create client and set TDLib parameters in a single atomic call.
-   * API credentials are stored on the Rust side only.
-   * @param {string} dataDir - Path to store TDLib data files.
-   * @returns {Promise<number>} Client ID.
-   */
-  ensureInitialized: async function (dataDir) {
-    return await __ops.tdlib_ensure_initialized(dataDir);
-  },
-
-  /**
-   * Create a TDLib client with the given data directory.
-   * @param {string} dataDir - Path to store TDLib data files.
-   * @returns {Promise<number>} Client ID (always 1 for singleton).
-   */
-  createClient: function (dataDir) {
-    return __ops.tdlib_create_client(dataDir);
-  },
-
-  /**
-   * Send a TDLib request and wait for the response.
-   * @param {string} requestJson - JSON-serialized TDLib API request with @type field.
-   * @returns {Promise<string>} JSON-serialized TDLib response.
-   */
-  send: async function (requestJson) {
-    return await __ops.tdlib_send(requestJson);
-  },
-
-  /**
-   * Receive the next TDLib update (with timeout).
-   * @param {number} [timeoutMs=1000] - Timeout in milliseconds.
-   * @returns {Promise<object|null>} Update object or null if timeout.
-   */
-  receive: async function (timeoutMs = 1000) {
-    const resultJson = await __ops.tdlib_receive(timeoutMs);
-    return resultJson ? JSON.parse(resultJson) : null;
-  },
-
-  /**
-   * Destroy the TDLib client and clean up resources.
-   * @returns {Promise<void>}
-   */
-  destroy: async function () {
-    return await __ops.tdlib_destroy();
   },
 };
 
