@@ -11,19 +11,12 @@ import type {
   VoiceToneGuideline,
 } from './types';
 
-const SOUL_GITHUB_URL =
-  'https://raw.githubusercontent.com/openhumanxyz/openhuman/refs/heads/main/src-tauri/ai/SOUL.md';
-const SOUL_CACHE_KEY = 'openhuman.soul.cache';
-const SOUL_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
-
 let cachedSoulConfig: SoulConfig | null = null;
 
 /**
- * Load SOUL.md with caching and fallback strategy:
+ * Load SOUL.md with in-memory caching.
  * 1. Try in-memory cache
- * 2. Try localStorage cache (with TTL)
- * 3. Try GitHub remote
- * 4. Fallback to bundled SOUL.md
+ * 2. Use bundled SOUL.md
  */
 export async function loadSoul(): Promise<SoulConfig> {
   // 1. Memory cache
@@ -31,43 +24,14 @@ export async function loadSoul(): Promise<SoulConfig> {
     return cachedSoulConfig;
   }
 
-  // 2. Local storage cache
-  try {
-    const cached = localStorage.getItem(SOUL_CACHE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached) as { config: SoulConfig; timestamp: number };
-      if (Date.now() - parsed.timestamp < SOUL_CACHE_TTL) {
-        cachedSoulConfig = parsed.config;
-        return parsed.config;
-      }
-    }
-  } catch {
-    // Ignore cache errors
-  }
-
-  let raw: string;
-  let isDefault = false;
-
-  try {
-    // 3. GitHub remote
-    const response = await fetch(SOUL_GITHUB_URL);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    raw = await response.text();
-  } catch {
-    // 4. Fallback to bundled
-    raw = soulMd;
-    isDefault = true;
-  }
+  // 2. Bundled source only
+  const raw = soulMd;
+  const isDefault = false;
 
   const config = parseSoul(raw, isDefault);
 
-  // Cache the result
+  // Cache the result in memory
   cachedSoulConfig = config;
-  try {
-    localStorage.setItem(SOUL_CACHE_KEY, JSON.stringify({ config, timestamp: Date.now() }));
-  } catch {
-    // Ignore storage errors
-  }
 
   return config;
 }
@@ -263,9 +227,4 @@ function parseEmergencyResponses(raw: string): EmergencyResponse[] {
  */
 export function clearSoulCache(): void {
   cachedSoulConfig = null;
-  try {
-    localStorage.removeItem(SOUL_CACHE_KEY);
-  } catch {
-    // Ignore storage errors
-  }
 }

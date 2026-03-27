@@ -25,8 +25,8 @@ export interface AIConfigMetadata {
   hasFallbacks: boolean;
   /** Sources used for loading */
   sources: {
-    soul: 'memory' | 'localStorage' | 'github' | 'bundled';
-    tools: 'memory' | 'localStorage' | 'github' | 'bundled';
+    soul: 'memory' | 'bundled';
+    tools: 'memory' | 'bundled';
   };
   /** Loading errors (non-fatal) */
   errors?: string[];

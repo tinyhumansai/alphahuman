@@ -10,20 +10,15 @@ import { clearToolsCache, loadTools } from './tools/loader';
 import type { ToolsConfig } from './tools/types';
 import type {
   AIConfig,
-  AIConfigCacheEntry,
   AIConfigLoadOptions,
   AIConfigLoadResult,
   AIConfigMetadata,
 } from './types';
 
-const AI_CACHE_KEY = 'openhuman.ai.cache';
-const AI_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
-const CACHE_VERSION = '1.0.0';
-
 let cachedAIConfig: AIConfig | null = null;
 
 /**
- * Load complete AI configuration (SOUL + TOOLS) with caching and parallel loading
+ * Load complete AI configuration (SOUL + TOOLS) with in-memory caching.
  */
 export async function loadAIConfig(options: AIConfigLoadOptions = {}): Promise<AIConfig> {
   const { forceRefresh = false, includeMetadata = true, timeout = 30000 } = options;
@@ -33,22 +28,6 @@ export async function loadAIConfig(options: AIConfigLoadOptions = {}): Promise<A
   // Check memory cache first (unless force refresh)
   if (!forceRefresh && cachedAIConfig) {
     return cachedAIConfig;
-  }
-
-  // Check localStorage cache (unless force refresh)
-  if (!forceRefresh) {
-    try {
-      const cached = localStorage.getItem(AI_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached) as AIConfigCacheEntry;
-        if (Date.now() - parsed.timestamp < AI_CACHE_TTL && parsed.version === CACHE_VERSION) {
-          cachedAIConfig = parsed.config;
-          return parsed.config;
-        }
-      }
-    } catch {
-      // Ignore cache errors
-    }
   }
 
   // Force clear caches if refresh requested
@@ -100,18 +79,8 @@ export async function loadAIConfig(options: AIConfigLoadOptions = {}): Promise<A
   // Combine into unified config
   const config: AIConfig = { soul, tools, metadata };
 
-  // Cache the result
+  // Cache the result in memory
   cachedAIConfig = config;
-  try {
-    const cacheEntry: AIConfigCacheEntry = {
-      config,
-      timestamp: Date.now(),
-      version: CACHE_VERSION,
-    };
-    localStorage.setItem(AI_CACHE_KEY, JSON.stringify(cacheEntry));
-  } catch {
-    // Ignore storage errors
-  }
 
   return config;
 }
@@ -161,20 +130,6 @@ export async function refreshSoul(): Promise<SoulConfig> {
     cachedAIConfig.metadata.hasFallbacks = soul.isDefault || cachedAIConfig.tools.isDefault;
   }
 
-  // Update localStorage cache
-  try {
-    if (cachedAIConfig) {
-      const cacheEntry: AIConfigCacheEntry = {
-        config: cachedAIConfig,
-        timestamp: Date.now(),
-        version: CACHE_VERSION,
-      };
-      localStorage.setItem(AI_CACHE_KEY, JSON.stringify(cacheEntry));
-    }
-  } catch {
-    // Ignore storage errors
-  }
-
   return soul;
 }
 
@@ -190,20 +145,6 @@ export async function refreshTools(): Promise<ToolsConfig> {
     cachedAIConfig.tools = tools;
     cachedAIConfig.metadata.loadedAt = Date.now();
     cachedAIConfig.metadata.hasFallbacks = cachedAIConfig.soul.isDefault || tools.isDefault;
-  }
-
-  // Update localStorage cache
-  try {
-    if (cachedAIConfig) {
-      const cacheEntry: AIConfigCacheEntry = {
-        config: cachedAIConfig,
-        timestamp: Date.now(),
-        version: CACHE_VERSION,
-      };
-      localStorage.setItem(AI_CACHE_KEY, JSON.stringify(cacheEntry));
-    }
-  } catch {
-    // Ignore storage errors
   }
 
   return tools;
@@ -223,11 +164,6 @@ export function clearAICache(): void {
   cachedAIConfig = null;
   clearSoulCache();
   clearToolsCache();
-  try {
-    localStorage.removeItem(AI_CACHE_KEY);
-  } catch {
-    // Ignore storage errors
-  }
 }
 
 /**
@@ -258,14 +194,12 @@ async function loadWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promi
 
 function getSoulSource(soul: SoulConfig): AIConfigMetadata['sources']['soul'] {
   if (soul.isDefault) return 'bundled';
-  // We can't easily determine the exact source, so we default to github for remote
-  return 'github';
+  return 'memory';
 }
 
 function getToolsSource(tools: ToolsConfig): AIConfigMetadata['sources']['tools'] {
   if (tools.isDefault) return 'bundled';
-  // We can't easily determine the exact source, so we default to github for remote
-  return 'github';
+  return 'memory';
 }
 
 function createFallbackSoulConfig(): SoulConfig {

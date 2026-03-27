@@ -22,7 +22,7 @@ describe('AgentToolRegistry', () => {
         {
           type: 'function',
           function: {
-            name: 'github_list_issues',
+            name: 'github__list_issues',
             description: 'List GitHub issues for a repository',
             parameters: {
               type: 'object',
@@ -37,7 +37,7 @@ describe('AgentToolRegistry', () => {
         {
           type: 'function',
           function: {
-            name: 'notion_create_page',
+            name: 'notion__create_page',
             description: 'Create a new Notion page',
             parameters: {
               type: 'object',
@@ -56,8 +56,8 @@ describe('AgentToolRegistry', () => {
       const schemas = await service.loadToolSchemas();
 
       expect(schemas).toHaveLength(2);
-      expect(schemas[0].function.name).toBe('github_list_issues');
-      expect(schemas[1].function.name).toBe('notion_create_page');
+      expect(schemas[0].function.name).toBe('github__list_issues');
+      expect(schemas[1].function.name).toBe('notion__create_page');
       expect(mockInvoke).toHaveBeenCalledWith('runtime_get_tool_schemas');
     });
 
@@ -152,7 +152,7 @@ describe('AgentToolRegistry', () => {
 
       // Verify correct tool_id format and arguments
       expect(mockInvoke).toHaveBeenCalledWith('runtime_execute_tool', {
-        toolId: 'github_list_issues',
+        toolId: 'github__list_issues',
         args: '{"owner":"user","repo":"test"}',
       });
     });
@@ -226,7 +226,7 @@ describe('AgentToolRegistry', () => {
         {
           type: 'function',
           function: {
-            name: 'github_list_issues',
+            name: 'github__list_issues',
             description: 'List GitHub issues',
             parameters: { type: 'object', properties: {} },
           },
@@ -234,7 +234,7 @@ describe('AgentToolRegistry', () => {
         {
           type: 'function',
           function: {
-            name: 'github_create_issue',
+            name: 'github__create_issue',
             description: 'Create GitHub issue',
             parameters: { type: 'object', properties: {} },
           },
@@ -242,7 +242,7 @@ describe('AgentToolRegistry', () => {
         {
           type: 'function',
           function: {
-            name: 'notion_create_page',
+            name: 'notion__create_page',
             description: 'Create Notion page',
             parameters: { type: 'object', properties: {} },
           },
@@ -254,10 +254,10 @@ describe('AgentToolRegistry', () => {
     });
 
     test('getToolByName should find tool by name', () => {
-      const tool = service.getToolByName('github_list_issues');
+      const tool = service.getToolByName('github__list_issues');
 
       expect(tool).toBeDefined();
-      expect(tool?.function.name).toBe('github_list_issues');
+      expect(tool?.function.name).toBe('github__list_issues');
       expect(tool?.function.description).toBe('List GitHub issues');
     });
 
@@ -272,33 +272,30 @@ describe('AgentToolRegistry', () => {
 
       expect(tools).toHaveLength(3);
       expect(tools.map(t => t.function.name)).toEqual([
-        'github_list_issues',
-        'github_create_issue',
-        'notion_create_page',
+        'github__list_issues',
+        'github__create_issue',
+        'notion__create_page',
       ]);
     });
 
     test('getToolsBySkill should organize tools by skill ID', () => {
       const toolsBySkill = service.getToolsBySkill();
 
-      // Skill ID is the substring before the last underscore in tool function names
-      expect(toolsBySkill).toHaveProperty('github_list');
-      expect(toolsBySkill).toHaveProperty('github_create');
-      expect(toolsBySkill).toHaveProperty('notion_create');
-      expect(toolsBySkill.github_list).toHaveLength(1);
-      expect(toolsBySkill.github_create).toHaveLength(1);
-      expect(toolsBySkill.notion_create).toHaveLength(1);
+      expect(toolsBySkill).toHaveProperty('github');
+      expect(toolsBySkill).toHaveProperty('notion');
+      expect(toolsBySkill.github).toHaveLength(2);
+      expect(toolsBySkill.notion).toHaveLength(1);
 
-      expect(toolsBySkill.github_list[0].function.name).toBe('github_list_issues');
-      expect(toolsBySkill.github_create[0].function.name).toBe('github_create_issue');
-      expect(toolsBySkill.notion_create[0].function.name).toBe('notion_create_page');
+      expect(toolsBySkill.github[0].function.name).toBe('github__list_issues');
+      expect(toolsBySkill.github[1].function.name).toBe('github__create_issue');
+      expect(toolsBySkill.notion[0].function.name).toBe('notion__create_page');
     });
 
     test('getToolStats should return accurate statistics', () => {
       const stats = service.getToolStats();
 
       expect(stats.totalTools).toBe(3);
-      expect(stats.skillCount).toBe(3);
+      expect(stats.skillCount).toBe(2);
       expect(stats.categories).toHaveProperty('GitHub', 2);
       expect(stats.categories).toHaveProperty('Notion', 1);
     });
@@ -309,11 +306,10 @@ describe('AgentToolRegistry', () => {
       // Use reflection to access private method
       const extractMethod = (service as any).extractSkillIdFromToolName.bind(service);
 
-      // Uses lastIndexOf('_'): skill id is everything before the final underscore
-      expect(extractMethod('github_list_issues')).toBe('github_list');
-      expect(extractMethod('notion_create_page')).toBe('notion_create');
-      expect(extractMethod('complex_skill_name_tool_name')).toBe('complex_skill_name_tool');
-      expect(extractMethod('invalid_format')).toBe('invalid');
+      expect(extractMethod('github__list_issues')).toBe('github');
+      expect(extractMethod('notion__create_page')).toBe('notion');
+      expect(extractMethod('complex_skill_name__tool_name')).toBe('complex_skill_name');
+      expect(extractMethod('invalid_format')).toBeNull();
       expect(extractMethod('simpletool')).toBeNull();
     });
 

@@ -9,19 +9,28 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export interface ChatToolCallEvent {
   thread_id: string;
+  tool_call_id: string;
   tool_name: string;
   skill_id: string;
   args: Record<string, unknown>;
   round: number;
+  sequence_index: number;
+  pipeline_version: string;
 }
 
 export interface ChatToolResultEvent {
   thread_id: string;
+  tool_call_id: string;
   tool_name: string;
   skill_id: string;
   output: string;
   success: boolean;
+  is_error: boolean;
   round: number;
+  sequence_index: number;
+  latency_ms: number;
+  normalized_output_kind: string;
+  pipeline_version: string;
 }
 
 export interface ChatDoneEvent {
@@ -30,6 +39,10 @@ export interface ChatDoneEvent {
   rounds_used: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  context_tokens_in: number;
+  context_tokens_out: number;
+  compaction_count: number;
+  pipeline_version: string;
 }
 
 export interface ChatErrorEvent {
@@ -37,6 +50,10 @@ export interface ChatErrorEvent {
   message: string;
   error_type: 'network' | 'timeout' | 'tool_error' | 'inference' | 'cancelled';
   round: number | null;
+  stage: 'guard' | 'inference' | 'tool' | 'runtime';
+  code: string;
+  pipeline_version: string;
+  guard_action?: 'sanitize' | 'block' | null;
 }
 
 // ─── Listener setup ───────────────────────────────────────────────────────────

@@ -1,10 +1,8 @@
 /**
  * Agent Tool Registry Service
  *
- * Unified tool discovery and execution using the consolidated systems:
- * - telegram_get_tools: Get Telegram tools in OpenAI-compatible format
- * - telegram_execute_tool: Execute Telegram tools with enhanced validation
- * - Fallback to skill system for non-Telegram tools (temporary)
+ * Unified tool discovery and execution for runtime-managed skills.
+ * Tool names are expected in namespaced format: `skillId__toolName`.
  */
 import { invoke } from '@tauri-apps/api/core';
 
@@ -48,29 +46,12 @@ export class AgentToolRegistry implements IAgentToolRegistry {
     }
 
     try {
-      console.log('🔧 Loading tool schemas from unified systems...');
+      console.log('[tool-registry] Loading tool schemas from runtime');
 
       const allTools: AgentToolSchema[] = [];
-
-      // Note: Telegram tools removed - no longer available
-      console.log('🔧 Telegram tools not available (unified system removed)');
-
-      // 2. Load other tools from skill system (fallback for non-Telegram)
       try {
-        console.log('🔧 Loading non-Telegram tools from skill system...');
         const skillTools = await invoke<ZeroClawToolSchema[]>('runtime_get_tool_schemas');
-
-        // Filter out telegram tools to avoid duplicates
-        const nonTelegramTools = skillTools.filter(
-          tool =>
-            !tool.function.name.includes('telegram') &&
-            !tool.function.name.includes('tg') &&
-            !this.extractCategoryFromSkillId(
-              this.extractSkillIdFromToolName(tool.function.name) || ''
-            ).includes('Telegram')
-        );
-
-        const skillSchemas = nonTelegramTools.map(tool => ({
+        const skillSchemas = skillTools.map(tool => ({
           type: 'function' as const,
           function: {
             name: tool.function.name,
@@ -80,15 +61,15 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         }));
 
         allTools.push(...skillSchemas);
-        console.log(`✅ Loaded ${skillSchemas.length} non-Telegram tools from skill system`);
+        console.log(`[tool-registry] Loaded ${skillSchemas.length} tools from runtime`);
       } catch (error) {
-        console.warn('⚠️ Failed to load tools from skill system:', error);
+        console.warn('[tool-registry] Failed to load tools from runtime:', error);
       }
 
       this.toolSchemas = allTools;
       this.lastLoadTime = now;
 
-      console.log(`✅ Tool registry updated: ${this.toolSchemas.length} total tools available`);
+      console.log(`[tool-registry] Updated: ${this.toolSchemas.length} total tools`);
 
       return this.toolSchemas;
     } catch (error) {
@@ -117,55 +98,14 @@ export class AgentToolRegistry implements IAgentToolRegistry {
       startTime,
     };
 
-    console.log(`🚀 [TOOL EXECUTION START] Executing tool: ${toolName} (skillId: ${skillId})`);
-    console.log(`📝 [ARGUMENTS] Raw arguments:`, {
-      arguments: toolArguments,
-      type: typeof toolArguments,
-      length: toolArguments?.length,
-      isString: typeof toolArguments === 'string',
-      parsed: (() => {
-        try {
-          return typeof toolArguments === 'string' ? JSON.parse(toolArguments) : toolArguments;
-        } catch (e) {
-          return 'Failed to parse: ' + e;
-        }
-      })(),
-    });
+    console.log(`[tool-registry] Execute ${toolName} (skillId=${skillId})`);
 
     try {
-      // Determine if this is a Telegram tool
-      const isTelegramTool =
-        skillId.includes('telegram') ||
-        skillId.includes('tg') ||
-        toolName.includes('telegram') ||
-        toolName.includes('tg') ||
-        this.extractCategoryFromSkillId(skillId).includes('Telegram');
-
-      let result: ZeroClawToolResult;
-
-      if (isTelegramTool) {
-        // Telegram tools no longer available
-        console.log(`🔧 [TELEGRAM TOOL] Tool "${toolName}" not available (unified system removed)`);
-        result = {
-          success: false,
-          output: '',
-          error: 'Telegram tools are no longer available (unified system removed)',
-        };
-      } else {
-        // Use skill system for non-Telegram tools
-        const toolId = `${skillId}_${toolName}`;
-        console.log(`🔧 [BEFORE INVOKE] Calling runtime_execute_tool with:`);
-        console.log(`   toolId: "${toolId}"`);
-        console.log(`   args: ${toolArguments}`);
-        console.log(`   args type: ${typeof toolArguments}`);
-
-        result = await invoke<ZeroClawToolResult>('runtime_execute_tool', {
-          toolId,
-          args: toolArguments,
-        });
-      }
-
-      console.log(`🔧 [AFTER INVOKE] Tool execution result:`, result);
+      const toolId = `${skillId}__${toolName}`;
+      const result = await invoke<ZeroClawToolResult>('runtime_execute_tool', {
+        toolId,
+        args: toolArguments,
+      });
 
       execution.endTime = Date.now();
       // Use execution time from Rust if available, otherwise calculate locally
@@ -176,13 +116,14 @@ export class AgentToolRegistry implements IAgentToolRegistry {
         execution.errorMessage = result.error || 'Unknown error occurred';
         execution.result = execution.errorMessage;
 
-        console.log(`❌ Tool execution failed: ${toolName} (${execution.executionTimeMs}ms)`);
-        console.log(`❌ Error:`, execution.errorMessage);
+        console.log(`[tool-registry] Tool failed: ${toolName} (${execution.executionTimeMs}ms)`);
       } else {
         execution.status = 'success';
         execution.result = result.output;
 
-        console.log(`✅ Tool execution completed: ${toolName} (${execution.executionTimeMs}ms)`);
+        console.log(
+          `[tool-registry] Tool completed: ${toolName} (${execution.executionTimeMs}ms)`
+        );
       }
 
       return execution;
@@ -193,7 +134,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
       execution.errorMessage = error instanceof Error ? error.message : String(error);
       execution.result = execution.errorMessage;
 
-      console.error(`❌ Tool execution error: ${toolName}`, error);
+      console.error(`[tool-registry] Tool execution error: ${toolName}`, error);
 
       return execution;
     }
@@ -220,7 +161,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
     const toolsBySkill: Record<string, AgentToolSchema[]> = {};
 
     for (const tool of this.toolSchemas) {
-      // Extract skill ID from tool name (format: skillId_toolName)
+      // Extract skill ID from tool name (format: skillId__toolName)
       const skillId = this.extractSkillIdFromToolName(tool.function.name) || 'unknown';
 
       if (!toolsBySkill[skillId]) {
@@ -257,7 +198,7 @@ export class AgentToolRegistry implements IAgentToolRegistry {
   clearCache(): void {
     this.toolSchemas = [];
     this.lastLoadTime = 0;
-    console.log('🔧 Tool registry cache cleared');
+    console.log('[tool-registry] Cache cleared');
   }
 
   // =============================================================================
@@ -265,14 +206,14 @@ export class AgentToolRegistry implements IAgentToolRegistry {
   // =============================================================================
 
   /**
-   * Extract skill ID from tool name (format: skillId_toolName)
+   * Extract skill ID from tool name (format: skillId__toolName)
    */
   private extractSkillIdFromToolName(toolName: string): string | null {
-    const underscoreIndex = toolName.lastIndexOf('_');
-    if (underscoreIndex === -1) {
+    const separator = toolName.indexOf('__');
+    if (separator === -1) {
       return null;
     }
-    return toolName.substring(0, underscoreIndex);
+    return toolName.substring(0, separator);
   }
 
   /**

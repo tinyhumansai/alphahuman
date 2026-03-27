@@ -353,7 +353,7 @@ mod desktop {
 
         log::info!("🔧 [RUNTIME] Executing ZeroClaw tool: {} with args: {}", tool_id, args);
 
-        // Parse tool_id to get skill_id and tool_name (format: "skill_id_tool_name")
+        // Parse tool_id to get skill_id and tool_name (preferred: "skill_id__tool_name")
         let (skill_id, tool_name) = match parse_tool_id(&tool_id) {
             Ok((skill, tool)) => {
                 log::info!("🔧 [RUNTIME] Parsed tool_id: skill_id='{}', tool_name='{}'", skill, tool);
@@ -449,21 +449,32 @@ mod desktop {
         }
     }
 
-    // Helper function to parse tool_id format: "skill_id_tool_name"
+    // Helper function to parse tool_id format.
+    // Preferred separator: "__" (skill_id__tool_name).
+    // Legacy fallback: first "_" separator.
     pub fn parse_tool_id(tool_id: &str) -> Result<(String, String), String> {
-        // Find the first underscore to separate skill_id from tool_name
+        if let Some(double_sep) = tool_id.find("__") {
+            let skill_id = tool_id[..double_sep].to_string();
+            let tool_name = tool_id[double_sep + 2..].to_string();
+            if skill_id.is_empty() || tool_name.is_empty() {
+                return Err("Tool ID must be in format 'skill_id__tool_name'".to_string());
+            }
+            return Ok((skill_id, tool_name));
+        }
+
         if let Some(underscore_pos) = tool_id.find('_') {
             let skill_id = tool_id[..underscore_pos].to_string();
             let tool_name = tool_id[underscore_pos + 1..].to_string();
-
             if skill_id.is_empty() || tool_name.is_empty() {
-                return Err("Tool ID must be in format 'skill_id_tool_name'".to_string());
+                return Err(
+                    "Tool ID must be in format 'skill_id__tool_name' (legacy 'skill_id_tool_name' also accepted)"
+                        .to_string(),
+                );
             }
-
-            Ok((skill_id, tool_name))
-        } else {
-            Err("Tool ID must contain an underscore separator".to_string())
+            return Ok((skill_id, tool_name));
         }
+
+        Err("Tool ID must contain '__' separator".to_string())
     }
 
     // Helper function to convert MCP schema to OpenAI function calling format
@@ -750,22 +761,29 @@ mod tests {
 
         #[test]
         fn test_parse_tool_id_valid_formats() {
-            // Test valid tool ID formats
-            let (skill_id, tool_name) = desktop::parse_tool_id("github_list_issues")
+            // Preferred format
+            let (skill_id, tool_name) = desktop::parse_tool_id("github__list_issues")
                 .expect("Should parse valid tool ID");
             assert_eq!(skill_id, "github");
             assert_eq!(tool_name, "list_issues");
 
-            let (skill_id, tool_name) = desktop::parse_tool_id("notion_create_page")
+            let (skill_id, tool_name) = desktop::parse_tool_id("notion__create_page")
                 .expect("Should parse valid tool ID");
             assert_eq!(skill_id, "notion");
             assert_eq!(tool_name, "create_page");
 
-            // Test complex skill names (first underscore separates skill_id from tool_name)
-            let (skill_id, tool_name) = desktop::parse_tool_id("complex_skill_name_tool_function")
+            // Complex skill IDs with preferred separator
+            let (skill_id, tool_name) =
+                desktop::parse_tool_id("complex_skill_name__tool_function")
                 .expect("Should parse complex tool ID");
-            assert_eq!(skill_id, "complex");
-            assert_eq!(tool_name, "skill_name_tool_function");
+            assert_eq!(skill_id, "complex_skill_name");
+            assert_eq!(tool_name, "tool_function");
+
+            // Legacy format still accepted
+            let (skill_id, tool_name) = desktop::parse_tool_id("legacy_skill_tool")
+                .expect("Should parse legacy tool ID");
+            assert_eq!(skill_id, "legacy");
+            assert_eq!(tool_name, "skill_tool");
         }
 
         #[test]

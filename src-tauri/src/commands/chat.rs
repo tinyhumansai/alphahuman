@@ -1,39 +1,23 @@
-//! Tauri commands for the Rust-side conversation orchestration.
+//! Tauri commands for Rust-side conversation orchestration.
 //!
-//! Moves the agentic loop (context injection, inference API calls, tool execution)
-//! from `Conversations.tsx` into Rust, so the frontend becomes a thin renderer.
-//!
-//! # Command overview
-//!
-//! - `chat_send`   — spawn the agentic loop in a background task; returns immediately.
-//! - `chat_cancel` — cancel an in-flight `chat_send` by thread ID.
-//!
-//! # Event protocol (Rust → frontend)
-//!
-//! | Event name        | Payload type          | When emitted                    |
-//! |-------------------|-----------------------|---------------------------------|
-//! | `chat:tool_call`  | `ChatToolCallEvent`   | Before a tool is executed       |
-//! | `chat:tool_result`| `ChatToolResultEvent` | After a tool completes          |
-//! | `chat:done`       | `ChatDoneEvent`       | Agent loop finishes (success)   |
-//! | `chat:error`      | `ChatErrorEvent`      | Any error during the loop       |
+//! This module owns context assembly, tool-loop execution, and chat telemetry.
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::memory::MemoryState;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
+const PIPELINE_VERSION: &str = "2.0.0";
 const MAX_TOOL_ROUNDS: u32 = 5;
 const INFERENCE_TIMEOUT_SECS: u64 = 120;
 const TOOL_TIMEOUT_SECS: u64 = 60;
 const MAX_CONTEXT_CHARS: usize = 20_000;
+const MESSAGE_COMPACTION_CHAR_BUDGET: usize = 120_000;
 
-/// Names and order of the OpenClaw workspace files.
 const OPENCLAW_FILES: &[&str] = &[
     "SOUL.md",
     "IDENTITY.md",
@@ -44,12 +28,9 @@ const OPENCLAW_FILES: &[&str] = &[
     "TOOLS.md",
 ];
 
-// ─── Input types (frontend → Rust) ───────────────────────────────────────────
-
-/// A single message in the conversation history, sent from the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessagePayload {
-    pub role: String, // "user" | "assistant" | "system" | "tool"
+    pub role: String,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallPayload>>,
@@ -61,17 +42,16 @@ pub struct ChatMessagePayload {
 pub struct ToolCallPayload {
     pub id: String,
     #[serde(rename = "type")]
-    pub call_type: String, // always "function"
+    pub call_type: String,
     pub function: ToolCallFunction,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallFunction {
     pub name: String,
-    pub arguments: String, // JSON string
+    pub arguments: String,
 }
 
-/// Parameters for the `chat_send` Tauri command.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChatSendParams {
     pub thread_id: String,
@@ -84,30 +64,34 @@ pub struct ChatSendParams {
     pub notion_context: Option<String>,
 }
 
-// ─── Event payload types (Rust → frontend) ───────────────────────────────────
-
-/// Emitted when the agent invokes a tool.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatToolCallEvent {
     pub thread_id: String,
+    pub tool_call_id: String,
     pub tool_name: String,
     pub skill_id: String,
     pub args: serde_json::Value,
     pub round: u32,
+    pub sequence_index: usize,
+    pub pipeline_version: String,
 }
 
-/// Emitted when a tool completes execution.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatToolResultEvent {
     pub thread_id: String,
+    pub tool_call_id: String,
     pub tool_name: String,
     pub skill_id: String,
     pub output: String,
     pub success: bool,
+    pub is_error: bool,
     pub round: u32,
+    pub sequence_index: usize,
+    pub latency_ms: u128,
+    pub normalized_output_kind: String,
+    pub pipeline_version: String,
 }
 
-/// Emitted when the agent loop completes successfully.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatDoneEvent {
     pub thread_id: String,
@@ -115,21 +99,24 @@ pub struct ChatDoneEvent {
     pub rounds_used: u32,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub context_tokens_in: u64,
+    pub context_tokens_out: u64,
+    pub compaction_count: u32,
+    pub pipeline_version: String,
 }
 
-/// Emitted when an error occurs during the agent loop.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatErrorEvent {
     pub thread_id: String,
     pub message: String,
-    /// "network" | "timeout" | "tool_error" | "inference" | "cancelled"
     pub error_type: String,
     pub round: Option<u32>,
+    pub stage: String,
+    pub code: String,
+    pub pipeline_version: String,
+    pub guard_action: Option<String>,
 }
 
-// ─── Backend API response types ───────────────────────────────────────────────
-
-/// OpenAI-compatible chat completion response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChatCompletionResponse {
     #[allow(dead_code)]
@@ -166,9 +153,6 @@ pub struct CompletionUsage {
     pub total_tokens: u64,
 }
 
-// ─── Internal state ───────────────────────────────────────────────────────────
-
-/// Tracks in-flight chat requests for cancellation support.
 pub struct ChatState {
     active_requests: RwLock<HashMap<String, CancellationToken>>,
 }
@@ -202,29 +186,14 @@ impl ChatState {
     }
 }
 
-// ─── AI config loader ─────────────────────────────────────────────────────────
-
-/// In-memory cache for AI config content.
-/// Populated on first call; cleared only on app restart.
 static AI_CONFIG_CACHE: once_cell::sync::Lazy<parking_lot::RwLock<Option<String>>> =
     once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
 
-/// Clear cached OpenClaw context (used after AI config file updates).
 pub fn clear_openclaw_context_cache() {
     *AI_CONFIG_CACHE.write() = None;
 }
 
-/// Load all AI config files and build the OpenClaw context string.
-///
-/// Tries these locations in order:
-/// 1. Tauri resource directory (production builds — files bundled via `tauri.conf.json` resources)
-/// 2. `{cwd}/src-tauri/ai/` (dev mode when cwd is project root)
-/// 3. `{cwd}/ai/` (dev mode when cwd is `src-tauri/`)
-/// 4. `{cwd}/../ai/` (legacy fallback)
-///
-/// Returns an empty string if no files are found (non-fatal).
 fn load_openclaw_context(app: &tauri::AppHandle) -> String {
-    // Check cache first
     if let Some(cached) = AI_CONFIG_CACHE.read().as_ref() {
         return cached.clone();
     }
@@ -244,7 +213,7 @@ fn load_openclaw_context(app: &tauri::AppHandle) -> String {
     }
 
     if sections.is_empty() {
-        log::warn!("[chat] No AI config files found — proceeding without context");
+        log::warn!("[chat] No AI config files found — proceeding without config context");
         let empty = String::new();
         *AI_CONFIG_CACHE.write() = Some(empty.clone());
         return empty;
@@ -260,58 +229,35 @@ fn load_openclaw_context(app: &tauri::AppHandle) -> String {
     context
 }
 
-/// Find the `ai/` directory. Returns `None` if not found.
 fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-    // 1. Try resource dir first (production builds)
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let ai_dir: std::path::PathBuf = resource_dir.join("ai");
+        let ai_dir = resource_dir.join("ai");
         if ai_dir.is_dir() {
-            log::info!(
-                "[chat] Using AI config from resource dir: {}",
-                ai_dir.display()
-            );
             return Some(ai_dir);
         }
     }
 
-    // 2. Try cwd/src-tauri/ai/ (dev mode; cwd is project root)
     if let Ok(cwd) = std::env::current_dir() {
         let root_dev_dir = cwd.join("src-tauri").join("ai");
         if root_dev_dir.is_dir() {
-            log::info!(
-                "[chat] Using AI config from root dev dir: {}",
-                root_dev_dir.display()
-            );
             return Some(root_dev_dir);
         }
 
-        // 3. Try cwd/ai/ (dev mode; cwd is src-tauri/)
         let fallback = cwd.join("ai");
         if fallback.is_dir() {
-            log::info!(
-                "[chat] Using AI config from fallback dir: {}",
-                fallback.display()
-            );
             return Some(fallback);
         }
 
-        // 4. Legacy fallback: cwd/../ai/
         if let Some(legacy_dir) = cwd.parent().map(|p| p.join("ai")) {
             if legacy_dir.is_dir() {
-                log::info!(
-                    "[chat] Using AI config from legacy dev dir: {}",
-                    legacy_dir.display()
-                );
                 return Some(legacy_dir);
             }
         }
     }
 
-    log::warn!("[chat] No AI config directory found");
     None
 }
 
-/// Check if file content has meaningful data (not just a TODO template).
 fn has_meaningful_content(content: &str) -> bool {
     let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.len() <= 3 {
@@ -326,9 +272,6 @@ fn has_meaningful_content(content: &str) -> bool {
     true
 }
 
-// ─── Tool discovery (desktop only) ───────────────────────────────────────────
-
-/// Returns true for read-only tools whose data is served by the memory layer, not the LLM tool loop.
 fn is_read_tool(name: &str) -> bool {
     name.starts_with("get-")
         || name.starts_with("list-")
@@ -337,13 +280,8 @@ fn is_read_tool(name: &str) -> bool {
         || name == "sync-status"
 }
 
-/// Build OpenAI-format tool definitions from the Rust skill registry.
-/// Tool names are namespaced as `{skill_id}__{tool_name}`.
-/// Read-only tools are excluded — their data comes from the memory layer (Step 2 context recall).
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn discover_tools(
-    engine: &crate::runtime::qjs_engine::RuntimeEngine,
-) -> Vec<serde_json::Value> {
+fn discover_tools(engine: &crate::runtime::qjs_engine::RuntimeEngine) -> Vec<serde_json::Value> {
     engine
         .all_tools()
         .into_iter()
@@ -361,9 +299,6 @@ fn discover_tools(
         .collect()
 }
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-/// Parse a namespaced tool name `"skillId__toolName"` into `(skill_id, tool_name)`.
 fn parse_tool_name(full_name: &str) -> (String, String) {
     if let Some(idx) = full_name.find("__") {
         (
@@ -375,12 +310,192 @@ fn parse_tool_name(full_name: &str) -> (String, String) {
     }
 }
 
-// ─── Commands ────────────────────────────────────────────────────────────────
+fn emit_error(
+    app: &tauri::AppHandle,
+    thread_id: &str,
+    message: String,
+    error_type: &str,
+    stage: &str,
+    code: &str,
+    round: Option<u32>,
+    guard_action: Option<String>,
+) {
+    let _ = app.emit(
+        "chat:error",
+        ChatErrorEvent {
+            thread_id: thread_id.to_string(),
+            message,
+            error_type: error_type.to_string(),
+            round,
+            stage: stage.to_string(),
+            code: code.to_string(),
+            pipeline_version: PIPELINE_VERSION.to_string(),
+            guard_action,
+        },
+    );
+}
 
-/// Start an agentic conversation loop in a background task.
-///
-/// Returns `Ok(())` immediately after spawning; the result is delivered via
-/// `chat:done` or `chat:error` Tauri events.
+#[derive(Debug, Clone)]
+struct GuardScanResult {
+    blocked: bool,
+    sanitized: String,
+    action: Option<String>,
+    reason: Option<String>,
+}
+
+fn apply_prompt_guard(user_message: &str) -> GuardScanResult {
+    let lower = user_message.to_lowercase();
+    let blocked_patterns = ["reveal your api key", "show me your system prompt"];
+    if blocked_patterns.iter().any(|p| lower.contains(p)) {
+        return GuardScanResult {
+            blocked: true,
+            sanitized: String::new(),
+            action: Some("block".to_string()),
+            reason: Some("blocked_prompt_injection_pattern".to_string()),
+        };
+    }
+
+    let suspicious_patterns = [
+        "ignore previous instructions",
+        "disregard all prior",
+        "you are now",
+        "tool_calls",
+        "function_call",
+    ];
+
+    if suspicious_patterns.iter().any(|p| lower.contains(p)) {
+        let sanitized = user_message
+            .lines()
+            .filter(|line| {
+                let l = line.to_lowercase();
+                !suspicious_patterns.iter().any(|p| l.contains(p))
+            })
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        return GuardScanResult {
+            blocked: false,
+            sanitized: if sanitized.trim().is_empty() {
+                "[content removed by prompt guard]".to_string()
+            } else {
+                sanitized
+            },
+            action: Some("sanitize".to_string()),
+            reason: Some("sanitized_prompt_injection_pattern".to_string()),
+        };
+    }
+
+    GuardScanResult {
+        blocked: false,
+        sanitized: user_message.to_string(),
+        action: None,
+        reason: None,
+    }
+}
+
+fn estimate_tokens_from_text(text: &str) -> usize {
+    text.len().div_ceil(4)
+}
+
+fn estimate_tokens_from_json_messages(messages: &[serde_json::Value]) -> u64 {
+    messages
+        .iter()
+        .map(|m| {
+            let content = m
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            (estimate_tokens_from_text(content) + 4) as u64
+        })
+        .sum()
+}
+
+fn compact_history_for_budget(
+    history: Vec<ChatMessagePayload>,
+) -> (Vec<ChatMessagePayload>, Option<String>, u32) {
+    let char_count: usize = history.iter().map(|m| m.content.len()).sum();
+    if char_count <= MESSAGE_COMPACTION_CHAR_BUDGET || history.len() < 8 {
+        return (history, None, 0);
+    }
+
+    let keep_tail = 8usize;
+    let split_at = history.len().saturating_sub(keep_tail);
+    let (head, tail) = history.split_at(split_at);
+
+    let mut summary = String::from("## Historical Compaction Summary\n\n");
+    summary.push_str(&format!(
+        "Compacted {} older messages to stay within context budget.\n\n",
+        head.len()
+    ));
+
+    for m in head.iter().rev().take(12).rev() {
+        let trimmed = if m.content.len() > 220 {
+            format!("{}...", &m.content[..220])
+        } else {
+            m.content.clone()
+        };
+        summary.push_str(&format!("- [{}] {}\n", m.role, trimmed.replace('\n', " ")));
+    }
+
+    let mut compacted = vec![ChatMessagePayload {
+        role: "system".to_string(),
+        content: summary.clone(),
+        tool_calls: None,
+        tool_call_id: None,
+    }];
+    compacted.extend_from_slice(tail);
+
+    (compacted, Some(summary), 1)
+}
+
+fn build_system_context_message(
+    openclaw_context: &str,
+    memory_context: Option<&String>,
+    skill_contexts: &[String],
+    notion_context: Option<&String>,
+) -> Option<String> {
+    let mut sections: Vec<String> = Vec::new();
+
+    if !openclaw_context.is_empty() {
+        sections.push(format!("[PROJECT_CONTEXT]\n{}\n[/PROJECT_CONTEXT]", openclaw_context));
+    }
+
+    if let Some(mem) = memory_context {
+        if !mem.trim().is_empty() {
+            sections.push(format!("[MEMORY_CONTEXT]\n{}\n[/MEMORY_CONTEXT]", mem));
+        }
+    }
+
+    if !skill_contexts.is_empty() {
+        sections.push(skill_contexts.join("\n\n"));
+    }
+
+    if let Some(notion) = notion_context {
+        if !notion.trim().is_empty() {
+            sections.push(notion.clone());
+        }
+    }
+
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
+    }
+}
+
+fn normalize_output_kind(output: &str, is_error: bool) -> String {
+    if is_error {
+        return "error_text".to_string();
+    }
+    if output.trim().is_empty() {
+        return "empty".to_string();
+    }
+    if serde_json::from_str::<serde_json::Value>(output).is_ok() {
+        return "json".to_string();
+    }
+    "text".to_string()
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn chat_send(
@@ -396,23 +511,18 @@ pub async fn chat_send(
     memory_state: tauri::State<'_, MemoryState>,
     chat_state: tauri::State<'_, Arc<ChatState>>,
 ) -> Result<(), String> {
-    // Register cancellation token for this thread
     let cancel = chat_state.register(&thread_id);
 
-    // Clone values that need to cross the spawn boundary
     let app_clone = app.clone();
     let thread_id_clone = thread_id.clone();
     let chat_state_arc = chat_state.inner().clone();
     let engine_arc = engine.inner().clone();
 
-    // Clone the MemoryClientRef (Option<Arc<MemoryClient>>) out of the Mutex
-    let memory_client: Option<crate::memory::MemoryClientRef> = {
-        match memory_state.0.lock() {
-            Ok(guard) => guard.clone(),
-            Err(e) => {
-                log::warn!("[chat] Failed to lock memory state: {e}");
-                None
-            }
+    let memory_client: Option<crate::memory::MemoryClientRef> = match memory_state.0.lock() {
+        Ok(guard) => guard.clone(),
+        Err(e) => {
+            log::warn!("[chat] Failed to lock memory state: {e}");
+            None
         }
     };
 
@@ -432,18 +542,18 @@ pub async fn chat_send(
         )
         .await;
 
-        // Clean up the cancellation token
         chat_state_arc.remove(&thread_id_clone);
 
         if let Err(e) = result {
-            let _ = app_clone.emit(
-                "chat:error",
-                ChatErrorEvent {
-                    thread_id: thread_id_clone,
-                    message: e,
-                    error_type: "inference".to_string(),
-                    round: None,
-                },
+            emit_error(
+                &app_clone,
+                &thread_id_clone,
+                e,
+                "inference",
+                "runtime",
+                "chat_send_inner_failed",
+                None,
+                None,
             );
         }
     });
@@ -451,7 +561,6 @@ pub async fn chat_send(
     Ok(())
 }
 
-/// Mobile stub — tool execution is not supported on Android/iOS.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 #[tauri::command]
 pub async fn chat_send(
@@ -466,20 +575,17 @@ pub async fn chat_send(
     memory_state: tauri::State<'_, MemoryState>,
     chat_state: tauri::State<'_, Arc<ChatState>>,
 ) -> Result<(), String> {
-    // Register cancellation token for this thread
     let cancel = chat_state.register(&thread_id);
 
     let app_clone = app.clone();
     let thread_id_clone = thread_id.clone();
     let chat_state_arc = chat_state.inner().clone();
 
-    let memory_client: Option<crate::memory::MemoryClientRef> = {
-        match memory_state.0.lock() {
-            Ok(guard) => guard.clone(),
-            Err(e) => {
-                log::warn!("[chat] Failed to lock memory state: {e}");
-                None
-            }
+    let memory_client: Option<crate::memory::MemoryClientRef> = match memory_state.0.lock() {
+        Ok(guard) => guard.clone(),
+        Err(e) => {
+            log::warn!("[chat] Failed to lock memory state: {e}");
+            None
         }
     };
 
@@ -501,14 +607,15 @@ pub async fn chat_send(
         chat_state_arc.remove(&thread_id_clone);
 
         if let Err(e) = result {
-            let _ = app_clone.emit(
-                "chat:error",
-                ChatErrorEvent {
-                    thread_id: thread_id_clone,
-                    message: e,
-                    error_type: "inference".to_string(),
-                    round: None,
-                },
+            emit_error(
+                &app_clone,
+                &thread_id_clone,
+                e,
+                "inference",
+                "runtime",
+                "chat_send_mobile_failed",
+                None,
+                None,
             );
         }
     });
@@ -516,17 +623,12 @@ pub async fn chat_send(
     Ok(())
 }
 
-/// Cancel an in-flight `chat_send` request by thread ID.
-/// Returns `true` if a request was found and cancelled, `false` otherwise.
 #[tauri::command]
 pub fn chat_cancel(thread_id: String, chat_state: tauri::State<'_, Arc<ChatState>>) -> bool {
     log::info!("[chat] cancel requested for thread={}", thread_id);
     chat_state.cancel(&thread_id)
 }
 
-// ─── Inner implementation (desktop) ──────────────────────────────────────────
-
-/// Agentic loop — runs in a background task on desktop.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 async fn chat_send_inner(
     app: &tauri::AppHandle,
@@ -541,57 +643,56 @@ async fn chat_send_inner(
     memory_client: Option<crate::memory::MemoryClientRef>,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
-    log::info!("[chat] Backend URL: {}", backend_url);
-
     let client = reqwest::Client::builder()
         .use_rustls_tls()
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    // ── Step 1: Load AI context ─────────────────────────────────────────
+    let guard = apply_prompt_guard(user_message);
+    if guard.blocked {
+        let msg = "Request blocked by prompt guard".to_string();
+        emit_error(
+            app,
+            thread_id,
+            msg.clone(),
+            "inference",
+            "guard",
+            guard
+                .reason
+                .clone()
+                .unwrap_or_else(|| "guard_blocked".to_string())
+                .as_str(),
+            None,
+            guard.action.clone(),
+        );
+        return Err(msg);
+    }
+
     let openclaw_context = load_openclaw_context(app);
 
-    // ── Step 2: Recall memory context ───────────────────────────────────
-    log::info!("[chat] Recalling conversation memory (thread_id={thread_id})");
     let memory_context: Option<String> = if let Some(ref mem) = memory_client {
-        match mem
-            .recall_skill_context("conversations", thread_id, 10)
-            .await
-        {
-            Ok(ctx) => {
-                log::info!(
-                    "[chat] Conversation memory recall: has_data={}, len={}",
-                    ctx.is_some(),
-                    ctx.as_ref().map(|ctx| ctx.to_string().len()).unwrap_or(0)
-                );
-                ctx.map(|ctx| ctx.to_string())
-            }
+        match mem.recall_skill_context("conversations", thread_id, 10).await {
+            Ok(ctx) => ctx.map(|c| c.to_string()),
             Err(e) => {
                 log::warn!("[chat] Conversation memory recall failed: {}", e);
                 None
             }
         }
     } else {
-        log::info!("[chat] No memory client — skipping conversation memory recall");
         None
     };
 
-    // ── Step 2b: Recall skill contexts ──────────────────────────────────
-    let skill_ids: std::collections::HashSet<String> = engine
+    let skill_ids: HashSet<String> = engine
         .all_tools()
         .into_iter()
         .map(|(skill_id, _)| skill_id)
         .collect();
 
-    log::info!("[chat] Recalling skill contexts for {} skill(s): {:?}", skill_ids.len(), skill_ids);
-
     let mut skill_contexts: Vec<String> = Vec::new();
     for sid in &skill_ids {
         if let Some(ref mem) = memory_client {
-            log::info!("[chat] Recalling memory for skill={sid}");
             match mem.recall_skill_context(sid, sid, 10).await {
                 Ok(Some(ctx)) => {
-                    log::debug!("[chat] Skill memory content (skill={sid}):\n{}", ctx);
                     skill_contexts.push(format!(
                         "[{}_CONTEXT]\n{}\n[/{}_CONTEXT]",
                         sid.to_uppercase(),
@@ -599,45 +700,23 @@ async fn chat_send_inner(
                         sid.to_uppercase()
                     ));
                 }
-                Ok(None) => {
-                    log::info!("[chat] Skill memory recall: no data for skill={sid}");
-                }
+                Ok(None) => {}
                 Err(e) => {
-                    log::warn!("[chat] Skill memory recall failed for skill={sid}: {}", e);
+                    log::warn!("[chat] Skill memory recall failed for skill={sid}: {e}");
                 }
             }
         }
     }
 
-    log::info!(
-        "[chat] Context assembly: conversation_memory={}, skill_contexts={}",
-        memory_context.is_some(),
-        skill_contexts.len()
+    let (history, _summary, mut compaction_count) = compact_history_for_budget(history);
+
+    let system_context_message = build_system_context_message(
+        &openclaw_context,
+        memory_context.as_ref(),
+        &skill_contexts,
+        notion_context.as_ref(),
     );
 
-    // ── Step 3: Build processed user message ────────────────────────────
-    let mut processed = user_message.to_string();
-
-    if !openclaw_context.is_empty() {
-        processed = format!("{}\n\nUser message: {}", openclaw_context, processed);
-    }
-
-    if let Some(ref mem) = memory_context {
-        processed = format!(
-            "[MEMORY_CONTEXT]\n{}\n[/MEMORY_CONTEXT]\n\n{}",
-            mem, processed
-        );
-    }
-
-    if !skill_contexts.is_empty() {
-        processed = format!("{}\n\n{}", skill_contexts.join("\n\n"), processed);
-    }
-
-    if let Some(ref notion) = notion_context {
-        processed = format!("{}\n\n{}", notion, processed);
-    }
-
-    // ── Step 4: Build chat messages array ────────────────────────────────
     let mut loop_messages: Vec<serde_json::Value> = history
         .iter()
         .map(|m| {
@@ -655,34 +734,47 @@ async fn chat_send_inner(
         })
         .collect();
 
-    // Append the current user message (with injected context)
+    if let Some(system_context) = system_context_message {
+        loop_messages.push(serde_json::json!({
+            "role": "system",
+            "content": system_context,
+        }));
+    }
+
     loop_messages.push(serde_json::json!({
         "role": "user",
-        "content": processed,
+        "content": guard.sanitized,
     }));
 
-    // ── Step 5: Discover tools ──────────────────────────────────────────
+    let mut context_tokens_in = estimate_tokens_from_json_messages(&loop_messages);
+
+    if context_tokens_in > 48_000 {
+        compaction_count += 1;
+        let compact_note = format!(
+            "[AUTO_COMPACTION]\nInput context estimated at {} tokens; older details were condensed.\n[/AUTO_COMPACTION]",
+            context_tokens_in
+        );
+        loop_messages.insert(
+            0,
+            serde_json::json!({
+                "role": "system",
+                "content": compact_note,
+            }),
+        );
+        context_tokens_in = estimate_tokens_from_json_messages(&loop_messages);
+    }
+
     let tools = discover_tools(engine);
 
-    log::info!(
-        "[chat] Starting agent loop: model={}, history_msgs={}, tools={}",
-        model,
-        loop_messages.len(),
-        tools.len()
-    );
-
-    // ── Step 6: Agentic loop ────────────────────────────────────────────
     let mut final_content = String::new();
     let mut total_input_tokens: u64 = 0;
     let mut total_output_tokens: u64 = 0;
 
     for round in 0..MAX_TOOL_ROUNDS {
-        // Check cancellation at the start of each round
         if cancel.is_cancelled() {
             return Err("Request cancelled".to_string());
         }
 
-        // Build request body
         let mut request_body = serde_json::json!({
             "model": model,
             "messages": loop_messages,
@@ -693,26 +785,19 @@ async fn chat_send_inner(
         }
 
         let url = format!("{}/openai/v1/chat/completions", backend_url);
-        log::info!(
-            "[chat] Round {} — sending inference request ({} messages) to {}",
-            round + 1,
-            loop_messages.len(),
-            url
-        );
-        log::debug!(
-            "[chat] Request body: {}",
-            serde_json::to_string_pretty(&request_body).unwrap_or_default()
-        );
 
-        // POST to backend with timeout and cancellation support
         let response = tokio::select! {
             _ = cancel.cancelled() => {
-                let _ = app.emit("chat:error", ChatErrorEvent {
-                    thread_id: thread_id.to_string(),
-                    message: "Request cancelled".to_string(),
-                    error_type: "cancelled".to_string(),
-                    round: Some(round),
-                });
+                emit_error(
+                    app,
+                    thread_id,
+                    "Request cancelled".to_string(),
+                    "cancelled",
+                    "inference",
+                    "cancelled_before_request",
+                    Some(round),
+                    guard.action.clone(),
+                );
                 return Err("Request cancelled".to_string());
             }
             result = tokio::time::timeout(
@@ -727,57 +812,41 @@ async fn chat_send_inner(
                 match result {
                     Ok(Ok(resp)) => resp,
                     Ok(Err(e)) => {
-                        log::error!("[chat] reqwest error detail: {:?}", e);
                         let msg = format!("Network error: {}", e);
-                        let _ = app.emit("chat:error", ChatErrorEvent {
-                            thread_id: thread_id.to_string(),
-                            message: msg.clone(),
-                            error_type: "network".to_string(),
-                            round: Some(round),
-                        });
+                        emit_error(app, thread_id, msg.clone(), "network", "inference", "request_failed", Some(round), guard.action.clone());
                         return Err(msg);
                     }
                     Err(_) => {
-                        let msg = format!(
-                            "Inference request timed out after {}s",
-                            INFERENCE_TIMEOUT_SECS
-                        );
-                        let _ = app.emit("chat:error", ChatErrorEvent {
-                            thread_id: thread_id.to_string(),
-                            message: msg.clone(),
-                            error_type: "timeout".to_string(),
-                            round: Some(round),
-                        });
+                        let msg = format!("Inference request timed out after {}s", INFERENCE_TIMEOUT_SECS);
+                        emit_error(app, thread_id, msg.clone(), "timeout", "inference", "request_timeout", Some(round), guard.action.clone());
                         return Err(msg);
                     }
                 }
             }
         };
 
-        // Check HTTP status
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             let msg = format!("Backend returned HTTP {}: {}", status, body);
-            let _ = app.emit(
-                "chat:error",
-                ChatErrorEvent {
-                    thread_id: thread_id.to_string(),
-                    message: msg.clone(),
-                    error_type: "inference".to_string(),
-                    round: Some(round),
-                },
+            emit_error(
+                app,
+                thread_id,
+                msg.clone(),
+                "inference",
+                "inference",
+                "bad_http_status",
+                Some(round),
+                guard.action.clone(),
             );
             return Err(msg);
         }
 
-        // Parse the completion response
         let completion: ChatCompletionResponse = response
             .json()
             .await
             .map_err(|e| format!("Failed to parse inference response: {}", e))?;
 
-        // Accumulate token usage
         if let Some(ref usage) = completion.usage {
             total_input_tokens += usage.prompt_tokens;
             total_output_tokens += usage.completion_tokens;
@@ -788,64 +857,42 @@ async fn chat_send_inner(
             .first()
             .ok_or_else(|| "No choices in inference response".to_string())?;
 
-        log::info!(
-            "[chat] Round {} — finish_reason={:?}, tool_calls={}",
-            round + 1,
-            choice.finish_reason,
-            choice.message.tool_calls.as_ref().map_or(0, |tc| tc.len())
-        );
-
-        // Decide if we have tool calls to execute
         let has_tool_calls = choice.finish_reason.as_deref() == Some("tool_calls")
             && choice
                 .message
                 .tool_calls
                 .as_ref()
-                .map_or(false, |tc| !tc.is_empty());
+                .is_some_and(|tc| !tc.is_empty());
 
         if has_tool_calls {
-            let tool_calls = choice.message.tool_calls.as_ref().unwrap();
+            let tool_calls = choice.message.tool_calls.as_ref().expect("checked above");
 
-            // Append the assistant message with tool_calls to the loop
             loop_messages.push(serde_json::json!({
                 "role": "assistant",
                 "content": choice.message.content.as_deref().unwrap_or(""),
                 "tool_calls": tool_calls,
             }));
 
-            // Execute only the last tool call (matching current TS behaviour);
-            // earlier ones get empty placeholder results.
-            let latest_idx = tool_calls.len() - 1;
-
             for (i, tc) in tool_calls.iter().enumerate() {
-                if i != latest_idx {
-                    loop_messages.push(serde_json::json!({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": "",
-                    }));
-                    continue;
-                }
-
                 let (skill_id, tool_name) = parse_tool_name(&tc.function.name);
+                let args_value: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
 
-                let args_value: serde_json::Value =
-                    serde_json::from_str(&tc.function.arguments)
-                        .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
-
-                // Emit tool_call event before executing
                 let _ = app.emit(
                     "chat:tool_call",
                     ChatToolCallEvent {
                         thread_id: thread_id.to_string(),
+                        tool_call_id: tc.id.clone(),
                         tool_name: tool_name.clone(),
                         skill_id: skill_id.clone(),
                         args: args_value.clone(),
                         round,
+                        sequence_index: i,
+                        pipeline_version: PIPELINE_VERSION.to_string(),
                     },
                 );
 
-                // Execute the tool with timeout and cancellation
+                let started = std::time::Instant::now();
                 let tool_result = tokio::select! {
                     _ = cancel.cancelled() => {
                         return Err("Request cancelled during tool execution".to_string());
@@ -858,58 +905,31 @@ async fn chat_send_inner(
                             Ok(Ok(r)) => r,
                             Ok(Err(e)) => {
                                 let msg = format!("Tool \"{}\" failed: {}", tool_name, e);
-                                let _ = app.emit("chat:tool_result", ChatToolResultEvent {
-                                    thread_id: thread_id.to_string(),
-                                    tool_name: tool_name.clone(),
-                                    skill_id: skill_id.clone(),
-                                    output: msg.clone(),
-                                    success: false,
-                                    round,
-                                });
-                                let _ = app.emit("chat:error", ChatErrorEvent {
-                                    thread_id: thread_id.to_string(),
-                                    message: msg.clone(),
-                                    error_type: "tool_error".to_string(),
-                                    round: Some(round),
-                                });
+                                emit_error(app, thread_id, msg.clone(), "tool_error", "tool", "tool_call_failed", Some(round), guard.action.clone());
                                 return Err(msg);
                             }
                             Err(_) => {
-                                let msg = format!(
-                                    "Tool \"{}\" timed out after {}s",
-                                    tool_name, TOOL_TIMEOUT_SECS
-                                );
-                                let _ = app.emit("chat:error", ChatErrorEvent {
-                                    thread_id: thread_id.to_string(),
-                                    message: msg.clone(),
-                                    error_type: "timeout".to_string(),
-                                    round: Some(round),
-                                });
+                                let msg = format!("Tool \"{}\" timed out after {}s", tool_name, TOOL_TIMEOUT_SECS);
+                                emit_error(app, thread_id, msg.clone(), "timeout", "tool", "tool_call_timeout", Some(round), guard.action.clone());
                                 return Err(msg);
                             }
                         }
                     }
                 };
 
-                // Extract text content from the tool result
                 let tool_content: String = tool_result
                     .content
                     .iter()
                     .filter_map(|c| match c {
-                        crate::runtime::types::ToolContent::Text { text } => {
-                            Some(text.as_str())
-                        }
+                        crate::runtime::types::ToolContent::Text { text } => Some(text.as_str()),
                         crate::runtime::types::ToolContent::Json { .. } => None,
                     })
                     .collect::<Vec<&str>>()
                     .join("\n");
 
-                // Check for JSON error pattern (matching TS behaviour)
                 let (final_tool_str, final_success) = if !tool_result.is_error {
                     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&tool_content) {
-                        if let Some(error_str) =
-                            parsed.get("error").and_then(|e| e.as_str())
-                        {
+                        if let Some(error_str) = parsed.get("error").and_then(|e| e.as_str()) {
                             (format!("Error: {}", error_str), false)
                         } else {
                             (tool_content.clone(), true)
@@ -926,20 +946,24 @@ async fn chat_send_inner(
                     (prefixed, false)
                 };
 
-                // Emit tool_result event
                 let _ = app.emit(
                     "chat:tool_result",
                     ChatToolResultEvent {
                         thread_id: thread_id.to_string(),
+                        tool_call_id: tc.id.clone(),
                         tool_name: tool_name.clone(),
                         skill_id: skill_id.clone(),
                         output: final_tool_str.clone(),
                         success: final_success,
+                        is_error: !final_success,
                         round,
+                        sequence_index: i,
+                        latency_ms: started.elapsed().as_millis(),
+                        normalized_output_kind: normalize_output_kind(&final_tool_str, !final_success),
+                        pipeline_version: PIPELINE_VERSION.to_string(),
                     },
                 );
 
-                // Append tool result to loop messages
                 loop_messages.push(serde_json::json!({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -947,12 +971,11 @@ async fn chat_send_inner(
                 }));
             }
 
-            // Continue to the next round
             continue;
         }
 
-        // Non-tool response — the agent loop is done
         final_content = choice.message.content.clone().unwrap_or_default();
+        let context_tokens_out = estimate_tokens_from_text(&final_content) as u64;
 
         let _ = app.emit(
             "chat:done",
@@ -962,30 +985,34 @@ async fn chat_send_inner(
                 rounds_used: round + 1,
                 total_input_tokens,
                 total_output_tokens,
+                context_tokens_in,
+                context_tokens_out,
+                compaction_count,
+                pipeline_version: PIPELINE_VERSION.to_string(),
             },
         );
 
         return Ok(());
     }
 
-    // Exhausted all rounds — emit whatever we have
     let _ = app.emit(
         "chat:done",
         ChatDoneEvent {
             thread_id: thread_id.to_string(),
-            full_response: final_content,
+            full_response: final_content.clone(),
             rounds_used: MAX_TOOL_ROUNDS,
             total_input_tokens,
             total_output_tokens,
+            context_tokens_in,
+            context_tokens_out: estimate_tokens_from_text(&final_content) as u64,
+            compaction_count,
+            pipeline_version: PIPELINE_VERSION.to_string(),
         },
     );
 
     Ok(())
 }
 
-// ─── Inner implementation (mobile) ───────────────────────────────────────────
-
-/// Simplified agentic loop for mobile — no tool execution, just a single inference call.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 async fn chat_send_mobile(
     app: &tauri::AppHandle,
@@ -1004,15 +1031,10 @@ async fn chat_send_mobile(
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    // ── Step 1: Load AI context ─────────────────────────────────────────
     let openclaw_context = load_openclaw_context(app);
 
-    // ── Step 2: Recall memory context ───────────────────────────────────
     let memory_context: Option<String> = if let Some(ref mem) = memory_client {
-        match mem
-            .recall_skill_context("conversations", thread_id, 10)
-            .await
-        {
+        match mem.recall_skill_context("conversations", thread_id, 10).await {
             Ok(ctx) => ctx,
             Err(e) => {
                 log::warn!("[chat] Memory recall failed: {}", e);
@@ -1023,25 +1045,17 @@ async fn chat_send_mobile(
         None
     };
 
-    // ── Step 3: Build processed user message ────────────────────────────
     let mut processed = user_message.to_string();
-
     if !openclaw_context.is_empty() {
-        processed = format!("{}\n\nUser message: {}", openclaw_context, processed);
+        processed = format!("{}\n\n{}", openclaw_context, processed);
     }
-
     if let Some(ref mem) = memory_context {
-        processed = format!(
-            "[MEMORY_CONTEXT]\n{}\n[/MEMORY_CONTEXT]\n\n{}",
-            mem, processed
-        );
+        processed = format!("[MEMORY_CONTEXT]\n{}\n[/MEMORY_CONTEXT]\n\n{}", mem, processed);
     }
-
     if let Some(ref notion) = notion_context {
         processed = format!("{}\n\n{}", notion, processed);
     }
 
-    // ── Step 4: Build messages array ─────────────────────────────────────
     let mut messages: Vec<serde_json::Value> = history
         .iter()
         .map(|m| {
@@ -1073,20 +1087,9 @@ async fn chat_send_mobile(
         "messages": messages,
     });
 
-    log::info!(
-        "[chat] Mobile inference: model={}, msgs={}",
-        model,
-        messages.len()
-    );
-
     let response = tokio::select! {
         _ = cancel.cancelled() => {
-            let _ = app.emit("chat:error", ChatErrorEvent {
-                thread_id: thread_id.to_string(),
-                message: "Request cancelled".to_string(),
-                error_type: "cancelled".to_string(),
-                round: Some(0),
-            });
+            emit_error(app, thread_id, "Request cancelled".to_string(), "cancelled", "inference", "cancelled_before_request", Some(0), None);
             return Err("Request cancelled".to_string());
         }
         result = tokio::time::timeout(
@@ -1102,25 +1105,12 @@ async fn chat_send_mobile(
                 Ok(Ok(resp)) => resp,
                 Ok(Err(e)) => {
                     let msg = format!("Network error: {}", e);
-                    let _ = app.emit("chat:error", ChatErrorEvent {
-                        thread_id: thread_id.to_string(),
-                        message: msg.clone(),
-                        error_type: "network".to_string(),
-                        round: Some(0),
-                    });
+                    emit_error(app, thread_id, msg.clone(), "network", "inference", "request_failed", Some(0), None);
                     return Err(msg);
                 }
                 Err(_) => {
-                    let msg = format!(
-                        "Inference request timed out after {}s",
-                        INFERENCE_TIMEOUT_SECS
-                    );
-                    let _ = app.emit("chat:error", ChatErrorEvent {
-                        thread_id: thread_id.to_string(),
-                        message: msg.clone(),
-                        error_type: "timeout".to_string(),
-                        round: Some(0),
-                    });
+                    let msg = format!("Inference request timed out after {}s", INFERENCE_TIMEOUT_SECS);
+                    emit_error(app, thread_id, msg.clone(), "timeout", "inference", "request_timeout", Some(0), None);
                     return Err(msg);
                 }
             }
@@ -1131,15 +1121,7 @@ async fn chat_send_mobile(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         let msg = format!("Backend returned HTTP {}: {}", status, body);
-        let _ = app.emit(
-            "chat:error",
-            ChatErrorEvent {
-                thread_id: thread_id.to_string(),
-                message: msg.clone(),
-                error_type: "inference".to_string(),
-                round: Some(0),
-            },
-        );
+        emit_error(app, thread_id, msg.clone(), "inference", "inference", "bad_http_status", Some(0), None);
         return Err(msg);
     }
 
@@ -1168,6 +1150,12 @@ async fn chat_send_mobile(
             rounds_used: 1,
             total_input_tokens,
             total_output_tokens,
+            context_tokens_in: estimate_tokens_from_json_messages(&messages),
+            context_tokens_out: estimate_tokens_from_text(
+                choice.message.content.as_deref().unwrap_or_default(),
+            ) as u64,
+            compaction_count: 0,
+            pipeline_version: PIPELINE_VERSION.to_string(),
         },
     );
 
