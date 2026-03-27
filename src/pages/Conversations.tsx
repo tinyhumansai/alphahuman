@@ -9,15 +9,8 @@ import {
 import Markdown from 'react-markdown';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { injectOpenClawContext } from '../lib/ai/openclaw-injector';
-import { skillManager } from '../lib/skills/manager';
 import { creditsApi, type TeamUsage } from '../services/api/creditsApi';
-import {
-  type ChatMessage,
-  inferenceApi,
-  type ModelInfo,
-  type Tool,
-} from '../services/api/inferenceApi';
+import { inferenceApi, type ModelInfo } from '../services/api/inferenceApi';
 import {
   chatCancel,
   chatSend,
@@ -127,7 +120,6 @@ const Conversations = () => {
     activeThreadId,
   } = useAppSelector(state => state.thread);
 
-  const skillsState = useAppSelector(state => state.skills);
   const notionProfile = useAppSelector(state => state.notion.profile);
   const notionPages = useAppSelector(state => state.notion.pages);
   const notionSummaries = useAppSelector(state => state.notion.summaries);
@@ -401,247 +393,6 @@ const Conversations = () => {
     }
   };
 
-  // Web fallback: the original orchestration logic, preserved exactly as-is.
-  // Called when not running in Tauri.
-  const handleSendMessageWeb = async (
-    sendingThreadId: string,
-    trimmed: string,
-    historySnapshot: ThreadMessage[]
-  ) => {
-    // Safety-net timeout: force-clear loading states if everything hangs
-    const OVERALL_TIMEOUT_MS = 240_000;
-    const safetyTimeout = setTimeout(() => {
-      console.error('[Conversations] overall safety timeout reached — clearing loading states');
-      setIsSending(false);
-      dispatch(setActiveThread(null));
-      setSendError('Request timed out. Please try again.');
-    }, OVERALL_TIMEOUT_MS);
-
-    try {
-      // Inject OpenClaw context (all 7 workspace files as raw markdown)
-      let processedUserContent = trimmed;
-      try {
-        processedUserContent = injectOpenClawContext(trimmed);
-      } catch (injectionError) {
-        console.warn('[OpenClaw] Injection failed in Conversations:', injectionError);
-      }
-
-      // Prepend recalled memory context from TinyHumans Master node
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const recalledContext = await invoke<string | null>('recall_memory', {
-          skillId: 'conversations',
-          integrationId: sendingThreadId,
-          maxChunks: 10,
-        });
-        if (recalledContext) {
-          processedUserContent = `[MEMORY_CONTEXT]\n${recalledContext}\n[/MEMORY_CONTEXT]\n\n${processedUserContent}`;
-          console.log('✅ Memory recall injected into prompt');
-        }
-      } catch (recallError) {
-        console.warn('⚠️ Memory recall skipped:', recallError);
-        // Non-fatal — continue without recalled context
-      }
-
-      // Prepend Notion workspace context if connected
-      const notionContext = buildNotionContext(
-        notionProfile,
-        notionPages,
-        notionSummaries,
-        notionWorkspaceName
-      );
-      if (notionContext) {
-        processedUserContent = `${notionContext}\n\n${processedUserContent}`;
-      }
-
-      const chatMessages: ChatMessage[] = [
-        ...historySnapshot.map(m => ({
-          role: (m.sender === 'user' ? 'user' : 'assistant') as ChatMessage['role'],
-          content: m.content,
-        })),
-        { role: 'user' as const, content: processedUserContent },
-      ];
-
-      // Read-only tools are excluded — their data comes from the memory layer (recalled in context above).
-      const isReadTool = (toolName: string): boolean =>
-        toolName.startsWith('get-') ||
-        toolName.startsWith('list-') ||
-        toolName.startsWith('query-') ||
-        toolName === 'search' ||
-        toolName === 'sync-status';
-
-      // Build tool definitions for ALL ready skills — namespaced as {skillId}__{toolName}
-      const allSkillTools: Tool[] = Object.entries(skillsState.skills)
-        .filter(([, skill]) => skill.status === 'ready' && skill.tools?.length)
-        .flatMap(([skillId, skill]) =>
-          (skill.tools ?? [])
-            .filter(t => !isReadTool(t.name))
-            .map(t => ({
-              type: 'function' as const,
-              function: {
-                name: `${skillId}__${t.name}`,
-                description: t.description,
-                parameters: t.inputSchema as Tool['function']['parameters'],
-              },
-            }))
-        );
-
-      console.log(
-        `[Conversations] active skill tools: ${allSkillTools.length}`,
-        allSkillTools.map(t => t.function.name)
-      );
-
-      // Agentic tool calling loop — handles multi-turn tool execution
-      const loopMessages = [...chatMessages];
-      let finalContent = '';
-      const MAX_TOOL_ROUNDS = 5;
-
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const request: Parameters<typeof inferenceApi.createChatCompletion>[0] = {
-          model: selectedModel,
-          messages: loopMessages,
-          ...(allSkillTools.length > 0
-            ? { tools: allSkillTools, tool_choice: 'auto' as const }
-            : {}),
-        };
-        console.log('[Conversations] inference request:', {
-          round: round + 1,
-          model: request.model,
-          messageCount: request.messages.length,
-          tools: request.tools?.length ?? 0,
-          payload: request,
-        });
-        const INFERENCE_TIMEOUT_MS = 120_000;
-        const response = await Promise.race([
-          inferenceApi.createChatCompletion(request),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Inference request timed out')), INFERENCE_TIMEOUT_MS)
-          ),
-        ]);
-        console.log('[Conversations] inference response:', {
-          round: round + 1,
-          choices: response.choices?.length ?? 0,
-          usage: response.usage,
-          payload: response,
-        });
-
-        const choice = response.choices[0];
-        if (!choice) break;
-
-        const { finish_reason, message } = choice;
-
-        if (finish_reason === 'tool_calls' && message.tool_calls?.length) {
-          // Append assistant message with tool_calls
-          loopMessages.push({
-            role: 'assistant',
-            content: message.content ?? '',
-            tool_calls: message.tool_calls,
-          });
-
-          const latestIndex = message.tool_calls.length - 1;
-          // API requires a tool message for every tool_call_id; we execute only the latest and send placeholders for the rest
-          for (let i = 0; i < message.tool_calls.length; i++) {
-            const tc = message.tool_calls[i];
-            if (i !== latestIndex) {
-              loopMessages.push({ role: 'tool', tool_call_id: tc.id, content: '' });
-              continue;
-            }
-
-            const dunderIdx = tc.function.name.indexOf('__');
-            const skillId = dunderIdx !== -1 ? tc.function.name.substring(0, dunderIdx) : '';
-            const toolName =
-              dunderIdx !== -1 ? tc.function.name.substring(dunderIdx + 2) : tc.function.name;
-
-            console.log(
-              `[Conversations] tool_call dispatched — skill="${skillId}" tool="${toolName}" call_id="${tc.id}"`
-            );
-
-            let toolResultContent = '';
-            try {
-              let toolArgs: Record<string, unknown> = {};
-              try {
-                toolArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-              } catch {
-                toolArgs = {};
-              }
-              console.log(
-                `[Conversations] calling skillManager.callTool("${skillId}", "${toolName}")`,
-                toolArgs
-              );
-              const TOOL_TIMEOUT_MS = 60_000;
-              const result = await Promise.race([
-                skillManager.callTool(skillId, toolName, toolArgs),
-                new Promise<never>((_, reject) =>
-                  setTimeout(
-                    () =>
-                      reject(
-                        new Error(`Tool "${toolName}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`)
-                      ),
-                    TOOL_TIMEOUT_MS
-                  )
-                ),
-              ]);
-              console.log(`[Conversations] tool "${toolName}" calling result:`, result);
-              toolResultContent = result.content.map(c => c.text).join('\n');
-              let toolReturnedError = result.isError;
-              if (!toolReturnedError && toolResultContent) {
-                try {
-                  const parsed = JSON.parse(toolResultContent) as Record<string, unknown>;
-                  if (parsed && typeof parsed.error === 'string') {
-                    toolReturnedError = true;
-                    toolResultContent = `Error: ${parsed.error}`;
-                  }
-                } catch {
-                  // not JSON or no error key — keep content as-is
-                }
-              }
-              if (toolReturnedError) {
-                console.warn(
-                  `[Conversations] tool "${toolName}" returned an error:`,
-                  toolResultContent
-                );
-                if (!toolResultContent.startsWith('Error: ')) {
-                  toolResultContent = `Error: ${toolResultContent}`;
-                }
-              } else {
-                console.log(
-                  `[Conversations] tool "${toolName}" succeeded:`,
-                  toolResultContent.slice(0, 200)
-                );
-              }
-            } catch (toolErr) {
-              console.error(`[Conversations] tool "${toolName}" threw:`, toolErr);
-              throw new Error(
-                `Tool "${toolName}" failed: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`
-              );
-            }
-
-            loopMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResultContent });
-          }
-          // Continue loop to get final response after tool results
-          continue;
-        }
-
-        // Normal (non-tool) response — done
-        finalContent = message.content ?? '';
-        break;
-      }
-
-      // Pass the original sending thread ID to ensure response goes to correct thread
-      dispatch(addInferenceResponse({ content: finalContent, threadId: sendingThreadId }));
-    } catch {
-      dispatch(
-        addInferenceResponse({
-          content: 'Something went wrong — please try again.',
-          threadId: sendingThreadId,
-        })
-      );
-    } finally {
-      clearTimeout(safetyTimeout);
-      setIsSending(false);
-    }
-  };
-
   const handleSendMessage = async (text?: string) => {
     const trimmed = text ?? inputValue.trim();
     if (!trimmed || !selectedThreadId || isSending) return;
@@ -685,50 +436,52 @@ const Conversations = () => {
     // Set this thread as active
     dispatch(setActiveThread(sendingThreadId));
 
-    if (rustChat) {
-      // ── Rust path ────────────────────────────────────────────────────────
-      try {
-        const chatMessages = historySnapshot.map(m => ({
-          role: m.sender === 'user' ? 'user' : 'assistant',
-          content: m.content,
-        }));
+    if (!rustChat) {
+      setSendError('Chat is only available in the Tauri runtime.');
+      setIsSending(false);
+      dispatch(setActiveThread(null));
+      return;
+    }
 
-        const notionCtx = buildNotionContext(
-          notionProfile,
-          notionPages,
-          notionSummaries,
-          notionWorkspaceName
-        );
+    // ── Rust path ────────────────────────────────────────────────────────
+    try {
+      const chatMessages = historySnapshot.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.content,
+      }));
 
-        const authToken = (store.getState() as { auth: { token: string | null } }).auth.token;
-        if (!authToken) {
-          setSendError('Not authenticated');
-          setIsSending(false);
-          dispatch(setActiveThread(null));
-          return;
-        }
+      const notionCtx = buildNotionContext(
+        notionProfile,
+        notionPages,
+        notionSummaries,
+        notionWorkspaceName
+      );
 
-        await chatSend({
-          threadId: sendingThreadId,
-          message: trimmed,
-          model: selectedModel,
-          authToken,
-          backendUrl: BACKEND_URL,
-          messages: chatMessages,
-          notionContext: notionCtx,
-        });
-
-        // setIsSending(false) and setActiveThread(null) happen in the onDone/onError event handlers
-      } catch (err) {
-        // invoke() itself failed (the chat loop reports errors via events)
-        const msg = err instanceof Error ? err.message : String(err);
-        setSendError(msg);
+      const authToken = (store.getState() as { auth: { token: string | null } }).auth.token;
+      if (!authToken) {
+        setSendError('Not authenticated');
         setIsSending(false);
         dispatch(setActiveThread(null));
+        return;
       }
-    } else {
-      // ── Web fallback (existing orchestration logic) ───────────────────────
-      await handleSendMessageWeb(sendingThreadId, trimmed, historySnapshot);
+
+      await chatSend({
+        threadId: sendingThreadId,
+        message: trimmed,
+        model: selectedModel,
+        authToken,
+        backendUrl: BACKEND_URL,
+        messages: chatMessages,
+        notionContext: notionCtx,
+      });
+
+      // setIsSending(false) and setActiveThread(null) happen in the onDone/onError event handlers
+    } catch (err) {
+      // invoke() itself failed (the chat loop reports errors via events)
+      const msg = err instanceof Error ? err.message : String(err);
+      setSendError(msg);
+      setIsSending(false);
+      dispatch(setActiveThread(null));
     }
   };
 
