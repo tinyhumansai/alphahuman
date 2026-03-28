@@ -1,5 +1,5 @@
 {
-  "name": "openhuman",
+  "name": "openhuman-app",
   "version": "0.49.16",
   "type": "module",
   "scripts": {
