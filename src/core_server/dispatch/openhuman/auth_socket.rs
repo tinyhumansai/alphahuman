@@ -199,7 +199,6 @@ pub async fn try_dispatch(
         "openhuman.socket.connect" => Some(
             async move {
                 let payload: SocketConnectParams = parse_params(params)?;
-                #[cfg(feature = "tauri-host")]
                 {
                     let mgr = crate::core_server::helpers::core_socket_manager();
                     mgr.connect(&payload.url, &payload.token).await?;
@@ -208,18 +207,12 @@ pub async fn try_dispatch(
                         vec!["socket connect requested".to_string()],
                     );
                 }
-                #[cfg(not(feature = "tauri-host"))]
-                {
-                    let _ = payload;
-                    Err("socket runtime is unavailable in this build".to_string())
-                }
             }
             .await,
         ),
 
         "openhuman.socket.disconnect" => Some(
             async move {
-                #[cfg(feature = "tauri-host")]
                 {
                     let mgr = crate::core_server::helpers::core_socket_manager();
                     mgr.disconnect().await?;
@@ -228,27 +221,18 @@ pub async fn try_dispatch(
                         vec!["socket disconnected".to_string()],
                     );
                 }
-                #[cfg(not(feature = "tauri-host"))]
-                {
-                    Err("socket runtime is unavailable in this build".to_string())
-                }
             }
             .await,
         ),
 
         "openhuman.socket.state" => Some(
             async move {
-                #[cfg(feature = "tauri-host")]
-                {
+                 {
                     let mgr = crate::core_server::helpers::core_socket_manager();
                     return InvocationResult::with_logs(
                         mgr.get_state(),
                         vec!["socket state fetched".to_string()],
                     );
-                }
-                #[cfg(not(feature = "tauri-host"))]
-                {
-                    Err("socket runtime is unavailable in this build".to_string())
                 }
             }
             .await,
@@ -257,8 +241,7 @@ pub async fn try_dispatch(
         "openhuman.socket.emit" => Some(
             async move {
                 let payload: SocketEmitParams = parse_params(params)?;
-                #[cfg(feature = "tauri-host")]
-                {
+                 {
                     let mgr = crate::core_server::helpers::core_socket_manager();
                     mgr.emit(
                         &payload.event,
@@ -269,11 +252,6 @@ pub async fn try_dispatch(
                         mgr.get_state(),
                         vec!["socket event emitted".to_string()],
                     );
-                }
-                #[cfg(not(feature = "tauri-host"))]
-                {
-                    let _ = payload;
-                    Err("socket runtime is unavailable in this build".to_string())
                 }
             }
             .await,
