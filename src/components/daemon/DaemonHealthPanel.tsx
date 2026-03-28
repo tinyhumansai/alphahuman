@@ -13,11 +13,16 @@ import {
   XCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { formatRelativeTime, useDaemonHealth } from '../../hooks/useDaemonHealth';
 import type { ComponentHealth, DaemonStatus } from '../../store/daemonSlice';
 import { IS_DEV } from '../../utils/config';
+import {
+  isTauri,
+  openhumanGetDaemonHostConfig,
+  openhumanSetDaemonHostConfig,
+} from '../../utils/tauriCommands';
 
 interface Props {
   userId?: string;
@@ -28,6 +33,8 @@ interface Props {
 const DaemonHealthPanel = ({ userId, onClose, className = '' }: Props) => {
   const daemonHealth = useDaemonHealth(userId);
   const [operationLoading, setOperationLoading] = useState<string | null>(null);
+  const [showTray, setShowTray] = useState<boolean>(true);
+  const [trayLoaded, setTrayLoaded] = useState<boolean>(false);
 
   // Handle agent operations with loading states
   const handleOperation = async (operation: () => Promise<unknown>, operationName: string) => {
@@ -82,6 +89,39 @@ const DaemonHealthPanel = ({ userId, onClose, className = '' }: Props) => {
 
   const statusStyling = getStatusStyling(daemonHealth.status);
   const StatusIcon = statusStyling.icon;
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+    const loadTray = async () => {
+      try {
+        const result = await openhumanGetDaemonHostConfig();
+        setShowTray(result.result.show_tray);
+        setTrayLoaded(true);
+      } catch (error) {
+        console.error('[AgentHealthPanel] Failed to load daemon host config:', error);
+      }
+    };
+    void loadTray();
+  }, []);
+
+  const updateTraySetting = async (enabled: boolean) => {
+    if (!isTauri()) {
+      return;
+    }
+    const previous = showTray;
+    setShowTray(enabled);
+    setOperationLoading('tray');
+    try {
+      await openhumanSetDaemonHostConfig(enabled);
+    } catch (error) {
+      setShowTray(previous);
+      console.error('[AgentHealthPanel] Failed to save daemon host config:', error);
+    } finally {
+      setOperationLoading(null);
+    }
+  };
 
   return (
     <div className={`bg-stone-900 rounded-lg border border-stone-700 p-6 space-y-6 ${className}`}>
@@ -183,6 +223,26 @@ const DaemonHealthPanel = ({ userId, onClose, className = '' }: Props) => {
             onChange={e => daemonHealth.setAutoStart(e.target.checked)}
           />
           <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+        </label>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-lg bg-stone-800/40 border border-stone-700/60">
+        <div>
+          <div className="text-sm font-medium text-gray-300">Show Daemon Tray</div>
+          <div className="text-xs text-gray-500">Display tray icon in daemon host mode</div>
+          <div className="text-xs text-amber-400 mt-1">Requires daemon host restart to apply</div>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={showTray}
+            disabled={!trayLoaded || operationLoading !== null}
+            onChange={e => {
+              void updateTraySetting(e.target.checked);
+            }}
+          />
+          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-disabled:opacity-60 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
         </label>
       </div>
 

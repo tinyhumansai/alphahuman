@@ -18,6 +18,7 @@ import {
   openhumanDoctorReport,
   openhumanEncryptSecret,
   openhumanGetConfig,
+  openhumanGetDaemonHostConfig,
   openhumanGetIntegrationInfo,
   openhumanHardwareDiscover,
   openhumanHardwareIntrospect,
@@ -27,6 +28,7 @@ import {
   openhumanServiceInstall,
   openhumanServiceStatus,
   openhumanServiceUninstall,
+  openhumanSetDaemonHostConfig,
   openhumanUpdateGatewaySettings,
   openhumanUpdateMemorySettings,
   openhumanUpdateModelSettings,
@@ -104,6 +106,8 @@ const TauriCommandsPanel = () => {
   const [chatModel, setChatModel] = useState<string>('');
   const [chatTemperature, setChatTemperature] = useState<string>('0.7');
   const [chatLog, setChatLog] = useState<Array<{ role: 'user' | 'agent'; text: string }>>([]);
+  const [daemonShowTray, setDaemonShowTray] = useState<boolean>(true);
+  const [daemonShowTrayLoaded, setDaemonShowTrayLoaded] = useState<boolean>(false);
 
   // Loading states
   const [operationLoading, setOperationLoading] = useState<string>('');
@@ -413,6 +417,45 @@ const TauriCommandsPanel = () => {
     }
   };
 
+  const loadDaemonHostConfig = useCallback(async () => {
+    if (!tauriAvailable) {
+      return;
+    }
+
+    try {
+      const result = await openhumanGetDaemonHostConfig();
+      setDaemonShowTray(result.result.show_tray);
+      setDaemonShowTrayLoaded(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    }
+  }, [tauriAvailable]);
+
+  const saveDaemonHostTraySetting = useCallback(
+    async (showTray: boolean) => {
+      if (!tauriAvailable) {
+        return;
+      }
+
+      const previous = daemonShowTray;
+      setDaemonShowTray(showTray);
+      setOperationLoading('saveDaemonHostConfig');
+      setError('');
+      try {
+        const result = await openhumanSetDaemonHostConfig(showTray);
+        setOutput(formatJson(result));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setDaemonShowTray(previous);
+        setError(message);
+      } finally {
+        setOperationLoading('');
+      }
+    },
+    [daemonShowTray, tauriAvailable]
+  );
+
   const buildTunnelConfig = (): TunnelConfig => {
     if (tunnelProvider === 'cloudflare') {
       return { provider: 'cloudflare', cloudflare: { token: cloudflareToken } };
@@ -653,6 +696,10 @@ const TauriCommandsPanel = () => {
   const isSectionVisible = () => {
     return true; // Always show all sections
   };
+
+  useEffect(() => {
+    void loadDaemonHostConfig();
+  }, [loadDaemonHostConfig]);
 
   const isCollapsed = (sectionId: string) => {
     return !expandedSections.has(sectionId);
@@ -1087,6 +1134,33 @@ const TauriCommandsPanel = () => {
                           onChange={e => daemonHealth.setAutoStart(e.target.checked)}
                         />
                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    {/* Tray Toggle */}
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-stone-800/40 border border-stone-700/60">
+                      <div>
+                        <div className="text-sm font-medium text-gray-300">Show Daemon Tray</div>
+                        <div className="text-xs text-gray-500">
+                          Keep OpenHuman Core tray icon visible in daemon host mode
+                        </div>
+                        <div className="text-xs text-amber-400 mt-1">
+                          Requires daemon host restart to fully apply
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={daemonShowTray}
+                          disabled={
+                            !daemonShowTrayLoaded || operationLoading === 'saveDaemonHostConfig'
+                          }
+                          onChange={event => {
+                            void saveDaemonHostTraySetting(event.target.checked);
+                          }}
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 disabled:opacity-60 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                       </label>
                     </div>
 
