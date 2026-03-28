@@ -1,0 +1,24 @@
+{
+  "name": "openhuman-repo",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "build": "yarn workspace openhuman build",
+    "compile": "yarn workspace openhuman compile",
+    "dev": "yarn workspace openhuman dev",
+    "format": "yarn workspace openhuman format",
+    "format:check": "yarn workspace openhuman format:check",
+    "lint": "yarn workspace openhuman lint",
+    "lint:fix": "yarn workspace openhuman lint:fix",
+    "tauri": "yarn workspace openhuman tauri",
+    "test": "yarn workspace openhuman test",
+    "test:coverage": "yarn workspace openhuman test:coverage",
+    "test:e2e": "yarn workspace openhuman test:e2e",
+    "test:e2e:all": "yarn workspace openhuman test:e2e:all",
+    "test:e2e:all:flows": "yarn workspace openhuman test:e2e:all:flows",
+    "test:e2e:build": "yarn workspace openhuman test:e2e:build",
+    "typecheck": "yarn workspace openhuman compile"
+  }
+}

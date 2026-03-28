@@ -7,6 +7,10 @@
 #
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APP_DIR="$REPO_ROOT/app"
+cd "$APP_DIR"
+
 # Source Cargo environment
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
@@ -22,17 +26,17 @@ fi
 
 if [ -f .env ]; then
   # shellcheck source=/dev/null
-  source scripts/load-dotenv.sh
+  source "$REPO_ROOT/scripts/load-dotenv.sh"
 else
   echo "No .env file — skipping load-dotenv (optional for CI)."
 fi
 
 export VITE_BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT:-18473}"
 
-# Stage rust-core sidecar for bundle.externalBin (see src-tauri/tauri.conf.json).
-node scripts/stage-core-sidecar.mjs
+# Stage rust-core sidecar for bundle.externalBin (see app/src-tauri/tauri.conf.json).
+node "$REPO_ROOT/scripts/stage-core-sidecar.mjs"
 
-# Use npx so CI does not require a global Tauri CLI
+# Use npx so CI does not require a global Tauri CLI (cwd must be the Tauri frontend root).
 npx tauri build --bundles app --debug
 
 echo "E2E build complete."

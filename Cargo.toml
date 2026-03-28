@@ -1,3 +1,3 @@
 [workspace]
-members = ["rust-core", "src-tauri"]
+members = ["rust-core", "app/src-tauri"]
 resolver = "2"

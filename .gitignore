@@ -8,7 +8,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 package-lock.json
-yarn.lock
 
 node_modules
 dist
@@ -35,7 +34,7 @@ scripts/ci-secrets.local.json
 *.sln
 *.sw?
 references/
-src-tauri/runtime-skill-*
+app/src-tauri/runtime-skill-*
 .mypy_cache
 .ruff_cache
 .kotlin
