@@ -1091,6 +1091,7 @@ pub fn run() {
                     openhuman_local_ai_vision_prompt,
                     openhuman_local_ai_embed,
                     openhuman_local_ai_transcribe,
+                    openhuman_local_ai_transcribe_bytes,
                     openhuman_local_ai_tts,
                     openhuman_local_ai_assets_status,
                     openhuman_local_ai_download_asset,

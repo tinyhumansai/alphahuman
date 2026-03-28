@@ -847,6 +847,16 @@ export async function openhumanLocalAiTranscribe(
   return await invoke('openhuman_local_ai_transcribe', { audioPath });
 }
 
+export async function openhumanLocalAiTranscribeBytes(
+  audioBytes: number[],
+  extension?: string
+): Promise<CommandResponse<LocalAiSpeechResult>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('openhuman_local_ai_transcribe_bytes', { audioBytes, extension });
+}
+
 export async function openhumanLocalAiTts(
   text: string,
   outputPath?: string

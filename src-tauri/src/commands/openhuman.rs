@@ -599,6 +599,56 @@ pub async fn openhuman_local_ai_transcribe(
 }
 
 #[tauri::command]
+pub async fn openhuman_local_ai_transcribe_bytes(
+    app: tauri::AppHandle,
+    audio_bytes: Vec<u8>,
+    extension: Option<String>,
+) -> Result<CommandResponse<LocalAiSpeechResult>, String> {
+    let ext = extension
+        .unwrap_or_else(|| "webm".to_string())
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+
+    if ext.is_empty() || !ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Invalid audio extension".to_string());
+    }
+
+    let base_dir = app
+        .path()
+        .app_cache_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("Failed to resolve app data path: {e}"))?;
+    let voice_dir = base_dir.join("voice_input");
+    tokio::fs::create_dir_all(&voice_dir)
+        .await
+        .map_err(|e| format!("Failed to create voice input directory: {e}"))?;
+
+    let filename = format!(
+        "voice-{}-{}.{}",
+        chrono::Utc::now().timestamp_millis(),
+        uuid::Uuid::new_v4(),
+        ext
+    );
+    let file_path = voice_dir.join(filename);
+
+    tokio::fs::write(&file_path, &audio_bytes)
+        .await
+        .map_err(|e| format!("Failed to write audio file: {e}"))?;
+
+    let audio_path = file_path.to_string_lossy().to_string();
+    let result = call_core(
+        &app,
+        "openhuman.local_ai_transcribe",
+        serde_json::json!({ "audio_path": audio_path }),
+    )
+    .await;
+
+    let _ = tokio::fs::remove_file(&file_path).await;
+    result
+}
+
+#[tauri::command]
 pub async fn openhuman_local_ai_tts(
     app: tauri::AppHandle,
     text: String,

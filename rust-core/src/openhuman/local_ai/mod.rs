@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:1.5b";
-const DEFAULT_OLLAMA_VISION_MODEL: &str = "qwen2.5vl:3b";
+const DEFAULT_OLLAMA_VISION_MODEL: &str = "moondream:1.8b";
 const DEFAULT_OLLAMA_EMBED_MODEL: &str = "nomic-embed-text:latest";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +150,7 @@ impl LocalAiService {
             return DEFAULT_OLLAMA_VISION_MODEL.to_string();
         }
         let lower = raw.to_ascii_lowercase();
-        if lower == "qwen3-vl:2b" || lower == "qwen3-vl-2b" {
+        if lower == "moondream:1.8b" || lower == "moondream" {
             return DEFAULT_OLLAMA_VISION_MODEL.to_string();
         }
         raw.to_string()

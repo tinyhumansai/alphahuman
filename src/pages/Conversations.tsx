@@ -1,3 +1,4 @@
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
@@ -26,10 +27,13 @@ import {
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
 import { BACKEND_URL } from '../utils/config';
+import { openhumanLocalAiTranscribeBytes, openhumanLocalAiTts } from '../utils/tauriCommands';
 
 const DEFAULT_THREAD_ID = 'default-thread';
 const DEFAULT_THREAD_TITLE = 'Conversation';
 type ToolTimelineEntryStatus = 'running' | 'success' | 'error';
+type InputMode = 'text' | 'voice';
+type ReplyMode = 'text' | 'voice';
 
 interface ToolTimelineEntry {
   id: string;
@@ -118,6 +122,12 @@ const Conversations = () => {
 
   const [inputValue, setInputValue] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<InputMode>('text');
+  const [replyMode, setReplyMode] = useState<ReplyMode>('text');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [isPlayingReply, setIsPlayingReply] = useState(false);
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState('neocortex-mk1');
@@ -138,6 +148,24 @@ const Conversations = () => {
   const [isLoadingBudget, setIsLoadingBudget] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const replyAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastSpokenMessageIdRef = useRef<string | null>(null);
+
+  const getAudioExtension = (mimeType: string): string => {
+    const lower = mimeType.toLowerCase();
+    if (lower.includes('webm')) return 'webm';
+    if (lower.includes('ogg')) return 'ogg';
+    if (lower.includes('wav')) return 'wav';
+    if (lower.includes('mp4') || lower.includes('mpeg') || lower.includes('aac')) return 'm4a';
+    return 'webm';
+  };
+  const canUseMicrophoneApi =
+    typeof navigator !== 'undefined' &&
+    typeof navigator.mediaDevices !== 'undefined' &&
+    typeof navigator.mediaDevices.getUserMedia === 'function';
 
   useEffect(() => {
     const defaultThread = threads.find(t => t.id === DEFAULT_THREAD_ID);
@@ -205,6 +233,21 @@ const Conversations = () => {
       setSendError(null);
     }
   }, [inputValue, sendError]);
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+      replyAudioRef.current?.pause();
+      replyAudioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (inputMode === 'text' && isRecording) {
+      mediaRecorderRef.current?.stop();
+    }
+  }, [inputMode, isRecording]);
 
   useEffect(() => {
     if (!rustChat) return;
@@ -412,6 +455,147 @@ const Conversations = () => {
       dispatch(setActiveThread(null));
     }
   };
+
+  const transcribeAndSendAudio = async (mimeType: string) => {
+    setIsRecording(false);
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    mediaStreamRef.current = null;
+
+    const chunks = audioChunksRef.current;
+    audioChunksRef.current = [];
+    if (chunks.length === 0) {
+      setVoiceStatus('No audio captured. Try again.');
+      return;
+    }
+
+    setIsTranscribing(true);
+    setVoiceStatus('Transcribing with Whisper…');
+    try {
+      const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+      const audioBytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+      const extension = getAudioExtension(mimeType || blob.type);
+      const result = await openhumanLocalAiTranscribeBytes(audioBytes, extension);
+      const transcript = result.result.text.trim();
+
+      if (!transcript) {
+        setVoiceStatus('No speech detected. Try again.');
+        return;
+      }
+
+      setVoiceStatus(`Heard: ${transcript}`);
+      await handleSendMessage(transcript);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSendError(`Voice transcription failed: ${message}`);
+      setVoiceStatus(null);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handleVoiceRecordToggle = async () => {
+    if (!rustChat || isSending || isTranscribing) return;
+    if (!canUseMicrophoneApi) {
+      setSendError(
+        'Microphone capture is unavailable in this runtime. Use Text mode, or run the desktop app bundle with microphone permissions enabled.'
+      );
+      return;
+    }
+
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const preferredTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+      ];
+      const supportedType = preferredTypes.find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = supportedType
+        ? new MediaRecorder(stream, { mimeType: supportedType })
+        : new MediaRecorder(stream);
+
+      audioChunksRef.current = [];
+      recorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        setIsRecording(false);
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+        setSendError('Microphone recording failed.');
+      };
+      recorder.onstop = () => {
+        void transcribeAndSendAudio(recorder.mimeType);
+      };
+
+      mediaRecorderRef.current = recorder;
+      setVoiceStatus('Listening… click Stop to send.');
+      setSendError(null);
+      setIsRecording(true);
+      recorder.start();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSendError(`Microphone access failed: ${message}`);
+      setVoiceStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    const latestAgentMessage = [...messages].reverse().find(m => m.sender === 'agent');
+    if (!latestAgentMessage) return;
+
+    if (replyMode === 'text') {
+      lastSpokenMessageIdRef.current = latestAgentMessage.id;
+      replyAudioRef.current?.pause();
+      replyAudioRef.current = null;
+      setIsPlayingReply(false);
+      return;
+    }
+
+    if (!rustChat || latestAgentMessage.id === lastSpokenMessageIdRef.current) return;
+
+    lastSpokenMessageIdRef.current = latestAgentMessage.id;
+    let cancelled = false;
+    setIsPlayingReply(true);
+
+    void (async () => {
+      try {
+        const ttsResult = await openhumanLocalAiTts(latestAgentMessage.content);
+        if (cancelled) return;
+
+        const audioSrc = convertFileSrc(ttsResult.result.output_path);
+        const audio = new window.Audio(audioSrc);
+        replyAudioRef.current?.pause();
+        replyAudioRef.current = audio;
+
+        await audio.play();
+      } catch {
+        if (!cancelled) {
+          setSendError('Failed to play voice reply.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPlayingReply(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, replyMode, rustChat]);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -678,6 +862,55 @@ const Conversations = () => {
               </>
             )}
             <div className="flex-1" />
+            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+              <span className="text-[10px] text-stone-500 px-1">Input</span>
+              <button
+                type="button"
+                onClick={() => setInputMode('text')}
+                disabled={isRecording || isTranscribing}
+                className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                  inputMode === 'text'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-stone-300 hover:bg-white/10'
+                }`}>
+                Text
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode('voice')}
+                disabled={isRecording || isTranscribing || !rustChat || !canUseMicrophoneApi}
+                className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                  inputMode === 'voice'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-stone-300 hover:bg-white/10'
+                }`}>
+                Voice
+              </button>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+              <span className="text-[10px] text-stone-500 px-1">Reply</span>
+              <button
+                type="button"
+                onClick={() => setReplyMode('text')}
+                className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                  replyMode === 'text'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-stone-300 hover:bg-white/10'
+                }`}>
+                Text
+              </button>
+              <button
+                type="button"
+                onClick={() => setReplyMode('voice')}
+                disabled={!rustChat}
+                className={`px-2 py-1 rounded-md text-[11px] transition-colors ${
+                  replyMode === 'voice'
+                    ? 'bg-primary-600 text-white'
+                    : 'text-stone-300 hover:bg-white/10'
+                }`}>
+                Voice
+              </button>
+            </div>
             {(isLoadingBudget || teamUsage) &&
               (() => {
                 const size = 22;
@@ -758,50 +991,76 @@ const Conversations = () => {
             </div>
           )}
 
-          <div className="flex items-end gap-2">
-            <textarea
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              placeholder="Type a message..."
-              rows={1}
-              disabled={isSending || !rustChat}
-              className="flex-1 resize-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm placeholder:text-stone-500 focus:outline-none focus:ring-1 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all max-h-32 disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <button
-              onClick={() => {
-                void handleSendMessage();
-              }}
-              disabled={!inputValue.trim() || isSending || !rustChat}
-              className="p-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0">
-              {isSending ? (
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 12h14M12 5l7 7-7 7"
-                  />
-                </svg>
-              )}
-            </button>
-          </div>
+          {inputMode === 'text' ? (
+            <div className="flex items-end gap-2">
+              <textarea
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={handleInputKeyDown}
+                placeholder="Type a message..."
+                rows={1}
+                disabled={isSending || !rustChat}
+                className="flex-1 resize-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm placeholder:text-stone-500 focus:outline-none focus:ring-1 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all max-h-32 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <button
+                onClick={() => {
+                  void handleSendMessage();
+                }}
+                disabled={!inputValue.trim() || isSending || !rustChat}
+                className="p-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0">
+                {isSending ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 12h14M12 5l7 7-7 7"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleVoiceRecordToggle();
+                }}
+                disabled={!rustChat || isSending || isTranscribing || !canUseMicrophoneApi}
+                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                  isRecording
+                    ? 'bg-coral-500 hover:bg-coral-400 text-white'
+                    : 'bg-primary-600 hover:bg-primary-500 text-white'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}>
+                {isTranscribing ? 'Transcribing…' : isRecording ? 'Stop & Send' : 'Start Talking'}
+              </button>
+              <p className="text-xs text-stone-400 truncate">
+                {voiceStatus ??
+                  (isPlayingReply && replyMode === 'voice'
+                    ? 'Playing voice reply…'
+                    : canUseMicrophoneApi
+                      ? 'Click "Start Talking" to speak to the agent.'
+                      : 'Microphone input is not available in this runtime.')}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
