@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use clap::{Args, Parser, Subcommand};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -1211,24 +1212,557 @@ pub async fn run_server(port: Option<u16>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_from_cli_args(args: &[String]) -> Result<()> {
-    let mut port: Option<u16> = None;
+#[derive(Debug, Parser)]
+#[command(name = "openhuman-core")]
+#[command(about = "OpenHuman core CLI")]
+#[command(arg_required_else_help = true)]
+struct CoreCli {
+    #[command(subcommand)]
+    command: CoreCommand,
+}
 
-    let mut idx = 0;
-    while idx < args.len() {
-        match args[idx].as_str() {
-            "serve" => {}
-            "--port" => {
-                let value = args
-                    .get(idx + 1)
-                    .ok_or_else(|| anyhow::anyhow!("missing value for --port"))?;
-                port = Some(value.parse::<u16>()?);
-                idx += 1;
-            }
-            _ => {}
-        }
-        idx += 1;
+#[derive(Debug, Subcommand)]
+enum CoreCommand {
+    /// Run JSON-RPC server
+    #[command(alias = "serve")]
+    Run {
+        #[arg(long)]
+        port: Option<u16>,
+    },
+    /// Check core health
+    Ping,
+    /// Print core version
+    Version,
+    /// Get health snapshot
+    Health,
+    /// Get runtime flags
+    RuntimeFlags,
+    /// Get security policy info
+    SecurityPolicy,
+    /// Generic JSON-RPC style method call
+    Call {
+        #[arg(long)]
+        method: String,
+        #[arg(long, default_value = "{}")]
+        params: String,
+    },
+    /// Settings style commands mirroring app settings sections
+    Settings {
+        #[command(subcommand)]
+        command: SettingsCommand,
+    },
+    /// Accessibility automation commands
+    Accessibility {
+        #[command(subcommand)]
+        command: AccessibilityCommand,
+    },
+    /// Legacy config operations
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SettingsCommand {
+    Model {
+        #[command(subcommand)]
+        command: ModelSettingsCommand,
+    },
+    Memory {
+        #[command(subcommand)]
+        command: MemorySettingsCommand,
+    },
+    Gateway {
+        #[command(subcommand)]
+        command: GatewaySettingsCommand,
+    },
+    Tunnel {
+        #[command(subcommand)]
+        command: TunnelSettingsCommand,
+    },
+    Runtime {
+        #[command(subcommand)]
+        command: RuntimeSettingsCommand,
+    },
+    Browser {
+        #[command(subcommand)]
+        command: BrowserSettingsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ModelSettingsCommand {
+    Get,
+    Set(ModelSetArgs),
+}
+
+#[derive(Debug, Args)]
+struct ModelSetArgs {
+    #[arg(long)]
+    api_key: Option<String>,
+    #[arg(long)]
+    api_url: Option<String>,
+    #[arg(long)]
+    provider: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    temperature: Option<f64>,
+}
+
+#[derive(Debug, Subcommand)]
+enum MemorySettingsCommand {
+    Get,
+    Set(MemorySetArgs),
+}
+
+#[derive(Debug, Args)]
+struct MemorySetArgs {
+    #[arg(long)]
+    backend: Option<String>,
+    #[arg(long)]
+    auto_save: Option<bool>,
+    #[arg(long)]
+    embedding_provider: Option<String>,
+    #[arg(long)]
+    embedding_model: Option<String>,
+    #[arg(long)]
+    embedding_dimensions: Option<usize>,
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewaySettingsCommand {
+    Get,
+    Set(GatewaySetArgs),
+}
+
+#[derive(Debug, Args)]
+struct GatewaySetArgs {
+    #[arg(long)]
+    host: Option<String>,
+    #[arg(long)]
+    port: Option<u16>,
+    #[arg(long)]
+    require_pairing: Option<bool>,
+    #[arg(long)]
+    allow_public_bind: Option<bool>,
+}
+
+#[derive(Debug, Subcommand)]
+enum TunnelSettingsCommand {
+    Get,
+    /// Replace tunnel settings with full JSON payload
+    Set(TunnelSetArgs),
+}
+
+#[derive(Debug, Args)]
+struct TunnelSetArgs {
+    #[arg(long)]
+    json: String,
+}
+
+#[derive(Debug, Subcommand)]
+enum RuntimeSettingsCommand {
+    Get,
+    Set(RuntimeSetArgs),
+}
+
+#[derive(Debug, Args)]
+struct RuntimeSetArgs {
+    #[arg(long)]
+    kind: Option<String>,
+    #[arg(long)]
+    reasoning_enabled: Option<bool>,
+}
+
+#[derive(Debug, Subcommand)]
+enum BrowserSettingsCommand {
+    Get,
+    Set(BrowserSetArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum AccessibilityCommand {
+    /// Read current accessibility automation status
+    Status,
+    /// Request all accessibility-related permissions
+    RequestPermissions,
+    /// Request a specific permission kind
+    RequestPermission(RequestPermissionArgs),
+    /// Start a bounded accessibility session
+    StartSession(StartSessionCliArgs),
+    /// Stop the active accessibility session
+    StopSession(StopSessionCliArgs),
+    /// Force an immediate capture sample
+    CaptureNow,
+    /// Fetch recent vision summaries
+    VisionRecent(VisionRecentCliArgs),
+    /// Flush immediate vision summary from latest frame
+    VisionFlush,
+}
+
+#[derive(Debug, Args)]
+struct RequestPermissionArgs {
+    /// One of: screen_recording, accessibility, input_monitoring
+    #[arg(long)]
+    permission: String,
+}
+
+#[derive(Debug, Args)]
+struct StartSessionCliArgs {
+    /// Explicit consent required to start
+    #[arg(long, default_value_t = false)]
+    consent: bool,
+    /// Optional session TTL in seconds (bounded server-side)
+    #[arg(long)]
+    ttl_secs: Option<u64>,
+    /// Optional override for screen monitoring
+    #[arg(long)]
+    screen_monitoring: Option<bool>,
+    /// Optional override for device control
+    #[arg(long)]
+    device_control: Option<bool>,
+    /// Optional override for predictive input
+    #[arg(long)]
+    predictive_input: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+struct StopSessionCliArgs {
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct VisionRecentCliArgs {
+    #[arg(long)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+struct BrowserSetArgs {
+    #[arg(long)]
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    /// Get full config snapshot
+    Get,
+    /// Update model settings with a JSON object
+    UpdateModel {
+        #[arg(long)]
+        json: String,
+    },
+    /// Update memory settings with a JSON object
+    UpdateMemory {
+        #[arg(long)]
+        json: String,
+    },
+    /// Update gateway settings with a JSON object
+    UpdateGateway {
+        #[arg(long)]
+        json: String,
+    },
+    /// Update runtime settings with a JSON object
+    UpdateRuntime {
+        #[arg(long)]
+        json: String,
+    },
+    /// Update browser settings with a JSON object
+    UpdateBrowser {
+        #[arg(long)]
+        json: String,
+    },
+    /// Replace tunnel settings with a JSON object
+    UpdateTunnel {
+        #[arg(long)]
+        json: String,
+    },
+}
+
+fn parse_json_arg(raw: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(raw).map_err(|e| format!("invalid JSON for --json/--params: {e}"))
+}
+
+fn ensure_non_empty_payload(payload: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
+    if payload.is_empty() {
+        return Err(anyhow::anyhow!("no fields provided for set operation"));
     }
+    Ok(())
+}
+
+async fn get_config_snapshot() -> Result<CommandResponse<ConfigSnapshot>, String> {
+    let value = call_method("openhuman.get_config", json!({})).await?;
+    serde_json::from_value::<CommandResponse<ConfigSnapshot>>(value)
+        .map_err(|e| format!("failed to decode config snapshot: {e}"))
+}
+
+fn settings_view_response(
+    section: &'static str,
+    snapshot: CommandResponse<ConfigSnapshot>,
+) -> CommandResponse<serde_json::Value> {
+    let cfg = &snapshot.result.config;
+    let settings = match section {
+        "model" => json!({
+            "api_key": cfg.get("api_key"),
+            "api_url": cfg.get("api_url"),
+            "default_provider": cfg.get("default_provider"),
+            "default_model": cfg.get("default_model"),
+            "default_temperature": cfg.get("default_temperature"),
+        }),
+        "memory" => cfg.get("memory").cloned().unwrap_or(serde_json::Value::Null),
+        "gateway" => cfg.get("gateway").cloned().unwrap_or(serde_json::Value::Null),
+        "tunnel" => cfg.get("tunnel").cloned().unwrap_or(serde_json::Value::Null),
+        "runtime" => cfg.get("runtime").cloned().unwrap_or(serde_json::Value::Null),
+        "browser" => cfg.get("browser").cloned().unwrap_or(serde_json::Value::Null),
+        _ => serde_json::Value::Null,
+    };
+
+    command_response(
+        json!({
+            "section": section,
+            "settings": settings,
+            "workspace_dir": snapshot.result.workspace_dir,
+            "config_path": snapshot.result.config_path,
+        }),
+        snapshot.logs,
+    )
+}
+
+async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
+    match cli.command {
+        CoreCommand::Run { port } => run_server(port)
+            .await
+            .map(|_| serde_json::Value::Null)
+            .map_err(|e| format!("run failed: {e}")),
+        CoreCommand::Ping => call_method("core.ping", json!({})).await,
+        CoreCommand::Version => call_method("core.version", json!({})).await,
+        CoreCommand::Health => call_method("openhuman.health_snapshot", json!({})).await,
+        CoreCommand::RuntimeFlags => call_method("openhuman.get_runtime_flags", json!({})).await,
+        CoreCommand::SecurityPolicy => {
+            call_method("openhuman.security_policy_info", json!({})).await
+        }
+        CoreCommand::Call { method, params } => call_method(&method, parse_json_arg(&params)?).await,
+        CoreCommand::Settings { command } => match command {
+            SettingsCommand::Model { command } => match command {
+                ModelSettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("model", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                ModelSettingsCommand::Set(args) => {
+                    let mut payload = serde_json::Map::new();
+                    if let Some(v) = args.api_key {
+                        payload.insert("api_key".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.api_url {
+                        payload.insert("api_url".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.provider {
+                        payload.insert("default_provider".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.model {
+                        payload.insert("default_model".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.temperature {
+                        payload.insert("default_temperature".to_string(), json!(v));
+                    }
+                    ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
+                    call_method("openhuman.update_model_settings", serde_json::Value::Object(payload))
+                        .await
+                }
+            },
+            SettingsCommand::Memory { command } => match command {
+                MemorySettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("memory", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                MemorySettingsCommand::Set(args) => {
+                    let mut payload = serde_json::Map::new();
+                    if let Some(v) = args.backend {
+                        payload.insert("backend".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.auto_save {
+                        payload.insert("auto_save".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.embedding_provider {
+                        payload.insert("embedding_provider".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.embedding_model {
+                        payload.insert("embedding_model".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.embedding_dimensions {
+                        payload.insert("embedding_dimensions".to_string(), json!(v));
+                    }
+                    ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
+                    call_method(
+                        "openhuman.update_memory_settings",
+                        serde_json::Value::Object(payload),
+                    )
+                    .await
+                }
+            },
+            SettingsCommand::Gateway { command } => match command {
+                GatewaySettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("gateway", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                GatewaySettingsCommand::Set(args) => {
+                    let mut payload = serde_json::Map::new();
+                    if let Some(v) = args.host {
+                        payload.insert("host".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.port {
+                        payload.insert("port".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.require_pairing {
+                        payload.insert("require_pairing".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.allow_public_bind {
+                        payload.insert("allow_public_bind".to_string(), json!(v));
+                    }
+                    ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
+                    call_method(
+                        "openhuman.update_gateway_settings",
+                        serde_json::Value::Object(payload),
+                    )
+                    .await
+                }
+            },
+            SettingsCommand::Tunnel { command } => match command {
+                TunnelSettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("tunnel", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                TunnelSettingsCommand::Set(args) => {
+                    call_method("openhuman.update_tunnel_settings", parse_json_arg(&args.json)?).await
+                }
+            },
+            SettingsCommand::Runtime { command } => match command {
+                RuntimeSettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("runtime", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                RuntimeSettingsCommand::Set(args) => {
+                    let mut payload = serde_json::Map::new();
+                    if let Some(v) = args.kind {
+                        payload.insert("kind".to_string(), json!(v));
+                    }
+                    if let Some(v) = args.reasoning_enabled {
+                        payload.insert("reasoning_enabled".to_string(), json!(v));
+                    }
+                    ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
+                    call_method(
+                        "openhuman.update_runtime_settings",
+                        serde_json::Value::Object(payload),
+                    )
+                    .await
+                }
+            },
+            SettingsCommand::Browser { command } => match command {
+                BrowserSettingsCommand::Get => {
+                    let snapshot = get_config_snapshot().await?;
+                    serde_json::to_value(settings_view_response("browser", snapshot))
+                        .map_err(|e| e.to_string())
+                }
+                BrowserSettingsCommand::Set(args) => {
+                    let mut payload = serde_json::Map::new();
+                    if let Some(v) = args.enabled {
+                        payload.insert("enabled".to_string(), json!(v));
+                    }
+                    ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
+                    call_method(
+                        "openhuman.update_browser_settings",
+                        serde_json::Value::Object(payload),
+                    )
+                    .await
+                }
+            },
+        },
+        CoreCommand::Accessibility { command } => match command {
+            AccessibilityCommand::Status => {
+                call_method("openhuman.accessibility_status", json!({})).await
+            }
+            AccessibilityCommand::RequestPermissions => {
+                call_method("openhuman.accessibility_request_permissions", json!({})).await
+            }
+            AccessibilityCommand::RequestPermission(args) => {
+                call_method(
+                    "openhuman.accessibility_request_permission",
+                    json!({ "permission": args.permission }),
+                )
+                .await
+            }
+            AccessibilityCommand::StartSession(args) => {
+                call_method(
+                    "openhuman.accessibility_start_session",
+                    json!({
+                        "consent": args.consent,
+                        "ttl_secs": args.ttl_secs,
+                        "screen_monitoring": args.screen_monitoring,
+                        "device_control": args.device_control,
+                        "predictive_input": args.predictive_input,
+                    }),
+                )
+                .await
+            }
+            AccessibilityCommand::StopSession(args) => {
+                call_method(
+                    "openhuman.accessibility_stop_session",
+                    json!({ "reason": args.reason }),
+                )
+                .await
+            }
+            AccessibilityCommand::CaptureNow => {
+                call_method("openhuman.accessibility_capture_now", json!({})).await
+            }
+            AccessibilityCommand::VisionRecent(args) => {
+                call_method(
+                    "openhuman.accessibility_vision_recent",
+                    json!({ "limit": args.limit }),
+                )
+                .await
+            }
+            AccessibilityCommand::VisionFlush => {
+                call_method("openhuman.accessibility_vision_flush", json!({})).await
+            }
+        },
+        CoreCommand::Config { command } => match command {
+            ConfigCommand::Get => call_method("openhuman.get_config", json!({})).await,
+            ConfigCommand::UpdateModel { json } => {
+                call_method("openhuman.update_model_settings", parse_json_arg(&json)?).await
+            }
+            ConfigCommand::UpdateMemory { json } => {
+                call_method("openhuman.update_memory_settings", parse_json_arg(&json)?).await
+            }
+            ConfigCommand::UpdateGateway { json } => {
+                call_method("openhuman.update_gateway_settings", parse_json_arg(&json)?).await
+            }
+            ConfigCommand::UpdateRuntime { json } => {
+                call_method("openhuman.update_runtime_settings", parse_json_arg(&json)?).await
+            }
+            ConfigCommand::UpdateBrowser { json } => {
+                call_method("openhuman.update_browser_settings", parse_json_arg(&json)?).await
+            }
+            ConfigCommand::UpdateTunnel { json } => {
+                call_method("openhuman.update_tunnel_settings", parse_json_arg(&json)?).await
+            }
+        },
+    }
+}
+
+pub fn run_from_cli_args(args: &[String]) -> Result<()> {
+    let mut argv = Vec::with_capacity(args.len() + 1);
+    argv.push("openhuman-core".to_string());
+    argv.extend(args.iter().cloned());
+    let cli =
+        CoreCli::try_parse_from(argv).map_err(|e| anyhow::anyhow!(e.render().to_string()))?;
 
     let thread_stack_size = std::env::var("OPENHUMAN_CORE_THREAD_STACK_SIZE")
         .ok()
@@ -1239,7 +1773,14 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         .thread_stack_size(thread_stack_size)
         .enable_all()
         .build()?;
-    runtime.block_on(run_server(port))
+    let output = runtime.block_on(execute_core_cli(cli)).map_err(anyhow::Error::msg)?;
+    if !output.is_null() {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| "null".to_string())
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

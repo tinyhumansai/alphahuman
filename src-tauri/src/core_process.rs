@@ -71,9 +71,9 @@ impl CoreProcessHandle {
                             // explicit subcommand path so we don't accidentally relaunch clients.
                             cmd.arg("core");
                         }
-                        cmd.arg("serve").arg("--port").arg(self.port.to_string());
+                        cmd.arg("run").arg("--port").arg(self.port.to_string());
                         log::info!(
-                            "[core] spawning dedicated core binary: {:?} serve --port {}",
+                            "[core] spawning dedicated core binary: {:?} run --port {}",
                             cmd.as_std().get_program(),
                             self.port
                         );
@@ -83,7 +83,7 @@ impl CoreProcessHandle {
                             .map_err(|e| format!("failed to resolve current executable: {e}"))?;
                         let mut cmd = Command::new(exe);
                         cmd.arg("core")
-                            .arg("serve")
+                            .arg("run")
                             .arg("--port")
                             .arg(self.port.to_string());
                         log::warn!(
@@ -218,7 +218,7 @@ pub fn default_core_bin() -> Option<PathBuf> {
     }
 
     // Dev ergonomics: in debug builds, prefer spawning this same executable with
-    // `core serve` so Cargo recompiles core logic changes as part of tauri dev.
+    // `core run` so Cargo recompiles core logic changes as part of tauri dev.
     // Sidecar discovery remains enabled for packaged/release builds.
     if cfg!(debug_assertions) {
         return None;
