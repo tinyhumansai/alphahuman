@@ -9,6 +9,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 
 import authReducer from '../store/authSlice';
+import channelConnectionsReducer from '../store/channelConnectionsSlice';
 import socketReducer from '../store/socketSlice';
 import teamReducer from '../store/teamSlice';
 import userReducer from '../store/userSlice';
@@ -19,6 +20,7 @@ import userReducer from '../store/userSlice';
  */
 const testRootReducer = combineReducers({
   auth: authReducer,
+  channelConnections: channelConnectionsReducer,
   socket: socketReducer,
   user: userReducer,
   team: teamReducer,

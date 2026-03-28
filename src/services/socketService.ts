@@ -5,7 +5,9 @@ import { io, Socket } from 'socket.io-client';
 import { MCPTool, MCPToolCall, SocketIOMCPTransportImpl } from '../lib/mcp';
 import { skillManager, syncToolsToBackend } from '../lib/skills';
 import { store } from '../store';
+import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { resetForUser, setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
+import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
 import { BACKEND_URL, IS_DEV } from '../utils/config';
 import { createSafeLogData, sanitizeError } from '../utils/sanitize';
 
@@ -24,6 +26,33 @@ interface JwtPayload {
   tgUserId?: string;
   userId?: string;
   sub?: string;
+}
+
+interface ChannelConnectionUpdatedEvent {
+  channel: ChannelType;
+  authMode: ChannelAuthMode;
+  status: ChannelConnectionStatus;
+  lastError?: string;
+  capabilities?: string[];
+}
+
+function isChannelConnectionUpdatePayload(value: unknown): value is ChannelConnectionUpdatedEvent {
+  if (!value || typeof value !== 'object') return false;
+  const obj = value as Record<string, unknown>;
+  const channel = obj.channel;
+  const authMode = obj.authMode;
+  const status = obj.status;
+  return (
+    (channel === 'telegram' || channel === 'discord') &&
+    (authMode === 'managed_dm' ||
+      authMode === 'oauth' ||
+      authMode === 'bot_token' ||
+      authMode === 'api_key') &&
+    (status === 'connected' ||
+      status === 'connecting' ||
+      status === 'disconnected' ||
+      status === 'error')
+  );
 }
 
 function getSocketUserId(): string {
@@ -158,6 +187,21 @@ class SocketService {
       const uid = getSocketUserId();
       socketError('Connection error', { userId: uid, error: sanitizeError(error) });
       store.dispatch(setStatusForUser({ userId: uid, status: 'disconnected' }));
+    });
+
+    this.socket.on('channel:connection-updated', data => {
+      if (!isChannelConnectionUpdatePayload(data)) return;
+      store.dispatch(
+        upsertChannelConnection({
+          channel: data.channel,
+          authMode: data.authMode,
+          patch: {
+            status: data.status,
+            lastError: data.lastError,
+            capabilities: data.capabilities ?? [],
+          },
+        })
+      );
     });
 
     // MCP handlers — only in web mode (Rust handles MCP in Tauri mode)

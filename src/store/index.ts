@@ -18,6 +18,7 @@ import { storeSession, syncMemoryClientToken } from '../utils/tauriCommands';
 import accessibilityReducer from './accessibilitySlice';
 import aiReducer from './aiSlice';
 import authReducer, { setOnboardedForUser, setToken } from './authSlice';
+import channelConnectionsReducer from './channelConnectionsSlice';
 import daemonReducer from './daemonSlice';
 import gmailReducer from './gmailSlice';
 import intelligenceReducer from './intelligenceSlice';
@@ -60,6 +61,15 @@ const persistedAuthReducer = persistReducer(authPersistConfig, authReducer);
 const persistedAiReducer = persistReducer(aiPersistConfig, aiReducer);
 const persistedSkillsReducer = persistReducer(skillsPersistConfig, skillsReducer);
 const persistedThreadReducer = persistReducer(threadPersistConfig, threadReducer);
+const channelConnectionsPersistConfig = {
+  key: 'channelConnections',
+  storage,
+  whitelist: ['schemaVersion', 'migrationCompleted', 'defaultMessagingChannel', 'connections'],
+};
+const persistedChannelConnectionsReducer = persistReducer(
+  channelConnectionsPersistConfig,
+  channelConnectionsReducer
+);
 
 /**
  * Middleware that syncs the JWT token to the Rust SESSION_SERVICE whenever
@@ -110,6 +120,7 @@ export const store = configureStore({
     invite: inviteReducer,
     notion: notionReducer,
     accessibility: accessibilityReducer,
+    channelConnections: persistedChannelConnectionsReducer,
   },
   middleware: getDefaultMiddleware => {
     const middleware = getDefaultMiddleware({
