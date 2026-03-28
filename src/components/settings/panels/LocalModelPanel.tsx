@@ -7,6 +7,7 @@ import {
   openhumanLocalAiDownload,
   openhumanLocalAiStatus,
   openhumanLocalAiSuggestQuestions,
+  openhumanLocalAiPrompt,
   openhumanLocalAiSummarize,
 } from '../../../utils/tauriCommands';
 import SettingsHeader from '../components/SettingsHeader';
@@ -103,6 +104,11 @@ const LocalModelPanel = () => {
   const [suggestions, setSuggestions] = useState<LocalAiSuggestion[]>([]);
   const [isSuggestLoading, setIsSuggestLoading] = useState(false);
 
+  const [promptInput, setPromptInput] = useState('');
+  const [promptOutput, setPromptOutput] = useState('');
+  const [isPromptLoading, setIsPromptLoading] = useState(false);
+  const [promptNoThink, setPromptNoThink] = useState(true);
+
   const progress = useMemo(() => progressFromStatus(status), [status]);
   const isIndeterminateDownload =
     status?.state === 'downloading' && typeof status.download_progress !== 'number';
@@ -189,6 +195,23 @@ const LocalModelPanel = () => {
       setStatusError(message);
     } finally {
       setIsSuggestLoading(false);
+    }
+  };
+
+  const runPromptTest = async () => {
+    if (!promptInput.trim() || !isTauri()) return;
+    setIsPromptLoading(true);
+    setPromptOutput('');
+    setStatusError('');
+    try {
+      const result = await openhumanLocalAiPrompt(promptInput.trim(), 180, promptNoThink);
+      setPromptOutput(result.result);
+      await loadStatus();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Prompt test failed';
+      setStatusError(message);
+    } finally {
+      setIsPromptLoading(false);
     }
   };
 
@@ -333,6 +356,41 @@ const LocalModelPanel = () => {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="text-lg font-semibold text-white">Test Custom Prompt</h3>
+          <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 space-y-3">
+            <textarea
+              value={promptInput}
+              onChange={e => setPromptInput(e.target.value)}
+              placeholder="Type any prompt and run it against the local model..."
+              className="w-full min-h-28 rounded-md bg-stone-950 border border-gray-700 px-3 py-2 text-sm text-stone-100 placeholder:text-stone-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs text-stone-300">
+                <input
+                  type="checkbox"
+                  checked={promptNoThink}
+                  onChange={e => setPromptNoThink(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-600 bg-stone-900 text-blue-500 focus:ring-blue-500"
+                />
+                No-think mode
+              </label>
+              <button
+                onClick={() => void runPromptTest()}
+                disabled={isPromptLoading || !promptInput.trim() || !isTauri()}
+                className="px-3 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white">
+                {isPromptLoading ? 'Running...' : 'Run Prompt Test'}
+              </button>
+            </div>
+            <div className="text-xs text-stone-400">Calls `openhuman.local_ai_prompt` via Rust core</div>
+            {promptOutput && (
+              <pre className="whitespace-pre-wrap rounded-md bg-stone-950 border border-gray-700 p-3 text-xs text-stone-200">
+                {promptOutput}
+              </pre>
             )}
           </div>
         </section>

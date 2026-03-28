@@ -1085,6 +1085,7 @@ pub fn run() {
                     openhuman_local_ai_download,
                     openhuman_local_ai_summarize,
                     openhuman_local_ai_suggest_questions,
+                    openhuman_local_ai_prompt,
                     openhuman_doctor_report,
                     openhuman_doctor_models,
                     openhuman_list_integrations,

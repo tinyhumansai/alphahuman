@@ -733,6 +733,17 @@ export async function openhumanLocalAiSuggestQuestions(
   return await invoke('openhuman_local_ai_suggest_questions', { context, lines });
 }
 
+export async function openhumanLocalAiPrompt(
+  prompt: string,
+  maxTokens?: number,
+  noThink?: boolean
+): Promise<CommandResponse<string>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('openhuman_local_ai_prompt', { prompt, maxTokens, noThink });
+}
+
 export async function aiGetConfig(): Promise<AIPreview> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');

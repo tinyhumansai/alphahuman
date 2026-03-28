@@ -181,6 +181,13 @@ struct LocalAiSummarizeParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct LocalAiPromptParams {
+    prompt: String,
+    max_tokens: Option<u32>,
+    no_think: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct LocalAiSuggestParams {
     #[serde(default)]
     context: Option<String>,
@@ -583,6 +590,28 @@ async fn dispatch(
             to_json_value(command_response(
                 suggestions,
                 vec!["local ai suggestions generated".to_string()],
+            ))
+        }
+
+        "openhuman.local_ai_prompt" => {
+            let p: LocalAiPromptParams = parse_params(params)?;
+            let config = load_openhuman_config().await?;
+            let service = local_ai::global(&config);
+            let status = service.status();
+            if !matches!(status.state.as_str(), "ready") {
+                service.bootstrap(&config).await;
+            }
+            let output = service
+                .prompt(
+                    &config,
+                    p.prompt.trim(),
+                    p.max_tokens,
+                    p.no_think.unwrap_or(false),
+                )
+                .await?;
+            to_json_value(command_response(
+                output,
+                vec!["local ai prompt completed".to_string()],
             ))
         }
 

@@ -301,6 +301,24 @@ impl LocalAiService {
         self.inference(config, system, &prompt, max_tokens).await
     }
 
+    pub async fn prompt(
+        &self,
+        config: &Config,
+        prompt: &str,
+        max_tokens: Option<u32>,
+        no_think: bool,
+    ) -> Result<String, String> {
+        if !config.local_ai.enabled {
+            return Err("local ai is disabled".to_string());
+        }
+        let system = if no_think {
+            "You are a concise assistant. Return only the final answer. Do not include reasoning or chain-of-thought."
+        } else {
+            "You are a helpful assistant."
+        };
+        self.inference(config, system, prompt, max_tokens).await
+    }
+
     pub async fn suggest_questions(
         &self,
         config: &Config,

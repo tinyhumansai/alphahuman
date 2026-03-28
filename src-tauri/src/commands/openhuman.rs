@@ -456,6 +456,25 @@ pub async fn openhuman_local_ai_suggest_questions(
     .await
 }
 
+#[tauri::command]
+pub async fn openhuman_local_ai_prompt(
+    app: tauri::AppHandle,
+    prompt: String,
+    max_tokens: Option<u32>,
+    no_think: Option<bool>,
+) -> Result<CommandResponse<String>, String> {
+    call_core(
+        &app,
+        "openhuman.local_ai_prompt",
+        serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "no_think": no_think
+        }),
+    )
+    .await
+}
+
 /// Run OpenHuman doctor checks and return a structured report.
 #[tauri::command]
 pub async fn openhuman_doctor_report(
