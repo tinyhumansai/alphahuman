@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/the-tet.jpg" alt="The Tet" />
+  <img src="./docs/the-tet.png" alt="The Tet" />
 </p>
 
 <p align="center" style="font-style: italic">
