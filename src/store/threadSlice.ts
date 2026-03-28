@@ -1,6 +1,8 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
+import { resolveOutboundRoute } from '../lib/channels/routing';
 import { threadApi } from '../services/api/threadApi';
+import type { ChannelConnectionsState } from '../types/channels';
 import type { Thread, ThreadMessage } from '../types/thread';
 import { isTauri, openhumanLocalAiSuggestQuestions } from '../utils/tauriCommands';
 
@@ -83,7 +85,7 @@ export const sendMessage = createAsyncThunk(
   'thread/sendMessage',
   async (
     { threadId, message }: { threadId: string; message: string },
-    { dispatch, rejectWithValue }
+    { dispatch, getState, rejectWithValue }
   ) => {
     // 1. Add user message locally immediately (optimistic update)
     const userMessage: ThreadMessage = {
@@ -99,7 +101,11 @@ export const sendMessage = createAsyncThunk(
       dispatch(addMessageLocal({ threadId, message: userMessage }));
 
       // 2. Send plain message - orchestration and context injection happen in Rust.
-      const data = await threadApi.sendMessage(message, threadId);
+      const state = getState() as { channelConnections?: ChannelConnectionsState };
+      const route = state.channelConnections
+        ? resolveOutboundRoute(state.channelConnections)
+        : null;
+      const data = await threadApi.sendMessage(message, threadId, route ?? undefined);
 
       // 3. For now, we'll handle AI response via the existing inference API
       // The AI response will be added separately via addInferenceResponse

@@ -19,7 +19,9 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { syncToolsToBackend } from '../lib/skills/sync';
 import { daemonHealthService } from '../services/daemonHealthService';
 import { store } from '../store';
+import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
+import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
 import { BACKEND_URL } from './config';
 
 // Check if we're running in Tauri
@@ -116,6 +118,33 @@ let unlistenSocketState: UnlistenFn | null = null;
 let unlistenServerEvent: UnlistenFn | null = null;
 let unlistenDaemonHealth: UnlistenFn | null = null;
 
+interface ChannelConnectionUpdatedEvent {
+  channel: ChannelType;
+  authMode: ChannelAuthMode;
+  status: ChannelConnectionStatus;
+  lastError?: string;
+  capabilities?: string[];
+}
+
+function isChannelConnectionUpdatePayload(value: unknown): value is ChannelConnectionUpdatedEvent {
+  if (!value || typeof value !== 'object') return false;
+  const obj = value as Record<string, unknown>;
+  const channel = obj.channel;
+  const authMode = obj.authMode;
+  const status = obj.status;
+  return (
+    (channel === 'telegram' || channel === 'discord') &&
+    (authMode === 'managed_dm' ||
+      authMode === 'oauth' ||
+      authMode === 'bot_token' ||
+      authMode === 'api_key') &&
+    (status === 'connected' ||
+      status === 'connecting' ||
+      status === 'disconnected' ||
+      status === 'error')
+  );
+}
+
 function getSocketUserId(): string {
   const token = store.getState().auth.token;
   if (!token) return '__pending__';
@@ -183,6 +212,19 @@ export async function setupTauriSocketListeners(): Promise<void> {
     unlistenServerEvent = await listen<{ event: string; data: unknown }>('server:event', event => {
       const { event: eventName, data } = event.payload;
       console.log('[TauriSocket] Server event:', eventName, data);
+      if (eventName === 'channel:connection-updated' && isChannelConnectionUpdatePayload(data)) {
+        store.dispatch(
+          upsertChannelConnection({
+            channel: data.channel,
+            authMode: data.authMode,
+            patch: {
+              status: data.status,
+              lastError: data.lastError,
+              capabilities: data.capabilities ?? [],
+            },
+          })
+        );
+      }
     });
     console.log('[TauriSocket] server:event listener setup complete');
 

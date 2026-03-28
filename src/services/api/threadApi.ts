@@ -1,4 +1,5 @@
 import type { ApiResponse } from '../../types/api';
+import type { OutboundRoute } from '../../types/channels';
 import type {
   PurgeRequestBody,
   PurgeResultData,
@@ -46,11 +47,16 @@ export const threadApi = {
   /** POST /chat/sendMessage — send a user message (context injection done by caller) */
   sendMessage: async (
     message: string,
-    conversationId: string
+    conversationId: string,
+    route?: OutboundRoute
   ): Promise<SendMessageResponseData> => {
     const response = await apiClient.post<ApiResponse<SendMessageResponseData>>(
       '/chat/sendMessage',
-      { message, conversationId }
+      {
+        message,
+        conversationId,
+        ...(route ? { channel: route.channel, channelAuthMode: route.authMode } : {}),
+      }
     );
     return response.data;
   },
