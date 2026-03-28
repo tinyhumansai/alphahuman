@@ -124,7 +124,7 @@ jobs:
         run: cd skills && yarn install --frozen-lockfile
 
       - name: Ensure .env exists for E2E build
-        run: touch .env
+        run: touch app/.env
 
       - name: Install Appium and mac2 driver
         run: |

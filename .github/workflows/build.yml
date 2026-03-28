@@ -44,7 +44,7 @@ jobs:
         id: cargo-lock-fingerprint
         shell: bash
         run: |
-          echo "hash=$(tail -n +8 src-tauri/Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo registry and git sources
         uses: actions/cache@v4
@@ -77,12 +77,13 @@ jobs:
 
       - name: Stage sidecar for Tauri bundler
         run: |
-          mkdir -p src-tauri/binaries
+          mkdir -p app/src-tauri/binaries
           # Workspace root target/ (not rust-core/target/) — see root Cargo.toml [workspace]
-          cp target/x86_64-unknown-linux-gnu/release/openhuman src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
-          chmod +x src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/openhuman app/src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
+          chmod +x app/src-tauri/binaries/openhuman-x86_64-unknown-linux-gnu
 
       - name: Build Tauri app
+        working-directory: app
         run: |
           TAURI_CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
           yarn tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles none -- --target x86_64-unknown-linux-gnu

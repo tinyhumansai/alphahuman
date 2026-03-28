@@ -44,7 +44,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Type check TypeScript files
-        run: npx tsc
+        run: yarn typecheck
         env:
           NODE_ENV: test
 

@@ -16,7 +16,7 @@
 ## Testing
 
 - [ ] `yarn -s compile`
-- [ ] `cargo check --manifest-path src-tauri/Cargo.toml`
+- [ ] `cargo check --manifest-path app/src-tauri/Cargo.toml`
 - [ ] Other checks run (list commands)
 - [ ] Manual validation completed (list scenarios)
 
