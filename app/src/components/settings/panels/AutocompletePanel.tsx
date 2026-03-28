@@ -98,7 +98,10 @@ const AutocompletePanel = () => {
     if ((next.last_error ?? '') !== (previous.last_error ?? '') && next.last_error) {
       nextEntries.push(`error: ${next.last_error}`);
     }
-    if ((next.suggestion?.value ?? '') !== (previous.suggestion?.value ?? '') && next.suggestion?.value) {
+    if (
+      (next.suggestion?.value ?? '') !== (previous.suggestion?.value ?? '') &&
+      next.suggestion?.value
+    ) {
       nextEntries.push(`suggestion ready: "${next.suggestion.value}"`);
     }
 
@@ -140,6 +143,7 @@ const AutocompletePanel = () => {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refreshStatus = async () => {
@@ -280,6 +284,7 @@ const AutocompletePanel = () => {
       void refreshStatus();
     }, 1200);
     return () => window.clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

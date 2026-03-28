@@ -14,12 +14,16 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Path aliases */
+    "paths": { "@openhuman/skill-types": ["app/src/lib/skills/types.ts"] },
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["app/src"],
+  "exclude": ["skills"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

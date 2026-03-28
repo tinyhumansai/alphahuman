@@ -1,50 +1,65 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import * as Sentry from '@sentry/react';
+import { Provider } from 'react-redux';
+import { HashRouter as Router } from 'react-router-dom';
+import { PersistGate } from 'redux-persist/integration/react';
+
+import AppRoutes from './AppRoutes';
+import ErrorFallbackScreen from './components/ErrorFallbackScreen';
+import MiniSidebar from './components/MiniSidebar';
+import AIProvider from './providers/AIProvider';
+import SkillProvider from './providers/SkillProvider';
+import SocketProvider from './providers/SocketProvider';
+import UserProvider from './providers/UserProvider';
+import { tagErrorSource } from './services/errorReportQueue';
+import { persistor, store } from './store';
+import { syncMemoryClientToken } from './utils/tauriCommands';
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <Sentry.ErrorBoundary
+      fallback={({ error, componentStack, resetError }) => (
+        <ErrorFallbackScreen error={error} componentStack={componentStack} onReset={resetError} />
+      )}
+      onError={(_error, componentStack, eventId) => {
+        tagErrorSource(eventId, 'react', componentStack);
+      }}>
+      <Provider store={store}>
+        <PersistGate
+          loading={null}
+          persistor={persistor}
+          onBeforeLift={async () => {
+            const token = store.getState().auth.token;
+            console.info('[memory] PersistGate onBeforeLift: token_present=%s', !!token);
+            if (token) await syncMemoryClientToken(token);
+          }}>
+          <UserProvider>
+            <SocketProvider>
+              <AIProvider>
+                <SkillProvider>
+                  <Router>
+                    <div className="relative h-screen flex flex-col overflow-hidden">
+                      <div className="flex-1 flex overflow-hidden">
+                        <MiniSidebar />
+                        <div className="flex flex-col flex-1 relative overflow-hidden">
+                          <div className="flex-1 overflow-y-auto">
+                            <AppRoutes />
+                          </div>
+                          <div className="pointer-events-none flex-shrink-0 flex justify-center z-50">
+                            <div className="w-full px-3 py-1.5 text-[9px] uppercase tracking-[0.18em] text-white/40 text-center bg-[#000]">
+                              OpenHuman is in early beta
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Router>
+                </SkillProvider>
+              </AIProvider>
+            </SocketProvider>
+          </UserProvider>
+        </PersistGate>
+      </Provider>
+    </Sentry.ErrorBoundary>
   );
 }
 

@@ -6,14 +6,14 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { store } from "../../store";
-import { useAppSelector } from "../../store/hooks";
-import { skillManager } from "../../lib/skills/manager";
-import { setSkillSetupComplete } from "../../store/skillsSlice";
-import { apiClient } from "../../services/apiClient";
-import { openUrl } from "../../utils/openUrl";
-import type { SetupStep, SetupFieldError } from "../../lib/skills/types";
-import SetupFormRenderer from "./SetupFormRenderer";
+import { store } from "../../store/index.ts";
+import { useAppSelector } from "../../store/hooks.ts";
+import { skillManager } from "../../lib/skills/manager.ts";
+import { setSkillSetupComplete } from "../../store/skillsSlice.ts";
+import { apiClient } from "../../services/apiClient.ts";
+import { openUrl } from "../../utils/openUrl.ts";
+import type { SetupStep, SetupFieldError } from "../../lib/skills/types.ts";
+import SetupFormRenderer from "./SetupFormRenderer.tsx";
 import {IS_DEV} from "../../utils/config.ts";
 
 interface SkillSetupWizardProps {
