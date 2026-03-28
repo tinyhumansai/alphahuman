@@ -191,7 +191,7 @@ pub fn default_core_port() -> u16 {
         .unwrap_or(7788)
 }
 
-pub fn default_core_run_mode(daemon_mode: bool) -> CoreRunMode {
+pub fn default_core_run_mode(_daemon_mode: bool) -> CoreRunMode {
     if let Ok(value) = std::env::var("OPENHUMAN_CORE_RUN_MODE") {
         let normalized = value.trim().to_ascii_lowercase();
         if matches!(normalized.as_str(), "inprocess" | "in-process" | "internal") {
@@ -205,11 +205,8 @@ pub fn default_core_run_mode(daemon_mode: bool) -> CoreRunMode {
         }
     }
 
-    if daemon_mode {
-        CoreRunMode::ChildProcess
-    } else {
-        CoreRunMode::InProcess
-    }
+    // Default to a dedicated core process so app and core lifecycles are separated.
+    CoreRunMode::ChildProcess
 }
 
 pub fn default_core_bin() -> Option<PathBuf> {

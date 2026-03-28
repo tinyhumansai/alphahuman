@@ -8,6 +8,12 @@ export interface SkillSyncUiState {
 }
 
 type SkillStateRecord = SkillHostConnectionState & Record<string, unknown>;
+export interface SkillSyncStatsLike {
+  syncCount?: number;
+  lastSyncAtMs?: number | null;
+  localDataBytes?: number | null;
+  localFileCount?: number | null;
+}
 
 function readNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -32,6 +38,27 @@ function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatRelativeTime(ms: number): string {
+  const delta = Date.now() - ms;
+  if (delta < 60_000) return 'just now';
+  if (delta < 3_600_000) return `${Math.max(1, Math.floor(delta / 60_000))}m ago`;
+  if (delta < 86_400_000) return `${Math.max(1, Math.floor(delta / 3_600_000))}h ago`;
+  return `${Math.max(1, Math.floor(delta / 86_400_000))}d ago`;
 }
 
 function buildMetricsText(state: SkillStateRecord): string | null {
@@ -111,4 +138,42 @@ export function deriveSkillSyncUiState(
     progressMessage: isSyncing ? progressMessageRaw || defaultProgressMessage(skillId) : null,
     metricsText: isSyncing ? buildMetricsText(skillState) : null,
   };
+}
+
+export function deriveSkillSyncSummaryText(
+  skillState: SkillStateRecord | undefined,
+  syncStats: SkillSyncStatsLike | undefined
+): string | null {
+  const parts: string[] = [];
+
+  const syncCount = readNumber(syncStats?.syncCount);
+  if (syncCount != null && syncCount > 0) {
+    parts.push(`${formatNumber(syncCount)} sync${syncCount === 1 ? '' : 's'}`);
+  }
+
+  const localDataBytes = readNumber(syncStats?.localDataBytes);
+  if (localDataBytes != null && localDataBytes > 0) {
+    parts.push(`${formatBytes(localDataBytes)} local`);
+  }
+
+  const localFileCount = readNumber(syncStats?.localFileCount);
+  if (localFileCount != null && localFileCount > 0) {
+    parts.push(`${formatNumber(localFileCount)} files`);
+  }
+
+  const lastSyncAtMs = readNumber(syncStats?.lastSyncAtMs);
+  if (lastSyncAtMs != null && lastSyncAtMs > 0) {
+    parts.push(`last ${formatRelativeTime(lastSyncAtMs)}`);
+  } else {
+    const lastSyncFromSkill =
+      readNumber(skillState?.lastSyncTime) ??
+      readNumber(skillState?.last_sync) ??
+      readNumber(skillState?.last_sync_time);
+    if (lastSyncFromSkill != null && lastSyncFromSkill > 0) {
+      parts.push(`last ${formatRelativeTime(lastSyncFromSkill)}`);
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return parts.slice(0, 3).join(' · ');
 }

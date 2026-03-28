@@ -27,7 +27,9 @@ import {
   setSkillOAuthCredential,
   setSkillTools,
   setSkillState,
+  upsertSkillSyncStats,
 } from "../../store/skillsSlice";
+import { runtimeSkillDataStats } from "../../utils/tauriCommands";
 // Env vars kept for reverse RPC compatibility (may be used by skills via state)
 
 
@@ -153,10 +155,28 @@ class SkillManager {
       const tools = await runtime.listTools();
       store.dispatch(setSkillTools({ skillId, tools }));
       store.dispatch(setSkillStatus({ skillId, status: "ready" }));
+      void this.refreshSkillLocalDataStats(skillId);
       syncToolsToBackend();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       store.dispatch(setSkillError({ skillId, error: msg }));
+    }
+  }
+
+  private async refreshSkillLocalDataStats(skillId: string): Promise<void> {
+    try {
+      const stats = await runtimeSkillDataStats(skillId);
+      store.dispatch(
+        upsertSkillSyncStats({
+          skillId,
+          patch: {
+            localDataBytes: Number.isFinite(stats.total_bytes) ? stats.total_bytes : null,
+            localFileCount: Number.isFinite(stats.file_count) ? stats.file_count : null,
+          },
+        })
+      );
+    } catch (err) {
+      console.debug(`[SkillManager] Could not read local data stats for ${skillId}:`, err);
     }
   }
 
@@ -464,12 +484,43 @@ class SkillManager {
         const partial = params.partial as Record<string, unknown>;
         const currentState =
           store.getState().skills.skillStates[skillId] ?? {};
+        const prevSyncInProgress = currentState.syncInProgress === true;
         const newState = { ...currentState, ...partial };
+        const nextSyncInProgress = newState.syncInProgress === true;
         // We need a setSkillState action for this
         store.dispatch({
           type: "skills/setSkillState",
           payload: { skillId, state: newState },
         });
+
+        if (!prevSyncInProgress && nextSyncInProgress) {
+          store.dispatch(
+            upsertSkillSyncStats({
+              skillId,
+              patch: { lastSyncStartedAtMs: Date.now() },
+            })
+          );
+        }
+
+        if (prevSyncInProgress && !nextSyncInProgress) {
+          const now = Date.now();
+          const startedAtMs = store.getState().skills.syncStatsBySkill[skillId]?.lastSyncStartedAtMs;
+          const durationMs =
+            typeof startedAtMs === "number" && startedAtMs > 0 ? Math.max(0, now - startedAtMs) : null;
+          store.dispatch(
+            upsertSkillSyncStats({
+              skillId,
+              patch: {
+                syncCountDelta: 1,
+                lastSyncAtMs: now,
+                lastSyncDurationMs: durationMs,
+                lastSyncStartedAtMs: null,
+              },
+            })
+          );
+          void this.refreshSkillLocalDataStats(skillId);
+        }
+
         syncToolsToBackend();
         return { ok: true };
       }

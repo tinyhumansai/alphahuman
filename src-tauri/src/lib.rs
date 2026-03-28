@@ -1049,6 +1049,7 @@ pub fn run() {
                     runtime_skill_data_read,
                     runtime_skill_data_write,
                     runtime_skill_data_dir,
+                    runtime_skill_data_stats,
                     // Socket.io commands (Rust-native persistent connection)
                     runtime_socket_connect,
                     runtime_socket_disconnect,

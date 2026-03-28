@@ -14,6 +14,7 @@ use tauri::State;
 
 use crate::runtime::qjs_engine::RuntimeEngine;
 use crate::runtime::types::{SkillSnapshot, ToolResult};
+use std::path::Path;
 
 // =============================================================================
 // OpenClaw Format Compatibility Types
@@ -39,6 +40,49 @@ pub struct OpenClawToolResult {
     pub output: String,
     pub error: Option<String>,
     pub execution_time: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeSkillDataStats {
+    pub exists: bool,
+    pub path: String,
+    pub total_bytes: u64,
+    pub file_count: u64,
+}
+
+fn accumulate_dir_stats(path: &Path) -> Result<(u64, u64), String> {
+    let mut total_bytes = 0u64;
+    let mut file_count = 0u64;
+
+    if !path.exists() {
+        return Ok((0, 0));
+    }
+
+    let entries = std::fs::read_dir(path)
+        .map_err(|e| format!("Failed to read directory {}: {e}", path.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| format!("Failed to iterate directory {}: {e}", path.display()))?;
+        let entry_path = entry.path();
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to read metadata {}: {e}", entry_path.display()))?;
+
+        if metadata.is_file() {
+            total_bytes = total_bytes.saturating_add(metadata.len());
+            file_count = file_count.saturating_add(1);
+            continue;
+        }
+
+        if metadata.is_dir() {
+            let (nested_bytes, nested_files) = accumulate_dir_stats(&entry_path)?;
+            total_bytes = total_bytes.saturating_add(nested_bytes);
+            file_count = file_count.saturating_add(nested_files);
+        }
+    }
+
+    Ok((total_bytes, file_count))
 }
 
 // =============================================================================
@@ -256,6 +300,24 @@ mod desktop {
             .skill_data_dir(&skill_id)
             .to_string_lossy()
             .to_string())
+    }
+
+    /// Get local data stats for a skill data directory.
+    #[tauri::command]
+    pub async fn runtime_skill_data_stats(
+        engine: State<'_, Arc<RuntimeEngine>>,
+        skill_id: String,
+    ) -> Result<RuntimeSkillDataStats, String> {
+        let path = engine.skill_data_dir(&skill_id);
+        let exists = path.exists();
+        let (total_bytes, file_count) = accumulate_dir_stats(&path)?;
+
+        Ok(RuntimeSkillDataStats {
+            exists,
+            path: path.to_string_lossy().to_string(),
+            total_bytes,
+            file_count,
+        })
     }
 
     // =============================================================================

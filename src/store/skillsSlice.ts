@@ -8,14 +8,26 @@ import type {
   SkillToolDefinition,
 } from '../lib/skills/types';
 
+export interface SkillSyncStats {
+  syncCount: number;
+  lastSyncAtMs: number | null;
+  lastSyncStartedAtMs: number | null;
+  lastSyncDurationMs: number | null;
+  localDataBytes: number | null;
+  localFileCount: number | null;
+  updatedAtMs: number;
+}
+
 interface SkillsState {
   /** Skill states keyed by skill ID */
   skills: Record<string, SkillState>;
   /** Arbitrary per-skill state for reverse RPC state/get and state/set */
   skillStates: Record<string, Record<string, unknown>>;
+  /** Persistent per-skill sync metrics for UI reporting */
+  syncStatsBySkill: Record<string, SkillSyncStats>;
 }
 
-const initialState: SkillsState = { skills: {}, skillStates: {} };
+const initialState: SkillsState = { skills: {}, skillStates: {}, syncStatsBySkill: {} };
 
 const skillsSlice = createSlice({
   name: 'skills',
@@ -92,6 +104,36 @@ const skillsSlice = createSlice({
     removeSkill(state, action: PayloadAction<string>) {
       delete state.skills[action.payload];
       delete state.skillStates[action.payload];
+      delete state.syncStatsBySkill[action.payload];
+    },
+
+    upsertSkillSyncStats(
+      state,
+      action: PayloadAction<{
+        skillId: string;
+        patch: Partial<Omit<SkillSyncStats, 'syncCount'>> & { syncCountDelta?: number };
+      }>
+    ) {
+      const { skillId, patch } = action.payload;
+      const { syncCountDelta = 0, ...restPatch } = patch;
+      const existing = state.syncStatsBySkill[skillId] ?? {
+        syncCount: 0,
+        lastSyncAtMs: null,
+        lastSyncStartedAtMs: null,
+        lastSyncDurationMs: null,
+        localDataBytes: null,
+        localFileCount: null,
+        updatedAtMs: Date.now(),
+      };
+
+      const nextSyncCount = Math.max(0, existing.syncCount + syncCountDelta);
+
+      state.syncStatsBySkill[skillId] = {
+        ...existing,
+        ...restPatch,
+        syncCount: nextSyncCount,
+        updatedAtMs: Date.now(),
+      };
     },
 
     resetSkillsState() {
@@ -109,6 +151,7 @@ export const {
   setSkillTools,
   setSkillState,
   removeSkill,
+  upsertSkillSyncStats,
   resetSkillsState,
 } = skillsSlice.actions;
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/hooks';
+import { deriveSkillSyncSummaryText } from '../pages/skillsSyncUi';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
 import SelfEvolveModal from './skills/SelfEvolveModal';
@@ -44,6 +45,7 @@ interface SkillRowProps {
   name: string;
   icon?: React.ReactElement;
   skillType?: 'openhuman' | 'openclaw';
+  syncSummaryText: string | null;
   onConnect: (e: React.MouseEvent) => void;
 }
 
@@ -60,7 +62,7 @@ function SkillTypeBadge({ type }: { type?: string }) {
   );
 }
 
-function SkillRow({ skillId, name, icon, skillType, onConnect }: SkillRowProps) {
+function SkillRow({ skillId, name, icon, skillType, syncSummaryText, onConnect }: SkillRowProps) {
   const connectionStatus = useSkillConnectionStatus(skillId);
   const statusDisplay = STATUS_DISPLAY[connectionStatus] || STATUS_DISPLAY.offline;
 
@@ -93,6 +95,9 @@ function SkillRow({ skillId, name, icon, skillType, onConnect }: SkillRowProps) 
           <span className={`text-xs ${statusDisplay.color}`}>{statusDisplay.text}</span>
         </div>
       </td>
+      <td className="py-2.5 px-3 text-right">
+        <span className="text-[11px] text-stone-500">{syncSummaryText ?? 'No syncs yet'}</span>
+      </td>
       <td className="py-2.5 px-3 w-8">
         <svg
           className="w-4 h-4 text-stone-500 group-hover:text-stone-300 transition-colors"
@@ -122,6 +127,7 @@ export default function SkillsGrid() {
   // Get Redux state for sorting
   const skillsState = useAppSelector(state => state.skills.skills);
   const skillStates = useAppSelector(state => state.skills.skillStates);
+  const syncStatsBySkill = useAppSelector(state => state.skills.syncStatsBySkill);
 
   // Load skills from the unified registry (covers both openhuman and openclaw types).
   // Extracted so it can be called after skill creation (e.g. from SelfEvolveModal).
@@ -307,23 +313,35 @@ export default function SkillsGrid() {
                       Status
                     </span>
                   </th>
+                  <th className="py-2 px-3 text-right">
+                    <span className="text-xs font-medium text-stone-400 uppercase tracking-wider">
+                      Sync
+                    </span>
+                  </th>
                   <th className="py-2 px-3 w-8"></th>
                 </tr>
               </thead>
               <tbody className="skills-table-body">
-                {sortedSkillsList.map(skill => (
-                  <SkillRow
-                    key={skill.id}
-                    skillId={skill.id}
-                    name={skill.name}
-                    icon={skill.icon}
-                    skillType={skill.skill_type}
-                    onConnect={e => {
-                      e.stopPropagation();
-                      handleConnect(skill);
-                    }}
-                  />
-                ))}
+                {sortedSkillsList.map(skill => {
+                  const skillState = skillStates[skill.id] as Record<string, unknown> | undefined;
+                  const syncStats = syncStatsBySkill[skill.id];
+                  const syncSummaryText = deriveSkillSyncSummaryText(skillState, syncStats);
+
+                  return (
+                    <SkillRow
+                      key={skill.id}
+                      skillId={skill.id}
+                      name={skill.name}
+                      icon={skill.icon}
+                      skillType={skill.skill_type}
+                      syncSummaryText={syncSummaryText}
+                      onConnect={e => {
+                        e.stopPropagation();
+                        handleConnect(skill);
+                      }}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>

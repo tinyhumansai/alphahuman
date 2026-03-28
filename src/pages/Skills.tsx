@@ -15,14 +15,7 @@ import { skillManager } from '../lib/skills/manager';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
-import { deriveSkillSyncUiState } from './skillsSyncUi';
-
-/** Format large numbers: 1200 → "1.2K", 1200000 → "1.2M" */
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
+import { deriveSkillSyncSummaryText, deriveSkillSyncUiState } from './skillsSyncUi';
 
 /** Status dot color for skill connection status */
 function statusDotClass(status: SkillConnectionStatus): string {
@@ -51,10 +44,15 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
   const skillState = useAppSelector(state => state.skills.skillStates[skill.id]) as
     | (SkillHostConnectionState & Record<string, unknown>)
     | undefined;
+  const syncStats = useAppSelector(state => state.skills.syncStatsBySkill[skill.id]);
   const [manualSyncing, setManualSyncing] = useState(false);
   const syncUi = useMemo(
     () => deriveSkillSyncUiState(skill.id, skillState),
     [skill.id, skillState]
+  );
+  const syncSummaryText = useMemo(
+    () => deriveSkillSyncSummaryText(skillState, syncStats),
+    [skillState, syncStats]
   );
   const isSyncing = manualSyncing || syncUi.isSyncing;
 
@@ -69,17 +67,6 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
       setManualSyncing(false);
     }
   };
-
-  // Build subtitle from skill state (sync time, chat/message counts)
-  const subtitleParts: string[] = [];
-  if (skillState) {
-    const chatCount = skillState.chat_count as number | undefined;
-    const msgCount = skillState.message_count as number | undefined;
-    const lastSync = skillState.last_sync as string | undefined;
-    if (chatCount != null) subtitleParts.push(`${formatNumber(chatCount)} chats`);
-    if (msgCount != null) subtitleParts.push(`${formatNumber(msgCount)} msgs`);
-    if (lastSync) subtitleParts.push(`Synced ${lastSync}`);
-  }
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors">
@@ -99,8 +86,8 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
             {statusDisplay.text}
           </span>
         </div>
-        {subtitleParts.length > 0 && (
-          <p className="text-[11px] text-stone-500 truncate mt-0.5">{subtitleParts.join(' · ')}</p>
+        {syncSummaryText && (
+          <p className="text-[11px] text-stone-500 truncate mt-0.5">{syncSummaryText}</p>
         )}
         {isSyncing && (
           <div className="mt-1.5">

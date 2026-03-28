@@ -650,6 +650,13 @@ export interface LocalAiTtsResult {
   voice_id: string;
 }
 
+export interface RuntimeSkillDataStats {
+  exists: boolean;
+  path: string;
+  total_bytes: number;
+  file_count: number;
+}
+
 function tauriErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;
@@ -1182,4 +1189,11 @@ export async function runtimeDisableSkill(skillId: string): Promise<void> {
     throw new Error('Not running in Tauri');
   }
   await invoke('runtime_disable_skill', { skill_id: skillId });
+}
+
+export async function runtimeSkillDataStats(skillId: string): Promise<RuntimeSkillDataStats> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('runtime_skill_data_stats', { skill_id: skillId });
 }
