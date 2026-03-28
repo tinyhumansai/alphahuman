@@ -38,11 +38,11 @@ fn default_model_id() -> String {
 }
 
 fn default_download_url() -> Option<String> {
-    Some("https://huggingface.co/Qwen/Qwen3-1.7B".to_string())
+    Some("https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf?download=true".to_string())
 }
 
 fn default_artifact_name() -> String {
-    "qwen3-1.7b.gguf".to_string()
+    "Qwen3-1.7B-Q8_0.gguf".to_string()
 }
 
 fn default_autosummary_debounce_ms() -> u64 {

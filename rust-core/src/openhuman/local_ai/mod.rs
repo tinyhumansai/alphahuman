@@ -525,7 +525,7 @@ Return one prompt per line with no numbering.\n\n{}",
             .trim()
             .eq_ignore_ascii_case("qwen3-1.7b")
         {
-            return Some("https://huggingface.co/Qwen/Qwen3-1.7B".to_string());
+            return Some("https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf?download=true".to_string());
         }
         None
     }
