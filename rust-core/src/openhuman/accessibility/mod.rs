@@ -123,6 +123,15 @@ pub struct CaptureNowResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureImageRefResult {
+    pub ok: bool,
+    pub image_ref: Option<String>,
+    pub mime_type: String,
+    pub bytes_estimate: Option<usize>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VisionSummary {
     pub id: String,
     pub captured_at_ms: i64,
@@ -533,6 +542,30 @@ impl AccessibilityEngine {
             accepted: true,
             frame: Some(frame),
         })
+    }
+
+    pub async fn capture_image_ref_test(&self) -> CaptureImageRefResult {
+        match capture_screen_image_ref() {
+            Ok(image_ref) => {
+                let bytes_estimate = image_ref
+                    .strip_prefix("data:image/png;base64,")
+                    .map(|payload| payload.len() * 3 / 4);
+                CaptureImageRefResult {
+                    ok: true,
+                    image_ref: Some(image_ref),
+                    mime_type: "image/png".to_string(),
+                    bytes_estimate,
+                    message: "screen capture completed".to_string(),
+                }
+            }
+            Err(err) => CaptureImageRefResult {
+                ok: false,
+                image_ref: None,
+                mime_type: "image/png".to_string(),
+                bytes_estimate: None,
+                message: err,
+            },
+        }
     }
 
     pub async fn input_action(

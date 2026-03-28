@@ -4,10 +4,15 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use clap::{Args, Parser, Subcommand};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::cron;
@@ -17,6 +22,7 @@ use crate::openhuman::local_ai::{
     Suggestion,
 };
 use crate::openhuman::security::{SecretStore, SecurityPolicy};
+use crate::openhuman::tools::{ScreenshotTool, Tool};
 use crate::openhuman::{
     accessibility, doctor, hardware, integrations, migration, onboard, service,
 };
@@ -24,9 +30,10 @@ use chrono::Utc;
 
 pub use crate::openhuman::accessibility::{
     AccessibilityStatus, AutocompleteCommitParams, AutocompleteCommitResult,
-    AutocompleteSuggestParams, AutocompleteSuggestResult, CaptureNowResult, InputActionParams,
-    InputActionResult, PermissionRequestParams, PermissionStatus, SessionStatus,
-    StartSessionParams, StopSessionParams, VisionFlushResult, VisionRecentResult,
+    AutocompleteSuggestParams, AutocompleteSuggestResult, CaptureImageRefResult, CaptureNowResult,
+    InputActionParams, InputActionResult, PermissionRequestParams, PermissionState,
+    PermissionStatus, SessionStatus, StartSessionParams, StopSessionParams, VisionFlushResult,
+    VisionRecentResult,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1068,6 +1075,15 @@ async fn dispatch(
             ))
         }
 
+        "openhuman.accessibility_capture_image_ref" => {
+            let result: CaptureImageRefResult =
+                accessibility::global_engine().capture_image_ref_test().await;
+            to_json_value(command_response(
+                result,
+                vec!["accessibility direct image_ref capture requested".to_string()],
+            ))
+        }
+
         "openhuman.accessibility_input_action" => {
             let payload: InputActionParams = parse_params(params)?;
             let result = accessibility::global_engine().input_action(payload).await?;
@@ -1246,6 +1262,11 @@ enum CoreCommand {
         #[arg(long, default_value = "{}")]
         params: String,
     },
+    /// Generate shell completion scripts
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
     /// Settings style commands mirroring app settings sections
     Settings {
         #[command(subcommand)]
@@ -1255,6 +1276,11 @@ enum CoreCommand {
     Accessibility {
         #[command(subcommand)]
         command: AccessibilityCommand,
+    },
+    /// Tool wrappers for local CLI testing
+    Tools {
+        #[command(subcommand)]
+        command: ToolsCommand,
     },
     /// Legacy config operations
     Config {
@@ -1386,6 +1412,8 @@ enum BrowserSettingsCommand {
 enum AccessibilityCommand {
     /// Read current accessibility automation status
     Status,
+    /// Diagnose accessibility permission readiness with actionable fixes
+    Doctor,
     /// Request all accessibility-related permissions
     RequestPermissions,
     /// Request a specific permission kind
@@ -1396,6 +1424,8 @@ enum AccessibilityCommand {
     StopSession(StopSessionCliArgs),
     /// Force an immediate capture sample
     CaptureNow,
+    /// Directly trigger capture_screen_image_ref (no active session required)
+    CaptureImageRef,
     /// Fetch recent vision summaries
     VisionRecent(VisionRecentCliArgs),
     /// Flush immediate vision summary from latest frame
@@ -1482,6 +1512,54 @@ enum ConfigCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ToolsCommand {
+    /// List tool wrappers exposed by this CLI
+    List,
+    /// Capture a screenshot using the screenshot tool
+    Screenshot(ToolsScreenshotArgs),
+    /// Capture image ref directly from accessibility engine
+    ScreenshotRef(ToolsScreenshotRefArgs),
+    /// Generic wrapper for available tool commands
+    Run(ToolsRunArgs),
+}
+
+#[derive(Debug, Args)]
+struct ToolsScreenshotArgs {
+    /// Optional filename saved under workspace
+    #[arg(long)]
+    filename: Option<String>,
+    /// Optional region for macOS: selection | window
+    #[arg(long)]
+    region: Option<String>,
+    /// Optional output file path (copies or writes PNG to this path)
+    #[arg(long)]
+    output: Option<PathBuf>,
+    /// Include full data URL in JSON output
+    #[arg(long, default_value_t = false)]
+    print_data_url: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolsScreenshotRefArgs {
+    /// Optional output file path (writes PNG to this path)
+    #[arg(long)]
+    output: Option<PathBuf>,
+    /// Include full data URL in JSON output
+    #[arg(long, default_value_t = false)]
+    print_data_url: bool,
+}
+
+#[derive(Debug, Args)]
+struct ToolsRunArgs {
+    /// Tool wrapper name: screenshot | screenshot-ref
+    #[arg(long)]
+    name: String,
+    /// JSON arguments payload for selected wrapper
+    #[arg(long, default_value = "{}")]
+    args: String,
+}
+
 fn parse_json_arg(raw: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(raw).map_err(|e| format!("invalid JSON for --json/--params: {e}"))
 }
@@ -1491,6 +1569,145 @@ fn ensure_non_empty_payload(payload: &serde_json::Map<String, serde_json::Value>
         return Err(anyhow::anyhow!("no fields provided for set operation"));
     }
     Ok(())
+}
+
+fn extract_data_url(raw: &str) -> Option<String> {
+    raw.lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .starts_with("data:image/")
+                .then(|| trimmed.to_string())
+        })
+}
+
+fn extract_saved_path(raw: &str) -> Option<PathBuf> {
+    const PREFIX: &str = "Screenshot saved to: ";
+    raw.lines()
+        .find_map(|line| line.strip_prefix(PREFIX).map(PathBuf::from))
+}
+
+fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {
+    let (meta, payload) = data_url
+        .split_once(',')
+        .ok_or_else(|| "invalid data URL: missing comma separator".to_string())?;
+    if !meta.starts_with("data:image/") || !meta.ends_with(";base64") {
+        return Err("invalid data URL: expected data:image/*;base64,...".to_string());
+    }
+    BASE64_STANDARD
+        .decode(payload)
+        .map_err(|e| format!("failed to decode base64 image payload: {e}"))
+}
+
+fn write_bytes_to_path(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create output directory: {e}"))?;
+        }
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("failed to write output file: {e}"))
+}
+
+async fn execute_tools_screenshot(args: ToolsScreenshotArgs) -> Result<serde_json::Value, String> {
+    let config = load_openhuman_config().await?;
+    let security = Arc::new(SecurityPolicy::from_config(
+        &config.autonomy,
+        &config.workspace_dir,
+    ));
+    let tool = ScreenshotTool::new(security);
+
+    let mut payload = serde_json::Map::new();
+    if let Some(filename) = args.filename {
+        payload.insert("filename".to_string(), json!(filename));
+    }
+    if let Some(region) = args.region {
+        payload.insert("region".to_string(), json!(region));
+    }
+
+    let tool_result = tool
+        .execute(serde_json::Value::Object(payload))
+        .await
+        .map_err(|e| format!("screenshot tool failed to execute: {e}"))?;
+
+    let mut logs = vec!["tools.screenshot executed".to_string()];
+
+    if let Some(output_path) = args.output.as_ref() {
+        if let Some(saved_path) = extract_saved_path(&tool_result.output) {
+            std::fs::copy(&saved_path, output_path).map_err(|e| {
+                format!(
+                    "failed to copy screenshot from {} to {}: {e}",
+                    saved_path.display(),
+                    output_path.display()
+                )
+            })?;
+            logs.push(format!("copied screenshot to {}", output_path.display()));
+        } else if let Some(data_url) = extract_data_url(&tool_result.output) {
+            let bytes = decode_data_url_bytes(&data_url)?;
+            write_bytes_to_path(output_path, &bytes)?;
+            logs.push(format!(
+                "decoded data URL and wrote {} bytes to {}",
+                bytes.len(),
+                output_path.display()
+            ));
+        } else {
+            return Err(
+                "screenshot tool response did not contain a saved path or image data URL"
+                    .to_string(),
+            );
+        }
+    }
+
+    let data_url = extract_data_url(&tool_result.output);
+    let response = json!({
+        "result": {
+            "success": tool_result.success,
+            "error": tool_result.error,
+            "output_path": args.output.as_ref().map(|p| p.display().to_string()),
+            "tool_output": tool_result.output,
+            "data_url": if args.print_data_url { data_url } else { None::<String> },
+        },
+        "logs": logs
+    });
+
+    Ok(response)
+}
+
+async fn execute_tools_screenshot_ref(
+    args: ToolsScreenshotRefArgs,
+) -> Result<serde_json::Value, String> {
+    let raw = call_method("openhuman.accessibility_capture_image_ref", json!({})).await?;
+    let payload: CommandResponse<CaptureImageRefResult> = serde_json::from_value(raw)
+        .map_err(|e| format!("failed to decode accessibility capture_image_ref response: {e}"))?;
+
+    let mut logs = payload.logs;
+    logs.push("tools.screenshot-ref executed".to_string());
+
+    if let Some(output_path) = args.output.as_ref() {
+        if let Some(data_url) = payload.result.image_ref.as_deref() {
+            let bytes = decode_data_url_bytes(data_url)?;
+            write_bytes_to_path(output_path, &bytes)?;
+            logs.push(format!(
+                "decoded image_ref and wrote {} bytes to {}",
+                bytes.len(),
+                output_path.display()
+            ));
+        } else {
+            return Err("accessibility capture_image_ref did not return image_ref".to_string());
+        }
+    }
+
+    Ok(json!({
+        "result": {
+            "ok": payload.result.ok,
+            "mime_type": payload.result.mime_type,
+            "bytes_estimate": payload.result.bytes_estimate,
+            "message": payload.result.message,
+            "output_path": args.output.as_ref().map(|p| p.display().to_string()),
+            "image_ref": if args.print_data_url { payload.result.image_ref } else { None::<String> },
+        },
+        "logs": logs
+    }))
 }
 
 async fn get_config_snapshot() -> Result<CommandResponse<ConfigSnapshot>, String> {
@@ -1545,6 +1762,12 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             call_method("openhuman.security_policy_info", json!({})).await
         }
         CoreCommand::Call { method, params } => call_method(&method, parse_json_arg(&params)?).await,
+        CoreCommand::Completions { shell } => {
+            let mut cmd = CoreCli::command();
+            let bin_name = cmd.get_name().to_string();
+            generate(shell, &mut cmd, bin_name, &mut io::stdout());
+            Ok(serde_json::Value::Null)
+        }
         CoreCommand::Settings { command } => match command {
             SettingsCommand::Model { command } => match command {
                 ModelSettingsCommand::Get => {
@@ -1689,6 +1912,63 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             AccessibilityCommand::Status => {
                 call_method("openhuman.accessibility_status", json!({})).await
             }
+            AccessibilityCommand::Doctor => {
+                let raw = call_method("openhuman.accessibility_status", json!({})).await?;
+                let payload: CommandResponse<AccessibilityStatus> = serde_json::from_value(raw)
+                    .map_err(|e| format!("failed to decode accessibility status: {e}"))?;
+                let permissions = &payload.result.permissions;
+
+                let screen_ready = permissions.screen_recording == PermissionState::Granted;
+                let control_ready = permissions.accessibility == PermissionState::Granted;
+                let monitoring_ready = permissions.input_monitoring == PermissionState::Granted;
+                let overall_ready = payload.result.platform_supported && screen_ready && control_ready;
+
+                let mut recommendations: Vec<String> = Vec::new();
+                if !payload.result.platform_supported {
+                    recommendations.push(
+                        "Accessibility automation is macOS-only in this build/runtime."
+                            .to_string(),
+                    );
+                }
+                if permissions.screen_recording != PermissionState::Granted {
+                    recommendations.push(
+                        "Grant Screen Recording in System Settings -> Privacy & Security -> Screen Recording."
+                            .to_string(),
+                    );
+                }
+                if permissions.accessibility != PermissionState::Granted {
+                    recommendations.push(
+                        "Grant Accessibility in System Settings -> Privacy & Security -> Accessibility."
+                            .to_string(),
+                    );
+                }
+                if permissions.input_monitoring != PermissionState::Granted {
+                    recommendations.push(
+                        "Grant Input Monitoring in System Settings -> Privacy & Security -> Input Monitoring (optional but recommended)."
+                            .to_string(),
+                    );
+                }
+                if recommendations.is_empty() {
+                    recommendations.push("No action required. Accessibility automation is ready.".to_string());
+                }
+
+                Ok(json!({
+                    "result": {
+                        "summary": {
+                            "overall_ready": overall_ready,
+                            "platform_supported": payload.result.platform_supported,
+                            "session_active": payload.result.session.active,
+                            "screen_capture_ready": screen_ready,
+                            "device_control_ready": control_ready,
+                            "input_monitoring_ready": monitoring_ready
+                        },
+                        "permissions": permissions,
+                        "features": payload.result.features,
+                        "recommendations": recommendations
+                    },
+                    "logs": payload.logs
+                }))
+            }
             AccessibilityCommand::RequestPermissions => {
                 call_method("openhuman.accessibility_request_permissions", json!({})).await
             }
@@ -1722,6 +2002,9 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             AccessibilityCommand::CaptureNow => {
                 call_method("openhuman.accessibility_capture_now", json!({})).await
             }
+            AccessibilityCommand::CaptureImageRef => {
+                call_method("openhuman.accessibility_capture_image_ref", json!({})).await
+            }
             AccessibilityCommand::VisionRecent(args) => {
                 call_method(
                     "openhuman.accessibility_vision_recent",
@@ -1731,6 +2014,69 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             }
             AccessibilityCommand::VisionFlush => {
                 call_method("openhuman.accessibility_vision_flush", json!({})).await
+            }
+        },
+        CoreCommand::Tools { command } => match command {
+            ToolsCommand::List => Ok(json!({
+                "result": {
+                    "wrappers": [
+                        {
+                            "name": "screenshot",
+                            "description": "Capture a screenshot with screenshot tool wrapper."
+                        },
+                        {
+                            "name": "screenshot-ref",
+                            "description": "Capture data URL from accessibility capture_image_ref."
+                        }
+                    ]
+                },
+                "logs": ["tools wrappers listed"]
+            })),
+            ToolsCommand::Screenshot(args) => execute_tools_screenshot(args).await,
+            ToolsCommand::ScreenshotRef(args) => execute_tools_screenshot_ref(args).await,
+            ToolsCommand::Run(args) => {
+                let parsed = parse_json_arg(&args.args)?;
+                match args.name.as_str() {
+                    "screenshot" => {
+                        let payload = parsed.as_object().cloned().unwrap_or_default();
+                        let wrapped = ToolsScreenshotArgs {
+                            filename: payload
+                                .get("filename")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string),
+                            region: payload
+                                .get("region")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string),
+                            output: payload
+                                .get("output")
+                                .and_then(serde_json::Value::as_str)
+                                .map(PathBuf::from),
+                            print_data_url: payload
+                                .get("print_data_url")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        };
+                        execute_tools_screenshot(wrapped).await
+                    }
+                    "screenshot-ref" | "screenshot_ref" => {
+                        let payload = parsed.as_object().cloned().unwrap_or_default();
+                        let wrapped = ToolsScreenshotRefArgs {
+                            output: payload
+                                .get("output")
+                                .and_then(serde_json::Value::as_str)
+                                .map(PathBuf::from),
+                            print_data_url: payload
+                                .get("print_data_url")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        };
+                        execute_tools_screenshot_ref(wrapped).await
+                    }
+                    other => Err(format!(
+                        "unsupported tool wrapper '{other}'. available: screenshot, screenshot-ref"
+                    )),
+                }
             }
         },
         CoreCommand::Config { command } => match command {
