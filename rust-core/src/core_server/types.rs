@@ -32,7 +32,6 @@ impl InvocationResult {
             logs,
         })
     }
-
 }
 
 pub fn invocation_to_rpc_json(inv: InvocationResult) -> serde_json::Value {

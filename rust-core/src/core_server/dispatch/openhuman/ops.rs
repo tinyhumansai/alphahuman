@@ -1,6 +1,4 @@
-use crate::core_server::helpers::{
-    load_openhuman_config, parse_params, secret_store_for_config,
-};
+use crate::core_server::helpers::{load_openhuman_config, parse_params, secret_store_for_config};
 use crate::core_server::types::{
     DecryptSecretParams, DoctorModelsParams, EncryptSecretParams, HardwareIntrospectParams,
     IntegrationInfoParams, InvocationResult, MigrateOpenClawParams, ModelsRefreshParams,
@@ -70,12 +68,9 @@ pub async fn try_dispatch(
             async move {
                 let p: IntegrationInfoParams = parse_params(params)?;
                 let config = load_openhuman_config().await?;
-                let info =
-                    integrations::get_integration_info(&config, &p.name).map_err(|e| e.to_string())?;
-                InvocationResult::with_logs(
-                    info,
-                    vec![format!("integration loaded: {}", p.name)],
-                )
+                let info = integrations::get_integration_info(&config, &p.name)
+                    .map_err(|e| e.to_string())?;
+                InvocationResult::with_logs(info, vec![format!("integration loaded: {}", p.name)])
             }
             .await,
         ),
@@ -119,10 +114,7 @@ pub async fn try_dispatch(
             async move {
                 let p: HardwareIntrospectParams = parse_params(params)?;
                 let info = hardware::introspect_device(&p.path).map_err(|e| e.to_string())?;
-                InvocationResult::with_logs(
-                    info,
-                    vec![format!("introspected {}", p.path)],
-                )
+                InvocationResult::with_logs(info, vec![format!("introspected {}", p.path)])
             }
             .await,
         ),
@@ -167,10 +159,7 @@ pub async fn try_dispatch(
             async move {
                 let config = load_openhuman_config().await?;
                 let status = service::uninstall(&config).map_err(|e| e.to_string())?;
-                InvocationResult::with_logs(
-                    status,
-                    vec!["service uninstall completed".to_string()],
-                )
+                InvocationResult::with_logs(status, vec!["service uninstall completed".to_string()])
             }
             .await,
         ),

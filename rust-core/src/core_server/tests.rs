@@ -1,9 +1,7 @@
 use serde_json::json;
 
 use crate::core_server::{
-    call_method,
-    types::CommandResponse,
-    AccessibilityStatus, AutocompleteStatus,
+    call_method, types::CommandResponse, AccessibilityStatus, AutocompleteStatus,
 };
 
 #[tokio::test]

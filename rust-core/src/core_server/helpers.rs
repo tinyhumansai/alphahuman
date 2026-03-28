@@ -4,14 +4,12 @@ use std::path::PathBuf;
 #[cfg(feature = "tauri-host")]
 use std::sync::{Arc, OnceLock};
 
-use crate::auth::AuthService;
 use crate::auth::profiles::{AuthProfileKind, TokenSet};
+use crate::auth::AuthService;
 use crate::openhuman::config::Config;
 use crate::openhuman::security::SecretStore;
 
-use super::types::{
-    AuthProfileSummary, AuthStateResponse,
-};
+use super::types::{AuthProfileSummary, AuthStateResponse};
 use super::{APP_SESSION_PROVIDER, DEFAULT_AUTH_PROFILE_NAME};
 
 #[cfg(feature = "tauri-host")]

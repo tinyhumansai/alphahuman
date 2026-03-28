@@ -10,14 +10,12 @@ use serde_json::json;
 
 use crate::core_server::helpers::load_openhuman_config;
 use crate::core_server::types::{command_response, CommandResponse, ConfigSnapshot};
-use crate::core_server::{
-    call_method, run_server, APP_SESSION_PROVIDER,
-};
-use crate::openhuman::security::SecurityPolicy;
-use crate::openhuman::tools::{ScreenshotTool, Tool};
+use crate::core_server::{call_method, run_server, APP_SESSION_PROVIDER};
 use crate::openhuman::screen_intelligence::{
     AccessibilityStatus, CaptureImageRefResult, PermissionState,
 };
+use crate::openhuman::security::SecurityPolicy;
+use crate::openhuman::tools::{ScreenshotTool, Tool};
 
 #[derive(Debug, Parser)]
 #[command(name = "openhuman-core")]
@@ -528,7 +526,10 @@ fn parse_key_value_flags(entries: &[String]) -> Result<serde_json::Value, String
         if key.is_empty() {
             return Err("invalid --field value with empty key".to_string());
         }
-        fields.insert(key.to_string(), serde_json::Value::String(raw_value.to_string()));
+        fields.insert(
+            key.to_string(),
+            serde_json::Value::String(raw_value.to_string()),
+        );
     }
     Ok(serde_json::Value::Object(fields))
 }
@@ -1149,7 +1150,9 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 )
                 .await
             }
-            SocketCommand::Disconnect => call_method("openhuman.socket.disconnect", json!({})).await,
+            SocketCommand::Disconnect => {
+                call_method("openhuman.socket.disconnect", json!({})).await
+            }
             SocketCommand::Status => call_method("openhuman.socket.state", json!({})).await,
             SocketCommand::Emit(args) => {
                 call_method(

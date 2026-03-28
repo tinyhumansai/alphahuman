@@ -2,7 +2,9 @@ use chrono::Utc;
 use serde_json::json;
 
 use crate::core_server::helpers::{load_openhuman_config, parse_params};
-use crate::core_server::types::{CronJobIdParams, CronRunsParams, CronUpdateParams, InvocationResult};
+use crate::core_server::types::{
+    CronJobIdParams, CronRunsParams, CronUpdateParams, InvocationResult,
+};
 use crate::openhuman::cron;
 use crate::openhuman::security::SecurityPolicy;
 
@@ -36,7 +38,8 @@ pub async fn try_dispatch(
                 }
 
                 if let Some(command) = &payload.patch.command {
-                    let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+                    let security =
+                        SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
                     if !security.is_command_allowed(command) {
                         return Err(format!("Command blocked by security policy: {command}"));
                     }
@@ -85,7 +88,8 @@ pub async fn try_dispatch(
                     return Err("cron is disabled by config (cron.enabled=false)".to_string());
                 }
 
-                let job = cron::get_job(&config, payload.job_id.trim()).map_err(|e| e.to_string())?;
+                let job =
+                    cron::get_job(&config, payload.job_id.trim()).map_err(|e| e.to_string())?;
                 let started_at = Utc::now();
                 let (success, output) = cron::scheduler::execute_job_now(&config, &job).await;
                 let finished_at = Utc::now();

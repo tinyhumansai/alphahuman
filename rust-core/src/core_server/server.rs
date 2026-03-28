@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use crate::core_server::dispatch;
-use crate::core_server::types::{AppState, RpcFailure, RpcRequest, RpcSuccess, RpcError};
+use crate::core_server::types::{AppState, RpcError, RpcFailure, RpcRequest, RpcSuccess};
 
 pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcRequest>) -> Response {
     let id = req.id.clone();

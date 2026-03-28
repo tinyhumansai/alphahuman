@@ -2,9 +2,9 @@ use chrono::Utc;
 
 use crate::core_server::helpers::{load_openhuman_config, parse_params};
 use crate::core_server::types::{
-    AgentChatParams, InvocationResult, LocalAiDownloadAssetParams,
-    LocalAiDownloadParams, LocalAiEmbedParams, LocalAiPromptParams, LocalAiSuggestParams,
-    LocalAiSummarizeParams, LocalAiTranscribeBytesParams, LocalAiTranscribeParams, LocalAiTtsParams,
+    AgentChatParams, InvocationResult, LocalAiDownloadAssetParams, LocalAiDownloadParams,
+    LocalAiEmbedParams, LocalAiPromptParams, LocalAiSuggestParams, LocalAiSummarizeParams,
+    LocalAiTranscribeBytesParams, LocalAiTranscribeParams, LocalAiTtsParams,
     LocalAiVisionPromptParams,
 };
 use crate::openhuman::local_ai::{
@@ -30,8 +30,8 @@ pub async fn try_dispatch(
                 if let Some(temp) = p.temperature {
                     config.default_temperature = temp;
                 }
-                let mut agent =
-                    crate::openhuman::agent::Agent::from_config(&config).map_err(|e| e.to_string())?;
+                let mut agent = crate::openhuman::agent::Agent::from_config(&config)
+                    .map_err(|e| e.to_string())?;
                 let response = agent
                     .run_single(&p.message)
                     .await

@@ -9,7 +9,9 @@ pub fn try_dispatch(
 ) -> Option<Result<InvocationResult, String>> {
     match method {
         "core.ping" => Some(InvocationResult::ok(json!({ "ok": true }))),
-        "core.version" => Some(InvocationResult::ok(json!({ "version": state.core_version }))),
+        "core.version" => Some(InvocationResult::ok(
+            json!({ "version": state.core_version }),
+        )),
         _ => None,
     }
 }

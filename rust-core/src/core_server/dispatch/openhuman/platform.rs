@@ -1,7 +1,5 @@
 use crate::core_server::helpers::{load_openhuman_config, parse_params};
-use crate::core_server::types::{
-    AccessibilityVisionRecentParams, InvocationResult,
-};
+use crate::core_server::types::{AccessibilityVisionRecentParams, InvocationResult};
 use crate::openhuman::autocomplete::{
     self, AutocompleteAcceptParams, AutocompleteAcceptResult, AutocompleteCurrentParams,
     AutocompleteCurrentResult, AutocompleteDebugFocusResult, AutocompleteSetStyleParams,
@@ -130,10 +128,7 @@ pub async fn try_dispatch(
         "openhuman.autocomplete_status" => Some(
             async move {
                 let result: AutocompleteStatus = autocomplete::global_engine().status().await;
-                InvocationResult::with_logs(
-                    result,
-                    vec!["autocomplete status fetched".to_string()],
-                )
+                InvocationResult::with_logs(result, vec!["autocomplete status fetched".to_string()])
             }
             .await,
         ),

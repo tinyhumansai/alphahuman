@@ -159,8 +159,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryFtsSearchParams = parse_params(params)?;
-                let results =
-                    crate::ai::ai_memory_fts_search(payload.query, payload.limit).await?;
+                let results = crate::ai::ai_memory_fts_search(payload.query, payload.limit).await?;
                 InvocationResult::ok(results)
             }
             .await,
@@ -251,8 +250,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: DeleteSessionParams = parse_params(params)?;
-                let deleted =
-                    crate::ai::sessions::ai_sessions_delete(payload.session_id).await?;
+                let deleted = crate::ai::sessions::ai_sessions_delete(payload.session_id).await?;
                 InvocationResult::ok(deleted)
             }
             .await,
