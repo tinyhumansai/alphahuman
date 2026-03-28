@@ -1514,16 +1514,10 @@ mod tests {
     async fn session_lifecycle_transitions_and_ttl_expiry() {
         let engine = Arc::new(AccessibilityEngine {
             inner: Mutex::new(EngineState::new(ScreenIntelligenceConfig {
-                enabled: true,
-                capture_policy: "hybrid".to_string(),
-                policy_mode: "all_except_blacklist".to_string(),
                 baseline_fps: 8.0,
-                vision_enabled: true,
                 session_ttl_secs: 1,
-                panic_stop_hotkey: "Cmd+Shift+.".to_string(),
-                autocomplete_enabled: true,
-                allowlist: vec![],
                 denylist: vec!["1password".to_string()],
+                ..Default::default()
             })),
         });
 
@@ -1599,16 +1593,9 @@ mod tests {
 
         let engine = Arc::new(AccessibilityEngine {
             inner: Mutex::new(EngineState::new(ScreenIntelligenceConfig {
-                enabled: true,
-                capture_policy: "hybrid".to_string(),
-                policy_mode: "all_except_blacklist".to_string(),
                 baseline_fps: 6.0,
-                vision_enabled: true,
                 session_ttl_secs: 2,
-                panic_stop_hotkey: "Cmd+Shift+.".to_string(),
-                autocomplete_enabled: true,
-                allowlist: vec![],
-                denylist: vec![],
+                ..Default::default()
             })),
         });
 
