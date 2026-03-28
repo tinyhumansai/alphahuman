@@ -14,6 +14,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::openhuman::autocomplete;
 use crate::openhuman::config::Config;
 use crate::openhuman::cron;
 use crate::openhuman::health;
@@ -28,6 +29,12 @@ use crate::openhuman::{
 };
 use chrono::Utc;
 
+pub use crate::openhuman::autocomplete::{
+    AutocompleteAcceptParams, AutocompleteAcceptResult, AutocompleteCurrentParams,
+    AutocompleteCurrentResult, AutocompleteSetStyleParams, AutocompleteSetStyleResult,
+    AutocompleteStartParams, AutocompleteStartResult, AutocompleteStatus, AutocompleteStopParams,
+    AutocompleteStopResult,
+};
 pub use crate::openhuman::screen_intelligence::{
     AccessibilityStatus, AutocompleteCommitParams, AutocompleteCommitResult,
     AutocompleteSuggestParams, AutocompleteSuggestResult, CaptureImageRefResult, CaptureNowResult,
@@ -1157,25 +1164,68 @@ async fn dispatch(
             ))
         }
 
-        "openhuman.accessibility_autocomplete_suggest" => {
-            let payload: AutocompleteSuggestParams = parse_params(params)?;
-            let result = screen_intelligence::global_engine()
-                .autocomplete_suggest(payload)
-                .await?;
+        "openhuman.autocomplete_status" => {
+            let result: AutocompleteStatus = autocomplete::global_engine().status().await;
             to_json_value(command_response(
                 result,
-                vec!["screen intelligence autocomplete suggestions generated".to_string()],
+                vec!["autocomplete status fetched".to_string()],
             ))
         }
 
-        "openhuman.accessibility_autocomplete_commit" => {
-            let payload: AutocompleteCommitParams = parse_params(params)?;
-            let result = screen_intelligence::global_engine()
-                .autocomplete_commit(payload)
-                .await?;
+        "openhuman.autocomplete_start" => {
+            let payload: AutocompleteStartParams = parse_params(params)?;
+            let result: AutocompleteStartResult =
+                autocomplete::global_engine().start(payload).await?;
             to_json_value(command_response(
                 result,
-                vec!["screen intelligence autocomplete suggestion committed".to_string()],
+                vec!["autocomplete started".to_string()],
+            ))
+        }
+
+        "openhuman.autocomplete_stop" => {
+            let payload: Option<AutocompleteStopParams> = if params.is_null() {
+                None
+            } else {
+                Some(parse_params(params)?)
+            };
+            let result: AutocompleteStopResult = autocomplete::global_engine().stop(payload).await;
+            to_json_value(command_response(
+                result,
+                vec!["autocomplete stopped".to_string()],
+            ))
+        }
+
+        "openhuman.autocomplete_current" => {
+            let payload: Option<AutocompleteCurrentParams> = if params.is_null() {
+                None
+            } else {
+                Some(parse_params(params)?)
+            };
+            let result: AutocompleteCurrentResult =
+                autocomplete::global_engine().current(payload).await?;
+            to_json_value(command_response(
+                result,
+                vec!["autocomplete suggestion fetched".to_string()],
+            ))
+        }
+
+        "openhuman.autocomplete_accept" => {
+            let payload: AutocompleteAcceptParams = parse_params(params)?;
+            let result: AutocompleteAcceptResult =
+                autocomplete::global_engine().accept(payload).await?;
+            to_json_value(command_response(
+                result,
+                vec!["autocomplete suggestion accepted".to_string()],
+            ))
+        }
+
+        "openhuman.autocomplete_set_style" => {
+            let payload: AutocompleteSetStyleParams = parse_params(params)?;
+            let result: AutocompleteSetStyleResult =
+                autocomplete::global_engine().set_style(payload).await?;
+            to_json_value(command_response(
+                result,
+                vec!["autocomplete style settings updated".to_string()],
             ))
         }
 
@@ -1342,6 +1392,11 @@ enum CoreCommand {
         #[command(subcommand)]
         command: AccessibilityCommand,
     },
+    /// Standalone inline autocomplete commands
+    Autocomplete {
+        #[command(subcommand)]
+        command: AutocompleteCommand,
+    },
     /// Tool wrappers for local CLI testing
     Tools {
         #[command(subcommand)]
@@ -1497,6 +1552,16 @@ enum AccessibilityCommand {
     VisionFlush,
 }
 
+#[derive(Debug, Subcommand)]
+enum AutocompleteCommand {
+    Status,
+    Start(AutocompleteStartCliArgs),
+    Stop(AutocompleteStopCliArgs),
+    Current(AutocompleteCurrentCliArgs),
+    Accept(AutocompleteAcceptCliArgs),
+    SetStyle(AutocompleteSetStyleCliArgs),
+}
+
 #[derive(Debug, Args)]
 struct RequestPermissionArgs {
     /// One of: screen_recording, accessibility, input_monitoring
@@ -1533,6 +1598,50 @@ struct StopSessionCliArgs {
 struct VisionRecentCliArgs {
     #[arg(long)]
     limit: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+struct AutocompleteStartCliArgs {
+    #[arg(long)]
+    debounce_ms: Option<u64>,
+}
+
+#[derive(Debug, Args)]
+struct AutocompleteStopCliArgs {
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct AutocompleteCurrentCliArgs {
+    #[arg(long)]
+    context: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct AutocompleteAcceptCliArgs {
+    #[arg(long)]
+    suggestion: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct AutocompleteSetStyleCliArgs {
+    #[arg(long)]
+    enabled: Option<bool>,
+    #[arg(long)]
+    debounce_ms: Option<u64>,
+    #[arg(long)]
+    max_chars: Option<usize>,
+    #[arg(long)]
+    style_preset: Option<String>,
+    #[arg(long)]
+    style_instructions: Option<String>,
+    #[arg(long)]
+    style_example: Vec<String>,
+    #[arg(long)]
+    disabled_app: Vec<String>,
+    #[arg(long)]
+    accept_with_tab: Option<bool>,
 }
 
 #[derive(Debug, Args)]
@@ -2109,6 +2218,57 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 call_method("openhuman.accessibility_vision_flush", json!({})).await
             }
         },
+        CoreCommand::Autocomplete { command } => match command {
+            AutocompleteCommand::Status => {
+                call_method("openhuman.autocomplete_status", json!({})).await
+            }
+            AutocompleteCommand::Start(args) => {
+                call_method(
+                    "openhuman.autocomplete_start",
+                    json!({ "debounce_ms": args.debounce_ms }),
+                )
+                .await
+            }
+            AutocompleteCommand::Stop(args) => {
+                call_method(
+                    "openhuman.autocomplete_stop",
+                    json!({ "reason": args.reason }),
+                )
+                .await
+            }
+            AutocompleteCommand::Current(args) => {
+                call_method(
+                    "openhuman.autocomplete_current",
+                    json!({ "context": args.context }),
+                )
+                .await
+            }
+            AutocompleteCommand::Accept(args) => {
+                call_method(
+                    "openhuman.autocomplete_accept",
+                    json!({ "suggestion": args.suggestion }),
+                )
+                .await
+            }
+            AutocompleteCommand::SetStyle(args) => {
+                let style_examples = (!args.style_example.is_empty()).then_some(args.style_example);
+                let disabled_apps = (!args.disabled_app.is_empty()).then_some(args.disabled_app);
+                call_method(
+                    "openhuman.autocomplete_set_style",
+                    json!({
+                        "enabled": args.enabled,
+                        "debounce_ms": args.debounce_ms,
+                        "max_chars": args.max_chars,
+                        "style_preset": args.style_preset,
+                        "style_instructions": args.style_instructions,
+                        "style_examples": style_examples,
+                        "disabled_apps": disabled_apps,
+                        "accept_with_tab": args.accept_with_tab,
+                    }),
+                )
+                .await
+            }
+        },
         CoreCommand::Tools { command } => match command {
             ToolsCommand::List => Ok(json!({
                 "result": {
@@ -2267,5 +2427,16 @@ mod tests {
         .expect_err("missing action should fail envelope validation");
 
         assert!(err.contains("invalid params"));
+    }
+
+    #[tokio::test]
+    async fn autocomplete_status_rpc_returns_valid_schema() {
+        let raw = call_method("openhuman.autocomplete_status", json!({}))
+            .await
+            .expect("autocomplete status rpc should return");
+        let payload: CommandResponse<AutocompleteStatus> =
+            serde_json::from_value(raw).expect("autocomplete status payload should decode");
+
+        assert!(!payload.logs.is_empty());
     }
 }

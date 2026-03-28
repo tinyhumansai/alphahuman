@@ -412,6 +412,57 @@ impl LocalAiService {
         ))
     }
 
+    pub async fn inline_complete(
+        &self,
+        config: &Config,
+        context: &str,
+        style_preset: &str,
+        style_instructions: Option<&str>,
+        style_examples: &[String],
+        max_tokens: Option<u32>,
+    ) -> Result<String, String> {
+        if !config.local_ai.enabled {
+            return Ok(String::new());
+        }
+
+        let mut prompt = String::from(
+            "Complete the user's text with the most likely next words.\n\
+             Return only the continuation suffix, no explanations.\n\
+             Do not repeat text already written by the user.\n\
+             Keep it natural and concise.\n\n",
+        );
+        prompt.push_str(&format!("Style preset: {}\n", style_preset.trim()));
+        if let Some(instructions) = style_instructions {
+            if !instructions.trim().is_empty() {
+                prompt.push_str(&format!("Style instructions: {}\n", instructions.trim()));
+            }
+        }
+        if !style_examples.is_empty() {
+            prompt.push_str("Style examples:\n");
+            for example in style_examples.iter().take(8) {
+                let trimmed = example.trim();
+                if !trimmed.is_empty() {
+                    prompt.push_str("- ");
+                    prompt.push_str(trimmed);
+                    prompt.push('\n');
+                }
+            }
+        }
+        prompt.push_str("\nUser text:\n");
+        prompt.push_str(context.trim());
+
+        let raw = self
+            .inference(
+                config,
+                "You are a low-latency inline text completion assistant.",
+                &prompt,
+                max_tokens.or(Some(36)),
+                true,
+            )
+            .await?;
+        Ok(sanitize_inline_completion(&raw))
+    }
+
     pub async fn vision_prompt(
         &self,
         config: &Config,
@@ -1663,4 +1714,27 @@ fn parse_suggestions(raw: &str, limit: usize) -> Vec<Suggestion> {
             confidence: 0.65,
         })
         .collect()
+}
+
+fn sanitize_inline_completion(raw: &str) -> String {
+    let line = raw.lines().next().unwrap_or_default().trim();
+    if line.is_empty() {
+        return String::new();
+    }
+
+    let mut cleaned = line
+        .trim_matches('"')
+        .trim_start_matches(|c: char| matches!(c, '-' | '*' | '>' | '1'..='9' | '.' | ')'))
+        .trim()
+        .replace('\t', " ");
+
+    if cleaned.eq_ignore_ascii_case("none") || cleaned.eq_ignore_ascii_case("n/a") {
+        return String::new();
+    }
+
+    if cleaned.chars().count() > 128 {
+        cleaned = cleaned.chars().take(128).collect();
+    }
+
+    cleaned
 }

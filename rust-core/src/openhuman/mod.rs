@@ -14,6 +14,7 @@
 pub mod accessibility;
 pub mod agent;
 pub mod approval;
+pub mod autocomplete;
 pub mod channels;
 pub mod config;
 pub mod cost;

@@ -4,6 +4,7 @@
 
 mod accessibility;
 mod agent;
+mod autocomplete;
 mod autonomy;
 mod channels;
 mod defaults;
@@ -23,6 +24,7 @@ mod tunnel;
 
 pub use accessibility::ScreenIntelligenceConfig;
 pub use agent::{AgentConfig, DelegateAgentConfig};
+pub use autocomplete::AutocompleteConfig;
 pub use autonomy::AutonomyConfig;
 pub use channels::{
     AuditConfig, ChannelsConfig, DingTalkConfig, DiscordConfig, IMessageConfig, IrcConfig,
@@ -89,6 +91,9 @@ pub struct Config {
 
     #[serde(default)]
     pub screen_intelligence: ScreenIntelligenceConfig,
+
+    #[serde(default)]
+    pub autocomplete: AutocompleteConfig,
 
     #[serde(default)]
     pub reliability: ReliabilityConfig,
@@ -187,6 +192,7 @@ impl Default for Config {
             autonomy: AutonomyConfig::default(),
             runtime: RuntimeConfig::default(),
             screen_intelligence: ScreenIntelligenceConfig::default(),
+            autocomplete: AutocompleteConfig::default(),
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             agent: AgentConfig::default(),
