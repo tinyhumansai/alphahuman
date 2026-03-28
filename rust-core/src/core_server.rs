@@ -1076,8 +1076,9 @@ async fn dispatch(
         }
 
         "openhuman.accessibility_capture_image_ref" => {
-            let result: CaptureImageRefResult =
-                accessibility::global_engine().capture_image_ref_test().await;
+            let result: CaptureImageRefResult = accessibility::global_engine()
+                .capture_image_ref_test()
+                .await;
             to_json_value(command_response(
                 result,
                 vec!["accessibility direct image_ref capture requested".to_string()],
@@ -1572,13 +1573,12 @@ fn ensure_non_empty_payload(payload: &serde_json::Map<String, serde_json::Value>
 }
 
 fn extract_data_url(raw: &str) -> Option<String> {
-    raw.lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            trimmed
-                .starts_with("data:image/")
-                .then(|| trimmed.to_string())
-        })
+    raw.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .starts_with("data:image/")
+            .then(|| trimmed.to_string())
+    })
 }
 
 fn extract_saved_path(raw: &str) -> Option<PathBuf> {
@@ -1729,11 +1729,26 @@ fn settings_view_response(
             "default_model": cfg.get("default_model"),
             "default_temperature": cfg.get("default_temperature"),
         }),
-        "memory" => cfg.get("memory").cloned().unwrap_or(serde_json::Value::Null),
-        "gateway" => cfg.get("gateway").cloned().unwrap_or(serde_json::Value::Null),
-        "tunnel" => cfg.get("tunnel").cloned().unwrap_or(serde_json::Value::Null),
-        "runtime" => cfg.get("runtime").cloned().unwrap_or(serde_json::Value::Null),
-        "browser" => cfg.get("browser").cloned().unwrap_or(serde_json::Value::Null),
+        "memory" => cfg
+            .get("memory")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "gateway" => cfg
+            .get("gateway")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "tunnel" => cfg
+            .get("tunnel")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "runtime" => cfg
+            .get("runtime")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "browser" => cfg
+            .get("browser")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
         _ => serde_json::Value::Null,
     };
 
@@ -1761,7 +1776,9 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
         CoreCommand::SecurityPolicy => {
             call_method("openhuman.security_policy_info", json!({})).await
         }
-        CoreCommand::Call { method, params } => call_method(&method, parse_json_arg(&params)?).await,
+        CoreCommand::Call { method, params } => {
+            call_method(&method, parse_json_arg(&params)?).await
+        }
         CoreCommand::Completions { shell } => {
             let mut cmd = CoreCli::command();
             let bin_name = cmd.get_name().to_string();
@@ -1793,8 +1810,11 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("default_temperature".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method("openhuman.update_model_settings", serde_json::Value::Object(payload))
-                        .await
+                    call_method(
+                        "openhuman.update_model_settings",
+                        serde_json::Value::Object(payload),
+                    )
+                    .await
                 }
             },
             SettingsCommand::Memory { command } => match command {
@@ -1863,7 +1883,11 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         .map_err(|e| e.to_string())
                 }
                 TunnelSettingsCommand::Set(args) => {
-                    call_method("openhuman.update_tunnel_settings", parse_json_arg(&args.json)?).await
+                    call_method(
+                        "openhuman.update_tunnel_settings",
+                        parse_json_arg(&args.json)?,
+                    )
+                    .await
                 }
             },
             SettingsCommand::Runtime { command } => match command {
@@ -1921,13 +1945,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 let screen_ready = permissions.screen_recording == PermissionState::Granted;
                 let control_ready = permissions.accessibility == PermissionState::Granted;
                 let monitoring_ready = permissions.input_monitoring == PermissionState::Granted;
-                let overall_ready = payload.result.platform_supported && screen_ready && control_ready;
+                let overall_ready =
+                    payload.result.platform_supported && screen_ready && control_ready;
 
                 let mut recommendations: Vec<String> = Vec::new();
                 if !payload.result.platform_supported {
                     recommendations.push(
-                        "Accessibility automation is macOS-only in this build/runtime."
-                            .to_string(),
+                        "Accessibility automation is macOS-only in this build/runtime.".to_string(),
                     );
                 }
                 if permissions.screen_recording != PermissionState::Granted {
@@ -1949,7 +1973,8 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                     );
                 }
                 if recommendations.is_empty() {
-                    recommendations.push("No action required. Accessibility automation is ready.".to_string());
+                    recommendations
+                        .push("No action required. Accessibility automation is ready.".to_string());
                 }
 
                 Ok(json!({
@@ -2107,8 +2132,7 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     let mut argv = Vec::with_capacity(args.len() + 1);
     argv.push("openhuman-core".to_string());
     argv.extend(args.iter().cloned());
-    let cli =
-        CoreCli::try_parse_from(argv).map_err(|e| anyhow::anyhow!(e.render().to_string()))?;
+    let cli = CoreCli::try_parse_from(argv).map_err(|e| anyhow::anyhow!(e.render().to_string()))?;
 
     let thread_stack_size = std::env::var("OPENHUMAN_CORE_THREAD_STACK_SIZE")
         .ok()
@@ -2119,7 +2143,9 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         .thread_stack_size(thread_stack_size)
         .enable_all()
         .build()?;
-    let output = runtime.block_on(execute_core_cli(cli)).map_err(anyhow::Error::msg)?;
+    let output = runtime
+        .block_on(execute_core_cli(cli))
+        .map_err(anyhow::Error::msg)?;
     if !output.is_null() {
         println!(
             "{}",
