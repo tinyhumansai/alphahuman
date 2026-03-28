@@ -131,7 +131,7 @@ struct KeyFile {
 // --- Tauri Commands ---
 
 /// Initialize encryption with a password. Creates key file if needed.
-#[tauri::command]
+#[cfg_attr(feature = "tauri-host", tauri::command)]
 pub async fn ai_init_encryption(password: String) -> Result<bool, String> {
     let key_path = get_key_file_path()?;
 
@@ -155,7 +155,7 @@ pub async fn ai_init_encryption(password: String) -> Result<bool, String> {
 }
 
 /// Encrypt a string value using the password-derived key.
-#[tauri::command]
+#[cfg_attr(feature = "tauri-host", tauri::command)]
 pub async fn ai_encrypt(password: String, plaintext: String) -> Result<String, String> {
     let key_path = get_key_file_path()?;
     let content = std::fs::read_to_string(&key_path).map_err(|e| format!("Read key: {e}"))?;
@@ -166,7 +166,7 @@ pub async fn ai_encrypt(password: String, plaintext: String) -> Result<String, S
 }
 
 /// Decrypt a string value using the password-derived key.
-#[tauri::command]
+#[cfg_attr(feature = "tauri-host", tauri::command)]
 pub async fn ai_decrypt(password: String, encrypted: String) -> Result<String, String> {
     let key_path = get_key_file_path()?;
     let content = std::fs::read_to_string(&key_path).map_err(|e| format!("Read key: {e}"))?;

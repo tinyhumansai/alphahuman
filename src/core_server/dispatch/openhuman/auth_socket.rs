@@ -7,8 +7,9 @@ use crate::core_server::helpers::{
 use crate::core_server::types::{
     AuthListProviderCredentialsParams, AuthRemoveProviderCredentialsParams,
     AuthStoreProviderCredentialsParams, AuthStoreSessionParams, InvocationResult,
-    SocketConnectParams, SocketEmitParams,
 };
+#[cfg(feature = "tauri-host")]
+use crate::core_server::types::{SocketConnectParams, SocketEmitParams};
 use crate::core_server::APP_SESSION_PROVIDER;
 use crate::openhuman::config::Config;
 
@@ -16,6 +17,19 @@ pub async fn try_dispatch(
     method: &str,
     params: serde_json::Value,
 ) -> Option<Result<InvocationResult, String>> {
+    #[cfg(not(feature = "tauri-host"))]
+    if matches!(
+        method,
+        "openhuman.socket.connect"
+            | "openhuman.socket.disconnect"
+            | "openhuman.socket.state"
+            | "openhuman.socket.emit"
+    ) {
+        return Some(Err(
+            "socket RPC requires a build with the tauri-host feature".to_string(),
+        ));
+    }
+
     match method {
         "openhuman.auth.store_session" => Some(
             async move {
@@ -196,6 +210,7 @@ pub async fn try_dispatch(
             .await,
         ),
 
+        #[cfg(feature = "tauri-host")]
         "openhuman.socket.connect" => Some(
             async move {
                 let payload: SocketConnectParams = parse_params(params)?;
@@ -211,6 +226,7 @@ pub async fn try_dispatch(
             .await,
         ),
 
+        #[cfg(feature = "tauri-host")]
         "openhuman.socket.disconnect" => Some(
             async move {
                 {
@@ -225,6 +241,7 @@ pub async fn try_dispatch(
             .await,
         ),
 
+        #[cfg(feature = "tauri-host")]
         "openhuman.socket.state" => Some(
             async move {
                  {
@@ -238,6 +255,7 @@ pub async fn try_dispatch(
             .await,
         ),
 
+        #[cfg(feature = "tauri-host")]
         "openhuman.socket.emit" => Some(
             async move {
                 let payload: SocketEmitParams = parse_params(params)?;

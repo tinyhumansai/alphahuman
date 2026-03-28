@@ -96,6 +96,7 @@ wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = f
 tempfile = "3"
 
 [features]
+default = ["tauri-host"]
 tauri-host = ["dep:tauri", "dep:rquickjs"]
 sandbox-landlock = ["dep:landlock"]
 sandbox-bubblewrap = []

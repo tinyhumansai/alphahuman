@@ -36,3 +36,4 @@ todo
 [ ] redo the docs once everything is done.
 [ ] remove unwanted feature flags from the rust binary
 [ ] fix the config properly
+[ ] Allow for Migrating from OpenClaw
