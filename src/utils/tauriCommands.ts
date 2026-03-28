@@ -465,11 +465,15 @@ export interface AccessibilitySessionStatus {
 }
 
 export interface AccessibilityConfig {
+  enabled: boolean;
   capture_policy: string;
+  policy_mode: 'all_except_blacklist' | 'whitelist_only' | string;
   baseline_fps: number;
+  vision_enabled: boolean;
   session_ttl_secs: number;
   panic_stop_hotkey: string;
   autocomplete_enabled: boolean;
+  allowlist: string[];
   denylist: string[];
 }
 
@@ -602,6 +606,17 @@ export interface RuntimeSettingsUpdate {
 
 export interface BrowserSettingsUpdate {
   enabled?: boolean | null;
+}
+
+export interface ScreenIntelligenceSettingsUpdate {
+  enabled?: boolean | null;
+  capture_policy?: string | null;
+  policy_mode?: 'all_except_blacklist' | 'whitelist_only' | null;
+  baseline_fps?: number | null;
+  vision_enabled?: boolean | null;
+  autocomplete_enabled?: boolean | null;
+  allowlist?: string[] | null;
+  denylist?: string[] | null;
 }
 
 export interface RuntimeFlags {
@@ -823,6 +838,15 @@ export async function openhumanUpdateBrowserSettings(
     throw new Error('Not running in Tauri');
   }
   return await invoke('openhuman_update_browser_settings', { update });
+}
+
+export async function openhumanUpdateScreenIntelligenceSettings(
+  update: ScreenIntelligenceSettingsUpdate
+): Promise<CommandResponse<ConfigSnapshot>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('openhuman_update_screen_intelligence_settings', { update });
 }
 
 export async function openhumanGetRuntimeFlags(): Promise<CommandResponse<RuntimeFlags>> {

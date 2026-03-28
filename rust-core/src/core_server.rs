@@ -23,12 +23,10 @@ use crate::openhuman::local_ai::{
 };
 use crate::openhuman::security::{SecretStore, SecurityPolicy};
 use crate::openhuman::tools::{ScreenshotTool, Tool};
-use crate::openhuman::{
-    accessibility, doctor, hardware, integrations, migration, onboard, service,
-};
+use crate::openhuman::{doctor, hardware, integrations, migration, onboard, screen_intelligence, service};
 use chrono::Utc;
 
-pub use crate::openhuman::accessibility::{
+pub use crate::openhuman::screen_intelligence::{
     AccessibilityStatus, AutocompleteCommitParams, AutocompleteCommitResult,
     AutocompleteSuggestParams, AutocompleteSuggestResult, CaptureImageRefResult, CaptureNowResult,
     InputActionParams, InputActionResult, PermissionRequestParams, PermissionState,
@@ -124,6 +122,18 @@ pub struct RuntimeSettingsUpdate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserSettingsUpdate {
     pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenIntelligenceSettingsUpdate {
+    pub enabled: Option<bool>,
+    pub capture_policy: Option<String>,
+    pub policy_mode: Option<String>,
+    pub baseline_fps: Option<f32>,
+    pub vision_enabled: Option<bool>,
+    pub autocomplete_enabled: Option<bool>,
+    pub allowlist: Option<Vec<String>>,
+    pub denylist: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -450,6 +460,50 @@ async fn dispatch(
                 snapshot,
                 vec![format!(
                     "memory settings saved to {}",
+                    config.config_path.display()
+                )],
+            ))
+        }
+
+        "openhuman.update_screen_intelligence_settings" => {
+            let update: ScreenIntelligenceSettingsUpdate = parse_params(params)?;
+            let mut config = load_openhuman_config().await?;
+
+            if let Some(enabled) = update.enabled {
+                config.screen_intelligence.enabled = enabled;
+            }
+            if let Some(capture_policy) = update.capture_policy {
+                config.screen_intelligence.capture_policy = capture_policy;
+            }
+            if let Some(policy_mode) = update.policy_mode {
+                config.screen_intelligence.policy_mode = policy_mode;
+            }
+            if let Some(baseline_fps) = update.baseline_fps {
+                config.screen_intelligence.baseline_fps = baseline_fps.clamp(0.2, 30.0);
+            }
+            if let Some(vision_enabled) = update.vision_enabled {
+                config.screen_intelligence.vision_enabled = vision_enabled;
+            }
+            if let Some(autocomplete_enabled) = update.autocomplete_enabled {
+                config.screen_intelligence.autocomplete_enabled = autocomplete_enabled;
+            }
+            if let Some(allowlist) = update.allowlist {
+                config.screen_intelligence.allowlist = allowlist;
+            }
+            if let Some(denylist) = update.denylist {
+                config.screen_intelligence.denylist = denylist;
+            }
+
+            config.save().await.map_err(|e| e.to_string())?;
+            let _ = screen_intelligence::global_engine()
+                .apply_config(config.screen_intelligence.clone())
+                .await;
+
+            let snapshot = snapshot_config(&config)?;
+            to_json_value(command_response(
+                snapshot,
+                vec![format!(
+                    "screen intelligence settings saved to {}",
                     config.config_path.display()
                 )],
             ))
@@ -1019,15 +1073,20 @@ async fn dispatch(
         }
 
         "openhuman.accessibility_status" => {
-            let status = accessibility::global_engine().status().await;
+            if let Ok(config) = load_openhuman_config().await {
+                let _ = screen_intelligence::global_engine()
+                    .apply_config(config.screen_intelligence.clone())
+                    .await;
+            }
+            let status = screen_intelligence::global_engine().status().await;
             to_json_value(command_response(
                 status,
-                vec!["accessibility status fetched".to_string()],
+                vec!["screen intelligence status fetched".to_string()],
             ))
         }
 
         "openhuman.accessibility_request_permissions" => {
-            let permissions = accessibility::global_engine().request_permissions().await?;
+            let permissions = screen_intelligence::global_engine().request_permissions().await?;
             to_json_value(command_response(
                 permissions,
                 vec!["accessibility permissions requested".to_string()],
@@ -1036,7 +1095,7 @@ async fn dispatch(
 
         "openhuman.accessibility_request_permission" => {
             let payload: PermissionRequestParams = parse_params(params)?;
-            let permissions = accessibility::global_engine()
+            let permissions = screen_intelligence::global_engine()
                 .request_permission(payload.permission)
                 .await?;
             to_json_value(command_response(
@@ -1046,29 +1105,27 @@ async fn dispatch(
         }
 
         "openhuman.accessibility_start_session" => {
-            let payload: StartSessionParams = parse_params(params)?;
-            let session = accessibility::global_engine()
-                .start_session(payload)
-                .await?;
+            let _payload: StartSessionParams = parse_params(params)?;
+            let session = screen_intelligence::global_engine().enable().await?;
             to_json_value(command_response(
                 session,
-                vec!["accessibility session started".to_string()],
+                vec!["screen intelligence enabled".to_string()],
             ))
         }
 
         "openhuman.accessibility_stop_session" => {
             let payload: StopSessionParams = parse_params(params)?;
-            let session = accessibility::global_engine()
-                .stop_session(payload.reason)
+            let session = screen_intelligence::global_engine()
+                .disable(payload.reason)
                 .await;
             to_json_value(command_response(
                 session,
-                vec!["accessibility session stopped".to_string()],
+                vec!["screen intelligence stopped".to_string()],
             ))
         }
 
         "openhuman.accessibility_capture_now" => {
-            let result = accessibility::global_engine().capture_now().await?;
+            let result = screen_intelligence::global_engine().capture_now().await?;
             to_json_value(command_response(
                 result,
                 vec!["accessibility manual capture requested".to_string()],
@@ -1076,7 +1133,7 @@ async fn dispatch(
         }
 
         "openhuman.accessibility_capture_image_ref" => {
-            let result: CaptureImageRefResult = accessibility::global_engine()
+            let result: CaptureImageRefResult = screen_intelligence::global_engine()
                 .capture_image_ref_test()
                 .await;
             to_json_value(command_response(
@@ -1087,51 +1144,51 @@ async fn dispatch(
 
         "openhuman.accessibility_input_action" => {
             let payload: InputActionParams = parse_params(params)?;
-            let result = accessibility::global_engine().input_action(payload).await?;
+            let result = screen_intelligence::global_engine().input_action(payload).await?;
             to_json_value(command_response(
                 result,
-                vec!["accessibility input action processed".to_string()],
+                vec!["screen intelligence input action processed".to_string()],
             ))
         }
 
         "openhuman.accessibility_autocomplete_suggest" => {
             let payload: AutocompleteSuggestParams = parse_params(params)?;
-            let result = accessibility::global_engine()
+            let result = screen_intelligence::global_engine()
                 .autocomplete_suggest(payload)
                 .await?;
             to_json_value(command_response(
                 result,
-                vec!["accessibility autocomplete suggestions generated".to_string()],
+                vec!["screen intelligence autocomplete suggestions generated".to_string()],
             ))
         }
 
         "openhuman.accessibility_autocomplete_commit" => {
             let payload: AutocompleteCommitParams = parse_params(params)?;
-            let result = accessibility::global_engine()
+            let result = screen_intelligence::global_engine()
                 .autocomplete_commit(payload)
                 .await?;
             to_json_value(command_response(
                 result,
-                vec!["accessibility autocomplete suggestion committed".to_string()],
+                vec!["screen intelligence autocomplete suggestion committed".to_string()],
             ))
         }
 
         "openhuman.accessibility_vision_recent" => {
             let payload: AccessibilityVisionRecentParams = parse_params(params)?;
-            let result: VisionRecentResult = accessibility::global_engine()
+            let result: VisionRecentResult = screen_intelligence::global_engine()
                 .vision_recent(payload.limit)
                 .await;
             to_json_value(command_response(
                 result,
-                vec!["accessibility vision summaries fetched".to_string()],
+                vec!["screen intelligence vision summaries fetched".to_string()],
             ))
         }
 
         "openhuman.accessibility_vision_flush" => {
-            let result: VisionFlushResult = accessibility::global_engine().vision_flush().await?;
+            let result: VisionFlushResult = screen_intelligence::global_engine().vision_flush().await?;
             to_json_value(command_response(
                 result,
-                vec!["accessibility vision flush completed".to_string()],
+                vec!["screen intelligence vision flush completed".to_string()],
             ))
         }
 
@@ -1419,9 +1476,9 @@ enum AccessibilityCommand {
     RequestPermissions,
     /// Request a specific permission kind
     RequestPermission(RequestPermissionArgs),
-    /// Start a bounded accessibility session
+    /// Start a bounded screen intelligence session
     StartSession(StartSessionCliArgs),
-    /// Stop the active accessibility session
+    /// Stop the active screen intelligence session
     StopSession(StopSessionCliArgs),
     /// Force an immediate capture sample
     CaptureNow,
@@ -1678,7 +1735,7 @@ async fn execute_tools_screenshot_ref(
 ) -> Result<serde_json::Value, String> {
     let raw = call_method("openhuman.accessibility_capture_image_ref", json!({})).await?;
     let payload: CommandResponse<CaptureImageRefResult> = serde_json::from_value(raw)
-        .map_err(|e| format!("failed to decode accessibility capture_image_ref response: {e}"))?;
+        .map_err(|e| format!("failed to decode screen intelligence capture_image_ref response: {e}"))?;
 
     let mut logs = payload.logs;
     logs.push("tools.screenshot-ref executed".to_string());
@@ -1693,7 +1750,7 @@ async fn execute_tools_screenshot_ref(
                 output_path.display()
             ));
         } else {
-            return Err("accessibility capture_image_ref did not return image_ref".to_string());
+            return Err("screen intelligence capture_image_ref did not return image_ref".to_string());
         }
     }
 
@@ -1939,7 +1996,7 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             AccessibilityCommand::Doctor => {
                 let raw = call_method("openhuman.accessibility_status", json!({})).await?;
                 let payload: CommandResponse<AccessibilityStatus> = serde_json::from_value(raw)
-                    .map_err(|e| format!("failed to decode accessibility status: {e}"))?;
+                    .map_err(|e| format!("failed to decode screen intelligence status: {e}"))?;
                 let permissions = &payload.result.permissions;
 
                 let screen_ready = permissions.screen_recording == PermissionState::Granted;
@@ -2051,7 +2108,7 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         },
                         {
                             "name": "screenshot-ref",
-                            "description": "Capture data URL from accessibility capture_image_ref."
+                            "description": "Capture data URL from screen intelligence capture_image_ref."
                         }
                     ]
                 },

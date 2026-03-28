@@ -5,8 +5,8 @@ use openhuman_core::core_server::{
     AutocompleteSuggestParams, AutocompleteSuggestResult, BrowserSettingsUpdate, CaptureNowResult,
     CommandResponse, ConfigSnapshot, GatewaySettingsUpdate, InputActionParams, InputActionResult,
     MemorySettingsUpdate, ModelSettingsUpdate, PermissionRequestParams, PermissionStatus,
-    RuntimeFlags, RuntimeSettingsUpdate, SessionStatus, StartSessionParams, StopSessionParams,
-    VisionFlushResult, VisionRecentResult,
+    RuntimeFlags, RuntimeSettingsUpdate, ScreenIntelligenceSettingsUpdate, SessionStatus,
+    StartSessionParams, StopSessionParams, VisionFlushResult, VisionRecentResult,
 };
 use openhuman_core::openhuman::{doctor, hardware, integrations, migration, onboard, service};
 use serde::de::DeserializeOwned;
@@ -281,6 +281,20 @@ pub async fn openhuman_update_memory_settings(
     .await
 }
 
+/// Update screen intelligence settings.
+#[tauri::command]
+pub async fn openhuman_update_screen_intelligence_settings(
+    app: tauri::AppHandle,
+    update: ScreenIntelligenceSettingsUpdate,
+) -> Result<CommandResponse<ConfigSnapshot>, String> {
+    call_core(
+        &app,
+        "openhuman.update_screen_intelligence_settings",
+        serde_json::json!(update),
+    )
+    .await
+}
+
 /// Update gateway settings.
 #[tauri::command]
 pub async fn openhuman_update_gateway_settings(
@@ -509,7 +523,7 @@ pub async fn openhuman_accessibility_request_permission(
     Ok(response)
 }
 
-/// Start a bounded accessibility session with explicit consent.
+/// Start a bounded screen intelligence session with explicit consent.
 #[tauri::command]
 pub async fn openhuman_accessibility_start_session(
     app: tauri::AppHandle,
@@ -524,7 +538,7 @@ pub async fn openhuman_accessibility_start_session(
     Ok(response)
 }
 
-/// Stop the active accessibility session.
+/// Stop the active screen intelligence session.
 #[tauri::command]
 pub async fn openhuman_accessibility_stop_session(
     app: tauri::AppHandle,
@@ -548,7 +562,7 @@ pub async fn openhuman_accessibility_capture_now(
     call_core_service_managed("openhuman.accessibility_capture_now", params_none()).await
 }
 
-/// Execute a validated input action in an active accessibility session.
+/// Execute a validated input action in an active screen intelligence session.
 #[tauri::command]
 pub async fn openhuman_accessibility_input_action(
     app: tauri::AppHandle,

@@ -1076,6 +1076,7 @@ pub fn run() {
                     openhuman_get_config,
                     openhuman_update_model_settings,
                     openhuman_update_memory_settings,
+                    openhuman_update_screen_intelligence_settings,
                     openhuman_update_gateway_settings,
                     openhuman_update_tunnel_settings,
                     openhuman_update_runtime_settings,

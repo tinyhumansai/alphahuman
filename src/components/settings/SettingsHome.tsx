@@ -76,7 +76,7 @@ const SettingsHome = () => {
     {
       id: 'accessibility',
       title: 'Accessibility Automation',
-      description: 'Screen monitoring, device control, and predictive input',
+      description: 'Desktop permissions, assisted controls, and safety-bound sessions',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -88,6 +88,23 @@ const SettingsHome = () => {
         </svg>
       ),
       onClick: () => navigateToSettings('accessibility'),
+      dangerous: false,
+    },
+    {
+      id: 'screen-intelligence',
+      title: 'Screen Intelligence',
+      description: 'Window capture policy, vision summaries, and memory ingestion',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M3 5h18v12H3zM8 21h8m-4-4v4"
+          />
+        </svg>
+      ),
+      onClick: () => navigateToSettings('screen-intelligence'),
       dangerous: false,
     },
     {

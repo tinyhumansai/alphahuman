@@ -13,6 +13,7 @@ import MemoryDebugPanel from '../components/settings/panels/MemoryDebugPanel';
 import MessagingPanel from '../components/settings/panels/MessagingPanel';
 import PrivacyPanel from '../components/settings/panels/PrivacyPanel';
 import ProfilePanel from '../components/settings/panels/ProfilePanel';
+import ScreenIntelligencePanel from '../components/settings/panels/ScreenIntelligencePanel';
 import SkillsPanel from '../components/settings/panels/SkillsPanel';
 import TauriCommandsPanel from '../components/settings/panels/TauriCommandsPanel';
 import TeamInvitesPanel from '../components/settings/panels/TeamInvitesPanel';
@@ -29,6 +30,7 @@ const Settings = () => {
         <Route path="connections" element={<ConnectionsPanel />} />
         <Route path="messaging" element={<MessagingPanel />} />
         <Route path="cron-jobs" element={<CronJobsPanel />} />
+        <Route path="screen-intelligence" element={<ScreenIntelligencePanel />} />
         <Route path="privacy" element={<PrivacyPanel />} />
         <Route path="profile" element={<ProfilePanel />} />
         <Route path="advanced" element={<AdvancedPanel />} />
