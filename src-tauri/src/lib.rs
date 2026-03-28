@@ -14,6 +14,7 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 mod commands;
 mod core_process;
 mod core_rpc;
+mod daemon_host_config;
 pub mod memory;
 mod models;
 mod openhuman_daemon;
@@ -727,7 +728,15 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 if daemon_mode {
-                    setup_tray(app.handle())?;
+                    let daemon_host_cfg =
+                        tauri::async_runtime::block_on(daemon_host_config::load(app.handle()));
+                    if daemon_host_cfg.show_tray {
+                        setup_tray(app.handle())?;
+                    } else {
+                        log::info!(
+                            "[app] Daemon host tray disabled by local config (show_tray=false)"
+                        );
+                    }
                 }
             }
 
@@ -1117,6 +1126,8 @@ pub fn run() {
                     openhuman_service_status,
                     openhuman_service_uninstall,
                     openhuman_agent_server_status,
+                    openhuman_get_daemon_host_config,
+                    openhuman_set_daemon_host_config,
                     // Unified skill registry commands
                     unified_list_skills,
                     unified_execute_skill,
@@ -1166,13 +1177,6 @@ pub fn run() {
                     {
                         daemon.cancel.cancel();
                         log::info!("[openhuman] Daemon shutdown signalled");
-                    }
-
-                    if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
-                        let core_handle: core_process::CoreProcessHandle = (*core).clone();
-                        tauri::async_runtime::spawn(async move {
-                            core_handle.shutdown().await;
-                        });
                     }
 
                     let _ = app_handle;

@@ -7,12 +7,71 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const SERVICE_LABEL: &str = "com.openhuman.daemon";
-const LEGACY_SERVICE_LABEL: &str = "com.openhuman.app";
-const WINDOWS_TASK_NAME: &str = "OpenHuman Daemon";
+const SERVICE_LABEL: &str = "com.openhuman.core";
+const LEGACY_SERVICE_LABEL: &str = "com.openhuman.daemon";
+const LEGACY_APP_LABEL: &str = "com.openhuman.app";
+const WINDOWS_TASK_NAME: &str = "OpenHuman Core";
 
 fn windows_task_name() -> &'static str {
     WINDOWS_TASK_NAME
+}
+
+fn resolve_daemon_executable() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("OPENHUMAN_CORE_BIN") {
+        let candidate = PathBuf::from(path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    let exe = std::env::current_exe().context("Failed to resolve current executable")?;
+    let exe_dir = exe
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("Failed to resolve executable directory"))?;
+
+    #[cfg(target_os = "macos")]
+    let mut search_dirs = vec![
+        exe_dir.clone(),
+        exe_dir
+            .parent()
+            .map(|p| p.join("Resources"))
+            .unwrap_or_else(|| exe_dir.clone()),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let search_dirs = vec![exe_dir.clone()];
+
+    for dir in search_dirs.drain(..) {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || is_current_executable(&path) {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+
+            #[cfg(windows)]
+            let matches = name.starts_with("openhuman-")
+                || name.starts_with("openhuman-core-")
+                || name.eq_ignore_ascii_case("openhuman.exe")
+                || name.eq_ignore_ascii_case("openhuman-core.exe");
+            #[cfg(not(windows))]
+            let matches = name.starts_with("openhuman-")
+                || name.starts_with("openhuman-core-")
+                || name == "openhuman"
+                || name == "openhuman-core";
+
+            if matches {
+                return Ok(path);
+            }
+        }
+    }
+
+    Ok(exe)
 }
 
 fn daemon_program_args(exe: &std::path::Path) -> Vec<String> {
@@ -205,6 +264,8 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
 
         let legacy_plist = macos_service_file_for(LEGACY_SERVICE_LABEL)?;
         let legacy_target = macos_target(LEGACY_SERVICE_LABEL)?;
+        let legacy_app_plist = macos_service_file_for(LEGACY_APP_LABEL)?;
+        let legacy_app_target = macos_target(LEGACY_APP_LABEL)?;
 
         // Modern lifecycle path first.
         run_best_effort(
@@ -231,6 +292,18 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
                 .arg(&domain)
                 .arg(&legacy_plist),
         );
+        run_best_effort(
+            Command::new("launchctl")
+                .arg("bootout")
+                .arg(&domain)
+                .arg(&legacy_app_target),
+        );
+        run_best_effort(
+            Command::new("launchctl")
+                .arg("bootout")
+                .arg(&domain)
+                .arg(&legacy_app_plist),
+        );
 
         // Compatibility fallback.
         run_best_effort(Command::new("launchctl").arg("stop").arg(SERVICE_LABEL));
@@ -239,6 +312,7 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
                 .arg("stop")
                 .arg(LEGACY_SERVICE_LABEL),
         );
+        run_best_effort(Command::new("launchctl").arg("stop").arg(LEGACY_APP_LABEL));
         return status(config);
     }
 
@@ -261,9 +335,11 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
 pub fn status(config: &Config) -> Result<ServiceStatus> {
     if std::env::consts::OS == "macos" {
         let out = run_capture(Command::new("launchctl").arg("list"))?;
-        let running = out
-            .lines()
-            .any(|line| line.contains(SERVICE_LABEL) || line.contains(LEGACY_SERVICE_LABEL));
+        let running = out.lines().any(|line| {
+            line.contains(SERVICE_LABEL)
+                || line.contains(LEGACY_SERVICE_LABEL)
+                || line.contains(LEGACY_APP_LABEL)
+        });
         return Ok(ServiceStatus {
             state: if running {
                 ServiceState::Running
@@ -342,6 +418,10 @@ pub fn uninstall(config: &Config) -> Result<ServiceStatus> {
         if legacy_file.exists() {
             let _ = fs::remove_file(&legacy_file);
         }
+        let legacy_app_file = macos_service_file_for(LEGACY_APP_LABEL)?;
+        if legacy_app_file.exists() {
+            let _ = fs::remove_file(&legacy_app_file);
+        }
         return Ok(ServiceStatus {
             state: ServiceState::NotInstalled,
             unit_path: Some(file),
@@ -395,7 +475,7 @@ fn install_macos(config: &Config) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let exe = std::env::current_exe().context("Failed to resolve current executable")?;
+    let exe = resolve_daemon_executable()?;
     let logs_dir = config
         .config_path
         .parent()
@@ -465,7 +545,7 @@ fn install_linux(config: &Config) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let exe = std::env::current_exe().context("Failed to resolve current executable")?;
+    let exe = resolve_daemon_executable()?;
     let logs_dir = config
         .config_path
         .parent()
@@ -490,7 +570,7 @@ fn install_linux(config: &Config) -> Result<()> {
 }
 
 fn install_windows(config: &Config) -> Result<()> {
-    let exe = std::env::current_exe().context("Failed to resolve current executable")?;
+    let exe = resolve_daemon_executable()?;
     let logs_dir = config
         .config_path
         .parent()
@@ -613,6 +693,15 @@ fn is_service_loaded_macos() -> Result<bool> {
         Command::new("launchctl")
             .arg("print")
             .arg(macos_target(LEGACY_SERVICE_LABEL)?),
+    )
+    .is_ok()
+    {
+        return Ok(true);
+    }
+    if run_checked(
+        Command::new("launchctl")
+            .arg("print")
+            .arg(macos_target(LEGACY_APP_LABEL)?),
     )
     .is_ok()
     {

@@ -97,6 +97,12 @@ pub struct AgentServerStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DaemonHostConfigPayload {
+    pub show_tray: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAiStatus {
     pub state: String,
     pub model_id: String,
@@ -919,6 +925,42 @@ pub async fn openhuman_agent_server_status() -> Result<CommandResponse<AgentServ
     Ok(CommandResponse {
         result: AgentServerStatus { running, url },
         logs: vec!["agent server status checked".to_string()],
+    })
+}
+
+/// Read local daemon-host settings (not synced, machine-local).
+#[tauri::command]
+pub async fn openhuman_get_daemon_host_config(
+    app: tauri::AppHandle,
+) -> Result<CommandResponse<DaemonHostConfigPayload>, String> {
+    let cfg = crate::daemon_host_config::load(&app).await;
+    Ok(CommandResponse {
+        result: DaemonHostConfigPayload {
+            show_tray: cfg.show_tray,
+        },
+        logs: vec!["daemon host config loaded".to_string()],
+    })
+}
+
+/// Update local daemon-host settings (not synced, machine-local).
+#[tauri::command]
+pub async fn openhuman_set_daemon_host_config(
+    app: tauri::AppHandle,
+    show_tray: Option<bool>,
+) -> Result<CommandResponse<DaemonHostConfigPayload>, String> {
+    let mut cfg = crate::daemon_host_config::load(&app).await;
+    if let Some(value) = show_tray {
+        cfg.show_tray = value;
+    }
+    crate::daemon_host_config::save(&app, &cfg).await?;
+    Ok(CommandResponse {
+        result: DaemonHostConfigPayload {
+            show_tray: cfg.show_tray,
+        },
+        logs: vec![
+            "daemon host config saved".to_string(),
+            "restart daemon host process to apply tray visibility changes".to_string(),
+        ],
     })
 }
 

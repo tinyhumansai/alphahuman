@@ -427,6 +427,10 @@ export interface AgentServerStatus {
   url: string;
 }
 
+export interface DaemonHostConfig {
+  show_tray: boolean;
+}
+
 export type AccessibilityPermissionState = 'granted' | 'denied' | 'unknown' | 'unsupported';
 export type AccessibilityPermissionKind = 'screen_recording' | 'accessibility' | 'input_monitoring';
 
@@ -1185,6 +1189,22 @@ export async function openhumanAgentServerStatus(): Promise<CommandResponse<Agen
     throw new Error('Not running in Tauri');
   }
   return await invoke('openhuman_agent_server_status');
+}
+
+export async function openhumanGetDaemonHostConfig(): Promise<CommandResponse<DaemonHostConfig>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('openhuman_get_daemon_host_config');
+}
+
+export async function openhumanSetDaemonHostConfig(
+  showTray?: boolean
+): Promise<CommandResponse<DaemonHostConfig>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('openhuman_set_daemon_host_config', { showTray });
 }
 
 export async function openhumanAccessibilityStatus(): Promise<
