@@ -226,10 +226,10 @@ pub fn clear_openclaw_context_cache() {
 ///
 /// Tries these locations in order:
 /// 1. Tauri resource directory (production builds — files bundled via `tauri.conf.json` resources)
-/// 2. `{cwd}/rust-core/ai/` (dev mode when cwd is project root)
-/// 3. `{cwd}/../rust-core/ai/` (dev mode when cwd is `src-tauri/`)
-/// 4. `{cwd}/ai/` (legacy fallback)
-/// 5. `{cwd}/src-tauri/ai/` (legacy fallback)
+/// 2. `{repo}/src/ai/prompts/` (dev — walk up from cwd to find repo root)
+/// 3. `{cwd}/ai/` (legacy fallback)
+/// 4. `{cwd}/src-tauri/ai/` (legacy fallback)
+/// 5. `{cwd}/../ai/` (legacy fallback)
 ///
 /// Returns an empty string if no files are found (non-fatal).
 fn load_openclaw_context(app: &tauri::AppHandle) -> String {
@@ -273,8 +273,7 @@ fn load_openclaw_context(app: &tauri::AppHandle) -> String {
 fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     // 1. Try resource dir first (production builds)
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let ai_dir: std::path::PathBuf = resource_dir.join("ai");
-        if ai_dir.is_dir() {
+        if let Some(ai_dir) = crate::utils::dev_paths::bundled_openclaw_prompts_dir(&resource_dir) {
             log::info!(
                 "[chat] Using AI config from resource dir: {}",
                 ai_dir.display()
@@ -283,11 +282,11 @@ fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         }
     }
 
-    // 2. Dev: resolve rust-core/ai from cwd (repo root, app/, app/src-tauri/, etc.)
+    // 2. Dev: resolve src/ai/prompts from cwd (repo root, app/, app/src-tauri/, etc.)
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(dev_dir) = crate::utils::dev_paths::rust_core_ai_dir(&cwd) {
+        if let Some(dev_dir) = crate::utils::dev_paths::repo_ai_prompts_dir(&cwd) {
             log::info!(
-                "[chat] Using AI config from rust-core dev dir: {}",
+                "[chat] Using AI config from repo prompts dir: {}",
                 dev_dir.display()
             );
             return Some(dev_dir);

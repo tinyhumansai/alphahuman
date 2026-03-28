@@ -99,13 +99,12 @@ fn document_id_for(title: &str, source: &str) -> String {
 /// Find the `ai/` directory for loading prompt files (same logic as `chat.rs`).
 fn find_ai_directory(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let ai_dir = resource_dir.join("ai");
-        if ai_dir.is_dir() {
+        if let Some(ai_dir) = crate::utils::dev_paths::bundled_openclaw_prompts_dir(&resource_dir) {
             return Some(ai_dir);
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(dev_dir) = crate::utils::dev_paths::rust_core_ai_dir(&cwd) {
+        if let Some(dev_dir) = crate::utils::dev_paths::repo_ai_prompts_dir(&cwd) {
             return Some(dev_dir);
         }
         let fallback = cwd.join("ai");

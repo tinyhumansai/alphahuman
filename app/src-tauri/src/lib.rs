@@ -202,14 +202,13 @@ fn parse_tools_preview(raw: String, loaded_at: i64) -> AIPreviewTools {
 
 fn resolve_ai_directory(app: &tauri::AppHandle) -> Option<(PathBuf, &'static str)> {
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let ai_dir = resource_dir.join("ai");
-        if ai_dir.is_dir() {
+        if let Some(ai_dir) = utils::dev_paths::bundled_openclaw_prompts_dir(&resource_dir) {
             return Some((ai_dir, "bundled"));
         }
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(path) = utils::dev_paths::rust_core_ai_dir(&cwd) {
+        if let Some(path) = utils::dev_paths::repo_ai_prompts_dir(&cwd) {
             return Some((path, "bundled"));
         }
 
@@ -277,7 +276,7 @@ async fn ai_refresh_config(app: tauri::AppHandle) -> Result<AIPreview, String> {
     Ok(build_ai_preview(&app))
 }
 
-/// Write AI configuration files to the rust-core/ai/ directory
+/// Write AI configuration files to `src/ai/prompts` in the repo (dev resolution from cwd).
 #[tauri::command]
 async fn write_ai_config_file(filename: String, content: String) -> Result<bool, String> {
     use std::env;
@@ -296,8 +295,8 @@ async fn write_ai_config_file(filename: String, content: String) -> Result<bool,
         return Err("Invalid filename: path traversal not allowed".to_string());
     }
 
-    let ai_dir =
-        utils::dev_paths::rust_core_ai_dir(&current_dir).unwrap_or_else(|| current_dir.join("ai"));
+    let ai_dir = utils::dev_paths::repo_ai_prompts_dir(&current_dir)
+        .unwrap_or_else(|| current_dir.join("src").join("ai").join("prompts"));
     let file_path = ai_dir.join(&filename);
 
     // Ensure ai directory exists

@@ -5,7 +5,7 @@
 //!
 //! Note: The skill runtime is desktop-only in this host.
 
-// Runtime implementation now lives fully in rust-core.
+// Skill runtime implementation lives in the `openhuman-core` crate (repo-root `Cargo.toml`).
 pub use openhuman_core::runtime::types;
 
 pub use openhuman_core::runtime::{qjs_engine, socket_manager};
