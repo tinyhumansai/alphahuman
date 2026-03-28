@@ -7,7 +7,6 @@ pub mod model;
 pub mod openhuman;
 pub mod runtime;
 pub mod socket;
-pub mod unified_skills;
 
 #[cfg(desktop)]
 pub mod window;

@@ -335,6 +335,75 @@ fn parse_params<T: DeserializeOwned>(params: serde_json::Value) -> Result<T, Str
     serde_json::from_value(params).map_err(|e| format!("invalid params: {e}"))
 }
 
+fn extract_namespaces_from_documents(payload: &serde_json::Value) -> Vec<String> {
+    fn collect_from_value(value: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(ns) = map.get("namespace").and_then(serde_json::Value::as_str) {
+                    if !ns.trim().is_empty() {
+                        out.insert(ns.to_string());
+                    }
+                }
+                for nested in map.values() {
+                    collect_from_value(nested, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect_from_value(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut namespaces = std::collections::BTreeSet::new();
+    collect_from_value(payload, &mut namespaces);
+    namespaces.into_iter().collect()
+}
+
+fn filter_documents_payload_by_namespace(
+    payload: serde_json::Value,
+    namespace: &str,
+) -> serde_json::Value {
+    fn filter_array(items: &mut Vec<serde_json::Value>, namespace: &str) {
+        items.retain(|item| {
+            item.as_object()
+                .and_then(|obj| obj.get("namespace"))
+                .and_then(serde_json::Value::as_str)
+                .map(|ns| ns == namespace)
+                .unwrap_or(false)
+        });
+    }
+
+    match payload {
+        serde_json::Value::Array(mut items) => {
+            filter_array(&mut items, namespace);
+            serde_json::Value::Array(items)
+        }
+        serde_json::Value::Object(mut root) => {
+            for key in ["documents", "items", "results"] {
+                if let Some(serde_json::Value::Array(items)) = root.get_mut(key) {
+                    filter_array(items, namespace);
+                    return serde_json::Value::Object(root);
+                }
+            }
+
+            if let Some(serde_json::Value::Object(data)) = root.get_mut("data") {
+                for key in ["documents", "items", "results"] {
+                    if let Some(serde_json::Value::Array(items)) = data.get_mut(key) {
+                        filter_array(items, namespace);
+                        return serde_json::Value::Object(root);
+                    }
+                }
+            }
+
+            serde_json::Value::Object(root)
+        }
+        other => other,
+    }
+}
+
 fn rpc_error_response(id: serde_json::Value, code: i64, message: String) -> Response {
     (
         StatusCode::OK,
@@ -386,6 +455,93 @@ async fn dispatch(
     match method {
         "core.ping" => to_json_value(json!({ "ok": true })),
         "core.version" => to_json_value(json!({ "version": state.core_version })),
+
+        "memory.init" => {
+            #[derive(Debug, Deserialize)]
+            struct MemoryInitParams {
+                #[allow(dead_code)]
+                jwt_token: Option<String>,
+            }
+
+            let _payload: MemoryInitParams = parse_params(params)?;
+            let _client = crate::memory::MemoryClient::new_local()?;
+            to_json_value(true)
+        }
+
+        "memory.list_documents" => {
+            #[derive(Debug, Deserialize)]
+            struct MemoryListDocumentsParams {
+                namespace: Option<String>,
+            }
+
+            let payload: MemoryListDocumentsParams = parse_params(params)?;
+            let client = crate::memory::MemoryClient::new_local()?;
+            let docs = client.list_documents().await?;
+            let filtered = payload
+                .namespace
+                .as_deref()
+                .map(str::trim)
+                .filter(|ns| !ns.is_empty())
+                .map(|ns| filter_documents_payload_by_namespace(docs.clone(), ns))
+                .unwrap_or(docs);
+            to_json_value(filtered)
+        }
+
+        "memory.list_namespaces" => {
+            let client = crate::memory::MemoryClient::new_local()?;
+            let docs = client.list_documents().await?;
+            to_json_value(extract_namespaces_from_documents(&docs))
+        }
+
+        "memory.delete_document" => {
+            #[derive(Debug, Deserialize)]
+            struct MemoryDeleteDocumentParams {
+                document_id: String,
+                namespace: String,
+            }
+
+            let payload: MemoryDeleteDocumentParams = parse_params(params)?;
+            let client = crate::memory::MemoryClient::new_local()?;
+            let result = client
+                .delete_document(&payload.document_id, &payload.namespace)
+                .await?;
+            to_json_value(result)
+        }
+
+        "memory.query_namespace" => {
+            #[derive(Debug, Deserialize)]
+            struct MemoryQueryNamespaceParams {
+                namespace: String,
+                query: String,
+                max_chunks: Option<u32>,
+            }
+
+            let payload: MemoryQueryNamespaceParams = parse_params(params)?;
+            let client = crate::memory::MemoryClient::new_local()?;
+            let result = client
+                .query_namespace_context(
+                    &payload.namespace,
+                    &payload.query,
+                    payload.max_chunks.unwrap_or(10),
+                )
+                .await?;
+            to_json_value(result)
+        }
+
+        "memory.recall_namespace" => {
+            #[derive(Debug, Deserialize)]
+            struct MemoryRecallNamespaceParams {
+                namespace: String,
+                max_chunks: Option<u32>,
+            }
+
+            let payload: MemoryRecallNamespaceParams = parse_params(params)?;
+            let client = crate::memory::MemoryClient::new_local()?;
+            let result = client
+                .recall_namespace_context(&payload.namespace, payload.max_chunks.unwrap_or(10))
+                .await?;
+            to_json_value(result)
+        }
 
         "openhuman.health_snapshot" => to_json_value(command_response(
             health::snapshot_json(),

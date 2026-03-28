@@ -178,11 +178,8 @@ export async function syncMemoryClientToken(token: string): Promise<void> {
     return;
   }
   try {
-    console.debug(
-      '[memory] syncMemoryClientToken: payload → init_memory_client { jwtToken: <redacted, len=%d> }',
-      token.length
-    );
-    await invoke('init_memory_client', { jwtToken: token });
+    console.debug('[memory] syncMemoryClientToken: payload → memory.init');
+    await callCoreRpc<boolean>({ method: 'memory.init', params: { jwt_token: token } });
     console.info('[memory] syncMemoryClientToken: exit — ok');
   } catch (err) {
     console.warn('[memory] syncMemoryClientToken: exit — error:', err);
@@ -200,14 +197,14 @@ export async function memoryListDocuments(namespace?: string): Promise<unknown> 
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('memory_list_documents', { namespace });
+  return await callCoreRpc<unknown>({ method: 'memory.list_documents', params: { namespace } });
 }
 
 export async function memoryListNamespaces(): Promise<string[]> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('memory_list_namespaces');
+  return await callCoreRpc<string[]>({ method: 'memory.list_namespaces' });
 }
 
 export async function memoryDeleteDocument(
@@ -217,7 +214,10 @@ export async function memoryDeleteDocument(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('memory_delete_document', { documentId, namespace });
+  return await callCoreRpc<unknown>({
+    method: 'memory.delete_document',
+    params: { document_id: documentId, namespace },
+  });
 }
 
 export async function memoryQueryNamespace(
@@ -228,7 +228,10 @@ export async function memoryQueryNamespace(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('memory_query_namespace', { namespace, query, maxChunks });
+  return await callCoreRpc<string>({
+    method: 'memory.query_namespace',
+    params: { namespace, query, max_chunks: maxChunks },
+  });
 }
 
 export async function memoryRecallNamespace(
@@ -238,7 +241,10 @@ export async function memoryRecallNamespace(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('memory_recall_namespace', { namespace, maxChunks });
+  return await callCoreRpc<string | null>({
+    method: 'memory.recall_namespace',
+    params: { namespace, max_chunks: maxChunks },
+  });
 }
 
 export async function aiListMemoryFiles(relativeDir = 'memory'): Promise<string[]> {

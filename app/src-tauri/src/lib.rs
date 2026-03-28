@@ -20,13 +20,9 @@ mod models;
 mod openhuman_daemon;
 mod runtime;
 mod services;
-mod unified_skills;
 mod utils;
 
 use commands::chat::ChatState;
-use commands::unified_skills::{
-    unified_execute_skill, unified_generate_skill, unified_list_skills, unified_self_evolve_skill,
-};
 use commands::*;
 use openhuman_core::ai::*;
 use serde::Serialize;
@@ -946,11 +942,6 @@ pub fn run() {
                     // OpenHuman local host commands (core RPC uses core_rpc_relay)
                     openhuman_get_daemon_host_config,
                     openhuman_set_daemon_host_config,
-                    // Unified skill registry commands
-                    unified_list_skills,
-                    unified_execute_skill,
-                    unified_generate_skill,
-                    unified_self_evolve_skill,
                     // Memory commands (TinyHumans Neocortex)
                     init_memory_client,
                     memory_query,
