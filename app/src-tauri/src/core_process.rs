@@ -222,9 +222,9 @@ pub fn default_core_bin() -> Option<PathBuf> {
     }
 
     #[cfg(windows)]
-    let legacy_standalone = exe_dir.join("openhuman-core.exe");
+    let legacy_standalone = exe_dir.join("openhuman.exe");
     #[cfg(not(windows))]
-    let legacy_standalone = exe_dir.join("openhuman-core");
+    let legacy_standalone = exe_dir.join("openhuman");
 
     if legacy_standalone.exists() && !same_executable_path(&legacy_standalone, &exe) {
         return Some(legacy_standalone);
@@ -255,10 +255,10 @@ pub fn default_core_bin() -> Option<PathBuf> {
 
             #[cfg(windows)]
             let matches = (file_name.starts_with("openhuman-") && file_name.ends_with(".exe"))
-                || (file_name.starts_with("openhuman-core-") && file_name.ends_with(".exe"));
+                || (file_name.starts_with("openhuman-") && file_name.ends_with(".exe"));
             #[cfg(not(windows))]
             let matches =
-                file_name.starts_with("openhuman-") || file_name.starts_with("openhuman-core-");
+                file_name.starts_with("openhuman-") || file_name.starts_with("openhuman-");
 
             if matches && !same_executable_path(&path, &exe) {
                 return Some(path);

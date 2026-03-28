@@ -39,7 +39,7 @@ dependencies = [
  "matrix-sdk",
  "nusb 0.2.3",
  "once_cell",
- "openhuman-core",
+ "openhuman",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -5402,7 +5402,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "openhuman-core"
+name = "openhuman"
 version = "0.49.16"
 dependencies = [
  "aes-gcm",

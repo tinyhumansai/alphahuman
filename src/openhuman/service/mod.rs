@@ -56,14 +56,14 @@ fn resolve_daemon_executable() -> Result<PathBuf> {
 
             #[cfg(windows)]
             let matches = name.starts_with("openhuman-")
-                || name.starts_with("openhuman-core-")
+                || name.starts_with("openhuman-")
                 || name.eq_ignore_ascii_case("openhuman.exe")
-                || name.eq_ignore_ascii_case("openhuman-core.exe");
+                || name.eq_ignore_ascii_case("openhuman.exe");
             #[cfg(not(windows))]
             let matches = name.starts_with("openhuman-")
-                || name.starts_with("openhuman-core-")
+                || name.starts_with("openhuman-")
                 || name == "openhuman"
-                || name == "openhuman-core";
+                || name == "openhuman";
 
             if matches {
                 return Ok(path);
@@ -78,9 +78,9 @@ fn daemon_program_args(exe: &std::path::Path) -> Vec<String> {
     let raw_file_name = exe.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     let file_name = raw_file_name.to_ascii_lowercase();
     let standalone_core_binary = !is_current_executable(exe)
-        && (file_name.contains("openhuman-core")
+        && (file_name.contains("openhuman")
             || file_name.starts_with("openhuman-")
-            || file_name.starts_with("openhuman-core-")
+            || file_name.starts_with("openhuman-")
             || raw_file_name == "openhuman"
             || raw_file_name == "openhuman.exe");
 

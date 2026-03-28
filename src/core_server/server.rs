@@ -55,7 +55,7 @@ async fn root_handler() -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(json!({
-            "name": "openhuman-core",
+            "name": "openhuman",
             "ok": true,
             "endpoints": {
                 "health": "/health",

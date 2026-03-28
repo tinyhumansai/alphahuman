@@ -26,7 +26,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Cache node modules
         id: yarn-cache
@@ -91,8 +91,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-test-cargo-
 
-      - name: Test rust-core (openhuman-core)
-        run: cargo test -p openhuman-core
+      - name: Test rust-core (openhuman)
+        run: cargo test -p openhuman
 
       - name: Test src-tauri (OpenHuman)
         run: cargo test --manifest-path app/src-tauri/Cargo.toml
@@ -112,7 +112,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -134,7 +134,7 @@ jobs:
       - name: Build E2E app bundle
         run: yarn test:e2e:build
         env:
-          E2E_SKIP_CARGO_CLEAN: '1'
+          E2E_SKIP_CARGO_CLEAN: "1"
 
       - name: Run all E2E flows
         run: yarn test:e2e:all:flows

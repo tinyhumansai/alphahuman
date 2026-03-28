@@ -18,7 +18,7 @@ use crate::openhuman::security::SecurityPolicy;
 use crate::openhuman::tools::{ScreenshotTool, Tool};
 
 #[derive(Debug, Parser)]
-#[command(name = "openhuman-core")]
+#[command(name = "openhuman")]
 #[command(about = "OpenHuman core CLI")]
 #[command(arg_required_else_help = true)]
 struct CoreCli {
@@ -1254,7 +1254,7 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
 
 pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     let mut argv = Vec::with_capacity(args.len() + 1);
-    argv.push("openhuman-core".to_string());
+    argv.push("openhuman".to_string());
     argv.extend(args.iter().cloned());
     let cli = CoreCli::try_parse_from(argv).map_err(|e| anyhow::anyhow!(e.render().to_string()))?;
 

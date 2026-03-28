@@ -287,7 +287,7 @@ jobs:
         env:
           BASE_URL: ${{ vars.BASE_URL }}
           UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY }}
-          WITH_UPDATER: 'true'
+          WITH_UPDATER: "true"
         with:
           script: |
             const workspacePath = process.env.GITHUB_WORKSPACE.replace(/\\/g, '/');
@@ -313,10 +313,10 @@ jobs:
             CORE_DIR="openhuman_core"
           elif [ -f "rust-core/Cargo.toml" ]; then
             CORE_DIR="rust-core"
-          elif [ -f "Cargo.toml" ] && grep -q '^name = "openhuman-core"' Cargo.toml; then
+          elif [ -f "Cargo.toml" ] && grep -q '^name = "openhuman"' Cargo.toml; then
             CORE_DIR="."
           else
-            echo "No core Cargo manifest found (expected root Cargo.toml with openhuman-core, openhuman_core/Cargo.toml, or rust-core/Cargo.toml)"
+            echo "No core Cargo manifest found (expected root Cargo.toml with openhuman, openhuman_core/Cargo.toml, or rust-core/Cargo.toml)"
             exit 1
           fi
 
@@ -372,7 +372,7 @@ jobs:
           BASE_URL: ${{ vars.BASE_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
-          WITH_UPDATER: 'true'
+          WITH_UPDATER: "true"
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
           projectPath: app

@@ -1,5 +1,5 @@
 [package]
-name = "openhuman-core"
+name = "openhuman"
 version = "0.49.16"
 edition = "2021"
 description = "OpenHuman core business logic and RPC server"
