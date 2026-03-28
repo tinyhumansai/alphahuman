@@ -29,6 +29,9 @@ use crate::openhuman::{
 };
 use chrono::Utc;
 
+const DEFAULT_CORE_RPC_URL: &str = "http://127.0.0.1:7788/rpc";
+const DEFAULT_ONBOARDING_FLAG_NAME: &str = ".skip_onboarding";
+
 pub use crate::openhuman::autocomplete::{
     AutocompleteAcceptParams, AutocompleteAcceptResult, AutocompleteCurrentParams,
     AutocompleteCurrentResult, AutocompleteDebugFocusResult, AutocompleteSetStyleParams,
@@ -301,6 +304,17 @@ fn env_flag_enabled(key: &str) -> bool {
         std::env::var(key).ok().as_deref(),
         Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
     )
+}
+
+fn core_rpc_url() -> String {
+    std::env::var("OPENHUMAN_CORE_RPC_URL").unwrap_or_else(|_| DEFAULT_CORE_RPC_URL.to_string())
+}
+
+fn default_workspace_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".openhuman")
+        .join("workspace")
 }
 
 fn secret_store_for_config(config: &Config) -> SecretStore {
@@ -1078,6 +1092,43 @@ async fn dispatch(
             to_json_value(command_response(
                 status,
                 vec!["service uninstall completed".to_string()],
+            ))
+        }
+
+        "openhuman.workspace_onboarding_flag_exists" => {
+            #[derive(Debug, Deserialize)]
+            struct WorkspaceOnboardingFlagParams {
+                flag_name: Option<String>,
+            }
+
+            let payload: WorkspaceOnboardingFlagParams = parse_params(params)?;
+            let name = payload
+                .flag_name
+                .unwrap_or_else(|| DEFAULT_ONBOARDING_FLAG_NAME.to_string());
+            let trimmed = name.trim();
+            if trimmed.is_empty()
+                || trimmed.contains('/')
+                || trimmed.contains('\\')
+                || trimmed.contains("..")
+            {
+                return Err("Invalid onboarding flag name".to_string());
+            }
+
+            let workspace_dir = match load_openhuman_config().await {
+                Ok(cfg) => cfg.workspace_dir,
+                Err(_) => default_workspace_dir(),
+            };
+            to_json_value(workspace_dir.join(trimmed).is_file())
+        }
+
+        "openhuman.agent_server_status" => {
+            let payload = json!({
+                "running": true,
+                "url": core_rpc_url(),
+            });
+            to_json_value(command_response(
+                payload,
+                vec!["agent server status checked".to_string()],
             ))
         }
 

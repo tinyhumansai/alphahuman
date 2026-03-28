@@ -6,6 +6,7 @@ import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/
 import { deriveSkillSyncSummaryText } from '../pages/skillsSyncUi';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
+import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 import SelfEvolveModal from './skills/SelfEvolveModal';
 import {
   DefaultIcon,
@@ -154,7 +155,7 @@ export default function SkillsGrid() {
     } catch {
       // Fallback to legacy runtime_discover_skills if unified registry isn't available.
       try {
-        const manifests = await invoke<Array<Record<string, unknown>>>('runtime_discover_skills');
+        const manifests = await runtimeDiscoverSkills();
         const processed: SkillListEntry[] = manifests
           .filter(m => !(m.id as string).includes('_'))
           .map(m => {

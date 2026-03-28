@@ -5,6 +5,8 @@
  */
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 
+import { callCoreRpc } from '../services/coreRpcClient';
+
 // Check if we're running in Tauri
 export const isTauri = (): boolean => {
   // Tauri v2: prefer the official runtime check over window globals.
@@ -345,6 +347,11 @@ export interface RuntimeDiscoveredSkill {
   description?: string;
   platforms?: string[];
   tickInterval?: number | null;
+  setup?: {
+    required?: boolean;
+    label?: string;
+    oauth?: { provider: string; scopes: string[]; apiBaseUrl: string };
+  };
 }
 
 export interface RuntimeSkillOption {
@@ -872,7 +879,7 @@ export async function openhumanGetConfig(): Promise<CommandResponse<ConfigSnapsh
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_get_config');
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({ method: 'openhuman.get_config' });
 }
 
 export async function openhumanUpdateModelSettings(
@@ -881,7 +888,10 @@ export async function openhumanUpdateModelSettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_model_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_model_settings',
+    params: update,
+  });
 }
 
 export async function openhumanUpdateMemorySettings(
@@ -890,7 +900,10 @@ export async function openhumanUpdateMemorySettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_memory_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_memory_settings',
+    params: update,
+  });
 }
 
 export async function openhumanUpdateGatewaySettings(
@@ -899,7 +912,10 @@ export async function openhumanUpdateGatewaySettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_gateway_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_gateway_settings',
+    params: update,
+  });
 }
 
 export async function openhumanUpdateTunnelSettings(
@@ -908,7 +924,10 @@ export async function openhumanUpdateTunnelSettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_tunnel_settings', { tunnel });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_tunnel_settings',
+    params: tunnel,
+  });
 }
 
 export async function openhumanUpdateRuntimeSettings(
@@ -917,7 +936,10 @@ export async function openhumanUpdateRuntimeSettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_runtime_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_runtime_settings',
+    params: update,
+  });
 }
 
 export async function openhumanUpdateBrowserSettings(
@@ -926,7 +948,10 @@ export async function openhumanUpdateBrowserSettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_browser_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_browser_settings',
+    params: update,
+  });
 }
 
 export async function openhumanUpdateScreenIntelligenceSettings(
@@ -935,14 +960,19 @@ export async function openhumanUpdateScreenIntelligenceSettings(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_update_screen_intelligence_settings', { update });
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_screen_intelligence_settings',
+    params: update,
+  });
 }
 
 export async function openhumanGetRuntimeFlags(): Promise<CommandResponse<RuntimeFlags>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_get_runtime_flags');
+  return await callCoreRpc<CommandResponse<RuntimeFlags>>({
+    method: 'openhuman.get_runtime_flags',
+  });
 }
 
 export async function openhumanWorkspaceOnboardingFlagExists(
@@ -951,7 +981,10 @@ export async function openhumanWorkspaceOnboardingFlagExists(
   if (!isTauri()) {
     return false;
   }
-  return await invoke('openhuman_workspace_onboarding_flag_exists', { flagName });
+  return await callCoreRpc<boolean>({
+    method: 'openhuman.workspace_onboarding_flag_exists',
+    params: { flag_name: flagName },
+  });
 }
 
 export async function openhumanSetBrowserAllowAll(
@@ -960,14 +993,17 @@ export async function openhumanSetBrowserAllowAll(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_set_browser_allow_all', { enabled });
+  return await callCoreRpc<CommandResponse<RuntimeFlags>>({
+    method: 'openhuman.set_browser_allow_all',
+    params: { enabled },
+  });
 }
 
 export async function openhumanCronList(): Promise<CommandResponse<CoreCronJob[]>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_cron_list');
+  return await callCoreRpc<CommandResponse<CoreCronJob[]>>({ method: 'openhuman.cron_list' });
 }
 
 export async function openhumanCronUpdate(
@@ -977,7 +1013,10 @@ export async function openhumanCronUpdate(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_cron_update', { jobId, patch });
+  return await callCoreRpc<CommandResponse<CoreCronJob>>({
+    method: 'openhuman.cron_update',
+    params: { job_id: jobId, patch },
+  });
 }
 
 export async function openhumanCronRemove(
@@ -986,7 +1025,10 @@ export async function openhumanCronRemove(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_cron_remove', { jobId });
+  return await callCoreRpc<CommandResponse<{ job_id: string; removed: boolean }>>({
+    method: 'openhuman.cron_remove',
+    params: { job_id: jobId },
+  });
 }
 
 export async function openhumanCronRun(
@@ -1002,7 +1044,14 @@ export async function openhumanCronRun(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_cron_run', { jobId });
+  return await callCoreRpc<
+    CommandResponse<{
+      job_id: string;
+      status: 'ok' | 'error' | string;
+      duration_ms: number;
+      output: string;
+    }>
+  >({ method: 'openhuman.cron_run', params: { job_id: jobId } });
 }
 
 export async function openhumanCronRuns(
@@ -1012,7 +1061,10 @@ export async function openhumanCronRuns(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_cron_runs', { jobId, limit });
+  return await callCoreRpc<CommandResponse<CoreCronRun[]>>({
+    method: 'openhuman.cron_runs',
+    params: { job_id: jobId, limit },
+  });
 }
 
 export async function openhumanAgentChat(
@@ -1024,12 +1076,14 @@ export async function openhumanAgentChat(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-
-  return await invoke('openhuman_agent_chat', {
-    message,
-    providerOverride,
-    modelOverride,
-    temperature,
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.agent_chat',
+    params: {
+      message,
+      provider_override: providerOverride,
+      model_override: modelOverride,
+      temperature,
+    },
   });
 }
 
@@ -1038,7 +1092,9 @@ export async function openhumanLocalAiStatus(): Promise<CommandResponse<LocalAiS
     throw new Error('Not running in Tauri');
   }
   try {
-    return await invoke('openhuman_local_ai_status');
+    return await callCoreRpc<CommandResponse<LocalAiStatus>>({
+      method: 'openhuman.local_ai_status',
+    });
   } catch (err) {
     const message = tauriErrorMessage(err);
     if (message.includes('unknown method: openhuman.local_ai_status')) {
@@ -1057,7 +1113,10 @@ export async function openhumanLocalAiDownload(
     throw new Error('Not running in Tauri');
   }
   try {
-    return await invoke('openhuman_local_ai_download', { force: force ?? false });
+    return await callCoreRpc<CommandResponse<LocalAiStatus>>({
+      method: 'openhuman.local_ai_download',
+      params: { force: force ?? false },
+    });
   } catch (err) {
     const message = tauriErrorMessage(err);
     if (message.includes('unknown method: openhuman.local_ai_download')) {
@@ -1074,7 +1133,10 @@ export async function openhumanLocalAiSummarize(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_summarize', { text, maxTokens });
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.local_ai_summarize',
+    params: { text, max_tokens: maxTokens },
+  });
 }
 
 export async function openhumanLocalAiSuggestQuestions(
@@ -1084,7 +1146,10 @@ export async function openhumanLocalAiSuggestQuestions(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_suggest_questions', { context, lines });
+  return await callCoreRpc<CommandResponse<LocalAiSuggestion[]>>({
+    method: 'openhuman.local_ai_suggest_questions',
+    params: { context, lines },
+  });
 }
 
 export async function openhumanLocalAiPrompt(
@@ -1095,7 +1160,10 @@ export async function openhumanLocalAiPrompt(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_prompt', { prompt, maxTokens, noThink });
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.local_ai_prompt',
+    params: { prompt, max_tokens: maxTokens, no_think: noThink },
+  });
 }
 
 export async function openhumanLocalAiVisionPrompt(
@@ -1106,7 +1174,10 @@ export async function openhumanLocalAiVisionPrompt(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_vision_prompt', { prompt, imageRefs, maxTokens });
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.local_ai_vision_prompt',
+    params: { prompt, image_refs: imageRefs, max_tokens: maxTokens },
+  });
 }
 
 export async function openhumanLocalAiEmbed(
@@ -1115,7 +1186,10 @@ export async function openhumanLocalAiEmbed(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_embed', { inputs });
+  return await callCoreRpc<CommandResponse<LocalAiEmbeddingResult>>({
+    method: 'openhuman.local_ai_embed',
+    params: { inputs },
+  });
 }
 
 export async function openhumanLocalAiTranscribe(
@@ -1124,7 +1198,10 @@ export async function openhumanLocalAiTranscribe(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_transcribe', { audioPath });
+  return await callCoreRpc<CommandResponse<LocalAiSpeechResult>>({
+    method: 'openhuman.local_ai_transcribe',
+    params: { audio_path: audioPath },
+  });
 }
 
 export async function openhumanLocalAiTranscribeBytes(
@@ -1134,6 +1211,7 @@ export async function openhumanLocalAiTranscribeBytes(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
+  // Native bridge stays in Tauri for byte→temp-file orchestration.
   return await invoke('openhuman_local_ai_transcribe_bytes', { audioBytes, extension });
 }
 
@@ -1144,7 +1222,10 @@ export async function openhumanLocalAiTts(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_tts', { text, outputPath });
+  return await callCoreRpc<CommandResponse<LocalAiTtsResult>>({
+    method: 'openhuman.local_ai_tts',
+    params: { text, output_path: outputPath },
+  });
 }
 
 export async function openhumanLocalAiAssetsStatus(): Promise<
@@ -1153,7 +1234,9 @@ export async function openhumanLocalAiAssetsStatus(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_assets_status');
+  return await callCoreRpc<CommandResponse<LocalAiAssetsStatus>>({
+    method: 'openhuman.local_ai_assets_status',
+  });
 }
 
 export async function openhumanLocalAiDownloadAsset(
@@ -1162,7 +1245,10 @@ export async function openhumanLocalAiDownloadAsset(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_local_ai_download_asset', { capability });
+  return await callCoreRpc<CommandResponse<LocalAiAssetsStatus>>({
+    method: 'openhuman.local_ai_download_asset',
+    params: { capability },
+  });
 }
 
 export async function aiGetConfig(): Promise<AIPreview> {
@@ -1183,21 +1269,27 @@ export async function openhumanEncryptSecret(plaintext: string): Promise<Command
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_encrypt_secret', { plaintext });
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.encrypt_secret',
+    params: { plaintext },
+  });
 }
 
 export async function openhumanDecryptSecret(ciphertext: string): Promise<CommandResponse<string>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_decrypt_secret', { ciphertext });
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.decrypt_secret',
+    params: { ciphertext },
+  });
 }
 
 export async function openhumanDoctorReport(): Promise<CommandResponse<DoctorReport>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_doctor_report');
+  return await callCoreRpc<CommandResponse<DoctorReport>>({ method: 'openhuman.doctor_report' });
 }
 
 export async function openhumanDoctorModels(
@@ -1207,14 +1299,19 @@ export async function openhumanDoctorModels(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_doctor_models', { providerOverride, useCache });
+  return await callCoreRpc<CommandResponse<ModelProbeReport>>({
+    method: 'openhuman.doctor_models',
+    params: { provider_override: providerOverride, use_cache: useCache },
+  });
 }
 
 export async function openhumanListIntegrations(): Promise<CommandResponse<IntegrationInfo[]>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_list_integrations');
+  return await callCoreRpc<CommandResponse<IntegrationInfo[]>>({
+    method: 'openhuman.list_integrations',
+  });
 }
 
 export async function openhumanGetIntegrationInfo(
@@ -1223,7 +1320,10 @@ export async function openhumanGetIntegrationInfo(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_get_integration_info', { name });
+  return await callCoreRpc<CommandResponse<IntegrationInfo>>({
+    method: 'openhuman.get_integration_info',
+    params: { name },
+  });
 }
 
 export async function openhumanModelsRefresh(
@@ -1233,7 +1333,10 @@ export async function openhumanModelsRefresh(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_models_refresh', { providerOverride, force });
+  return await callCoreRpc<CommandResponse<ModelRefreshResult>>({
+    method: 'openhuman.models_refresh',
+    params: { provider_override: providerOverride, force },
+  });
 }
 
 export async function openhumanMigrateOpenclaw(
@@ -1243,14 +1346,19 @@ export async function openhumanMigrateOpenclaw(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_migrate_openclaw', { sourceWorkspace, dryRun });
+  return await callCoreRpc<CommandResponse<MigrationReport>>({
+    method: 'openhuman.migrate_openclaw',
+    params: { source_workspace: sourceWorkspace, dry_run: dryRun },
+  });
 }
 
 export async function openhumanHardwareDiscover(): Promise<CommandResponse<DiscoveredDevice[]>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_hardware_discover');
+  return await callCoreRpc<CommandResponse<DiscoveredDevice[]>>({
+    method: 'openhuman.hardware_discover',
+  });
 }
 
 export async function openhumanHardwareIntrospect(
@@ -1259,49 +1367,56 @@ export async function openhumanHardwareIntrospect(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_hardware_introspect', { path });
+  return await callCoreRpc<CommandResponse<HardwareIntrospect>>({
+    method: 'openhuman.hardware_introspect',
+    params: { path },
+  });
 }
 
 export async function openhumanServiceInstall(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_service_install');
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_install' });
 }
 
 export async function openhumanServiceStart(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_service_start');
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_start' });
 }
 
 export async function openhumanServiceStop(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_service_stop');
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_stop' });
 }
 
 export async function openhumanServiceStatus(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_service_status');
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_status' });
 }
 
 export async function openhumanServiceUninstall(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_service_uninstall');
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_uninstall',
+  });
 }
 
 export async function openhumanAgentServerStatus(): Promise<CommandResponse<AgentServerStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_agent_server_status');
+  return await callCoreRpc<CommandResponse<AgentServerStatus>>({
+    method: 'openhuman.agent_server_status',
+  });
 }
 
 export async function openhumanGetDaemonHostConfig(): Promise<CommandResponse<DaemonHostConfig>> {
@@ -1326,7 +1441,10 @@ export async function openhumanAccessibilityStatus(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_status');
+  return await callCoreRpc<CommandResponse<AccessibilityStatus>>({
+    method: 'openhuman.accessibility_status',
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityRequestPermissions(): Promise<
@@ -1335,7 +1453,10 @@ export async function openhumanAccessibilityRequestPermissions(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_request_permissions');
+  return await callCoreRpc<CommandResponse<AccessibilityPermissionStatus>>({
+    method: 'openhuman.accessibility_request_permissions',
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityRequestPermission(
@@ -1344,7 +1465,11 @@ export async function openhumanAccessibilityRequestPermission(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_request_permission', { params: { permission } });
+  return await callCoreRpc<CommandResponse<AccessibilityPermissionStatus>>({
+    method: 'openhuman.accessibility_request_permission',
+    params: { permission },
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityStartSession(
@@ -1353,7 +1478,11 @@ export async function openhumanAccessibilityStartSession(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_start_session', { params });
+  return await callCoreRpc<CommandResponse<AccessibilitySessionStatus>>({
+    method: 'openhuman.accessibility_start_session',
+    params,
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityStopSession(
@@ -1362,7 +1491,11 @@ export async function openhumanAccessibilityStopSession(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_stop_session', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AccessibilitySessionStatus>>({
+    method: 'openhuman.accessibility_stop_session',
+    params: params ?? {},
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityCaptureNow(): Promise<
@@ -1371,7 +1504,10 @@ export async function openhumanAccessibilityCaptureNow(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_capture_now');
+  return await callCoreRpc<CommandResponse<AccessibilityCaptureNowResult>>({
+    method: 'openhuman.accessibility_capture_now',
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityInputAction(
@@ -1380,7 +1516,11 @@ export async function openhumanAccessibilityInputAction(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_input_action', { params });
+  return await callCoreRpc<CommandResponse<AccessibilityInputActionResult>>({
+    method: 'openhuman.accessibility_input_action',
+    params,
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityAutocompleteSuggest(
@@ -1389,7 +1529,11 @@ export async function openhumanAccessibilityAutocompleteSuggest(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_autocomplete_suggest', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AccessibilityAutocompleteSuggestResult>>({
+    method: 'openhuman.accessibility_autocomplete_suggest',
+    params: params ?? {},
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityAutocompleteCommit(
@@ -1398,7 +1542,11 @@ export async function openhumanAccessibilityAutocompleteCommit(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_autocomplete_commit', { params });
+  return await callCoreRpc<CommandResponse<AccessibilityAutocompleteCommitResult>>({
+    method: 'openhuman.accessibility_autocomplete_commit',
+    params,
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityVisionRecent(
@@ -1407,7 +1555,11 @@ export async function openhumanAccessibilityVisionRecent(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_vision_recent', { limit });
+  return await callCoreRpc<CommandResponse<AccessibilityVisionRecentResult>>({
+    method: 'openhuman.accessibility_vision_recent',
+    params: { limit },
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAccessibilityVisionFlush(): Promise<
@@ -1416,14 +1568,19 @@ export async function openhumanAccessibilityVisionFlush(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_accessibility_vision_flush');
+  return await callCoreRpc<CommandResponse<AccessibilityVisionFlushResult>>({
+    method: 'openhuman.accessibility_vision_flush',
+    serviceManaged: true,
+  });
 }
 
 export async function openhumanAutocompleteStatus(): Promise<CommandResponse<AutocompleteStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_status');
+  return await callCoreRpc<CommandResponse<AutocompleteStatus>>({
+    method: 'openhuman.autocomplete_status',
+  });
 }
 
 export async function openhumanAutocompleteStart(
@@ -1432,7 +1589,10 @@ export async function openhumanAutocompleteStart(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_start', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AutocompleteStartResult>>({
+    method: 'openhuman.autocomplete_start',
+    params: params ?? {},
+  });
 }
 
 export async function openhumanAutocompleteStop(
@@ -1441,7 +1601,10 @@ export async function openhumanAutocompleteStop(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_stop', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AutocompleteStopResult>>({
+    method: 'openhuman.autocomplete_stop',
+    params: params ?? {},
+  });
 }
 
 export async function openhumanAutocompleteCurrent(
@@ -1450,7 +1613,10 @@ export async function openhumanAutocompleteCurrent(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_current', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AutocompleteCurrentResult>>({
+    method: 'openhuman.autocomplete_current',
+    params: params ?? {},
+  });
 }
 
 export async function openhumanAutocompleteDebugFocus(): Promise<
@@ -1459,7 +1625,9 @@ export async function openhumanAutocompleteDebugFocus(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_debug_focus');
+  return await callCoreRpc<CommandResponse<AutocompleteDebugFocusResult>>({
+    method: 'openhuman.autocomplete_debug_focus',
+  });
 }
 
 export async function openhumanAutocompleteAccept(
@@ -1468,7 +1636,10 @@ export async function openhumanAutocompleteAccept(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_accept', { params: params ?? null });
+  return await callCoreRpc<CommandResponse<AutocompleteAcceptResult>>({
+    method: 'openhuman.autocomplete_accept',
+    params: params ?? {},
+  });
 }
 
 export async function openhumanAutocompleteSetStyle(
@@ -1477,7 +1648,10 @@ export async function openhumanAutocompleteSetStyle(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('openhuman_autocomplete_set_style', { params });
+  return await callCoreRpc<CommandResponse<AutocompleteSetStyleResult>>({
+    method: 'openhuman.autocomplete_set_style',
+    params,
+  });
 }
 
 export async function runtimeListSkills(): Promise<SkillSnapshot[]> {
@@ -1494,15 +1668,65 @@ export async function runtimeDiscoverSkills(): Promise<RuntimeDiscoveredSkill[]>
   return await invoke('runtime_discover_skills');
 }
 
+export async function runtimeStartSkill(skillId: string): Promise<SkillSnapshot> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('runtime_start_skill', { skill_id: skillId });
+}
+
+export async function runtimeStopSkill(skillId: string): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  await invoke('runtime_stop_skill', { skill_id: skillId });
+}
+
+export async function runtimeRpc<T = unknown>(
+  skillId: string,
+  method: string,
+  params: Record<string, unknown> = {}
+): Promise<T> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke<T>('runtime_rpc', { skill_id: skillId, method, params });
+}
+
+export async function runtimeSkillDataRead(skillId: string, filename: string): Promise<string> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('runtime_skill_data_read', { skill_id: skillId, filename });
+}
+
+export async function runtimeSkillDataWrite(
+  skillId: string,
+  filename: string,
+  content: string
+): Promise<void> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  await invoke('runtime_skill_data_write', { skill_id: skillId, filename, content });
+}
+
+export async function runtimeSkillDataDir(skillId: string): Promise<string> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await invoke('runtime_skill_data_dir', { skill_id: skillId });
+}
+
 export async function runtimeListSkillOptions(skillId: string): Promise<RuntimeSkillOption[]> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const response = await invoke<{ options?: RuntimeSkillOption[] }>('runtime_rpc', {
+  const response = await runtimeRpc<{ options?: RuntimeSkillOption[] }>(
     skillId,
-    method: 'options/list',
-    params: {},
-  });
+    'options/list',
+    {}
+  );
   return response.options ?? [];
 }
 
@@ -1514,7 +1738,7 @@ export async function runtimeSetSkillOption(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  await invoke('runtime_rpc', { skillId, method: 'options/set', params: { name, value } });
+  await runtimeRpc(skillId, 'options/set', { name, value });
 }
 
 export async function runtimeIsSkillEnabled(skillId: string): Promise<boolean> {

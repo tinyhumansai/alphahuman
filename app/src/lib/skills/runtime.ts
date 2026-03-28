@@ -7,7 +7,7 @@
  * that the SkillManager expects.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { runtimeSkillDataDir, runtimeStartSkill } from "../../utils/tauriCommands";
 import { SkillTransport, type ReverseRpcHandler } from "./transport";
 import type {
   SkillManifest,
@@ -45,7 +45,7 @@ export class SkillRuntime {
    */
   async start(): Promise<void> {
     // Start the skill in the Rust QuickJS runtime
-    await invoke("runtime_start_skill", { skillId: this.manifest.id });
+    await runtimeStartSkill(this.manifest.id);
 
     // Initialize the transport for RPC routing
     await this.transport.start(this.manifest.id);
@@ -58,9 +58,7 @@ export class SkillRuntime {
    * so this sends a no-op skill/load RPC for protocol compatibility.
    */
   async load(additionalParams?: Record<string, unknown>): Promise<void> {
-    const dataDir = await invoke<string>("runtime_skill_data_dir", {
-      skillId: this.manifest.id,
-    });
+    const dataDir = await runtimeSkillDataDir(this.manifest.id);
     await this.transport.request("skill/load", {
       manifest: this.manifest,
       dataDir,

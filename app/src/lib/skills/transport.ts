@@ -7,7 +7,7 @@
  * QuickJS engine.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { runtimeRpc, runtimeStopSkill } from '../../utils/tauriCommands';
 
 export type ReverseRpcHandler = (
   method: string,
@@ -53,11 +53,7 @@ export class SkillTransport {
 
     console.log("[skill-transport] →", { skillId: this.skillId, method, params });
 
-    const result = await invoke<T>("runtime_rpc", {
-      skillId: this.skillId,
-      method,
-      params: params ?? {},
-    });
+    const result = await runtimeRpc<T>(this.skillId, method, params ?? {});
 
     console.log("[skill-transport] ←", { skillId: this.skillId, method, result });
 
@@ -80,11 +76,7 @@ export class SkillTransport {
     });
 
     // Fire and forget
-    invoke("runtime_rpc", {
-      skillId: this.skillId,
-      method,
-      params: params ?? {},
-    }).catch((err: unknown) => {
+    runtimeRpc(this.skillId, method, params ?? {}).catch((err: unknown) => {
       console.error("[skill-transport] Notification error:", err);
     });
   }
@@ -96,7 +88,7 @@ export class SkillTransport {
   async kill(): Promise<void> {
     if (this.skillId && this._started) {
       try {
-        await invoke("runtime_stop_skill", { skillId: this.skillId });
+        await runtimeStopSkill(this.skillId);
       } catch {
         // Skill may already be stopped
       }

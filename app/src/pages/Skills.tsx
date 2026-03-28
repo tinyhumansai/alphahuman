@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -15,6 +14,7 @@ import { skillManager } from '../lib/skills/manager';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
+import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 import { deriveSkillSyncSummaryText, deriveSkillSyncUiState } from './skillsSyncUi';
 
 /** Status dot color for skill connection status */
@@ -189,7 +189,7 @@ export default function Skills() {
   useEffect(() => {
     const loadSkills = async () => {
       try {
-        const manifests = await invoke<Array<Record<string, unknown>>>('runtime_discover_skills');
+        const manifests = await runtimeDiscoverSkills();
         const ALLOWED_SKILLS = new Set(['gmail', 'notion']);
         const validManifests = manifests.filter(m => {
           const id = m.id as string;

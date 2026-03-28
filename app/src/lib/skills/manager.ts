@@ -5,8 +5,6 @@
  * and tool invocation. Dispatches status changes to Redux.
  */
 
-import { invoke } from "@tauri-apps/api/core";
-
 import { SkillRuntime } from "./runtime";
 import { syncToolsToBackend } from "./sync";
 import type {
@@ -29,7 +27,12 @@ import {
   setSkillState,
   upsertSkillSyncStats,
 } from "../../store/skillsSlice";
-import { runtimeSkillDataStats } from "../../utils/tauriCommands";
+import {
+  runtimeSkillDataDir,
+  runtimeSkillDataRead,
+  runtimeSkillDataStats,
+  runtimeSkillDataWrite,
+} from "../../utils/tauriCommands";
 // Env vars kept for reverse RPC compatibility (may be used by skills via state)
 
 
@@ -528,10 +531,7 @@ class SkillManager {
       case "data/read": {
         const filename = params.filename as string;
         try {
-          const content = await invoke<string>("runtime_skill_data_read", {
-            skillId,
-            filename,
-          });
+          const content = await runtimeSkillDataRead(skillId, filename);
           return { content };
         } catch {
           return { content: "" };
@@ -542,11 +542,7 @@ class SkillManager {
         const filename = params.filename as string;
         const content = params.content as string;
         try {
-          await invoke("runtime_skill_data_write", {
-            skillId,
-            filename,
-            content,
-          });
+          await runtimeSkillDataWrite(skillId, filename, content);
         } catch (err) {
           console.error("[skill-manager] data/write error:", err);
         }
@@ -596,7 +592,7 @@ class SkillManager {
       const clearPromises = skillIds.map(async (skillId) => {
         try {
           // Get skill data directory path
-          const dataDir = await invoke<string>("runtime_skill_data_dir", { skillId });
+          const dataDir = await runtimeSkillDataDir(skillId);
 
           // Note: We don't directly delete directories here since there's no exposed
           // Tauri command for that. Instead, we rely on the backend to handle

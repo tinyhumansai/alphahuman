@@ -27,7 +27,9 @@ describe('Web → Tauri → Core bridge', () => {
 
     const response = await openhumanServiceStatus();
 
-    expect(mockInvoke).toHaveBeenCalledWith('openhuman_service_status');
+    expect(mockInvoke).toHaveBeenCalledWith('core_rpc_relay', {
+      request: { method: 'openhuman.service_status', params: {}, serviceManaged: false },
+    });
     expect(response).toEqual(tauriResponse);
     expect(response.result.state).toBe(expectedState);
   });
@@ -42,7 +44,9 @@ describe('Web → Tauri → Core bridge', () => {
 
     const response = await openhumanAgentServerStatus();
 
-    expect(mockInvoke).toHaveBeenCalledWith('openhuman_agent_server_status');
+    expect(mockInvoke).toHaveBeenCalledWith('core_rpc_relay', {
+      request: { method: 'openhuman.agent_server_status', params: {}, serviceManaged: false },
+    });
     expect(response.result.running).toBe(true);
     expect(response.result.url).toContain('127.0.0.1');
   });

@@ -859,6 +859,7 @@ pub fn run() {
                     write_ai_config_file,
                     ai_get_config,
                     ai_refresh_config,
+                    core_rpc_relay,
                     get_auth_state,
                     get_session_token,
                     get_current_user,

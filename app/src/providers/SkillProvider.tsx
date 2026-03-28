@@ -4,7 +4,6 @@
  * On mount (when authenticated): discovers skills from the QuickJS runtime
  * engine, registers them in Redux, and auto-starts skills with completed setup.
  */
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { type ReactNode, useEffect, useRef } from 'react';
 
@@ -14,13 +13,14 @@ import { buildManualSentryEvent, enqueueError } from '../services/errorReportQue
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
+import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 async function discoverSkills(): Promise<SkillManifest[]> {
-  const raw = await invoke<Array<Record<string, unknown>>>('runtime_discover_skills');
+  const raw = await runtimeDiscoverSkills();
 
   const manifests: SkillManifest[] = raw.map(m => ({
     id: m.id as string,
