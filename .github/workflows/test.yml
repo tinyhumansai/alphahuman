@@ -95,7 +95,7 @@ jobs:
         run: cargo test -p openhuman-core
 
       - name: Test src-tauri (OpenHuman)
-        run: cargo test -p OpenHuman
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml
 
   e2e-macos:
     name: E2E (macOS / Appium)

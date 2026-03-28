@@ -313,8 +313,10 @@ jobs:
             CORE_DIR="openhuman_core"
           elif [ -f "rust-core/Cargo.toml" ]; then
             CORE_DIR="rust-core"
+          elif [ -f "Cargo.toml" ] && grep -q '^name = "openhuman-core"' Cargo.toml; then
+            CORE_DIR="."
           else
-            echo "No core Cargo manifest found (expected openhuman_core/Cargo.toml or rust-core/Cargo.toml)"
+            echo "No core Cargo manifest found (expected root Cargo.toml with openhuman-core, openhuman_core/Cargo.toml, or rust-core/Cargo.toml)"
             exit 1
           fi
 

@@ -37,12 +37,12 @@ const isWindows = process.platform === "win32";
 const binName = isWindows ? "openhuman.exe" : "openhuman";
 
 console.log(
-  `[core:stage] Building rust-core standalone binary for ${triple}...`,
+  `[core:stage] Building openhuman-core standalone binary for ${triple}...`,
 );
 run("cargo", [
   "build",
   "--manifest-path",
-  "rust-core/Cargo.toml",
+  "Cargo.toml",
   "--bin",
   "openhuman",
 ]);
