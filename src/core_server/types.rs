@@ -142,6 +142,12 @@ pub struct AuthStoreSessionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AuthConsumeLoginTokenParams {
+    pub login_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthStoreProviderCredentialsParams {
     pub provider: String,
     #[serde(default)]

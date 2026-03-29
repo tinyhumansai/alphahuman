@@ -123,6 +123,18 @@ struct TokensData {
     encrypted: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct LoginTokenConsumeEnvelope {
+    success: bool,
+    data: LoginTokenConsumeData,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginTokenConsumeData {
+    jwt_token: String,
+}
+
 /// Decrypted OAuth token payload from `POST /auth/integrations/:id/tokens`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +235,46 @@ impl BackendOAuthClient {
             anyhow::bail!("GET /settings failed ({status}): {text}");
         }
         parse_settings_response_json(&text)
+    }
+
+    /// `POST /telegram/login-tokens/:token/consume` — exchange a one-time login token for a JWT.
+    pub async fn consume_login_token(&self, login_token: &str) -> Result<String> {
+        let token = login_token.trim();
+        anyhow::ensure!(!token.is_empty(), "login token is required");
+
+        let url = self
+            .base
+            .join(&format!(
+                "telegram/login-tokens/{}/consume",
+                urlencoding::encode(token)
+            ))
+            .context("build login-token consume URL")?;
+
+        let resp = self
+            .client
+            .post(url)
+            .send()
+            .await
+            .context("consume login token")?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("consume login token failed ({status}): {text}");
+        }
+
+        let env: LoginTokenConsumeEnvelope = serde_json::from_str(&text)
+            .with_context(|| format!("parse consume-login-token JSON: {text}"))?;
+        if !env.success {
+            anyhow::bail!("consume login token unsuccessful: {text}");
+        }
+
+        let jwt = env.data.jwt_token.trim().to_string();
+        anyhow::ensure!(
+            !jwt.is_empty(),
+            "consume login token response missing jwtToken"
+        );
+        Ok(jwt)
     }
 
     /// Confirms the JWT is accepted by the API using `GET /settings`.

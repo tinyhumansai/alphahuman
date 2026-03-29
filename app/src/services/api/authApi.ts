@@ -1,4 +1,7 @@
+import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
+
 import { apiClient } from '../apiClient';
+import { callCoreRpc } from '../coreRpcClient';
 
 interface ConsumeLoginTokenResponse {
   success: boolean;
@@ -16,6 +19,18 @@ interface IntegrationTokensResponse {
  * POST /telegram/login-tokens/:token/consume (no auth required)
  */
 export async function consumeLoginToken(loginToken: string): Promise<string> {
+  if (coreIsTauri()) {
+    const response = await callCoreRpc<{ result: { jwtToken: string } }>({
+      method: 'openhuman.auth.consume_login_token',
+      params: { loginToken },
+    });
+    const jwtToken = response.result?.jwtToken;
+    if (!jwtToken) {
+      throw new Error('Login token invalid or expired');
+    }
+    return jwtToken;
+  }
+
   const response = await apiClient.post<ConsumeLoginTokenResponse>(
     `/telegram/login-tokens/${encodeURIComponent(loginToken)}/consume`,
     undefined,

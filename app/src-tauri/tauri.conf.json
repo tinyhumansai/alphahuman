@@ -4,7 +4,7 @@
   "version": "0.49.16",
   "identifier": "com.tinyhumansai.openhuman",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run core:stage && npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build:app && npm run core:stage",
     "frontendDist": "../dist"

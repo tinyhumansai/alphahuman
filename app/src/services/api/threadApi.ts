@@ -1,3 +1,5 @@
+import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
+
 import type { ApiResponse } from '../../types/api';
 import type { OutboundRoute } from '../../types/channels';
 import type {
@@ -10,6 +12,7 @@ import type {
   ThreadMessagesData,
   ThreadsListData,
 } from '../../types/thread';
+import { openhumanAgentChat } from '../../utils/tauriCommands';
 import { apiClient } from '../apiClient';
 
 export const threadApi = {
@@ -50,6 +53,11 @@ export const threadApi = {
     conversationId: string,
     route?: OutboundRoute
   ): Promise<SendMessageResponseData> => {
+    if (coreIsTauri()) {
+      const response = await openhumanAgentChat(message);
+      return { response: response.result, conversationId, route };
+    }
+
     const response = await apiClient.post<ApiResponse<SendMessageResponseData>>(
       '/chat/sendMessage',
       {

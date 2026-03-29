@@ -1,8 +1,8 @@
 use crate::core_server::helpers::{parse_params, rpc_invocation_from_outcome};
 use crate::core_server::types::{
-    AuthListProviderCredentialsParams, AuthOauthConnectParams, AuthOauthIntegrationTokensParams,
-    AuthOauthRevokeParams, AuthRemoveProviderCredentialsParams, AuthStoreProviderCredentialsParams,
-    AuthStoreSessionParams, InvocationResult,
+    AuthConsumeLoginTokenParams, AuthListProviderCredentialsParams, AuthOauthConnectParams,
+    AuthOauthIntegrationTokensParams, AuthOauthRevokeParams, AuthRemoveProviderCredentialsParams,
+    AuthStoreProviderCredentialsParams, AuthStoreSessionParams, InvocationResult,
 };
 use crate::openhuman::config::Config;
 
@@ -67,6 +67,21 @@ pub async fn try_dispatch(
                 rpc_invocation_from_outcome(
                     crate::openhuman::credentials::rpc::auth_get_session_token_json(&config)
                         .await?,
+                )
+            }
+            .await,
+        ),
+
+        "openhuman.auth.consume_login_token" => Some(
+            async move {
+                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
+                let payload: AuthConsumeLoginTokenParams = parse_params(params)?;
+                rpc_invocation_from_outcome(
+                    crate::openhuman::credentials::rpc::consume_login_token(
+                        &config,
+                        payload.login_token.trim(),
+                    )
+                    .await?,
                 )
             }
             .await,

@@ -124,6 +124,34 @@ pub async fn auth_get_session_token_json(
     ))
 }
 
+pub async fn consume_login_token(
+    config: &Config,
+    login_token: &str,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    let token = login_token.trim();
+    if token.is_empty() {
+        return Err("loginToken is required".to_string());
+    }
+
+    let api_url = effective_api_url(&config.api_url);
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
+    let jwt_token = client
+        .consume_login_token(token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(RpcOutcome::new(
+        serde_json::json!({ "jwtToken": jwt_token }),
+        vec![
+            format!(
+                "login token consumed via POST /telegram/login-tokens/:token/consume on {}",
+                api_url.trim_end_matches('/')
+            ),
+            "session JWT received".to_string(),
+        ],
+    ))
+}
+
 pub async fn store_provider_credentials(
     config: &Config,
     provider: &str,

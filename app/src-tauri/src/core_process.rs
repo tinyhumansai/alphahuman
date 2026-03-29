@@ -202,10 +202,29 @@ pub fn default_core_bin() -> Option<PathBuf> {
         }
     }
 
-    // Dev ergonomics: in debug builds, prefer spawning this same executable with
-    // `core run` so Cargo recompiles core logic changes as part of tauri dev.
-    // Sidecar discovery remains enabled for packaged/release builds.
+    // Dev ergonomics: allow an explicit staged sidecar from src-tauri/binaries in
+    // debug builds before falling back to self-subcommand spawning.
     if cfg!(debug_assertions) {
+        let binaries_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
+        if let Ok(entries) = std::fs::read_dir(&binaries_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                #[cfg(windows)]
+                let matches = file_name.starts_with("openhuman-") && file_name.ends_with(".exe");
+                #[cfg(not(windows))]
+                let matches = file_name.starts_with("openhuman-");
+                if matches {
+                    return Some(path);
+                }
+            }
+        }
+
         return None;
     }
 

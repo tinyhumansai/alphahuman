@@ -27,7 +27,11 @@ import {
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
 import { BACKEND_URL } from '../utils/config';
-import { openhumanLocalAiTranscribeBytes, openhumanLocalAiTts } from '../utils/tauriCommands';
+import {
+  openhumanAgentChat,
+  openhumanLocalAiTranscribeBytes,
+  openhumanLocalAiTts,
+} from '../utils/tauriCommands';
 
 const DEFAULT_THREAD_ID = 'default-thread';
 const DEFAULT_THREAD_TITLE = 'Conversation';
@@ -451,9 +455,46 @@ const Conversations = () => {
     } catch (err) {
       // invoke() itself failed (the chat loop reports errors via events)
       const msg = err instanceof Error ? err.message : String(err);
-      setSendError(msg);
-      setIsSending(false);
-      dispatch(setActiveThread(null));
+      const unavailable =
+        msg.includes('chat_send is not available') || msg.includes('use the web stack or core RPC');
+
+      if (!unavailable) {
+        setSendError(msg);
+        setIsSending(false);
+        dispatch(setActiveThread(null));
+        return;
+      }
+
+      try {
+        const notionCtx = buildNotionContext(
+          notionProfile,
+          notionPages,
+          notionSummaries,
+          notionWorkspaceName
+        );
+        const conversationContext = historySnapshot
+          .slice(-20)
+          .map(m => `${m.sender === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n');
+        const combinedPrompt = [
+          notionCtx ? notionCtx : '',
+          conversationContext ? `[RECENT_CONTEXT]\n${conversationContext}\n[/RECENT_CONTEXT]` : '',
+          `User message: ${trimmed}`,
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+
+        const response = await openhumanAgentChat(combinedPrompt, selectedModel);
+        const content = response.result?.trim() || 'Something went wrong — please try again.';
+        dispatch(addInferenceResponse({ content, threadId: sendingThreadId }));
+      } catch (fallbackErr) {
+        const fallbackMsg =
+          fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        setSendError(fallbackMsg);
+      } finally {
+        setIsSending(false);
+        dispatch(setActiveThread(null));
+      }
     }
   };
 
