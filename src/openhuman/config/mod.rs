@@ -13,15 +13,14 @@ pub use schema::{
     AgentConfig, AuditConfig, AutocompleteConfig, AutonomyConfig, BrowserComputerUseConfig,
     BrowserConfig, ChannelsConfig, ClassificationRule, CloudflareTunnelConfig, ComposioConfig,
     Config, CostConfig, CronConfig, CustomTunnelConfig, DelegateAgentConfig, DiscordConfig,
-    DockerRuntimeConfig, EmbeddingRouteConfig, HardwareConfig, HardwareTransport,
-    HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig, LarkConfig, LocalAiConfig,
-    MatrixConfig, MemoryConfig, ModelRouteConfig, MultimodalConfig, NgrokTunnelConfig,
-    ObservabilityConfig, PeripheralBoardConfig, PeripheralsConfig, ProxyConfig, ProxyScope,
-    QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig,
-    SandboxBackend, SandboxConfig, SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig,
-    SecurityConfig, SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection,
-    StreamMode, TailscaleTunnelConfig, TelegramConfig, TunnelConfig, WebSearchConfig,
-    WebhookConfig,
+    DockerRuntimeConfig, EmbeddingRouteConfig, HardwareConfig, HardwareTransport, HeartbeatConfig,
+    HttpRequestConfig, IMessageConfig, IdentityConfig, LarkConfig, LocalAiConfig, MatrixConfig,
+    MemoryConfig, ModelRouteConfig, MultimodalConfig, NgrokTunnelConfig, ObservabilityConfig,
+    PeripheralBoardConfig, PeripheralsConfig, ProxyConfig, ProxyScope, QueryClassificationConfig,
+    ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig,
+    SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig, SecurityConfig, SlackConfig,
+    StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
+    TailscaleTunnelConfig, TelegramConfig, TunnelConfig, WebSearchConfig, WebhookConfig,
 };
 
 #[cfg(test)]

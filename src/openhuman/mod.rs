@@ -2,7 +2,7 @@
 //!
 //! Ported from OpenHuman (MIT-licensed). Provides:
 //! - Health registry for component monitoring
-//! - Security policy, secrets, audit, pairing, and sandboxing
+//! - Security policy, secrets, audit, channel pairing, and sandboxing
 //! - Daemon supervisor with exponential backoff
 //! - Agent runtime (dispatcher, loop, prompt, etc.)
 //! - Providers, tools, memory, observability, approval, and skills

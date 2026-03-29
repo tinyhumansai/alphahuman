@@ -3,7 +3,8 @@ use serde::Deserialize;
 use crate::core_server::helpers::{parse_params, rpc_invocation_from_outcome};
 use crate::core_server::types::{
     BrowserSettingsUpdate, InvocationResult, MemorySettingsUpdate, ModelSettingsUpdate,
-    RuntimeFlags, RuntimeSettingsUpdate, ScreenIntelligenceSettingsUpdate, SetBrowserAllowAllParams,
+    RuntimeFlags, RuntimeSettingsUpdate, ScreenIntelligenceSettingsUpdate,
+    SetBrowserAllowAllParams,
 };
 use crate::core_server::DEFAULT_ONBOARDING_FLAG_NAME;
 use crate::openhuman::config::rpc::{self as config_rpc};

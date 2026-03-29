@@ -164,7 +164,7 @@ impl PairingGuard {
         tokens.contains(&hashed)
     }
 
-    /// Returns true if the gateway is already paired (has at least one token).
+    /// Returns true if pairing is satisfied (has at least one token).
     pub fn is_paired(&self) -> bool {
         let tokens = self.paired_tokens.lock();
         !tokens.is_empty()
