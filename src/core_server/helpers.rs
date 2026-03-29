@@ -39,12 +39,7 @@ pub fn desktop_resource_dir() -> Option<PathBuf> {
 }
 
 pub async fn load_openhuman_config() -> Result<Config, String> {
-    let timeout_duration = std::time::Duration::from_secs(30);
-    match tokio::time::timeout(timeout_duration, Config::load_or_init()).await {
-        Ok(Ok(config)) => Ok(config),
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err("Config loading timed out".to_string()),
-    }
+    crate::openhuman::config::rpc::load_config_with_timeout().await
 }
 
 pub fn default_workspace_dir() -> PathBuf {
@@ -132,4 +127,19 @@ pub fn rpc_invocation_from_outcome<T: Serialize>(
     o: RpcOutcome<T>,
 ) -> Result<super::types::InvocationResult, String> {
     super::types::InvocationResult::with_logs(o.value, o.logs)
+}
+
+/// Wraps a domain [`RpcOutcome`] the same way as JSON-RPC / [`super::types::invocation_to_rpc_json`] for CLI output.
+pub fn rpc_outcome_to_cli_json<T: Serialize>(
+    outcome: RpcOutcome<T>,
+) -> Result<serde_json::Value, String> {
+    Ok(super::types::invocation_to_rpc_json(
+        rpc_invocation_from_outcome(outcome)?,
+    ))
+}
+
+pub async fn rpc_outcome_fut_to_cli_json<T: Serialize>(
+    fut: impl std::future::Future<Output = Result<RpcOutcome<T>, String>>,
+) -> Result<serde_json::Value, String> {
+    rpc_outcome_to_cli_json(fut.await?)
 }

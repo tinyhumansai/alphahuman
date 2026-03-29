@@ -8,9 +8,17 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use serde_json::json;
 
-use crate::core_server::helpers::load_openhuman_config;
-use crate::core_server::types::{command_response, CommandResponse, ConfigSnapshot};
+use crate::core_server::helpers::{
+    load_openhuman_config, parse_params, rpc_outcome_fut_to_cli_json, rpc_outcome_to_cli_json,
+};
+use crate::core_server::types::{
+    command_response, BrowserSettingsUpdate, CommandResponse, ConfigSnapshot,
+    GatewaySettingsUpdate, MemorySettingsUpdate, ModelSettingsUpdate, RuntimeSettingsUpdate,
+};
 use crate::core_server::{call_method, run_server, APP_SESSION_PROVIDER};
+use crate::openhuman::config::rpc as config_rpc;
+use crate::openhuman::config::{Config, TunnelConfig};
+use crate::openhuman::credentials;
 use crate::openhuman::heartbeat::engine::HeartbeatEngine;
 use crate::openhuman::screen_intelligence::{
     AccessibilityStatus, CaptureImageRefResult, PermissionState,
@@ -752,7 +760,10 @@ async fn execute_tools_screenshot(args: ToolsScreenshotArgs) -> Result<serde_jso
 async fn execute_tools_screenshot_ref(
     args: ToolsScreenshotRefArgs,
 ) -> Result<serde_json::Value, String> {
-    let raw = call_method("openhuman.accessibility_capture_image_ref", json!({})).await?;
+    let raw = rpc_outcome_fut_to_cli_json(
+        crate::openhuman::screen_intelligence::rpc::accessibility_capture_image_ref(),
+    )
+    .await?;
     let payload: CommandResponse<CaptureImageRefResult> =
         serde_json::from_value(raw).map_err(|e| {
             format!("failed to decode screen intelligence capture_image_ref response: {e}")
@@ -791,7 +802,8 @@ async fn execute_tools_screenshot_ref(
 }
 
 async fn get_config_snapshot() -> Result<CommandResponse<ConfigSnapshot>, String> {
-    let value = call_method("openhuman.get_config", json!({})).await?;
+    let config = load_openhuman_config().await?;
+    let value = rpc_outcome_fut_to_cli_json(config_rpc::get_config_snapshot(&config)).await?;
     serde_json::from_value::<CommandResponse<ConfigSnapshot>>(value)
         .map_err(|e| format!("failed to decode config snapshot: {e}"))
 }
@@ -852,10 +864,12 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             .map_err(|e| format!("run failed: {e}")),
         CoreCommand::Ping => call_method("core.ping", json!({})).await,
         CoreCommand::Version => call_method("core.version", json!({})).await,
-        CoreCommand::Health => call_method("openhuman.health_snapshot", json!({})).await,
-        CoreCommand::RuntimeFlags => call_method("openhuman.get_runtime_flags", json!({})).await,
+        CoreCommand::Health => {
+            rpc_outcome_to_cli_json(crate::openhuman::health::rpc::health_snapshot())
+        }
+        CoreCommand::RuntimeFlags => rpc_outcome_to_cli_json(config_rpc::get_runtime_flags()),
         CoreCommand::SecurityPolicy => {
-            call_method("openhuman.security_policy_info", json!({})).await
+            rpc_outcome_to_cli_json(crate::openhuman::security::rpc::security_policy_info())
         }
         CoreCommand::Call { method, params } => {
             call_method(&method, parse_json_arg(&params)?).await
@@ -891,10 +905,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("default_temperature".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method(
-                        "openhuman.update_model_settings",
-                        serde_json::Value::Object(payload),
-                    )
+                    let update: ModelSettingsUpdate =
+                        parse_params(serde_json::Value::Object(payload))?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_model_settings(
+                        &mut config,
+                        update.into(),
+                    ))
                     .await
                 }
             },
@@ -922,10 +939,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("embedding_dimensions".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method(
-                        "openhuman.update_memory_settings",
-                        serde_json::Value::Object(payload),
-                    )
+                    let update: MemorySettingsUpdate =
+                        parse_params(serde_json::Value::Object(payload))?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_memory_settings(
+                        &mut config,
+                        update.into(),
+                    ))
                     .await
                 }
             },
@@ -950,10 +970,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("allow_public_bind".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method(
-                        "openhuman.update_gateway_settings",
-                        serde_json::Value::Object(payload),
-                    )
+                    let update: GatewaySettingsUpdate =
+                        parse_params(serde_json::Value::Object(payload))?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_gateway_settings(
+                        &mut config,
+                        update.into(),
+                    ))
                     .await
                 }
             },
@@ -964,10 +987,12 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         .map_err(|e| e.to_string())
                 }
                 TunnelSettingsCommand::Set(args) => {
-                    call_method(
-                        "openhuman.update_tunnel_settings",
-                        parse_json_arg(&args.json)?,
-                    )
+                    let tunnel: TunnelConfig = parse_params(parse_json_arg(&args.json)?)?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_tunnel_settings(
+                        &mut config,
+                        tunnel,
+                    ))
                     .await
                 }
             },
@@ -986,10 +1011,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("reasoning_enabled".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method(
-                        "openhuman.update_runtime_settings",
-                        serde_json::Value::Object(payload),
-                    )
+                    let update: RuntimeSettingsUpdate =
+                        parse_params(serde_json::Value::Object(payload))?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_runtime_settings(
+                        &mut config,
+                        update.into(),
+                    ))
                     .await
                 }
             },
@@ -1005,20 +1033,29 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                         payload.insert("enabled".to_string(), json!(v));
                     }
                     ensure_non_empty_payload(&payload).map_err(|e| e.to_string())?;
-                    call_method(
-                        "openhuman.update_browser_settings",
-                        serde_json::Value::Object(payload),
-                    )
+                    let update: BrowserSettingsUpdate =
+                        parse_params(serde_json::Value::Object(payload))?;
+                    let mut config = load_openhuman_config().await?;
+                    rpc_outcome_fut_to_cli_json(config_rpc::apply_browser_settings(
+                        &mut config,
+                        update.into(),
+                    ))
                     .await
                 }
             },
         },
         CoreCommand::Accessibility { command } => match command {
             AccessibilityCommand::Status => {
-                call_method("openhuman.accessibility_status", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_status(),
+                )
+                .await
             }
             AccessibilityCommand::Doctor => {
-                let raw = call_method("openhuman.accessibility_status", json!({})).await?;
+                let raw = rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_status(),
+                )
+                .await?;
                 let payload: CommandResponse<AccessibilityStatus> = serde_json::from_value(raw)
                     .map_err(|e| format!("failed to decode screen intelligence status: {e}"))?;
                 let permissions = &payload.result.permissions;
@@ -1076,99 +1113,121 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 }))
             }
             AccessibilityCommand::RequestPermissions => {
-                call_method("openhuman.accessibility_request_permissions", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_request_permissions(),
+                )
+                .await
             }
             AccessibilityCommand::RequestPermission(args) => {
-                call_method(
-                    "openhuman.accessibility_request_permission",
-                    json!({ "permission": args.permission }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_request_permission(
+                        parse_params(json!({ "permission": args.permission }))?,
+                    ),
                 )
                 .await
             }
             AccessibilityCommand::StartSession(args) => {
-                call_method(
-                    "openhuman.accessibility_start_session",
-                    json!({
-                        "consent": args.consent,
-                        "ttl_secs": args.ttl_secs,
-                        "screen_monitoring": args.screen_monitoring,
-                        "device_control": args.device_control,
-                        "predictive_input": args.predictive_input,
-                    }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_start_session(
+                        parse_params(json!({
+                            "consent": args.consent,
+                            "ttl_secs": args.ttl_secs,
+                            "screen_monitoring": args.screen_monitoring,
+                            "device_control": args.device_control,
+                            "predictive_input": args.predictive_input,
+                        }))?,
+                    ),
                 )
                 .await
             }
             AccessibilityCommand::StopSession(args) => {
-                call_method(
-                    "openhuman.accessibility_stop_session",
-                    json!({ "reason": args.reason }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_stop_session(
+                        parse_params(json!({ "reason": args.reason }))?,
+                    ),
                 )
                 .await
             }
             AccessibilityCommand::CaptureNow => {
-                call_method("openhuman.accessibility_capture_now", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_capture_now(),
+                )
+                .await
             }
             AccessibilityCommand::CaptureImageRef => {
-                call_method("openhuman.accessibility_capture_image_ref", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_capture_image_ref(),
+                )
+                .await
             }
             AccessibilityCommand::VisionRecent(args) => {
-                call_method(
-                    "openhuman.accessibility_vision_recent",
-                    json!({ "limit": args.limit }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_vision_recent(
+                        args.limit,
+                    ),
                 )
                 .await
             }
             AccessibilityCommand::VisionFlush => {
-                call_method("openhuman.accessibility_vision_flush", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::screen_intelligence::rpc::accessibility_vision_flush(),
+                )
+                .await
             }
         },
         CoreCommand::Autocomplete { command } => match command {
             AutocompleteCommand::Status => {
-                call_method("openhuman.autocomplete_status", json!({})).await
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::autocomplete::rpc::autocomplete_status(),
+                )
+                .await
             }
             AutocompleteCommand::Start(args) => {
-                call_method(
-                    "openhuman.autocomplete_start",
-                    json!({ "debounce_ms": args.debounce_ms }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::autocomplete::rpc::autocomplete_start(parse_params(
+                        json!({ "debounce_ms": args.debounce_ms }),
+                    )?),
                 )
                 .await
             }
             AutocompleteCommand::Stop(args) => {
-                call_method(
-                    "openhuman.autocomplete_stop",
-                    json!({ "reason": args.reason }),
-                )
+                rpc_outcome_fut_to_cli_json(crate::openhuman::autocomplete::rpc::autocomplete_stop(
+                    Some(parse_params(json!({ "reason": args.reason }))?),
+                ))
                 .await
             }
             AutocompleteCommand::Current(args) => {
-                call_method(
-                    "openhuman.autocomplete_current",
-                    json!({ "context": args.context }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::autocomplete::rpc::autocomplete_current(Some(parse_params(
+                        json!({ "context": args.context }),
+                    )?)),
                 )
                 .await
             }
             AutocompleteCommand::Accept(args) => {
-                call_method(
-                    "openhuman.autocomplete_accept",
-                    json!({ "suggestion": args.suggestion }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::autocomplete::rpc::autocomplete_accept(parse_params(
+                        json!({ "suggestion": args.suggestion }),
+                    )?),
                 )
                 .await
             }
             AutocompleteCommand::SetStyle(args) => {
                 let style_examples = (!args.style_example.is_empty()).then_some(args.style_example);
                 let disabled_apps = (!args.disabled_app.is_empty()).then_some(args.disabled_app);
-                call_method(
-                    "openhuman.autocomplete_set_style",
-                    json!({
-                        "enabled": args.enabled,
-                        "debounce_ms": args.debounce_ms,
-                        "max_chars": args.max_chars,
-                        "style_preset": args.style_preset,
-                        "style_instructions": args.style_instructions,
-                        "style_examples": style_examples,
-                        "disabled_apps": disabled_apps,
-                        "accept_with_tab": args.accept_with_tab,
-                    }),
+                rpc_outcome_fut_to_cli_json(
+                    crate::openhuman::autocomplete::rpc::autocomplete_set_style(parse_params(
+                        json!({
+                            "enabled": args.enabled,
+                            "debounce_ms": args.debounce_ms,
+                            "max_chars": args.max_chars,
+                            "style_preset": args.style_preset,
+                            "style_instructions": args.style_instructions,
+                            "style_examples": style_examples,
+                            "disabled_apps": disabled_apps,
+                            "accept_with_tab": args.accept_with_tab,
+                        }),
+                    )?),
                 )
                 .await
             }
@@ -1178,72 +1237,73 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 let provider = args.provider.trim().to_string();
                 let token = args.token.clone().unwrap_or_default();
                 let fields = parse_key_value_flags(&args.field)?;
+                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
 
                 if provider == APP_SESSION_PROVIDER {
                     let user = match args.user_json {
                         Some(raw) => Some(parse_json_arg(&raw)?),
                         None => None,
                     };
-                    call_method(
-                        "openhuman.auth.store_session",
-                        json!({
-                            "token": token,
-                            "userId": args.user_id,
-                            "user": user
-                        }),
-                    )
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::store_session(
+                        &config,
+                        &token,
+                        args.user_id.clone(),
+                        user,
+                    ))
                     .await
                 } else {
-                    call_method(
-                        "openhuman.auth.store_provider_credentials",
-                        json!({
-                            "provider": provider,
-                            "profile": args.profile,
-                            "token": token,
-                            "fields": fields,
-                            "setActive": args.set_active
-                        }),
-                    )
+                    let fields_opt = match &fields {
+                        serde_json::Value::Object(map) if map.is_empty() => None,
+                        _ => Some(fields),
+                    };
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::store_provider_credentials(
+                        &config,
+                        &provider,
+                        args.profile.as_deref(),
+                        args.token.clone(),
+                        fields_opt,
+                        Some(args.set_active),
+                    ))
                     .await
                 }
             }
             AuthCommand::Logout(args) => {
                 let provider = args.provider.trim().to_string();
+                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
                 if provider == APP_SESSION_PROVIDER {
-                    call_method("openhuman.auth.clear_session", json!({})).await
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::clear_session(&config)).await
                 } else {
-                    call_method(
-                        "openhuman.auth.remove_provider_credentials",
-                        json!({
-                            "provider": provider,
-                            "profile": args.profile
-                        }),
-                    )
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::remove_provider_credentials(
+                        &config,
+                        &provider,
+                        args.profile.as_deref(),
+                    ))
                     .await
                 }
             }
             AuthCommand::Status(args) => {
                 let provider = args.provider.trim().to_string();
+                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
                 if provider == APP_SESSION_PROVIDER {
-                    call_method("openhuman.auth.get_state", json!({})).await
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::auth_get_state(&config)).await
                 } else {
-                    call_method(
-                        "openhuman.auth.list_provider_credentials",
-                        json!({
-                            "provider": provider,
-                            "profile": args.profile
-                        }),
-                    )
+                    rpc_outcome_fut_to_cli_json(credentials::rpc::list_provider_credentials(
+                        &config,
+                        Some(provider),
+                    ))
                     .await
                 }
             }
             AuthCommand::List(args) => {
-                call_method(
-                    "openhuman.auth.list_provider_credentials",
-                    json!({
-                        "provider": args.provider
-                    }),
-                )
+                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
+                let filter = args
+                    .provider
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                rpc_outcome_fut_to_cli_json(credentials::rpc::list_provider_credentials(
+                    &config, filter,
+                ))
                 .await
             }
         },
@@ -1337,24 +1397,60 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             }
         },
         CoreCommand::Config { command } => match command {
-            ConfigCommand::Get => call_method("openhuman.get_config", json!({})).await,
+            ConfigCommand::Get => {
+                let config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::get_config_snapshot(&config)).await
+            }
             ConfigCommand::UpdateModel { json } => {
-                call_method("openhuman.update_model_settings", parse_json_arg(&json)?).await
+                let update: ModelSettingsUpdate = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_model_settings(
+                    &mut config,
+                    update.into(),
+                ))
+                .await
             }
             ConfigCommand::UpdateMemory { json } => {
-                call_method("openhuman.update_memory_settings", parse_json_arg(&json)?).await
+                let update: MemorySettingsUpdate = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_memory_settings(
+                    &mut config,
+                    update.into(),
+                ))
+                .await
             }
             ConfigCommand::UpdateGateway { json } => {
-                call_method("openhuman.update_gateway_settings", parse_json_arg(&json)?).await
+                let update: GatewaySettingsUpdate = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_gateway_settings(
+                    &mut config,
+                    update.into(),
+                ))
+                .await
             }
             ConfigCommand::UpdateRuntime { json } => {
-                call_method("openhuman.update_runtime_settings", parse_json_arg(&json)?).await
+                let update: RuntimeSettingsUpdate = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_runtime_settings(
+                    &mut config,
+                    update.into(),
+                ))
+                .await
             }
             ConfigCommand::UpdateBrowser { json } => {
-                call_method("openhuman.update_browser_settings", parse_json_arg(&json)?).await
+                let update: BrowserSettingsUpdate = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_browser_settings(
+                    &mut config,
+                    update.into(),
+                ))
+                .await
             }
             ConfigCommand::UpdateTunnel { json } => {
-                call_method("openhuman.update_tunnel_settings", parse_json_arg(&json)?).await
+                let tunnel: TunnelConfig = parse_params(parse_json_arg(&json)?)?;
+                let mut config = load_openhuman_config().await?;
+                rpc_outcome_fut_to_cli_json(config_rpc::apply_tunnel_settings(&mut config, tunnel))
+                    .await
             }
         },
     }

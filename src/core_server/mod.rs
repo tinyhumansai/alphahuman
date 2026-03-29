@@ -1,6 +1,8 @@
 mod cli;
+mod config_rpc_bridge;
 mod dispatch;
 mod helpers;
+mod json_rpc;
 mod server;
 mod types;
 

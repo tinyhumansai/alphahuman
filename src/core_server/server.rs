@@ -1,51 +1,11 @@
-use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::json;
 
-use crate::core_server::dispatch;
-use crate::core_server::types::{AppState, RpcError, RpcFailure, RpcRequest, RpcSuccess};
-
-pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcRequest>) -> Response {
-    let id = req.id.clone();
-
-    let result = dispatch::dispatch(state, req.method.as_str(), req.params).await;
-
-    match result {
-        Ok(value) => to_rpc_success(id, value),
-        Err(message) => rpc_error_response(id, -32000, message),
-    }
-}
-
-fn rpc_error_response(id: serde_json::Value, code: i64, message: String) -> Response {
-    (
-        StatusCode::OK,
-        Json(RpcFailure {
-            jsonrpc: "2.0",
-            id,
-            error: RpcError {
-                code,
-                message,
-                data: None,
-            },
-        }),
-    )
-        .into_response()
-}
-
-fn to_rpc_success(id: serde_json::Value, value: serde_json::Value) -> Response {
-    (
-        StatusCode::OK,
-        Json(RpcSuccess {
-            jsonrpc: "2.0",
-            id,
-            result: value,
-        }),
-    )
-        .into_response()
-}
+use crate::core_server::json_rpc;
+use crate::core_server::types::AppState;
 
 async fn health_handler() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "ok": true })))
@@ -98,7 +58,7 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/health", get(health_handler))
-        .route("/rpc", post(rpc_handler))
+        .route("/rpc", post(json_rpc::rpc_handler))
         .fallback(not_found_handler)
         .with_state(AppState {
             core_version: env!("CARGO_PKG_VERSION").to_string(),

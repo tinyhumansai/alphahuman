@@ -9,10 +9,7 @@ use crate::core_server::types::{
     SetBrowserAllowAllParams,
 };
 use crate::core_server::DEFAULT_ONBOARDING_FLAG_NAME;
-use crate::openhuman::config::rpc::{
-    self as config_rpc, BrowserSettingsPatch, GatewaySettingsPatch, MemorySettingsPatch,
-    ModelSettingsPatch, RuntimeSettingsPatch, ScreenIntelligenceSettingsPatch,
-};
+use crate::openhuman::config::rpc::{self as config_rpc};
 
 pub async fn try_dispatch(
     method: &str,
@@ -40,17 +37,7 @@ pub async fn try_dispatch(
                 let update: ModelSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_model_settings(
-                        &mut config,
-                        ModelSettingsPatch {
-                            api_key: update.api_key,
-                            api_url: update.api_url,
-                            default_provider: update.default_provider,
-                            default_model: update.default_model,
-                            default_temperature: update.default_temperature,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_model_settings(&mut config, update.into()).await?,
                 )
             }
             .await,
@@ -61,17 +48,7 @@ pub async fn try_dispatch(
                 let update: MemorySettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_memory_settings(
-                        &mut config,
-                        MemorySettingsPatch {
-                            backend: update.backend,
-                            auto_save: update.auto_save,
-                            embedding_provider: update.embedding_provider,
-                            embedding_model: update.embedding_model,
-                            embedding_dimensions: update.embedding_dimensions,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_memory_settings(&mut config, update.into()).await?,
                 )
             }
             .await,
@@ -82,20 +59,8 @@ pub async fn try_dispatch(
                 let update: ScreenIntelligenceSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_screen_intelligence_settings(
-                        &mut config,
-                        ScreenIntelligenceSettingsPatch {
-                            enabled: update.enabled,
-                            capture_policy: update.capture_policy,
-                            policy_mode: update.policy_mode,
-                            baseline_fps: update.baseline_fps,
-                            vision_enabled: update.vision_enabled,
-                            autocomplete_enabled: update.autocomplete_enabled,
-                            allowlist: update.allowlist,
-                            denylist: update.denylist,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_screen_intelligence_settings(&mut config, update.into())
+                        .await?,
                 )
             }
             .await,
@@ -106,16 +71,7 @@ pub async fn try_dispatch(
                 let update: GatewaySettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_gateway_settings(
-                        &mut config,
-                        GatewaySettingsPatch {
-                            host: update.host,
-                            port: update.port,
-                            require_pairing: update.require_pairing,
-                            allow_public_bind: update.allow_public_bind,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_gateway_settings(&mut config, update.into()).await?,
                 )
             }
             .await,
@@ -137,14 +93,7 @@ pub async fn try_dispatch(
                 let update: RuntimeSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_runtime_settings(
-                        &mut config,
-                        RuntimeSettingsPatch {
-                            kind: update.kind,
-                            reasoning_enabled: update.reasoning_enabled,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_runtime_settings(&mut config, update.into()).await?,
                 )
             }
             .await,
@@ -155,13 +104,7 @@ pub async fn try_dispatch(
                 let update: BrowserSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    config_rpc::apply_browser_settings(
-                        &mut config,
-                        BrowserSettingsPatch {
-                            enabled: update.enabled,
-                        },
-                    )
-                    .await?,
+                    config_rpc::apply_browser_settings(&mut config, update.into()).await?,
                 )
             }
             .await,
