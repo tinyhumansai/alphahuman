@@ -337,6 +337,8 @@ impl Agent {
     }
 
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
+        let started = std::time::Instant::now();
+        log::info!("[agent_loop] tool start name={}", call.name);
         let result = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
             match tool.execute(call.arguments.clone()).await {
                 Ok(r) => {
@@ -353,6 +355,12 @@ impl Agent {
         } else {
             format!("Unknown tool: {}", call.name)
         };
+        log::info!(
+            "[agent_loop] tool finish name={} elapsed_ms={} output_chars={}",
+            call.name,
+            started.elapsed().as_millis(),
+            result.chars().count()
+        );
 
         ToolExecutionResult {
             name: call.name.clone(),
@@ -388,7 +396,40 @@ impl Agent {
         self.model_name.clone()
     }
 
+    fn has_tool_named(&self, name: &str) -> bool {
+        self.tools.iter().any(|tool| tool.name() == name)
+    }
+
+    fn should_force_list_files_fallback(&self, user_message: &str, assistant_text: &str) -> bool {
+        if !self.has_tool_named("shell") {
+            return false;
+        }
+
+        let user = user_message.to_ascii_lowercase();
+        let asks_for_files = (user.contains("files") || user.contains("list"))
+            && (user.contains("current dir")
+                || user.contains("current directory")
+                || user.contains("this dir")
+                || user.contains("this directory")
+                || user.contains("here"));
+        if !asks_for_files {
+            return false;
+        }
+
+        let assistant = assistant_text.to_ascii_lowercase();
+        assistant.contains("let's check")
+            || assistant.contains("let me check")
+            || assistant.contains("checking")
+            || assistant.contains("i'll check")
+    }
+
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+        log::info!(
+            "[agent_loop] turn start message_chars={} history_len={} max_tool_iterations={}",
+            user_message.chars().count(),
+            self.history.len(),
+            self.config.max_tool_iterations
+        );
         if self.history.is_empty() {
             let system_prompt = self.build_system_prompt()?;
             self.history
@@ -420,9 +461,22 @@ impl Agent {
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
         let effective_model = self.classify_model(user_message);
+        log::info!("[agent_loop] model selected model={}", effective_model);
 
-        for _ in 0..self.config.max_tool_iterations {
+        for iteration in 0..self.config.max_tool_iterations {
+            log::info!(
+                "[agent_loop] iteration start i={} history_len={}",
+                iteration + 1,
+                self.history.len()
+            );
             let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+            log::info!(
+                "[agent_loop] provider request i={} messages={} send_tool_specs={}",
+                iteration + 1,
+                messages.len(),
+                self.tool_dispatcher.should_send_tool_specs()
+            );
+            let provider_started = std::time::Instant::now();
             let response = match self
                 .provider
                 .chat(
@@ -439,17 +493,57 @@ impl Agent {
                 )
                 .await
             {
-                Ok(resp) => resp,
+                Ok(resp) => {
+                    log::info!(
+                        "[agent_loop] provider response i={} elapsed_ms={} text_chars={} native_tool_calls={}",
+                        iteration + 1,
+                        provider_started.elapsed().as_millis(),
+                        resp.text.as_ref().map_or(0, |t| t.chars().count()),
+                        resp.tool_calls.len()
+                    );
+                    resp
+                }
                 Err(err) => return Err(err),
             };
 
             let (text, calls) = self.tool_dispatcher.parse_response(&response);
+            log::info!(
+                "[agent_loop] parsed response i={} parsed_text_chars={} parsed_tool_calls={}",
+                iteration + 1,
+                text.chars().count(),
+                calls.len()
+            );
             if calls.is_empty() {
+                if iteration == 0 && self.should_force_list_files_fallback(user_message, &text) {
+                    log::warn!(
+                        "[agent_loop] applying list-files direct fallback i={} tool=shell command=ls -la",
+                        iteration + 1
+                    );
+                    let fallback_call = ParsedToolCall {
+                        name: "shell".to_string(),
+                        arguments: serde_json::json!({"command": "ls -la"}),
+                        tool_call_id: None,
+                    };
+                    let result = self.execute_tool_call(&fallback_call).await;
+                    let final_text = result.output;
+                    self.history
+                        .push(ConversationMessage::Chat(ChatMessage::assistant(
+                            final_text.clone(),
+                        )));
+                    self.trim_history();
+                    return Ok(final_text);
+                }
+
                 let final_text = if text.is_empty() {
                     response.text.unwrap_or_default()
                 } else {
                     text
                 };
+                log::info!(
+                    "[agent_loop] final response i={} final_chars={}",
+                    iteration + 1,
+                    final_text.chars().count()
+                );
 
                 self.history
                     .push(ConversationMessage::Chat(ChatMessage::assistant(
@@ -469,6 +563,11 @@ impl Agent {
             }
 
             if !text.is_empty() {
+                log::info!(
+                    "[agent_loop] assistant pre-tool text i={} chars={}",
+                    iteration + 1,
+                    text.chars().count()
+                );
                 self.history
                     .push(ConversationMessage::Chat(ChatMessage::assistant(
                         text.clone(),
@@ -476,6 +575,12 @@ impl Agent {
                 print!("{text}");
                 let _ = std::io::stdout().flush();
             }
+            let tool_names: Vec<&str> = calls.iter().map(|call| call.name.as_str()).collect();
+            log::info!(
+                "[agent_loop] executing tools i={} names={:?}",
+                iteration + 1,
+                tool_names
+            );
 
             self.history.push(ConversationMessage::AssistantToolCalls {
                 text: response.text.clone(),
@@ -483,11 +588,25 @@ impl Agent {
             });
 
             let results = self.execute_tools(&calls).await;
+            log::info!(
+                "[agent_loop] tool results complete i={} result_count={}",
+                iteration + 1,
+                results.len()
+            );
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
             self.trim_history();
+            log::info!(
+                "[agent_loop] iteration end i={} history_len={}",
+                iteration + 1,
+                self.history.len()
+            );
         }
 
+        log::warn!(
+            "[agent_loop] exceeded maximum tool iterations max={}",
+            self.config.max_tool_iterations
+        );
         anyhow::bail!(
             "Agent exceeded maximum tool iterations ({})",
             self.config.max_tool_iterations

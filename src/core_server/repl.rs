@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -108,6 +109,7 @@ impl RpcClient {
 }
 
 pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
+    load_repl_dotenv();
     let endpoint = resolve_rpc_endpoint(options.rpc_url)?;
     let history_turns = options
         .history_turns
@@ -224,6 +226,85 @@ pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn parse_dotenv_value(raw: &str) -> String {
+    let raw = raw.trim();
+    let unquoted = if raw.len() >= 2
+        && ((raw.starts_with('"') && raw.ends_with('"'))
+            || (raw.starts_with('\'') && raw.ends_with('\'')))
+    {
+        &raw[1..raw.len() - 1]
+    } else {
+        raw
+    };
+    unquoted
+        .split_once(" #")
+        .map_or_else(|| unquoted.trim().to_string(), |(value, _)| value.trim().to_string())
+}
+
+fn resolve_dotenv_path() -> PathBuf {
+    if let Ok(path) = std::env::var("OPENHUMAN_REPL_DOTENV") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from(".env")
+}
+
+fn load_repl_dotenv() {
+    let env_path = resolve_dotenv_path();
+    if !env_path.exists() {
+        log::info!(
+            "[repl] dotenv not found at {} (set OPENHUMAN_REPL_DOTENV to override)",
+            env_path.display()
+        );
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&env_path) {
+        Ok(content) => content,
+        Err(err) => {
+            log::warn!(
+                "[repl] failed to read dotenv {}: {}",
+                env_path.display(),
+                err
+            );
+            return;
+        }
+    };
+
+    let mut loaded = 0usize;
+    let mut skipped = 0usize;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").map(str::trim).unwrap_or(line);
+        let Some((raw_key, raw_value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = raw_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        if std::env::var_os(key).is_some() {
+            skipped += 1;
+            continue;
+        }
+        let value = parse_dotenv_value(raw_value);
+        std::env::set_var(key, value);
+        loaded += 1;
+    }
+
+    log::info!(
+        "[repl] dotenv loaded path={} loaded={} skipped_existing={}",
+        env_path.display(),
+        loaded,
+        skipped
+    );
 }
 
 fn resolve_rpc_endpoint(raw: Option<String>) -> Result<String, String> {

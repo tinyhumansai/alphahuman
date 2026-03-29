@@ -130,6 +130,12 @@ pub async fn agent_repl_session_chat(
     if session_id.is_empty() {
         return Err("session_id is required".to_string());
     }
+    let started = std::time::Instant::now();
+    log::info!(
+        "[agent_repl] chat start session_id={} message_chars={}",
+        session_id,
+        message.chars().count()
+    );
 
     let mut agent = {
         let mut sessions = REPL_AGENT_SESSIONS.lock().await;
@@ -144,7 +150,26 @@ pub async fn agent_repl_session_chat(
         .await
         .insert(session_id.to_string(), agent);
 
-    let response = result.map_err(|e| e.to_string())?;
+    let response = match result {
+        Ok(response) => {
+            log::info!(
+                "[agent_repl] chat ok session_id={} elapsed_ms={} response_chars={}",
+                session_id,
+                started.elapsed().as_millis(),
+                response.chars().count()
+            );
+            response
+        }
+        Err(err) => {
+            log::error!(
+                "[agent_repl] chat error session_id={} elapsed_ms={} error={}",
+                session_id,
+                started.elapsed().as_millis(),
+                err
+            );
+            return Err(err.to_string());
+        }
+    };
     Ok(RpcOutcome::single_log(
         response,
         "agent repl session chat completed",

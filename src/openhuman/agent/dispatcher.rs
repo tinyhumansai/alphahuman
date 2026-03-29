@@ -163,7 +163,7 @@ pub struct NativeToolDispatcher;
 impl ToolDispatcher for NativeToolDispatcher {
     fn parse_response(&self, response: &ChatResponse) -> (String, Vec<ParsedToolCall>) {
         let text = response.text.clone().unwrap_or_default();
-        let calls = response
+        let mut calls: Vec<ParsedToolCall> = response
             .tool_calls
             .iter()
             .map(|tc| ParsedToolCall {
@@ -179,6 +179,30 @@ impl ToolDispatcher for NativeToolDispatcher {
                 tool_call_id: Some(tc.id.clone()),
             })
             .collect();
+
+        // Fallback for providers/models that emit XML-style tool calls in text
+        // even when native tool-calling is configured.
+        if calls.is_empty() && !text.is_empty() {
+            let (fallback_text, fallback_calls) = XmlToolDispatcher::parse_xml_tool_calls(&text);
+            if !fallback_calls.is_empty() {
+                calls = fallback_calls
+                    .into_iter()
+                    .map(|call| ParsedToolCall {
+                        name: call.name,
+                        arguments: call.arguments,
+                        tool_call_id: None,
+                    })
+                    .collect();
+
+                let display_text = if fallback_text.is_empty() {
+                    text
+                } else {
+                    fallback_text
+                };
+                return (display_text, calls);
+            }
+        }
+
         (text, calls)
     }
 
@@ -280,6 +304,23 @@ mod tests {
             }
             _ => panic!("expected tool results"),
         }
+    }
+
+    #[test]
+    fn native_dispatcher_falls_back_to_xml_tool_calls() {
+        let response = ChatResponse {
+            text: Some(
+                "Checking files...\n<tool_call>{\"name\":\"shell\",\"arguments\":{\"command\":\"ls\"}}</tool_call>"
+                    .into(),
+            ),
+            tool_calls: vec![],
+        };
+        let dispatcher = NativeToolDispatcher;
+        let (text, calls) = dispatcher.parse_response(&response);
+        assert_eq!(text, "Checking files...");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(calls[0].tool_call_id, None);
     }
 
     #[test]
