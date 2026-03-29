@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { formatRelativeTime, useDaemonHealth } from '../../../hooks/useDaemonHealth';
+import { BACKEND_URL } from '../../../utils/config';
 import {
   isTauri,
   openhumanAgentChat,
@@ -127,6 +128,11 @@ const TauriCommandsPanel = () => {
   // Provider configurations for smart defaults
   const providerConfigs = useMemo(
     () => ({
+      openhuman: {
+        defaultUrl: BACKEND_URL,
+        keyPattern: null,
+        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o1', 'o3-mini'],
+      },
       openai: {
         defaultUrl: 'https://api.openai.com/v1',
         keyPattern: /^sk-[a-zA-Z0-9]{32,}$/,
@@ -160,7 +166,13 @@ const TauriCommandsPanel = () => {
   const validateApiKey = useCallback(
     (key: string, provider: string): string | null => {
       if (!provider || provider === 'none') return null;
-      if (!key.trim() && provider && provider !== 'none' && provider !== 'ollama') {
+      if (
+        !key.trim() &&
+        provider &&
+        provider !== 'none' &&
+        provider !== 'ollama' &&
+        provider !== 'openhuman'
+      ) {
         return 'API key is required for this provider';
       }
       if (
@@ -213,6 +225,9 @@ const TauriCommandsPanel = () => {
   const validateModel = useCallback(
     (model: string, provider: string): string | null => {
       if (!model.trim() || !provider.trim()) return null;
+      if (provider === 'openhuman') {
+        return null;
+      }
       const config = providerConfigs[provider as keyof typeof providerConfigs];
       if (config && !config.models.includes(model)) {
         return `Model not available for ${provider}. Try: ${config.models.slice(0, 3).join(', ')}`;
@@ -522,8 +537,13 @@ const TauriCommandsPanel = () => {
       return;
     }
 
-    if (!defaultProvider || (!apiKey && defaultProvider !== 'ollama')) {
-      setError('Provider and API key are required to test connection (except for Ollama)');
+    if (
+      !defaultProvider ||
+      (!apiKey && defaultProvider !== 'ollama' && defaultProvider !== 'openhuman')
+    ) {
+      setError(
+        'Provider and API key are required to test connection (except Ollama and OpenHuman backend — session JWT is used when the key is empty)'
+      );
       return;
     }
 
@@ -755,6 +775,12 @@ const TauriCommandsPanel = () => {
                       description: 'Choose your AI service provider',
                     },
                     {
+                      value: 'openhuman',
+                      label: 'OpenHuman (backend)',
+                      description:
+                        'Chat completions via your app backend (session JWT or optional API key)',
+                    },
+                    {
                       value: 'openai',
                       label: 'OpenAI',
                       description: 'GPT models with high performance',
@@ -782,7 +808,7 @@ const TauriCommandsPanel = () => {
                   ]}
                   error={fieldErrors.defaultProvider}
                   required={true}
-                  helpText="Primary AI provider for agent operations. Each provider offers different models with unique capabilities and pricing."
+                  helpText="Use OpenHuman (backend) to route inference through your account on the OpenHuman API (same as the desktop app). Direct provider APIs are optional for advanced setups."
                 />
 
                 <ValidatedField
@@ -790,23 +816,31 @@ const TauriCommandsPanel = () => {
                   value={apiKey}
                   onChange={setApiKey}
                   error={fieldErrors.apiKey}
-                  required={!!defaultProvider && defaultProvider !== 'ollama'}
+                  required={
+                    !!defaultProvider &&
+                    defaultProvider !== 'ollama' &&
+                    defaultProvider !== 'openhuman'
+                  }
                   type="password"
                   placeholder={
-                    defaultProvider === 'openai'
-                      ? 'sk-...'
-                      : defaultProvider === 'anthropic'
-                        ? 'sk-ant-...'
-                        : defaultProvider === 'groq'
-                          ? 'gsk_...'
-                          : defaultProvider === 'ollama'
-                            ? 'Not required for Ollama'
-                            : 'Enter your API key...'
+                    defaultProvider === 'openhuman'
+                      ? 'Optional — uses app session when empty'
+                      : defaultProvider === 'openai'
+                        ? 'sk-...'
+                        : defaultProvider === 'anthropic'
+                          ? 'sk-ant-...'
+                          : defaultProvider === 'groq'
+                            ? 'gsk_...'
+                            : defaultProvider === 'ollama'
+                              ? 'Not required for Ollama'
+                              : 'Enter your API key...'
                   }
                   helpText={
                     defaultProvider === 'ollama'
                       ? 'API key not required for Ollama (local models)'
-                      : "Enter your AI provider's API key for authentication. Keep this secure and never share it publicly."
+                      : defaultProvider === 'openhuman'
+                        ? 'Optional override. When empty, the core uses the signed-in app session (JWT) against API Base URL.'
+                        : "Enter your AI provider's API key for authentication. Keep this secure and never share it publicly."
                   }
                   validation={
                     !apiKey
@@ -826,8 +860,10 @@ const TauriCommandsPanel = () => {
                   onChange={setApiUrl}
                   error={fieldErrors.apiUrl}
                   type="url"
-                  placeholder="https://api.openai.com/v1"
-                  helpText="Custom API endpoint for your AI provider. Auto-populated when you select a provider. Change only for custom deployments or proxy servers."
+                  placeholder={
+                    defaultProvider === 'openhuman' ? BACKEND_URL : 'https://api.openai.com/v1'
+                  }
+                  helpText="For OpenHuman (backend), this is your REST API origin (chat completions are at /openai/v1). Other providers use their vendor base URL."
                   validation={
                     !apiUrl
                       ? 'none'
@@ -916,7 +952,10 @@ const TauriCommandsPanel = () => {
                 <PrimaryButton
                   onClick={testConnection}
                   loading={validationLoading}
-                  disabled={!defaultProvider || (!apiKey && defaultProvider !== 'ollama')}
+                  disabled={
+                    !defaultProvider ||
+                    (!apiKey && defaultProvider !== 'ollama' && defaultProvider !== 'openhuman')
+                  }
                   variant="outline">
                   Test Connection
                 </PrimaryButton>

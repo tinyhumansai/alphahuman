@@ -43,16 +43,8 @@ pub struct ModelCacheSnapshot {
     pub age_secs: u64,
 }
 
-pub fn run_models_refresh(
-    config: &Config,
-    provider_override: Option<&str>,
-    force: bool,
-) -> Result<ModelRefreshResult> {
-    let provider_name = provider_override
-        .or(config.default_provider.as_deref())
-        .unwrap_or("openhuman")
-        .trim()
-        .to_string();
+pub fn run_models_refresh(config: &Config, force: bool) -> Result<ModelRefreshResult> {
+    let provider_name = "openhuman".to_string();
 
     if provider_name.is_empty() {
         bail!("Provider name cannot be empty");

@@ -224,9 +224,9 @@ impl Tool for DelegateTool {
         #[allow(clippy::option_as_ref_deref)]
         let provider_credential = provider_credential_owned.as_ref().map(String::as_str);
 
-        let provider: Box<dyn Provider> = match providers::create_provider_with_options(
-            &agent_config.provider,
+        let provider: Box<dyn Provider> = match providers::create_backend_inference_provider(
             provider_credential,
+            None,
             &self.provider_runtime_options,
         ) {
             Ok(p) => p,
@@ -235,8 +235,7 @@ impl Tool for DelegateTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!(
-                        "Failed to create provider '{}' for agent '{agent_name}': {e}",
-                        agent_config.provider
+                        "Failed to create inference client for delegate agent '{agent_name}': {e}"
                     )),
                 });
             }

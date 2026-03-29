@@ -40,10 +40,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub async fn start_channels(config: Config) -> Result<()> {
-    let provider_name = config
-        .default_provider
-        .clone()
-        .unwrap_or_else(|| "openrouter".into());
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
         openhuman_dir: config.config_path.parent().map(std::path::PathBuf::from),
@@ -51,7 +47,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
-        &provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
         &config.reliability,
@@ -75,7 +70,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let model = config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
+        .unwrap_or_else(|| "gpt-4o".into());
     let temperature = config.default_temperature;
     let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_with_storage(
         &config.memory,
@@ -419,6 +414,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     println!("  🚦 In-flight message limit: {max_in_flight_messages}");
 
+    let provider_name = providers::INFERENCE_BACKEND_ID.to_string();
     let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
     provider_cache_seed.insert(provider_name.clone(), Arc::clone(&provider));
     let message_timeout_secs =

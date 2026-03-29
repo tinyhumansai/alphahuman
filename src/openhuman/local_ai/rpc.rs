@@ -13,13 +13,9 @@ use crate::openhuman::rpc::RpcOutcome;
 pub async fn agent_chat(
     config: &mut Config,
     message: &str,
-    provider_override: Option<String>,
     model_override: Option<String>,
     temperature: Option<f64>,
 ) -> Result<RpcOutcome<String>, String> {
-    if let Some(provider) = provider_override {
-        config.default_provider = Some(provider);
-    }
     if let Some(model) = model_override {
         config.default_model = Some(model);
     }

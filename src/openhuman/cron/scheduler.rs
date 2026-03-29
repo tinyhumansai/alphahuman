@@ -130,24 +130,15 @@ async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
             crate::openhuman::agent::run(
                 config.clone(),
                 Some(prefixed_prompt),
-                None,
                 model_override,
                 config.default_temperature,
-                vec![],
             )
             .await
         }
     };
 
     match run_result {
-        Ok(response) => (
-            true,
-            if response.trim().is_empty() {
-                "agent job executed".to_string()
-            } else {
-                response
-            },
-        ),
+        Ok(()) => (true, "agent job executed".to_string()),
         Err(e) => (false, format!("agent job failed: {e}")),
     }
 }

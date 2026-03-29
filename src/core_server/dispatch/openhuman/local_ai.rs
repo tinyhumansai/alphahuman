@@ -21,7 +21,6 @@ pub async fn try_dispatch(
                     crate::openhuman::local_ai::rpc::agent_chat(
                         &mut config,
                         &p.message,
-                        p.provider_override,
                         p.model_override,
                         p.temperature,
                     )

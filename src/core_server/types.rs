@@ -85,7 +85,6 @@ pub struct ConfigSnapshot {
 pub struct ModelSettingsUpdate {
     pub api_key: Option<String>,
     pub api_url: Option<String>,
-    pub default_provider: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: Option<f64>,
 }
@@ -213,14 +212,12 @@ pub struct SocketEmitParams {
 #[derive(Debug, Deserialize)]
 pub struct AgentChatParams {
     pub message: String,
-    pub provider_override: Option<String>,
     pub model_override: Option<String>,
     pub temperature: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct DoctorModelsParams {
-    pub provider_override: Option<String>,
     pub use_cache: Option<bool>,
 }
 
@@ -231,7 +228,6 @@ pub struct IntegrationInfoParams {
 
 #[derive(Debug, Deserialize)]
 pub struct ModelsRefreshParams {
-    pub provider_override: Option<String>,
     pub force: Option<bool>,
 }
 

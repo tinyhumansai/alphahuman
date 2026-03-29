@@ -52,7 +52,6 @@ pub fn snapshot_config_json(config: &Config) -> Result<serde_json::Value, String
 pub struct ModelSettingsPatch {
     pub api_key: Option<String>,
     pub api_url: Option<String>,
-    pub default_provider: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: Option<f64>,
 }
@@ -122,13 +121,6 @@ pub async fn apply_model_settings(
             None
         } else {
             Some(api_url)
-        };
-    }
-    if let Some(provider) = update.default_provider {
-        config.default_provider = if provider.trim().is_empty() {
-            None
-        } else {
-            Some(provider)
         };
     }
     if let Some(model) = update.default_model {

@@ -67,8 +67,8 @@ fn mock_upstream_router() -> Router {
 
     Router::new()
         .route("/settings", get(settings))
-        // `OpenAiCompatibleProvider::chat_completions_url` is `{api_url}/openai` + `/chat/completions`.
-        .route("/openai/chat/completions", post(chat_completions))
+        // `OpenHumanBackendProvider` uses `{api_url}/openai/v1` + `/chat/completions`.
+        .route("/openai/v1/chat/completions", post(chat_completions))
 }
 
 async fn serve_on_ephemeral(

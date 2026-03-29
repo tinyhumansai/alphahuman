@@ -70,7 +70,8 @@ impl OpenHumanBackendProvider {
 
     fn base_url(&self) -> anyhow::Result<String> {
         let u = effective_api_url(&self.api_url);
-        Ok(format!("{}/openai", u.trim_end_matches('/')))
+        // Match app `inferenceApi` and onboard model list: `{api}/openai/v1/...`
+        Ok(format!("{}/openai/v1", u.trim_end_matches('/')))
     }
 
     fn inner(&self, token: &str) -> anyhow::Result<OpenAiCompatibleProvider> {

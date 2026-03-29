@@ -155,23 +155,15 @@ fn classify_model_probe_error(err_message: &str) -> ModelProbeOutcome {
     ModelProbeOutcome::Error
 }
 
-fn doctor_model_targets(provider_override: Option<&str>) -> Vec<String> {
-    if let Some(provider) = provider_override.map(str::trim).filter(|p| !p.is_empty()) {
-        return vec![provider.to_string()];
-    }
-
+fn doctor_model_targets() -> Vec<String> {
     crate::openhuman::providers::list_providers()
         .into_iter()
         .map(|provider| provider.name.to_string())
         .collect()
 }
 
-pub fn run_models(
-    config: &Config,
-    provider_override: Option<&str>,
-    use_cache: bool,
-) -> Result<ModelProbeReport> {
-    let targets = doctor_model_targets(provider_override);
+pub fn run_models(config: &Config, use_cache: bool) -> Result<ModelProbeReport> {
+    let targets = doctor_model_targets();
 
     if targets.is_empty() {
         anyhow::bail!("No providers available for model probing");
@@ -184,7 +176,7 @@ pub fn run_models(
     let mut error_count = 0usize;
 
     for provider_name in &targets {
-        match crate::openhuman::onboard::run_models_refresh(config, Some(provider_name), !use_cache)
+        match crate::openhuman::onboard::run_models_refresh(config, !use_cache)
         {
             Ok(_) => {
                 ok_count += 1;
@@ -210,10 +202,6 @@ pub fn run_models(
                 });
             }
         }
-    }
-
-    if provider_override.is_some() && ok_count == 0 {
-        anyhow::bail!("Model probe failed for target provider");
     }
 
     Ok(ModelProbeReport {

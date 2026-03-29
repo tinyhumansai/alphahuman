@@ -14,6 +14,9 @@ use std::path::PathBuf;
 
 const MAX_API_ERROR_CHARS: usize = 200;
 
+/// Fixed id for the single inference backend (OpenHuman API).
+pub const INFERENCE_BACKEND_ID: &str = "openhuman";
+
 #[derive(Debug, Clone)]
 pub struct ProviderRuntimeOptions {
     pub auth_profile_override: Option<String>,
@@ -129,93 +132,63 @@ fn resolve_provider_credential(_name: &str, credential_override: Option<&str>) -
     None
 }
 
-/// Factory: create the backend inference provider (session JWT or `api_key`).
-pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<dyn Provider>> {
-    create_provider_with_options(name, api_key, &ProviderRuntimeOptions::default())
-}
-
-/// Factory: create provider with runtime options (auth profile override, state dir).
-pub fn create_provider_with_options(
-    name: &str,
-    api_key: Option<&str>,
-    options: &ProviderRuntimeOptions,
-) -> anyhow::Result<Box<dyn Provider>> {
-    create_provider_with_url_and_options(name, api_key, None, options)
-}
-
-/// Factory: create the right provider from config with optional custom base URL
-pub fn create_provider_with_url(
-    name: &str,
-    api_key: Option<&str>,
-    api_url: Option<&str>,
-) -> anyhow::Result<Box<dyn Provider>> {
-    create_provider_with_url_and_options(name, api_key, api_url, &ProviderRuntimeOptions::default())
-}
-
-fn create_provider_with_url_and_options(
-    name: &str,
+/// Create the OpenHuman backend inference client (session JWT or `api_key`).
+pub fn create_backend_inference_provider(
     api_key: Option<&str>,
     api_url: Option<&str>,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    let resolved = resolve_provider_credential(name, api_key)
+    let resolved = resolve_provider_credential(INFERENCE_BACKEND_ID, api_key)
         .map(|v| String::from_utf8(v.into_bytes()).unwrap_or_default());
     let key = resolved.as_ref().map(String::as_str);
+    Ok(Box::new(openhuman_backend::OpenHumanBackendProvider::new(
+        api_url, key, options,
+    )))
+}
 
-    match name {
-        "openhuman" | "backend" | "openhuman-backend" => Ok(Box::new(
-            openhuman_backend::OpenHumanBackendProvider::new(api_url, key, options),
-        )),
-        _ => anyhow::bail!(
-            "Unknown provider: {name}. Use \"openhuman\" (backend at config api_url with session JWT)."
-        ),
-    }
+/// Backwards-compatible alias (name ignored).
+pub fn create_provider_with_options(
+    _name: &str,
+    api_key: Option<&str>,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    create_backend_inference_provider(api_key, None, options)
+}
+
+/// Backwards-compatible alias (name ignored).
+pub fn create_provider_with_url(
+    _name: &str,
+    api_key: Option<&str>,
+    api_url: Option<&str>,
+) -> anyhow::Result<Box<dyn Provider>> {
+    create_backend_inference_provider(api_key, api_url, &ProviderRuntimeOptions::default())
 }
 
 /// Create provider chain with retry and fallback behavior.
 pub fn create_resilient_provider(
-    primary_name: &str,
     api_key: Option<&str>,
     api_url: Option<&str>,
     reliability: &crate::openhuman::config::ReliabilityConfig,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    create_resilient_provider_with_options(
-        primary_name,
-        api_key,
-        api_url,
-        reliability,
-        &ProviderRuntimeOptions::default(),
-    )
+    create_resilient_provider_with_options(api_key, api_url, reliability, &ProviderRuntimeOptions::default())
 }
 
 /// Create provider chain with retry/fallback behavior and auth runtime options.
 pub fn create_resilient_provider_with_options(
-    primary_name: &str,
     api_key: Option<&str>,
     api_url: Option<&str>,
     reliability: &crate::openhuman::config::ReliabilityConfig,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
-
-    let primary_provider =
-        create_provider_with_url_and_options(primary_name, api_key, api_url, options)?;
-    providers.push((primary_name.to_string(), primary_provider));
-
-    for fallback in &reliability.fallback_providers {
-        if fallback == primary_name || providers.iter().any(|(name, _)| name == fallback) {
-            continue;
-        }
-        match create_provider_with_options(fallback, None, options) {
-            Ok(provider) => providers.push((fallback.clone(), provider)),
-            Err(_error) => {
-                tracing::warn!(
-                    fallback_provider = fallback.as_str(),
-                    "Ignoring invalid fallback provider during initialization"
-                );
-            }
-        }
+    if !reliability.fallback_providers.is_empty() {
+        tracing::warn!(
+            "reliability.fallback_providers is ignored; inference uses only the OpenHuman backend"
+        );
     }
+
+    let primary_provider = create_backend_inference_provider(api_key, api_url, options)?;
+    let providers: Vec<(String, Box<dyn Provider>)> =
+        vec![(INFERENCE_BACKEND_ID.to_string(), primary_provider)];
 
     let reliable = reliable::ReliableProvider::new(
         providers,
@@ -230,7 +203,6 @@ pub fn create_resilient_provider_with_options(
 
 /// Create a RouterProvider if model routes are configured, otherwise return a resilient provider.
 pub fn create_routed_provider(
-    primary_name: &str,
     api_key: Option<&str>,
     api_url: Option<&str>,
     reliability: &crate::openhuman::config::ReliabilityConfig,
@@ -238,7 +210,6 @@ pub fn create_routed_provider(
     default_model: &str,
 ) -> anyhow::Result<Box<dyn Provider>> {
     create_routed_provider_with_options(
-        primary_name,
         api_key,
         api_url,
         reliability,
@@ -249,7 +220,6 @@ pub fn create_routed_provider(
 }
 
 pub fn create_routed_provider_with_options(
-    primary_name: &str,
     api_key: Option<&str>,
     api_url: Option<&str>,
     reliability: &crate::openhuman::config::ReliabilityConfig,
@@ -258,48 +228,12 @@ pub fn create_routed_provider_with_options(
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
     if model_routes.is_empty() {
-        return create_resilient_provider_with_options(
-            primary_name,
-            api_key,
-            api_url,
-            reliability,
-            options,
-        );
+        return create_resilient_provider_with_options(api_key, api_url, reliability, options);
     }
 
-    let mut needed: Vec<String> = vec![primary_name.to_string()];
-    for route in model_routes {
-        if !needed.iter().any(|n| n == &route.provider) {
-            needed.push(route.provider.clone());
-        }
-    }
-
-    let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
-    for name in &needed {
-        let routed_credential = model_routes
-            .iter()
-            .find(|r| &r.provider == name)
-            .and_then(|r| {
-                r.api_key.as_ref().and_then(|raw_key| {
-                    let trimmed_key = raw_key.trim();
-                    (!trimmed_key.is_empty()).then_some(trimmed_key)
-                })
-            });
-        let key = routed_credential.or(api_key);
-        let url = if name == primary_name { api_url } else { None };
-        match create_resilient_provider_with_options(name, key, url, reliability, options) {
-            Ok(provider) => providers.push((name.clone(), provider)),
-            Err(e) => {
-                if name == primary_name {
-                    return Err(e);
-                }
-                tracing::warn!(
-                    provider = name.as_str(),
-                    "Ignoring routed provider that failed to initialize"
-                );
-            }
-        }
-    }
+    let backend = create_backend_inference_provider(api_key, api_url, options)?;
+    let providers: Vec<(String, Box<dyn Provider>)> =
+        vec![(INFERENCE_BACKEND_ID.to_string(), backend)];
 
     let routes: Vec<(String, router::Route)> = model_routes
         .iter()
@@ -307,7 +241,7 @@ pub fn create_routed_provider_with_options(
             (
                 r.hint.clone(),
                 router::Route {
-                    provider_name: r.provider.clone(),
+                    provider_name: INFERENCE_BACKEND_ID.to_string(),
                     model: r.model.clone(),
                 },
             )
@@ -332,7 +266,7 @@ pub struct ProviderInfo {
 /// Return known providers for display (single backend path).
 pub fn list_providers() -> Vec<ProviderInfo> {
     vec![ProviderInfo {
-        name: "openhuman",
+        name: INFERENCE_BACKEND_ID,
         display_name: "OpenHuman (backend)",
         aliases: &["backend", "openhuman-backend"],
         local: false,
@@ -371,17 +305,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn factory_openhuman() {
-        assert!(create_provider_with_url(
-            "openhuman",
+    fn factory_backend() {
+        assert!(create_backend_inference_provider(
             Some("jwt"),
-            Some("https://api.example.com")
+            Some("https://api.example.com"),
+            &ProviderRuntimeOptions::default()
         )
         .is_ok());
     }
 
     #[test]
-    fn unknown_provider_errors() {
-        assert!(create_provider("openrouter", None).is_err());
+    fn legacy_create_provider_with_url_ignores_name() {
+        assert!(create_provider_with_url(
+            "anything",
+            Some("jwt"),
+            Some("https://api.example.com")
+        )
+        .is_ok());
     }
 }

@@ -74,7 +74,6 @@ pub struct Config {
     pub config_path: PathBuf,
     pub api_key: Option<String>,
     pub api_url: Option<String>,
-    pub default_provider: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: f64,
 
@@ -180,8 +179,7 @@ impl Default for Config {
             config_path: openhuman_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_model: Some("gpt-4o".to_string()),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),

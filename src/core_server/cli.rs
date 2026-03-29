@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::core_server::helpers::{
     parse_params, rpc_outcome_fut_to_cli_json, rpc_outcome_to_cli_json,
 };
+use crate::core_server::repl::{run_repl, ReplOptions};
 use crate::core_server::types::{
     BrowserSettingsUpdate, CommandResponse, ConfigSnapshot, MemorySettingsUpdate,
     ModelSettingsUpdate, RuntimeSettingsUpdate,
@@ -59,6 +60,8 @@ enum CoreCommand {
         #[arg(long)]
         port: Option<u16>,
     },
+    /// Interactive RPC REPL with mode switching (message/settings)
+    Repl(ReplCliArgs),
     /// Check core health
     Ping,
     /// Print core version
@@ -467,6 +470,19 @@ struct InitCliArgs {
     force: bool,
 }
 
+#[derive(Debug, Args)]
+struct ReplCliArgs {
+    /// Optional port for local in-process server spawn fallback
+    #[arg(long)]
+    port: Option<u16>,
+    /// Explicit JSON-RPC endpoint (defaults to OPENHUMAN_CORE_RPC_URL or 127.0.0.1:7788/rpc)
+    #[arg(long)]
+    rpc_url: Option<String>,
+    /// Number of local chat turns to retain for message mode continuity
+    #[arg(long)]
+    history_turns: Option<usize>,
+}
+
 #[derive(Debug, Subcommand)]
 enum ToolsCommand {
     /// List tool wrappers exposed by this CLI
@@ -539,6 +555,13 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             .await
             .map(|_| serde_json::Value::Null)
             .map_err(|e| format!("run failed: {e}")),
+        CoreCommand::Repl(args) => run_repl(ReplOptions {
+            port: args.port,
+            rpc_url: args.rpc_url,
+            history_turns: args.history_turns,
+        })
+        .await
+        .map(|_| serde_json::Value::Null),
         CoreCommand::Ping => call_method("core.ping", json!({})).await,
         CoreCommand::Version => call_method("core.version", json!({})).await,
         CoreCommand::Health => {

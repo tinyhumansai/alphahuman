@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ModelRouteConfig {
     pub hint: String,
-    pub provider: String,
     pub model: String,
     #[serde(default)]
     pub api_key: Option<String>,

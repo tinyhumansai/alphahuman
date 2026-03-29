@@ -51,12 +51,7 @@ pub async fn try_dispatch(
                 let config = load_openhuman_config().await?;
                 let use_cache = p.use_cache.unwrap_or(true);
                 rpc_invocation_from_outcome(
-                    crate::openhuman::doctor::rpc::doctor_models(
-                        &config,
-                        p.provider_override.as_deref(),
-                        use_cache,
-                    )
-                    .await?,
+                    crate::openhuman::doctor::rpc::doctor_models(&config, use_cache).await?,
                 )
             }
             .await,
@@ -89,12 +84,8 @@ pub async fn try_dispatch(
                 let p: ModelsRefreshParams = parse_params(params)?;
                 let config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    crate::openhuman::onboard::rpc::models_refresh(
-                        &config,
-                        p.provider_override.as_deref(),
-                        p.force.unwrap_or(false),
-                    )
-                    .await?,
+                    crate::openhuman::onboard::rpc::models_refresh(&config, p.force.unwrap_or(false))
+                        .await?,
                 )
             }
             .await,

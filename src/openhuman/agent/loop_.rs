@@ -1122,7 +1122,6 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
 pub async fn run(
     config: Config,
     message: Option<String>,
-    provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
     peripheral_overrides: Vec<String>,
@@ -1185,11 +1184,8 @@ pub async fn run(
         tools_registry.extend(peripheral_tools);
     }
 
-    // ── Resolve provider ─────────────────────────────────────────
-    let provider_name = provider_override
-        .as_deref()
-        .or(config.default_provider.as_deref())
-        .unwrap_or("openhuman");
+    // ── Inference (OpenHuman backend only) ───────────────────────
+    let provider_name = providers::INFERENCE_BACKEND_ID;
 
     let model_name = model_override
         .as_deref()
@@ -1204,7 +1200,6 @@ pub async fn run(
     };
 
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
-        provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
         &config.reliability,
@@ -1616,7 +1611,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         crate::openhuman::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
 
-    let provider_name = config.default_provider.as_deref().unwrap_or("openhuman");
+    let provider_name = providers::INFERENCE_BACKEND_ID;
     let model_name = config
         .default_model
         .clone()
@@ -1628,7 +1623,6 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
     let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
-        provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
         &config.reliability,

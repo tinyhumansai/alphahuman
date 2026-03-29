@@ -3,6 +3,7 @@ mod config_rpc_bridge;
 mod dispatch;
 mod helpers;
 mod json_rpc;
+mod repl;
 mod rpc_log;
 mod server;
 mod types;

@@ -178,7 +178,6 @@ pub(crate) async fn get_or_create_provider(
     };
 
     let provider = providers::create_resilient_provider_with_options(
-        provider_name,
         ctx.api_key.as_deref(),
         api_url,
         &ctx.reliability,
