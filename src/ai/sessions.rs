@@ -50,7 +50,7 @@ fn get_session_file_path(session_id: &str) -> Result<PathBuf, String> {
 // --- Tauri Commands ---
 
 /// Initialize the sessions directory.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_init() -> Result<bool, String> {
     get_sessions_dir()?;
     let index_path = get_session_index_path()?;
@@ -61,7 +61,7 @@ pub async fn ai_sessions_init() -> Result<bool, String> {
 }
 
 /// Load the session index.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_load_index() -> Result<serde_json::Value, String> {
     let index_path = get_session_index_path()?;
     if !index_path.exists() {
@@ -72,7 +72,7 @@ pub async fn ai_sessions_load_index() -> Result<serde_json::Value, String> {
 }
 
 /// Update a session entry in the index.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_update_index(
     session_id: String,
     entry: SessionIndexEntry,
@@ -99,7 +99,7 @@ pub async fn ai_sessions_update_index(
 }
 
 /// Append a line to a session transcript (JSONL format).
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_append_transcript(
     session_id: String,
     line: String,
@@ -121,7 +121,7 @@ pub async fn ai_sessions_append_transcript(
 }
 
 /// Read a session transcript.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_read_transcript(session_id: String) -> Result<Vec<String>, String> {
     let file_path = get_session_file_path(&session_id)?;
 
@@ -140,7 +140,7 @@ pub async fn ai_sessions_read_transcript(session_id: String) -> Result<Vec<Strin
 }
 
 /// Delete a session (transcript file + index entry).
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_delete(session_id: String) -> Result<bool, String> {
     // Remove transcript file
     let file_path = get_session_file_path(&session_id)?;
@@ -164,7 +164,7 @@ pub async fn ai_sessions_delete(session_id: String) -> Result<bool, String> {
 }
 
 /// List all session IDs.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_sessions_list() -> Result<Vec<String>, String> {
     let dir = get_sessions_dir()?;
     let mut sessions = Vec::new();
@@ -181,7 +181,7 @@ pub async fn ai_sessions_list() -> Result<Vec<String>, String> {
 }
 
 /// Read a memory file from ~/.openhuman/.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_read_memory_file(relative_path: String) -> Result<String, String> {
     let data_dir = get_data_dir()?;
     let file_path = data_dir.join(&relative_path);
@@ -202,7 +202,7 @@ pub async fn ai_read_memory_file(relative_path: String) -> Result<String, String
 }
 
 /// Write a memory file to ~/.openhuman/.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_write_memory_file(relative_path: String, content: String) -> Result<bool, String> {
     let data_dir = get_data_dir()?;
     let file_path = data_dir.join(&relative_path);
@@ -241,7 +241,7 @@ pub async fn ai_write_memory_file(relative_path: String, content: String) -> Res
 }
 
 /// List memory files in a directory under ~/.openhuman/.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_list_memory_files(relative_dir: String) -> Result<Vec<String>, String> {
     let data_dir = get_data_dir()?;
     let dir_path = data_dir.join(&relative_dir);

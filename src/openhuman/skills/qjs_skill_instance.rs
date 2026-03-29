@@ -16,10 +16,11 @@ use std::time::Duration;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 
-use crate::runtime::cron_scheduler::CronScheduler;
-use crate::runtime::quickjs_libs::{qjs_ops, IdbStorage};
-use crate::runtime::skill_registry::SkillRegistry;
-use crate::runtime::types::{
+use crate::openhuman::local_memory::MemoryState;
+use crate::openhuman::skills::cron_scheduler::CronScheduler;
+use crate::openhuman::skills::quickjs_libs::{qjs_ops, IdbStorage};
+use crate::openhuman::skills::skill_registry::SkillRegistry;
+use crate::openhuman::skills::types::{
     SkillConfig, SkillMessage, SkillSnapshot, SkillStatus, ToolContent, ToolDefinition, ToolResult,
 };
 use tauri::Manager;
@@ -618,7 +619,7 @@ async fn handle_message(
             // State is registered as MemoryState(Mutex<Option<MemoryClientRef>>), not
             // Option<MemoryClientRef> directly, so we must use the newtype wrapper.
             let memory_client_opt = app_handle.and_then(|ah| {
-                ah.try_state::<crate::memory::MemoryState>()
+                ah.try_state::<MemoryState>()
                     .and_then(|s| s.0.lock().ok().and_then(|g| g.clone()))
             });
 

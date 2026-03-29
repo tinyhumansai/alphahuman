@@ -29,8 +29,8 @@ use {
 };
 
 // SkillRegistry only available on desktop
-use crate::runtime::skill_registry::SkillRegistry;
-use crate::runtime::types::{SkillSnapshot, SkillStatus};
+use crate::openhuman::skills::skill_registry::SkillRegistry;
+use crate::openhuman::skills::types::{SkillSnapshot, SkillStatus};
 
 /// Events emitted to the frontend via Tauri.
 #[allow(dead_code)]

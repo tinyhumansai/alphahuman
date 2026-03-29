@@ -219,7 +219,7 @@ fn write_json<T: Serialize>(path: &PathBuf, data: &T) -> Result<(), String> {
 // --- Tauri Commands ---
 
 /// Initialize the memory index. Creates directories and empty JSON files.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_init() -> Result<bool, String> {
     INDEX_INIT.get_or_try_init(|| {
         let index_dir = get_index_dir()?;
@@ -252,7 +252,7 @@ pub async fn ai_memory_init() -> Result<bool, String> {
 }
 
 /// Upsert a file record in files.json.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_upsert_file(file: FileRecord) -> Result<bool, String> {
     let path = files_json_path()?;
     let mut files: HashMap<String, FileRecord> = read_json(&path)?;
@@ -262,7 +262,7 @@ pub async fn ai_memory_upsert_file(file: FileRecord) -> Result<bool, String> {
 }
 
 /// Get a file record by path.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_get_file(path: String) -> Result<Option<FileRecord>, String> {
     let files_path = files_json_path()?;
     let files: HashMap<String, FileRecord> = read_json(&files_path)?;
@@ -270,7 +270,7 @@ pub async fn ai_memory_get_file(path: String) -> Result<Option<FileRecord>, Stri
 }
 
 /// Upsert a chunk record into the appropriate chunk file.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_upsert_chunk(chunk: ChunkRecord) -> Result<bool, String> {
     let chunk_path = chunk_file_path(&chunk.path)?;
     let mut chunks: Vec<ChunkJson> = read_json(&chunk_path)?;
@@ -286,7 +286,7 @@ pub async fn ai_memory_upsert_chunk(chunk: ChunkRecord) -> Result<bool, String> 
 }
 
 /// Delete chunks by file path (removes the entire chunk file).
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_delete_chunks_by_path(path: String) -> Result<i64, String> {
     let chunk_path = chunk_file_path(&path)?;
     if chunk_path.exists() {
@@ -308,7 +308,7 @@ pub async fn ai_memory_delete_chunks_by_path(path: String) -> Result<i64, String
 ///    appear as substrings
 /// 3. Score = matched_terms / total_terms (0.0–1.0), skip chunks with score 0
 /// 4. Sort descending, return top `limit` results
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_fts_search(query: String, limit: i64) -> Result<Vec<SearchResult>, String> {
     let chunks_dir = get_chunks_dir()?;
 
@@ -368,7 +368,7 @@ pub async fn ai_memory_fts_search(query: String, limit: i64) -> Result<Vec<Searc
 }
 
 /// Get all chunks for a file path.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_get_chunks(path: String) -> Result<Vec<ChunkRecord>, String> {
     let chunk_path = chunk_file_path(&path)?;
     let chunks: Vec<ChunkJson> = read_json(&chunk_path)?;
@@ -378,7 +378,7 @@ pub async fn ai_memory_get_chunks(path: String) -> Result<Vec<ChunkRecord>, Stri
 }
 
 /// Get all embeddings for vector search (returns chunk IDs + embeddings).
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_get_all_embeddings() -> Result<Vec<(String, Vec<u8>)>, String> {
     let chunks_dir = get_chunks_dir()?;
     let mut results: Vec<(String, Vec<u8>)> = Vec::new();
@@ -409,7 +409,7 @@ pub async fn ai_memory_get_all_embeddings() -> Result<Vec<(String, Vec<u8>)>, St
 }
 
 /// Cache an embedding result.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_cache_embedding(entry: EmbeddingCacheEntry) -> Result<bool, String> {
     let cache_path = embedding_cache_path()?;
     let mut cache: Vec<EmbeddingCacheJson> = read_json(&cache_path)?;
@@ -425,7 +425,7 @@ pub async fn ai_memory_cache_embedding(entry: EmbeddingCacheEntry) -> Result<boo
 }
 
 /// Look up a cached embedding.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_get_cached_embedding(
     provider: String,
     model: String,
@@ -442,7 +442,7 @@ pub async fn ai_memory_get_cached_embedding(
 }
 
 /// Set a metadata value.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_set_meta(key: String, value: String) -> Result<bool, String> {
     let path = meta_json_path()?;
     let mut meta: HashMap<String, String> = read_json(&path)?;
@@ -452,7 +452,7 @@ pub async fn ai_memory_set_meta(key: String, value: String) -> Result<bool, Stri
 }
 
 /// Get a metadata value.
-#[cfg_attr(feature = "tauri-host", tauri::command)]
+#[tauri::command]
 pub async fn ai_memory_get_meta(key: String) -> Result<Option<String>, String> {
     let path = meta_json_path()?;
     let meta: HashMap<String, String> = read_json(&path)?;

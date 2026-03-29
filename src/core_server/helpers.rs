@@ -6,20 +6,17 @@ use std::sync::OnceLock;
 use crate::openhuman::config::Config;
 use crate::openhuman::rpc::RpcOutcome;
 
-#[cfg(feature = "tauri-host")]
 #[allow(dead_code)]
 static DESKTOP_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 #[allow(dead_code)]
 static DESKTOP_RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-#[cfg(feature = "tauri-host")]
 #[allow(dead_code)]
 pub fn init_desktop_app_handle(handle: tauri::AppHandle) {
     let _ = DESKTOP_APP_HANDLE.set(handle);
 }
 
-#[cfg(feature = "tauri-host")]
 #[allow(dead_code)]
 pub fn desktop_app_handle() -> Result<tauri::AppHandle, String> {
     DESKTOP_APP_HANDLE

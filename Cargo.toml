@@ -10,7 +10,8 @@ name = "openhuman_core"
 crate-type = ["rlib"]
 
 [dependencies]
-tauri = { version = "2.10", optional = true }
+tauri = { version = "2.10" }
+rquickjs = { version = "0.9", features = ["futures", "parallel"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls", "native-tls", "stream", "http2", "multipart", "socks"] }
@@ -94,8 +95,6 @@ wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = f
 tempfile = "3"
 
 [features]
-default = ["tauri-host"]
-tauri-host = ["dep:tauri"]
 sandbox-landlock = ["dep:landlock"]
 sandbox-bubblewrap = []
 hardware = ["dep:nusb", "dep:tokio-serial"]

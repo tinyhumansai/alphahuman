@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use crate::runtime::cron_scheduler::CronScheduler;
+use crate::openhuman::skills::cron_scheduler::CronScheduler;
 
 /// Register a cron schedule for a skill.
 pub fn register(

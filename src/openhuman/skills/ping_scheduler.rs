@@ -19,8 +19,8 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 
-use crate::runtime::skill_registry::SkillRegistry;
-use crate::runtime::types::{events, SkillMessage, SkillStatus};
+use crate::openhuman::skills::skill_registry::SkillRegistry;
+use crate::openhuman::skills::types::{events, SkillMessage, SkillStatus};
 
 /// Interval between ping sweeps.
 const PING_INTERVAL: Duration = Duration::from_secs(60);

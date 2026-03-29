@@ -10,19 +10,6 @@ pub async fn try_dispatch(
     method: &str,
     params: serde_json::Value,
 ) -> Option<Result<InvocationResult, String>> {
-    #[cfg(not(feature = "tauri-host"))]
-    if matches!(
-        method,
-        "openhuman.socket.connect"
-            | "openhuman.socket.disconnect"
-            | "openhuman.socket.state"
-            | "openhuman.socket.emit"
-    ) {
-        return Some(Err(
-            "socket RPC requires a build with the tauri-host feature".to_string(),
-        ));
-    }
-
     match method {
         "openhuman.auth.store_session" => Some(
             async move {
@@ -206,22 +193,18 @@ pub async fn try_dispatch(
             .await,
         ),
 
-        #[cfg(feature = "tauri-host")]
         "openhuman.socket.connect" => Some(Err(
             "native skill runtime and socket manager are not available in this build".to_string(),
         )),
 
-        #[cfg(feature = "tauri-host")]
         "openhuman.socket.disconnect" => Some(Err(
             "native skill runtime and socket manager are not available in this build".to_string(),
         )),
 
-        #[cfg(feature = "tauri-host")]
         "openhuman.socket.state" => Some(Err(
             "native skill runtime and socket manager are not available in this build".to_string(),
         )),
 
-        #[cfg(feature = "tauri-host")]
         "openhuman.socket.emit" => Some(Err(
             "native skill runtime and socket manager are not available in this build".to_string(),
         )),

@@ -1,6 +1,6 @@
 //! State and data ops: published state get/set, filesystem data read/write.
 
-use crate::memory::{Priority, SourceType};
+use crate::openhuman::local_memory::{MemoryState, Priority, SourceType};
 use parking_lot::RwLock;
 use rquickjs::{Ctx, Function, Object};
 use serde::Deserialize;
@@ -147,7 +147,7 @@ pub fn register<'js>(
                         .ok_or_else(|| js_err("App handle not available for memory insert"))?;
 
                     let memory_state = app_handle
-                        .try_state::<crate::memory::MemoryState>()
+                        .try_state::<MemoryState>()
                         .ok_or_else(|| js_err("Memory state not available"))?;
 
                     let client_opt = memory_state

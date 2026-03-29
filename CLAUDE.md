@@ -507,6 +507,7 @@ For every **domain** that exposes RPC/CLI, keep orchestration in a dedicated `rp
   3. `npx tsc --noEmit` (TypeScript)
   4. `cargo fmt --manifest-path src-tauri/Cargo.toml` (Rust formatting, if Rust files were changed)
   5. `cargo check --manifest-path src-tauri/Cargo.toml` (Rust compilation, if Rust files were changed)
+- **Fix forward, don’t restore old code**: If a change breaks something, **do not** revert or paste back prior implementations as the default response — diagnose and fix in the current codebase. If intent or tradeoffs are unclear, **ask the user** rather than rolling back.
 - **Code Quality**: ESLint and Prettier enforce code standards with Husky hooks. Use type-only imports (`import type`) and consolidate imports from same modules.
 - **Frontend scope**: The frontend (`src/`) is primarily a REST API client to `rust-core/`; Rust code in `src-tauri/` manages the core process lifecycle and bridge surface.
 - **Core feature exposure**: Any new feature added in `rust-core/` must be exposed through both the CLI and a REST API so it can be integrated into the UI without backend rewrites.

@@ -3,7 +3,7 @@
 //! Each skill directory contains a `manifest.json` describing the skill.
 //! This module parses it and produces a `SkillConfig` for the runtime engine.
 
-use crate::runtime::types::SkillConfig;
+use crate::openhuman::skills::types::SkillConfig;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

@@ -40,7 +40,6 @@ pub mod runtime;
 pub mod screen_intelligence;
 pub mod security;
 pub mod service;
-pub mod skillforge;
 pub mod skills;
 pub mod tools;
 pub mod tunnel;

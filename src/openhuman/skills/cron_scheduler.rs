@@ -17,7 +17,7 @@ use cron::Schedule;
 use parking_lot::RwLock;
 use tokio::sync::watch;
 
-use crate::runtime::skill_registry::SkillRegistry;
+use crate::openhuman::skills::skill_registry::SkillRegistry;
 
 /// Internal entry for a registered cron schedule.
 struct CronEntry {

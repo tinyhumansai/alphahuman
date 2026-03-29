@@ -9,14 +9,14 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter};
 
-use crate::runtime::cron_scheduler::CronScheduler;
-use crate::runtime::manifest::SkillManifest;
-use crate::runtime::ping_scheduler::PingScheduler;
-use crate::runtime::preferences::PreferencesStore;
-use crate::runtime::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
-use crate::runtime::skill_registry::SkillRegistry;
-use crate::runtime::socket_manager::SocketManager;
-use crate::runtime::types::{events, SkillSnapshot, SkillStatus, ToolResult};
+use crate::openhuman::skills::cron_scheduler::CronScheduler;
+use crate::openhuman::skills::manifest::SkillManifest;
+use crate::openhuman::skills::ping_scheduler::PingScheduler;
+use crate::openhuman::skills::preferences::PreferencesStore;
+use crate::openhuman::skills::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
+use crate::openhuman::skills::skill_registry::SkillRegistry;
+use crate::openhuman::skills::socket_manager::SocketManager;
+use crate::openhuman::skills::types::{events, SkillSnapshot, SkillStatus, ToolResult};
 // IdbStorage removed during runtime cleanup
 
 /// The central runtime engine using QuickJS.
@@ -394,7 +394,7 @@ impl RuntimeEngine {
     }
 
     /// Get all tool definitions across all running skills.
-    pub fn all_tools(&self) -> Vec<(String, crate::runtime::types::ToolDefinition)> {
+    pub fn all_tools(&self) -> Vec<(String, crate::openhuman::skills::types::ToolDefinition)> {
         self.registry.all_tools()
     }
 
@@ -463,7 +463,8 @@ impl RuntimeEngine {
     /// Get all stored preferences.
     pub fn get_preferences(
         &self,
-    ) -> std::collections::HashMap<String, crate::runtime::preferences::SkillPreference> {
+    ) -> std::collections::HashMap<String, crate::openhuman::skills::preferences::SkillPreference>
+    {
         self.preferences.get_all()
     }
 
@@ -491,7 +492,7 @@ impl RuntimeEngine {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        use crate::runtime::types::SkillMessage;
+        use crate::openhuman::skills::types::SkillMessage;
 
         match method {
             "skill/load" => {

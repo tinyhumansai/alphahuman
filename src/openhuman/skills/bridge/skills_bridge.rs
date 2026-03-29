@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use crate::runtime::skill_registry::SkillRegistry;
+use crate::openhuman::skills::skill_registry::SkillRegistry;
 
 /// List all running skills.
 /// Returns a JSON string: `[{"skillId":"...","name":"...","status":"..."}]`
