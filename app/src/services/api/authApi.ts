@@ -1,13 +1,5 @@
-import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
-
 import { base64ToBytes, encryptIntegrationTokens } from '../../utils/integrationTokensCrypto';
-import { apiClient } from '../apiClient';
 import { callCoreRpc } from '../coreRpcClient';
-
-interface ConsumeLoginTokenResponse {
-  success: boolean;
-  data: { jwtToken: string };
-}
 
 interface IntegrationTokensResponse {
   success: boolean;
@@ -41,28 +33,15 @@ function normalizeKeyToHex(rawKey: string): string {
  * POST /telegram/login-tokens/:token/consume (no auth required)
  */
 export async function consumeLoginToken(loginToken: string): Promise<string> {
-  if (coreIsTauri()) {
-    const response = await callCoreRpc<{ result: { jwtToken: string } }>({
-      method: 'openhuman.auth.consume_login_token',
-      params: { loginToken },
-    });
-    const jwtToken = response.result?.jwtToken;
-    if (!jwtToken) {
-      throw new Error('Login token invalid or expired');
-    }
-    return jwtToken;
-  }
-
-  const response = await apiClient.post<ConsumeLoginTokenResponse>(
-    `/telegram/login-tokens/${encodeURIComponent(loginToken)}/consume`,
-    undefined,
-    { requireAuth: false }
-  );
-  console.log('[ConsumeLoginToken] Response', response);
-  if (!response.success || !response.data?.jwtToken) {
+  const response = await callCoreRpc<{ result: { jwtToken: string } }>({
+    method: 'openhuman.auth.consume_login_token',
+    params: { loginToken },
+  });
+  const jwtToken = response.result?.jwtToken;
+  if (!jwtToken) {
     throw new Error('Login token invalid or expired');
   }
-  return response.data.jwtToken;
+  return jwtToken;
 }
 
 /**
@@ -73,29 +52,22 @@ export async function fetchIntegrationTokens(
   integrationId: string,
   key: string
 ): Promise<IntegrationTokensResponse> {
-  if (coreIsTauri()) {
-    const response = await callCoreRpc<{ result: IntegrationTokensPayload }>({
-      method: 'openhuman.auth.oauth_fetch_integration_tokens',
-      params: { integrationId, key },
-    });
-    const tokens = response.result;
-    if (!tokens?.accessToken || !tokens?.expiresAt) {
-      throw new Error('Integration token handoff did not return required fields');
-    }
-
-    const encrypted = await encryptIntegrationTokens(
-      JSON.stringify({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken ?? '',
-        expiresAt: tokens.expiresAt,
-      }),
-      normalizeKeyToHex(key)
-    );
-    return { success: true, data: { encrypted } };
+  const response = await callCoreRpc<{ result: IntegrationTokensPayload }>({
+    method: 'openhuman.auth.oauth_fetch_integration_tokens',
+    params: { integrationId, key },
+  });
+  const tokens = response.result;
+  if (!tokens?.accessToken || !tokens?.expiresAt) {
+    throw new Error('Integration token handoff did not return required fields');
   }
 
-  return apiClient.post<IntegrationTokensResponse>(
-    `/auth/integrations/${encodeURIComponent(integrationId)}/tokens`,
-    { key }
+  const encrypted = await encryptIntegrationTokens(
+    JSON.stringify({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? '',
+      expiresAt: tokens.expiresAt,
+    }),
+    normalizeKeyToHex(key)
   );
+  return { success: true, data: { encrypted } };
 }

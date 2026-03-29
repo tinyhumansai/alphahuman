@@ -1,13 +1,15 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 import { beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 
 import type { ServiceState } from '../tauriCommands';
+import { callCoreRpc } from '../../services/coreRpcClient';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn() }));
+vi.mock('../../services/coreRpcClient', () => ({ callCoreRpc: vi.fn() }));
 
-describe('Web → Tauri → Core bridge', () => {
-  const mockInvoke = invoke as Mock;
+describe('Web → frontend JSON-RPC → Core bridge', () => {
   const mockIsTauri = isTauri as Mock;
+  const mockCallCoreRpc = callCoreRpc as Mock;
   let openhumanServiceStatus: typeof import('../tauriCommands').openhumanServiceStatus;
   let openhumanAgentServerStatus: typeof import('../tauriCommands').openhumanAgentServerStatus;
 
@@ -19,34 +21,30 @@ describe('Web → Tauri → Core bridge', () => {
     openhumanAgentServerStatus = actual.openhumanAgentServerStatus;
   });
 
-  test('routes service status request through Tauri command and returns core payload', async () => {
+  test('routes service status via JSON-RPC client and returns core payload', async () => {
     const expectedState: ServiceState = 'Running';
-    const tauriResponse = { result: { state: expectedState }, logs: ['service status fetched'] };
+    const rpcResponse = { result: { state: expectedState }, logs: ['service status fetched'] };
 
-    mockInvoke.mockResolvedValueOnce(tauriResponse);
+    mockCallCoreRpc.mockResolvedValueOnce(rpcResponse);
 
     const response = await openhumanServiceStatus();
 
-    expect(mockInvoke).toHaveBeenCalledWith('core_rpc_relay', {
-      request: { method: 'openhuman.service_status', params: {}, serviceManaged: false },
-    });
-    expect(response).toEqual(tauriResponse);
+    expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.service_status' });
+    expect(response).toEqual(rpcResponse);
     expect(response.result.state).toBe(expectedState);
   });
 
-  test('routes agent server status through Tauri command and returns core_rpc status', async () => {
-    const tauriResponse = {
+  test('routes agent server status via JSON-RPC client', async () => {
+    const rpcResponse = {
       result: { running: true, url: 'http://127.0.0.1:8421/rpc' },
       logs: ['agent server status checked'],
     };
 
-    mockInvoke.mockResolvedValueOnce(tauriResponse);
+    mockCallCoreRpc.mockResolvedValueOnce(rpcResponse);
 
     const response = await openhumanAgentServerStatus();
 
-    expect(mockInvoke).toHaveBeenCalledWith('core_rpc_relay', {
-      request: { method: 'openhuman.agent_server_status', params: {}, serviceManaged: false },
-    });
+    expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.agent_server_status' });
     expect(response.result.running).toBe(true);
     expect(response.result.url).toContain('127.0.0.1');
   });
@@ -55,6 +53,6 @@ describe('Web → Tauri → Core bridge', () => {
     mockIsTauri.mockReturnValue(false);
 
     await expect(openhumanServiceStatus()).rejects.toThrow('Not running in Tauri');
-    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(mockCallCoreRpc).not.toHaveBeenCalled();
   });
 });

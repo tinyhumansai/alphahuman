@@ -1386,40 +1386,37 @@ export async function openhumanServiceInstall(): Promise<CommandResponse<Service
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<ServiceStatus>('openhuman_service_install');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_install' });
 }
 
 export async function openhumanServiceStart(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<ServiceStatus>('openhuman_service_start');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_start' });
 }
 
 export async function openhumanServiceStop(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<ServiceStatus>('openhuman_service_stop');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_stop' });
 }
 
 export async function openhumanServiceStatus(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<ServiceStatus>('openhuman_service_status');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({ method: 'openhuman.service_status' });
 }
 
 export async function openhumanServiceUninstall(): Promise<CommandResponse<ServiceStatus>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<ServiceStatus>('openhuman_service_uninstall');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_uninstall',
+  });
 }
 
 export async function openhumanAgentServerStatus(): Promise<CommandResponse<AgentServerStatus>> {
