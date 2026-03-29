@@ -223,6 +223,27 @@ pub struct AgentChatParams {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AgentReplSessionStartParams {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub model_override: Option<String>,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentReplSessionChatParams {
+    pub session_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentReplSessionControlParams {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct DoctorModelsParams {
     pub use_cache: Option<bool>,
 }

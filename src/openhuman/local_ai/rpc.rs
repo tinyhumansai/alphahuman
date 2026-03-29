@@ -1,6 +1,11 @@
 //! JSON-RPC / CLI controller surface for the bundled local AI stack.
 
 use chrono::Utc;
+use once_cell::sync::Lazy;
+use serde_json::json;
+use std::collections::HashMap;
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::openhuman::agent::Agent;
 use crate::openhuman::config::Config;
@@ -10,6 +15,9 @@ use crate::openhuman::local_ai::{
 };
 use crate::openhuman::providers::{self, ProviderRuntimeOptions};
 use crate::openhuman::rpc::RpcOutcome;
+
+static REPL_AGENT_SESSIONS: Lazy<Mutex<HashMap<String, Agent>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub async fn agent_chat(
     config: &mut Config,
@@ -77,6 +85,110 @@ pub async fn agent_chat_simple(
     Ok(RpcOutcome::single_log(
         response,
         "agent simple chat completed",
+    ))
+}
+
+pub async fn agent_repl_session_start(
+    config: &Config,
+    session_id: Option<String>,
+    model_override: Option<String>,
+    temperature: Option<f64>,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    let mut effective = config.clone();
+    if let Some(model) = model_override {
+        effective.default_model = Some(model);
+    }
+    if let Some(temp) = temperature {
+        effective.default_temperature = temp;
+    }
+
+    let mut requested = session_id.unwrap_or_default();
+    requested = requested.trim().to_string();
+    let session_id = if requested.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        requested
+    };
+
+    let agent = Agent::from_config(&effective).map_err(|e| e.to_string())?;
+    REPL_AGENT_SESSIONS
+        .lock()
+        .await
+        .insert(session_id.clone(), agent);
+
+    Ok(RpcOutcome::single_log(
+        json!({ "session_id": session_id }),
+        "agent repl session started",
+    ))
+}
+
+pub async fn agent_repl_session_chat(
+    session_id: &str,
+    message: &str,
+) -> Result<RpcOutcome<String>, String> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err("session_id is required".to_string());
+    }
+
+    let mut agent = {
+        let mut sessions = REPL_AGENT_SESSIONS.lock().await;
+        sessions
+            .remove(session_id)
+            .ok_or_else(|| format!("agent repl session not found: {session_id}"))?
+    };
+
+    let result = agent.run_single(message).await;
+    REPL_AGENT_SESSIONS
+        .lock()
+        .await
+        .insert(session_id.to_string(), agent);
+
+    let response = result.map_err(|e| e.to_string())?;
+    Ok(RpcOutcome::single_log(
+        response,
+        "agent repl session chat completed",
+    ))
+}
+
+pub async fn agent_repl_session_reset(
+    session_id: &str,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err("session_id is required".to_string());
+    }
+
+    let mut sessions = REPL_AGENT_SESSIONS.lock().await;
+    let reset = if let Some(agent) = sessions.get_mut(session_id) {
+        agent.clear_history();
+        true
+    } else {
+        false
+    };
+
+    Ok(RpcOutcome::single_log(
+        json!({ "reset": reset }),
+        "agent repl session reset",
+    ))
+}
+
+pub async fn agent_repl_session_end(
+    session_id: &str,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err("session_id is required".to_string());
+    }
+
+    let ended = REPL_AGENT_SESSIONS
+        .lock()
+        .await
+        .remove(session_id)
+        .is_some();
+    Ok(RpcOutcome::single_log(
+        json!({ "ended": ended }),
+        "agent repl session ended",
     ))
 }
 

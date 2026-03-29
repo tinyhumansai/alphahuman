@@ -553,7 +553,7 @@ fn workspace_probe_path(workspace_dir: &Path) -> std::path::PathBuf {
 
 fn check_daemon_state(config: &Config, items: &mut Vec<DiagnosticItem>) {
     let cat = "daemon";
-    let state_file = crate::openhuman::daemon::state_file_path(config);
+    let state_file = crate::openhuman::service::daemon::state_file_path(config);
 
     if !state_file.exists() {
         items.push(DiagnosticItem::error(

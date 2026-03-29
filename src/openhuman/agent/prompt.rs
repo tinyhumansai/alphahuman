@@ -1,5 +1,5 @@
+use super::identity;
 use crate::openhuman::config::IdentityConfig;
-use crate::openhuman::identity;
 use crate::openhuman::skills::Skill;
 use crate::openhuman::tools::Tool;
 use anyhow::Result;

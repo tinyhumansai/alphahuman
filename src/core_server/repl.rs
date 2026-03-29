@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::json;
-use tokio::process::Command;
 use tokio::task::JoinHandle;
 use url::Url;
 
@@ -124,6 +123,8 @@ pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
 
     let mut mode = ReplMode::Message;
     let mut transcript: Vec<TranscriptTurn> = Vec::new();
+    let mut session_id = start_repl_session(&mut rpc).await?;
+    println!("Agent session: {session_id}");
 
     loop {
         print_prompt(&mode)?;
@@ -137,7 +138,7 @@ pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
         }
 
         if line.starts_with('/') {
-            match handle_command(line, &mut mode, &mut transcript, &mut rpc).await {
+            match handle_command(line, &mut mode, &mut transcript, &mut rpc, &session_id).await {
                 Ok(true) => break,
                 Ok(false) => {}
                 Err(err) => {
@@ -149,41 +150,37 @@ pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
 
         match mode {
             ReplMode::Message => {
-                let outgoing = compose_message_payload(&transcript, line);
                 let result = match rpc
-                    .call("openhuman.agent_chat", json!({ "message": outgoing }))
+                    .call(
+                        "openhuman.agent_repl_session_chat",
+                        json!({ "session_id": session_id.as_str(), "message": line }),
+                    )
                     .await
                 {
                     Ok(result) => result,
                     Err(err) => {
                         eprintln!("{err}");
-                        eprintln!(
-                            "[repl] falling back to openhuman.agent_chat_simple (no tool loop)"
-                        );
-                        match rpc
-                            .call(
-                                "openhuman.agent_chat_simple",
-                                json!({ "message": outgoing }),
-                            )
-                            .await
-                        {
-                            Ok(result) => result,
-                            Err(fallback_err) => {
-                                eprintln!("{fallback_err}");
-                                eprintln!("[repl] falling back to direct backend curl transport");
-                                match backend_chat_via_curl(&mut rpc, outgoing.as_str()).await {
-                                    Ok(text) => {
-                                        println!("{text}");
-                                        transcript.push(TranscriptTurn {
-                                            user: line.to_string(),
-                                            assistant: text,
-                                        });
-                                        while transcript.len() > history_turns {
-                                            transcript.remove(0);
-                                        }
+                        eprintln!("[repl] attempting to recover by starting a new agent session");
+                        match start_repl_session(&mut rpc).await {
+                            Ok(new_session_id) => {
+                                session_id = new_session_id;
+                                println!("[repl] switched to new agent session: {session_id}");
+                                match rpc
+                                    .call(
+                                        "openhuman.agent_repl_session_chat",
+                                        json!({ "session_id": session_id.as_str(), "message": line }),
+                                    )
+                                    .await
+                                {
+                                    Ok(result) => result,
+                                    Err(retry_err) => {
+                                        eprintln!("{retry_err}");
+                                        continue;
                                     }
-                                    Err(curl_err) => eprintln!("{curl_err}"),
                                 }
+                            }
+                            Err(start_err) => {
+                                eprintln!("{start_err}");
                                 continue;
                             }
                         }
@@ -214,6 +211,13 @@ pub async fn run_repl(options: ReplOptions) -> Result<(), String> {
             }
         }
     }
+
+    let _ = rpc
+        .call(
+            "openhuman.agent_repl_session_end",
+            json!({ "session_id": session_id.as_str() }),
+        )
+        .await;
 
     if let Some(handle) = server_task {
         handle.abort();
@@ -323,27 +327,6 @@ fn read_line() -> Result<Option<String>, String> {
     Ok(Some(input))
 }
 
-fn compose_message_payload(history: &[TranscriptTurn], user_message: &str) -> String {
-    if history.is_empty() {
-        return user_message.to_string();
-    }
-
-    let mut out = String::from(
-        "Use this transcript as context for continuity. Keep continuity but answer the latest user message directly.\n\n[Transcript]\n",
-    );
-    for turn in history {
-        out.push_str("User: ");
-        out.push_str(turn.user.as_str());
-        out.push('\n');
-        out.push_str("Assistant: ");
-        out.push_str(turn.assistant.as_str());
-        out.push('\n');
-    }
-    out.push_str("\n[Latest User Message]\n");
-    out.push_str(user_message);
-    out
-}
-
 fn extract_agent_reply(result: &serde_json::Value) -> Option<String> {
     if let Some(raw) = result.as_str() {
         return Some(raw.to_string());
@@ -376,6 +359,7 @@ async fn handle_command(
     mode: &mut ReplMode,
     transcript: &mut Vec<TranscriptTurn>,
     rpc: &mut RpcClient,
+    session_id: &str,
 ) -> Result<bool, String> {
     if matches!(line, "/exit" | "/quit") {
         return Ok(true);
@@ -400,7 +384,23 @@ async fn handle_command(
 
     if line == "/reset" {
         transcript.clear();
-        println!("message transcript cleared");
+        let result = rpc
+            .call(
+                "openhuman.agent_repl_session_reset",
+                json!({ "session_id": session_id }),
+            )
+            .await?;
+        let reset = result
+            .get("result")
+            .and_then(|v| v.get("reset"))
+            .or_else(|| result.get("reset"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if reset {
+            println!("message transcript and agent session history cleared");
+        } else {
+            println!("message transcript cleared (agent session was not found)");
+        }
         return Ok(false);
     }
 
@@ -456,103 +456,22 @@ fn print_help() {
     println!("  /exit                       exit REPL");
     println!();
     println!("Modes:");
-    println!("  message: plain text sends openhuman.agent_chat");
+    println!("  message: plain text sends openhuman.agent_repl_session_chat");
     println!("  settings: plain text is '<method> [json]'");
 }
 
-async fn backend_chat_via_curl(rpc: &mut RpcClient, message: &str) -> Result<String, String> {
-    let config = rpc.call("openhuman.get_config", json!({})).await?;
-    let config_body = config
+async fn start_repl_session(rpc: &mut RpcClient) -> Result<String, String> {
+    let result = rpc
+        .call("openhuman.agent_repl_session_start", json!({}))
+        .await?;
+    result
         .get("result")
-        .and_then(|v| v.get("config"))
-        .or_else(|| config.get("config"))
-        .ok_or_else(|| "unable to read config from openhuman.get_config".to_string())?;
-
-    let api_url = config_body
-        .get("api_url")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("https://staging-api.alphahuman.xyz");
-    let model = config_body
-        .get("default_model")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("neocortex-mk1");
-    let token = resolve_bearer_token(rpc, config_body).await?;
-    let endpoint = format!(
-        "{}/openai/v1/chat/completions",
-        api_url.trim_end_matches('/')
-    );
-    let payload = json!({
-        "model": model,
-        "messages": [{"role": "user", "content": message}],
-    })
-    .to_string();
-
-    let output = Command::new("curl")
-        .arg("-sS")
-        .arg("--connect-timeout")
-        .arg("10")
-        .arg("-X")
-        .arg("POST")
-        .arg(endpoint)
-        .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-H")
-        .arg(format!("Authorization: Bearer {token}"))
-        .arg("-d")
-        .arg(payload)
-        .output()
-        .await
-        .map_err(|e| format!("failed to spawn curl fallback: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("curl fallback failed: {stderr}"));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let value: serde_json::Value =
-        serde_json::from_str(stdout.trim()).map_err(|e| format!("invalid curl JSON: {e}"))?;
-    value
-        .get("choices")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
-        .and_then(|msg| msg.get("content"))
+        .and_then(|v| v.get("session_id"))
+        .or_else(|| result.get("session_id"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| "curl fallback response missing choices[0].message.content".to_string())
-}
-
-async fn resolve_bearer_token(
-    rpc: &mut RpcClient,
-    config_body: &serde_json::Value,
-) -> Result<String, String> {
-    if let Ok(token_response) = rpc
-        .call("openhuman.auth.get_session_token", json!({}))
-        .await
-    {
-        if let Some(token) = token_response
-            .get("result")
-            .and_then(|v| v.get("token"))
-            .or_else(|| token_response.get("token"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Ok(token.to_string());
-        }
-    }
-
-    if let Some(token) = config_body
-        .get("api_key")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(token.to_string());
-    }
-
-    Err("no bearer token found in auth session or config.api_key".to_string())
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| "openhuman.agent_repl_session_start returned no session_id".to_string())
 }
 
 #[cfg(test)]
@@ -572,18 +491,6 @@ mod tests {
             parse_method_and_params("openhuman.socket.emit {\"event\":\"x\"}").expect("parse");
         assert_eq!(method, "openhuman.socket.emit");
         assert_eq!(params, json!({ "event": "x" }));
-    }
-
-    #[test]
-    fn compose_message_includes_transcript() {
-        let turns = vec![TranscriptTurn {
-            user: "hi".to_string(),
-            assistant: "hello".to_string(),
-        }];
-        let payload = compose_message_payload(&turns, "next");
-        assert!(payload.contains("User: hi"));
-        assert!(payload.contains("Assistant: hello"));
-        assert!(payload.contains("[Latest User Message]"));
     }
 
     #[test]

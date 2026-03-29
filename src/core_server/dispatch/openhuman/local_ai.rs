@@ -2,10 +2,11 @@ use crate::core_server::helpers::{
     load_openhuman_config, parse_params, rpc_invocation_from_outcome,
 };
 use crate::core_server::types::{
-    AgentChatParams, InvocationResult, LocalAiDownloadAssetParams, LocalAiDownloadParams,
-    LocalAiEmbedParams, LocalAiPromptParams, LocalAiSuggestParams, LocalAiSummarizeParams,
-    LocalAiTranscribeBytesParams, LocalAiTranscribeParams, LocalAiTtsParams,
-    LocalAiVisionPromptParams,
+    AgentChatParams, AgentReplSessionChatParams, AgentReplSessionControlParams,
+    AgentReplSessionStartParams, InvocationResult, LocalAiDownloadAssetParams,
+    LocalAiDownloadParams, LocalAiEmbedParams, LocalAiPromptParams, LocalAiSuggestParams,
+    LocalAiSummarizeParams, LocalAiTranscribeBytesParams, LocalAiTranscribeParams,
+    LocalAiTtsParams, LocalAiVisionPromptParams,
 };
 
 pub async fn try_dispatch(
@@ -42,6 +43,59 @@ pub async fn try_dispatch(
                         p.temperature,
                     )
                     .await?,
+                )
+            }
+            .await,
+        ),
+
+        "openhuman.agent_repl_session_start" => Some(
+            async move {
+                let p: AgentReplSessionStartParams = parse_params(params)?;
+                let config = load_openhuman_config().await?;
+                rpc_invocation_from_outcome(
+                    crate::openhuman::local_ai::rpc::agent_repl_session_start(
+                        &config,
+                        p.session_id,
+                        p.model_override,
+                        p.temperature,
+                    )
+                    .await?,
+                )
+            }
+            .await,
+        ),
+
+        "openhuman.agent_repl_session_chat" => Some(
+            async move {
+                let p: AgentReplSessionChatParams = parse_params(params)?;
+                rpc_invocation_from_outcome(
+                    crate::openhuman::local_ai::rpc::agent_repl_session_chat(
+                        p.session_id.trim(),
+                        &p.message,
+                    )
+                    .await?,
+                )
+            }
+            .await,
+        ),
+
+        "openhuman.agent_repl_session_reset" => Some(
+            async move {
+                let p: AgentReplSessionControlParams = parse_params(params)?;
+                rpc_invocation_from_outcome(
+                    crate::openhuman::local_ai::rpc::agent_repl_session_reset(p.session_id.trim())
+                        .await?,
+                )
+            }
+            .await,
+        ),
+
+        "openhuman.agent_repl_session_end" => Some(
+            async move {
+                let p: AgentReplSessionControlParams = parse_params(params)?;
+                rpc_invocation_from_outcome(
+                    crate::openhuman::local_ai::rpc::agent_repl_session_end(p.session_id.trim())
+                        .await?,
                 )
             }
             .await,

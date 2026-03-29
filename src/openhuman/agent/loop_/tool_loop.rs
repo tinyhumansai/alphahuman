@@ -1,5 +1,5 @@
+use crate::openhuman::agent::multimodal;
 use crate::openhuman::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
-use crate::openhuman::multimodal;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ProviderCapabilityError};
 use crate::openhuman::tools::Tool;
 use anyhow::Result;

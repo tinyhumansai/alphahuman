@@ -1,3 +1,4 @@
+use crate::openhuman::agent::multimodal;
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::model_ids;
 use crate::openhuman::local_ai::ollama_api::{
@@ -5,7 +6,6 @@ use crate::openhuman::local_ai::ollama_api::{
     OLLAMA_BASE_URL,
 };
 use crate::openhuman::local_ai::types::LocalAiEmbeddingResult;
-use crate::openhuman::multimodal;
 
 use super::LocalAiService;
 

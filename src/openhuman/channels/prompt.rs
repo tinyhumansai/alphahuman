@@ -1,6 +1,6 @@
 //! System prompt construction for channel interactions.
 
-use crate::openhuman::identity;
+use crate::openhuman::agent::identity;
 use std::path::Path;
 
 /// Maximum characters per injected workspace file (matches `OpenClaw` default).
