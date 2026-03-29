@@ -156,9 +156,9 @@ impl OpenAiCompatibleProvider {
             }
 
             let builder = Client::builder()
+                .use_rustls_tls()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
-                .http1_only()
                 .default_headers(headers);
             let builder = crate::openhuman::config::apply_runtime_proxy_to_builder(
                 builder,
@@ -172,9 +172,9 @@ impl OpenAiCompatibleProvider {
         }
 
         let builder = Client::builder()
+            .use_rustls_tls()
             .timeout(std::time::Duration::from_secs(120))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .http1_only();
+            .connect_timeout(std::time::Duration::from_secs(10));
         let builder = crate::openhuman::config::apply_runtime_proxy_to_builder(
             builder,
             "provider.compatible",
