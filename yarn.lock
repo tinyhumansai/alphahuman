@@ -1294,7 +1294,7 @@
   dependencies:
     postcss-selector-parser "6.0.10"
 
-"@tauri-apps/api@^2.10.0":
+"@tauri-apps/api@2.10.1", "@tauri-apps/api@^2.10.0":
   version "2.10.1"
   resolved "https://registry.yarnpkg.com/@tauri-apps/api/-/api-2.10.1.tgz#57c1bae6114ec33d977eb2b50dfefc25fa84fc93"
   integrity sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw==

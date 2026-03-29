@@ -8,7 +8,7 @@
     "dev:app": "source ../scripts/load-dotenv.sh && tauri dev",
     "core:stage": "node ../scripts/stage-core-sidecar.mjs",
     "build": "tsc && vite build",
-    "build:app": "yarn skills:build && tsc && vite build",
+    "build:app": "tsc && vite build",
     "compile": "tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -38,8 +38,6 @@
     "format:check": "prettier --check . && cargo fmt --manifest-path ../Cargo.toml --all --check",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "skills:build": "cd skills && yarn build",
-    "skills:watch": "cd skills && yarn build:watch",
     "prepare": "husky"
   },
   "dependencies": {
