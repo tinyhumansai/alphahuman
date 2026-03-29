@@ -1,7 +1,11 @@
 //! Shared core-level schemas and contracts used across adapters (RPC, CLI, etc.).
 pub mod all;
 pub mod cli;
+pub mod dispatch;
 pub mod jsonrpc;
+pub mod rpc_log;
+pub mod server;
+pub mod types;
 
 /// Canonical function contract for domain controllers.
 ///

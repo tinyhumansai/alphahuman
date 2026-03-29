@@ -4,9 +4,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::json;
 
-use crate::core_server::types::AppState;
+use crate::core::types::AppState;
 
-/// Full HTTP app (/, /health, /rpc) for the core process and for integration tests.
 pub fn build_core_http_router() -> Router {
     Router::new()
         .route("/", get(root_handler))
@@ -70,9 +69,6 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
 
     log::info!("[core] listening on http://{bind_addr}");
     log::info!("[rpc:http] JSON-RPC server running — POST http://{bind_addr}/rpc (JSON-RPC 2.0)");
-    log::info!(
-        "[core] JSON-RPC log markers: [rpc:http] (HTTP), [rpc:dispatch] (router), [rpc:call] (CLI). RUST_LOG=debug for redacted params + subsystem; trace for response bodies."
-    );
 
     tokio::spawn(async {
         match crate::openhuman::config::Config::load_or_init().await {

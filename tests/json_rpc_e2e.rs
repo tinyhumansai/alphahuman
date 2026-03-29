@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
-use openhuman_core::core_server::build_core_http_router;
+use openhuman_core::core::server::build_core_http_router;
 
 struct EnvVarGuard {
     key: &'static str,

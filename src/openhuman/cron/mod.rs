@@ -9,6 +9,7 @@ pub mod scheduler;
 
 pub use schemas::{
     all_controller_schemas as all_cron_controller_schemas,
+    all_registered_controllers as all_cron_registered_controllers,
     schemas as cron_schemas,
 };
 pub use ops::{add_once, add_once_at, pause_job, resume_job, update_cron_job};

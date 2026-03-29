@@ -5,7 +5,7 @@ use axum::Json;
 use serde_json::{Map, Value};
 
 use crate::core::all;
-use crate::core_server::types::{AppState, RpcError, RpcFailure, RpcRequest, RpcSuccess};
+use crate::core::types::{AppState, RpcError, RpcFailure, RpcRequest, RpcSuccess};
 
 pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcRequest>) -> Response {
     let id = req.id.clone();
@@ -49,7 +49,7 @@ pub async fn invoke_method(
         return Err(format!("registered schema has no handler: {method}"));
     }
 
-    crate::core_server::dispatch::dispatch(state, method, params).await
+    crate::core::dispatch::dispatch(state, method, params).await
 }
 
 fn params_to_object(params: Value) -> Result<Map<String, Value>, String> {

@@ -1,9 +1,11 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 use crate::core::all;
 use crate::core::jsonrpc::{default_state, invoke_method, parse_json_params};
+use crate::core::TypeSchema;
 
 const CLI_BANNER: &str = r#"
 
@@ -46,7 +48,7 @@ enum CoreCommand {
         params: String,
     },
     /// Invoke a registered controller by namespace/function using schema validation.
-    Controller {
+    Invoke {
         #[arg(long)]
         namespace: String,
         #[arg(long)]
@@ -55,8 +57,8 @@ enum CoreCommand {
         #[arg(long = "param")]
         params: Vec<String>,
     },
-    /// List registered controller schemas.
-    Controllers,
+    /// Show registered namespaces/controllers and their parameters.
+    Namespaces,
 }
 
 pub fn run_from_cli_args(args: &[String]) -> Result<()> {
@@ -71,11 +73,12 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         .enable_all()
         .build()?;
 
+    let is_namespaces = matches!(cli.command, CoreCommand::Namespaces);
     let value = rt
         .block_on(async move {
             match cli.command {
                 CoreCommand::Run { port } => {
-                    crate::core_server::run_server(port)
+                    crate::core::server::run_server(port)
                         .await
                         .map(|_| serde_json::json!({ "ok": true }))
                         .map_err(|e| e.to_string())
@@ -84,35 +87,25 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
                     let params = parse_json_params(&params)?;
                     invoke_method(default_state(), &method, params).await
                 }
-                CoreCommand::Controller {
+                CoreCommand::Invoke {
                     namespace,
                     function,
                     params,
                 } => run_controller_command(&namespace, &function, params).await,
-                CoreCommand::Controllers => Ok(serde_json::json!({
-                    "controllers": all::all_controller_schemas()
-                        .into_iter()
-                        .map(|schema| serde_json::json!({
-                            "namespace": schema.namespace,
-                            "function": schema.function,
-                            "rpc_method": all::rpc_method_name(&schema),
-                            "description": schema.description,
-                            "inputs": schema.inputs.iter().map(|i| serde_json::json!({
-                                "name": i.name,
-                                "required": i.required,
-                                "comment": i.comment,
-                            })).collect::<Vec<_>>(),
-                        }))
-                        .collect::<Vec<_>>(),
-                })),
+                CoreCommand::Namespaces => {
+                    print_namespaces_tree();
+                    Ok(serde_json::json!({ "ok": true }))
+                }
             }
         })
         .map_err(anyhow::Error::msg)?;
 
+    if !is_namespaces {
     println!(
         "{}",
         serde_json::to_string_pretty(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?
     );
+    }
     Ok(())
 }
 
@@ -143,4 +136,58 @@ fn parse_param_entries(entries: Vec<String>) -> Result<Map<String, Value>, Strin
         out.insert(key.to_string(), value);
     }
     Ok(out)
+}
+
+fn print_namespaces_tree() {
+    let mut grouped: BTreeMap<&'static str, Vec<crate::core::ControllerSchema>> = BTreeMap::new();
+    for schema in all::all_controller_schemas() {
+        grouped.entry(schema.namespace).or_default().push(schema);
+    }
+
+    println!("Registered namespaces:");
+    for (namespace, mut schemas) in grouped {
+        schemas.sort_by_key(|s| s.function);
+        println!();
+        println!("{namespace}");
+        for schema in schemas {
+            println!("  {} - {}", schema.function, schema.description);
+            if schema.inputs.is_empty() {
+                println!("    params: none");
+            } else {
+                println!("    params:");
+                for input in schema.inputs {
+                    let req = if input.required {
+                        "required"
+                    } else {
+                        "optional"
+                    };
+                    println!(
+                        "      - {} ({}, {}) :: {}",
+                        input.name,
+                        req,
+                        type_label(&input.ty),
+                        input.comment
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn type_label(ty: &TypeSchema) -> String {
+    match ty {
+        TypeSchema::Bool => "bool".to_string(),
+        TypeSchema::I64 => "i64".to_string(),
+        TypeSchema::U64 => "u64".to_string(),
+        TypeSchema::F64 => "f64".to_string(),
+        TypeSchema::String => "string".to_string(),
+        TypeSchema::Json => "json".to_string(),
+        TypeSchema::Bytes => "bytes".to_string(),
+        TypeSchema::Array(inner) => format!("array<{}>", type_label(inner)),
+        TypeSchema::Map(inner) => format!("map<string, {}>", type_label(inner)),
+        TypeSchema::Option(inner) => format!("option<{}>", type_label(inner)),
+        TypeSchema::Enum { variants } => format!("enum{{{}}}", variants.join("|")),
+        TypeSchema::Object { .. } => "object".to_string(),
+        TypeSchema::Ref(name) => format!("ref<{name}>"),
+    }
 }
