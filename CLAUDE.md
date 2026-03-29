@@ -498,6 +498,7 @@ For every **domain** that exposes RPC/CLI, keep orchestration in a dedicated `rp
 
 ## Key Patterns
 
+- **Source file size**: Prefer **≤ ~500 lines per source file** (excluding generated assets and lockfiles). When a module grows past that, split into submodules or companion files with clear names (for example `src/openhuman/local_ai/` uses `types.rs`, `paths.rs`, `service/*.rs`). Applies to Rust (`src/openhuman/`, `src/core_server/`, etc.) and TypeScript (`src/`) alike.
 - **MANDATORY: Pre-completion checks**: Before considering ANY task complete, ALWAYS run these checks and fix all errors:
   1. `npx prettier --check .` (formatting)
   2. `npx eslint .` (lint)

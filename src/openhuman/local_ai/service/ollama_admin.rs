@@ -15,7 +15,10 @@ use crate::openhuman::local_ai::paths::{
 use super::LocalAiService;
 
 impl LocalAiService {
-    pub(super) async fn ensure_ollama_server(&self, config: &Config) -> Result<(), String> {
+    pub(in crate::openhuman::local_ai::service) async fn ensure_ollama_server(
+        &self,
+        config: &Config,
+    ) -> Result<(), String> {
         if self.ollama_healthy().await {
             return Ok(());
         }
@@ -144,7 +147,10 @@ impl LocalAiService {
             .unwrap_or(false)
     }
 
-    pub(super) async fn ensure_models_available(&self, config: &Config) -> Result<(), String> {
+    pub(in crate::openhuman::local_ai::service) async fn ensure_models_available(
+        &self,
+        config: &Config,
+    ) -> Result<(), String> {
         let chat_model = model_ids::effective_chat_model_id(config);
         self.ensure_ollama_model_available(&chat_model, "chat")
             .await?;
@@ -182,7 +188,7 @@ impl LocalAiService {
         Ok(())
     }
 
-    pub(super) async fn ensure_ollama_model_available(
+    pub(in crate::openhuman::local_ai::service) async fn ensure_ollama_model_available(
         &self,
         model_id: &str,
         label: &str,
@@ -295,7 +301,10 @@ impl LocalAiService {
         Ok(())
     }
 
-    async fn has_model(&self, model: &str) -> Result<bool, String> {
+    pub(in crate::openhuman::local_ai::service) async fn has_model(
+        &self,
+        model: &str,
+    ) -> Result<bool, String> {
         let response = self
             .http
             .get(format!("{OLLAMA_BASE_URL}/api/tags"))

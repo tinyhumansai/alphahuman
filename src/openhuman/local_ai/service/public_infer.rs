@@ -120,7 +120,7 @@ impl LocalAiService {
         Ok(sanitize_inline_completion(&raw))
     }
 
-    pub(super) async fn inference(
+    async fn inference(
         &self,
         config: &Config,
         system: &str,
