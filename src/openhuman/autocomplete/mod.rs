@@ -136,6 +136,57 @@ fn is_terminal_app(app_name: Option<&str>) -> bool {
     .any(|needle| app.contains(needle))
 }
 
+fn looks_like_terminal_buffer(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let line_count = text.lines().count();
+    line_count >= 5
+        && (lower.contains("$ ")
+            || lower.contains("# ")
+            || lower.contains("❯")
+            || lower.contains("[1] 0:")
+            || lower.contains("tmux")
+            || lower.contains("cargo run")
+            || lower.contains("git status"))
+}
+
+fn is_terminal_noise_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    trimmed.starts_with('•')
+        || trimmed.starts_with('└')
+        || trimmed.starts_with('─')
+        || trimmed.starts_with('│')
+        || (trimmed.starts_with('[')
+            && (trimmed.contains(" 0:") || trimmed.contains("[tmux]") || trimmed.contains("\"⠙")))
+}
+
+fn extract_terminal_input_context(text: &str) -> String {
+    let mut fallback = String::new();
+    for raw_line in text.lines().rev().take(40) {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if fallback.is_empty() && !is_terminal_noise_line(line) {
+            fallback = line.to_string();
+        }
+        if is_terminal_noise_line(line) {
+            continue;
+        }
+        if line.contains("$ ")
+            || line.contains("# ")
+            || line.contains("❯")
+            || line.contains("➜")
+            || line.contains("λ")
+        {
+            return line.to_string();
+        }
+    }
+    fallback
+}
+
 struct EngineState {
     running: bool,
     phase: String,
@@ -445,6 +496,13 @@ impl AutocompleteEngine {
         };
 
         let app_lower = focused.app_name.clone().unwrap_or_default().to_lowercase();
+        let is_terminalish = is_terminal_app(focused.app_name.as_deref())
+            || looks_like_terminal_buffer(&focused.text);
+        let focused_text = if is_terminalish {
+            extract_terminal_input_context(&focused.text)
+        } else {
+            focused.text.clone()
+        };
         if config
             .autocomplete
             .disabled_apps
@@ -453,7 +511,7 @@ impl AutocompleteEngine {
         {
             let mut state = self.inner.lock().await;
             state.app_name = focused.app_name;
-            state.context = truncate_tail(&focused.text, config.autocomplete.max_chars);
+            state.context = truncate_tail(&focused_text, config.autocomplete.max_chars);
             state.suggestion = None;
             state.phase = "blocked_app".to_string();
             state.last_error = None;
@@ -461,7 +519,7 @@ impl AutocompleteEngine {
             return Ok(());
         }
 
-        let context = truncate_tail(&focused.text, config.autocomplete.max_chars);
+        let context = truncate_tail(&focused_text, config.autocomplete.max_chars);
         if context.trim().is_empty() {
             let mut state = self.inner.lock().await;
             state.app_name = focused.app_name;
@@ -597,7 +655,7 @@ fn focused_text_context() -> Result<FocusedTextContext, String> {
 
 #[cfg(target_os = "macos")]
 fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
-    let script = r#"
+    let script = r##"
       tell application "System Events"
         set sep to character id 31
         set frontApp to first application process whose frontmost is true
@@ -637,10 +695,13 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
         if textValue is "" then
           try
             set focusedWindow to value of attribute "AXFocusedWindow" of frontApp
-            set childElems to value of attribute "AXChildren" of focusedWindow
+            set childElems to entire contents of focusedWindow
+            set staticPromptValue to ""
+            set staticFallbackValue to ""
             repeat with childElem in childElems
               set childRole to ""
               set childValue to ""
+              set childSelectedValue to ""
               try
                 set childRole to value of attribute "AXRole" of childElem as text
               end try
@@ -649,6 +710,13 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
                   set childValue to value of attribute "AXValue" of childElem as text
                 end try
                 if childValue is "missing value" then set childValue to ""
+                if childValue is "" then
+                  try
+                    set childSelectedValue to value of attribute "AXSelectedText" of childElem as text
+                  end try
+                  if childSelectedValue is "missing value" then set childSelectedValue to ""
+                  if childSelectedValue is not "" then set childValue to childSelectedValue
+                end if
                 if childValue is not "" then
                   set roleValue to childRole
                   set textValue to childValue
@@ -656,6 +724,34 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
                 end if
               end if
             end repeat
+            if textValue is "" then
+              repeat with childElem in childElems
+                set childRole to ""
+                set childValue to ""
+                try
+                  set childRole to value of attribute "AXRole" of childElem as text
+                end try
+                if childRole is "AXStaticText" then
+                  try
+                    set childValue to value of attribute "AXValue" of childElem as text
+                  end try
+                  if childValue is "missing value" then set childValue to ""
+                  if childValue is not "" then
+                    set staticFallbackValue to childValue
+                    if childValue contains "$ " or childValue contains "# " or childValue contains "> " then
+                      set staticPromptValue to childValue
+                    end if
+                  end if
+                end if
+              end repeat
+              if staticPromptValue is not "" then
+                set roleValue to "AXStaticText"
+                set textValue to staticPromptValue
+              else if staticFallbackValue is not "" then
+                set roleValue to "AXStaticText"
+                set textValue to staticFallbackValue
+              end if
+            end if
           on error errMsg2 number errNum2
             if errValue is "" then set errValue to "ERROR:" & errNum2 & ":" & errMsg2
           end try
@@ -667,7 +763,7 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
 
         return appName & sep & roleValue & sep & textValue & sep & selectedValue & sep & errValue
       end tell
-    "#;
+    "##;
 
     let output = std::process::Command::new("osascript")
         .arg("-e")
