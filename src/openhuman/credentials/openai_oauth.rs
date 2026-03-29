@@ -1,4 +1,4 @@
-use crate::auth::profiles::TokenSet;
+use super::profiles::TokenSet;
 use anyhow::{Context, Result};
 use base64::Engine;
 use chrono::Utc;

@@ -6,7 +6,7 @@ mod db;
 mod extraction;
 mod ingestion;
 
-use crate::memory::db::{default_db_path, init_schema};
+use self::db::{default_db_path, init_schema};
 use std::path::PathBuf;
 use std::sync::Arc;
 

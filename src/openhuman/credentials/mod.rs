@@ -2,8 +2,8 @@ pub mod anthropic_token;
 pub mod openai_oauth;
 pub mod profiles;
 
-use crate::auth::openai_oauth::refresh_access_token;
-use crate::auth::profiles::{
+use self::openai_oauth::refresh_access_token;
+use self::profiles::{
     profile_id, AuthProfile, AuthProfileKind, AuthProfilesData, AuthProfilesStore,
 };
 use crate::openhuman::config::Config;
@@ -46,7 +46,7 @@ impl AuthService {
     pub fn store_openai_tokens(
         &self,
         profile_name: &str,
-        token_set: crate::auth::profiles::TokenSet,
+        token_set: self::profiles::TokenSet,
         account_id: Option<String>,
         set_active: bool,
     ) -> Result<AuthProfile> {
@@ -331,8 +331,8 @@ fn clear_refresh_backoff(profile_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use self::profiles::{AuthProfile, AuthProfileKind};
     use super::*;
-    use crate::auth::profiles::{AuthProfile, AuthProfileKind};
 
     #[test]
     fn normalize_provider_aliases() {

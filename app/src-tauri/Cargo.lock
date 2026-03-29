@@ -5445,7 +5445,6 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "ring",
- "rquickjs",
  "rusqlite",
  "rustls",
  "rustls-pki-types",

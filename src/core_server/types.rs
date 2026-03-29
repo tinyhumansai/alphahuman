@@ -252,11 +252,6 @@ pub struct MigrateOpenClawParams {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct HardwareIntrospectParams {
-    pub path: String,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct EncryptSecretParams {
     pub plaintext: String,
 }

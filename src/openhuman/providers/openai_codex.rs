@@ -1,5 +1,5 @@
-use crate::auth::openai_oauth::extract_account_id_from_jwt;
-use crate::auth::AuthService;
+use crate::openhuman::credentials::openai_oauth::extract_account_id_from_jwt;
+use crate::openhuman::credentials::AuthService;
 use crate::openhuman::providers::traits::{ChatMessage, Provider};
 use crate::openhuman::providers::ProviderRuntimeOptions;
 use async_trait::async_trait;

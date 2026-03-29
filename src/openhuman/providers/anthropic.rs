@@ -519,7 +519,7 @@ impl Provider for AnthropicProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::anthropic_token::{detect_auth_kind, AnthropicAuthKind};
+    use crate::openhuman::credentials::anthropic_token::{detect_auth_kind, AnthropicAuthKind};
 
     #[test]
     fn creates_with_key() {

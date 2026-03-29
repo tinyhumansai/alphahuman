@@ -1,32 +1,14 @@
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;
-
-#[cfg(feature = "tauri-host")]
-use std::sync::Arc;
 use std::sync::OnceLock;
 
-use crate::auth::profiles::{AuthProfileKind, TokenSet};
-use crate::auth::AuthService;
 use crate::openhuman::config::Config;
+use crate::openhuman::credentials::profiles::{AuthProfileKind, TokenSet};
+use crate::openhuman::credentials::AuthService;
 use crate::openhuman::security::SecretStore;
 
 use super::types::{AuthProfileSummary, AuthStateResponse};
 use super::{APP_SESSION_PROVIDER, DEFAULT_AUTH_PROFILE_NAME};
-
-#[cfg(feature = "tauri-host")]
-static SOCKET_MANAGER: OnceLock<Arc<crate::runtime::socket_manager::SocketManager>> =
-    OnceLock::new();
-
-#[cfg(feature = "tauri-host")]
-pub fn core_socket_manager() -> Arc<crate::runtime::socket_manager::SocketManager> {
-    SOCKET_MANAGER
-        .get_or_init(|| Arc::new(crate::runtime::socket_manager::SocketManager::new()))
-        .clone()
-}
-
-#[cfg(feature = "tauri-host")]
-#[allow(dead_code)]
-static RUNTIME_ENGINE: OnceLock<Arc<crate::runtime::qjs_engine::RuntimeEngine>> = OnceLock::new();
 
 #[cfg(feature = "tauri-host")]
 #[allow(dead_code)]
@@ -34,22 +16,6 @@ static DESKTOP_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 #[allow(dead_code)]
 static DESKTOP_RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
-
-/// Register the QuickJS runtime engine for JSON-RPC `runtime.*` handlers (same OS process as the host).
-#[cfg(feature = "tauri-host")]
-#[allow(dead_code)]
-pub fn init_core_runtime(engine: Arc<crate::runtime::qjs_engine::RuntimeEngine>) {
-    let _ = RUNTIME_ENGINE.set(engine);
-}
-
-#[cfg(feature = "tauri-host")]
-#[allow(dead_code)]
-pub fn core_runtime_engine() -> Result<Arc<crate::runtime::qjs_engine::RuntimeEngine>, String> {
-    RUNTIME_ENGINE
-        .get()
-        .cloned()
-        .ok_or_else(|| "runtime engine not initialized".to_string())
-}
 
 #[cfg(feature = "tauri-host")]
 #[allow(dead_code)]
@@ -239,7 +205,9 @@ fn profile_kind_label(kind: AuthProfileKind) -> String {
     }
 }
 
-pub fn summarize_auth_profile(profile: &crate::auth::profiles::AuthProfile) -> AuthProfileSummary {
+pub fn summarize_auth_profile(
+    profile: &crate::openhuman::credentials::profiles::AuthProfile,
+) -> AuthProfileSummary {
     let mut metadata_keys = profile
         .metadata
         .keys()
@@ -265,7 +233,9 @@ pub fn summarize_auth_profile(profile: &crate::auth::profiles::AuthProfile) -> A
     }
 }
 
-fn session_user_value(profile: &crate::auth::profiles::AuthProfile) -> Option<serde_json::Value> {
+fn session_user_value(
+    profile: &crate::openhuman::credentials::profiles::AuthProfile,
+) -> Option<serde_json::Value> {
     profile
         .metadata
         .get("user_json")

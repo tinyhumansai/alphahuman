@@ -8,8 +8,6 @@ use crate::core_server::types::{
     AuthListProviderCredentialsParams, AuthRemoveProviderCredentialsParams,
     AuthStoreProviderCredentialsParams, AuthStoreSessionParams, InvocationResult,
 };
-#[cfg(feature = "tauri-host")]
-use crate::core_server::types::{SocketConnectParams, SocketEmitParams};
 use crate::core_server::APP_SESSION_PROVIDER;
 use crate::openhuman::config::Config;
 
@@ -212,67 +210,22 @@ pub async fn try_dispatch(
 
         #[cfg(feature = "tauri-host")]
         "openhuman.socket.connect" => Some(
-            async move {
-                let payload: SocketConnectParams = parse_params(params)?;
-                {
-                    let mgr = crate::core_server::helpers::core_socket_manager();
-                    mgr.connect(&payload.url, &payload.token).await?;
-                    return InvocationResult::with_logs(
-                        mgr.get_state(),
-                        vec!["socket connect requested".to_string()],
-                    );
-                }
-            }
-            .await,
+            Err("native skill runtime and socket manager are not available in this build".to_string()),
         ),
 
         #[cfg(feature = "tauri-host")]
         "openhuman.socket.disconnect" => Some(
-            async move {
-                {
-                    let mgr = crate::core_server::helpers::core_socket_manager();
-                    mgr.disconnect().await?;
-                    return InvocationResult::with_logs(
-                        mgr.get_state(),
-                        vec!["socket disconnected".to_string()],
-                    );
-                }
-            }
-            .await,
+            Err("native skill runtime and socket manager are not available in this build".to_string()),
         ),
 
         #[cfg(feature = "tauri-host")]
         "openhuman.socket.state" => Some(
-            async move {
-                 {
-                    let mgr = crate::core_server::helpers::core_socket_manager();
-                    return InvocationResult::with_logs(
-                        mgr.get_state(),
-                        vec!["socket state fetched".to_string()],
-                    );
-                }
-            }
-            .await,
+            Err("native skill runtime and socket manager are not available in this build".to_string()),
         ),
 
         #[cfg(feature = "tauri-host")]
         "openhuman.socket.emit" => Some(
-            async move {
-                let payload: SocketEmitParams = parse_params(params)?;
-                 {
-                    let mgr = crate::core_server::helpers::core_socket_manager();
-                    mgr.emit(
-                        &payload.event,
-                        payload.data.unwrap_or(serde_json::Value::Null),
-                    )
-                    .await?;
-                    return InvocationResult::with_logs(
-                        mgr.get_state(),
-                        vec!["socket event emitted".to_string()],
-                    );
-                }
-            }
-            .await,
+            Err("native skill runtime and socket manager are not available in this build".to_string()),
         ),
 
         _ => None,

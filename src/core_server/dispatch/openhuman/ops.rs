@@ -1,9 +1,9 @@
 use crate::core_server::helpers::{load_openhuman_config, parse_params, secret_store_for_config};
 use crate::core_server::types::{
-    DecryptSecretParams, DoctorModelsParams, EncryptSecretParams, HardwareIntrospectParams,
-    IntegrationInfoParams, InvocationResult, MigrateOpenClawParams, ModelsRefreshParams,
+    DecryptSecretParams, DoctorModelsParams, EncryptSecretParams, IntegrationInfoParams,
+    InvocationResult, MigrateOpenClawParams, ModelsRefreshParams,
 };
-use crate::openhuman::{doctor, hardware, integrations, migration, onboard, service};
+use crate::openhuman::{doctor, integrations, migration, onboard, service};
 
 pub async fn try_dispatch(
     method: &str,
@@ -100,21 +100,6 @@ pub async fn try_dispatch(
                         .await
                         .map_err(|e| e.to_string())?;
                 InvocationResult::with_logs(report, vec!["migration completed".to_string()])
-            }
-            .await,
-        ),
-
-        "openhuman.hardware_discover" => Some(Ok(InvocationResult::with_logs(
-            hardware::discover_hardware(),
-            vec!["hardware discovery complete".to_string()],
-        )
-        .unwrap())),
-
-        "openhuman.hardware_introspect" => Some(
-            async move {
-                let p: HardwareIntrospectParams = parse_params(params)?;
-                let info = hardware::introspect_device(&p.path).map_err(|e| e.to_string())?;
-                InvocationResult::with_logs(info, vec![format!("introspected {}", p.path)])
             }
             .await,
         ),

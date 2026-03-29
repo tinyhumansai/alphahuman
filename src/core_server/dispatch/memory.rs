@@ -19,7 +19,7 @@ pub async fn try_dispatch(
                 }
 
                 let _payload: MemoryInitParams = parse_params(params)?;
-                let _client = crate::memory::MemoryClient::new_local()?;
+                let _client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 InvocationResult::ok(true)
             }
             .await,
@@ -33,7 +33,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryListDocumentsParams = parse_params(params)?;
-                let client = crate::memory::MemoryClient::new_local()?;
+                let client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 let docs = client.list_documents().await?;
                 let filtered = payload
                     .namespace
@@ -49,7 +49,7 @@ pub async fn try_dispatch(
 
         "memory.list_namespaces" => Some(
             async move {
-                let client = crate::memory::MemoryClient::new_local()?;
+                let client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 let docs = client.list_documents().await?;
                 InvocationResult::ok(extract_namespaces_from_documents(&docs))
             }
@@ -65,7 +65,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryDeleteDocumentParams = parse_params(params)?;
-                let client = crate::memory::MemoryClient::new_local()?;
+                let client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 let result = client
                     .delete_document(&payload.document_id, &payload.namespace)
                     .await?;
@@ -84,7 +84,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryQueryNamespaceParams = parse_params(params)?;
-                let client = crate::memory::MemoryClient::new_local()?;
+                let client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 let result = client
                     .query_namespace_context(
                         &payload.namespace,
@@ -106,7 +106,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryRecallNamespaceParams = parse_params(params)?;
-                let client = crate::memory::MemoryClient::new_local()?;
+                let client = crate::openhuman::local_memory::MemoryClient::new_local()?;
                 let result = client
                     .recall_namespace_context(&payload.namespace, payload.max_chunks.unwrap_or(10))
                     .await?;
