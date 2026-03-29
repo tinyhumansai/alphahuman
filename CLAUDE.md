@@ -485,6 +485,8 @@ Layering:
 | **Controller** | `src/openhuman/<domain>/rpc.rs` plus [`src/openhuman/rpc/mod.rs`](src/openhuman/rpc/mod.rs) (`RpcOutcome`) | Orchestrate: load config, validate, call implementation, attach logs. |
 | **Routes** | [`src/core_server/cli.rs`](src/core_server/cli.rs) (CLI), [`src/core_server/json_rpc.rs`](src/core_server/json_rpc.rs) (HTTP POST `/rpc`), and [`core_server::call_method`](src/core_server/mod.rs) (in-process JSON-RPC) | Parse transport only; delegate to dispatch or call `openhuman::…::rpc` directly. [`src/core_server/server.rs`](src/core_server/server.rs) wires the Axum router and `run_server`. |
 
+**`src/core_server/` is routes-only — keep it light.** Do **not** put **controller** code here (no orchestration, validation beyond transport, feature workflows, or domain rules). This layer should stay **route-focused**: Axum/HTTP wiring, JSON-RPC envelope handling, CLI/clap parsing, the dispatch table (`method` → thin handler), and small helpers for RPC/CLI response shapes. **All controllers and orchestration** belong in **`src/openhuman/`** — typically `src/openhuman/<domain>/rpc.rs` (and the domain implementation it calls). When you add or change behavior, implement it under `src/openhuman/` and expose it through a **thin** `core_server` route, CLI subcommand, or dispatch arm that only parses input and forwards to `openhuman::…`.
+
 **Dispatch** ([`src/core_server/dispatch/`](src/core_server/dispatch/mod.rs)) is shared **method routing** (match `method` string → `parse_params` → controller). It is not the domain implementation; keep it free of business logic beyond parameter wiring.
 
 For every **domain** that exposes RPC/CLI, keep orchestration in a dedicated `rpc.rs` file.

@@ -323,6 +323,12 @@ struct VisionRecentCliArgs {
 struct AutocompleteStartCliArgs {
     #[arg(long)]
     debounce_ms: Option<u64>,
+    /// Run autocomplete loop in this process until interrupted (Ctrl-C)
+    #[arg(long, default_value_t = false, conflicts_with = "spawn")]
+    serve: bool,
+    /// Spawn detached autocomplete process running in serve mode
+    #[arg(long, default_value_t = false, conflicts_with = "serve")]
+    spawn: bool,
 }
 
 #[derive(Debug, Args)]
@@ -918,10 +924,12 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 .await
             }
             AutocompleteCommand::Start(args) => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::autocomplete::rpc::autocomplete_start(parse_params(
-                        json!({ "debounce_ms": args.debounce_ms }),
-                    )?),
+                crate::openhuman::autocomplete::rpc::autocomplete_start_cli(
+                    crate::openhuman::autocomplete::rpc::AutocompleteStartCliOptions {
+                        debounce_ms: args.debounce_ms,
+                        serve: args.serve,
+                        spawn: args.spawn,
+                    },
                 )
                 .await
             }
