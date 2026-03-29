@@ -786,6 +786,34 @@ export interface LocalAiAssetsStatus {
   quantization: string;
 }
 
+export interface LocalAiDownloadProgressItem {
+  id: string;
+  provider: string;
+  state: string;
+  progress?: number | null;
+  downloaded_bytes?: number | null;
+  total_bytes?: number | null;
+  speed_bps?: number | null;
+  eta_seconds?: number | null;
+  warning?: string | null;
+  path?: string | null;
+}
+
+export interface LocalAiDownloadsProgress {
+  state: string;
+  warning?: string | null;
+  progress?: number | null;
+  downloaded_bytes?: number | null;
+  total_bytes?: number | null;
+  speed_bps?: number | null;
+  eta_seconds?: number | null;
+  chat: LocalAiDownloadProgressItem;
+  vision: LocalAiDownloadProgressItem;
+  embedding: LocalAiDownloadProgressItem;
+  stt: LocalAiDownloadProgressItem;
+  tts: LocalAiDownloadProgressItem;
+}
+
 export interface LocalAiEmbeddingResult {
   model_id: string;
   dimensions: number;
@@ -1122,6 +1150,18 @@ export async function openhumanLocalAiDownload(
   }
 }
 
+export async function openhumanLocalAiDownloadAllAssets(
+  force?: boolean
+): Promise<CommandResponse<LocalAiDownloadsProgress>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<LocalAiDownloadsProgress>>({
+    method: 'openhuman.local_ai_download_all_assets',
+    params: { force: force ?? false },
+  });
+}
+
 export async function openhumanLocalAiSummarize(
   text: string,
   maxTokens?: number
@@ -1234,6 +1274,17 @@ export async function openhumanLocalAiAssetsStatus(): Promise<
   }
   return await callCoreRpc<CommandResponse<LocalAiAssetsStatus>>({
     method: 'openhuman.local_ai_assets_status',
+  });
+}
+
+export async function openhumanLocalAiDownloadsProgress(): Promise<
+  CommandResponse<LocalAiDownloadsProgress>
+> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<LocalAiDownloadsProgress>>({
+    method: 'openhuman.local_ai_downloads_progress',
   });
 }
 
