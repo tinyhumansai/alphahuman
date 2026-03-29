@@ -54,7 +54,7 @@ pub async fn store_session(
 
     let api_url = effective_api_url(&config.api_url);
 
-    let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
     let settings = client
         .fetch_settings(trimmed_token)
         .await
@@ -223,7 +223,7 @@ pub async fn oauth_connect(
     let token = get_session_token(config)?.ok_or_else(|| {
         "session JWT required; complete login and store_session first".to_string()
     })?;
-    let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
     let r = client
         .connect(provider, &token, skill_id, response_type)
         .await
@@ -239,7 +239,7 @@ pub async fn oauth_list_integrations(
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
     let api_url = effective_api_url(&config.api_url);
     let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
-    let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
     let list = client
         .list_integrations(&token)
         .await
@@ -257,7 +257,7 @@ pub async fn oauth_fetch_integration_tokens(
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
     let api_url = effective_api_url(&config.api_url);
     let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
-    let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
     let tokens = client
         .fetch_integration_tokens_handoff(integration_id, &token, encryption_key)
         .await
@@ -274,7 +274,7 @@ pub async fn oauth_revoke_integration(
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
     let api_url = effective_api_url(&config.api_url);
     let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
-    let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
     client
         .revoke_integration(integration_id, &token)
         .await

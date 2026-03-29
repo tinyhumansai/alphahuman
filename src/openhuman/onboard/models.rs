@@ -78,11 +78,7 @@ pub fn run_models_refresh(config: &Config, force: bool) -> Result<ModelRefreshRe
         .unwrap_or_default();
 
     let api_base = effective_api_url(&config.api_url);
-    match fetch_live_models_for_provider(
-        &provider_name,
-        &api_key,
-        Some(api_base.as_str()),
-    ) {
+    match fetch_live_models_for_provider(&provider_name, &api_key, Some(api_base.as_str())) {
         Ok(models) if !models.is_empty() => {
             cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models)?;
             Ok(ModelRefreshResult {
