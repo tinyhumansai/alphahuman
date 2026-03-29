@@ -407,14 +407,6 @@ export interface IntegrationInfo {
   setup_hints: string[];
 }
 
-export interface ModelRefreshResult {
-  provider: string;
-  models: string[];
-  source: ModelRefreshSource;
-  cache_age_secs?: number | null;
-  warnings: string[];
-}
-
 export interface MigrationStats {
   from_sqlite: number;
   from_markdown: number;
@@ -1353,18 +1345,6 @@ export async function openhumanDoctorModels(
   return await callCoreRpc<CommandResponse<ModelProbeReport>>({
     method: 'openhuman.doctor_models',
     params: { use_cache: useCache },
-  });
-}
-
-export async function openhumanModelsRefresh(
-  force = false
-): Promise<CommandResponse<ModelRefreshResult>> {
-  if (!isTauri()) {
-    throw new Error('Not running in Tauri');
-  }
-  return await callCoreRpc<CommandResponse<ModelRefreshResult>>({
-    method: 'openhuman.models_refresh',
-    params: { force },
   });
 }
 

@@ -23,7 +23,6 @@ import {
   openhumanHardwareDiscover,
   openhumanHardwareIntrospect,
   openhumanMigrateOpenclaw,
-  openhumanModelsRefresh,
   openhumanServiceInstall,
   openhumanServiceStatus,
   openhumanServiceUninstall,
@@ -434,7 +433,7 @@ const TauriCommandsPanel = () => {
       );
 
       // Test connection by attempting to refresh models with current settings
-      const result = await Promise.race([openhumanModelsRefresh(false), timeoutPromise]);
+      const result = await Promise.race([openhumanDoctorReport(), timeoutPromise]);
 
       setOutput(formatJson(result));
 
@@ -1012,17 +1011,6 @@ const TauriCommandsPanel = () => {
                 disabled={!decryptInput.trim()}
                 variant="outline">
                 Decrypt
-              </PrimaryButton>
-              <PrimaryButton
-                onClick={() => run(() => openhumanModelsRefresh(false), 'modelsRefresh')}
-                loading={operationLoading === 'modelsRefresh'}>
-                Refresh Models
-              </PrimaryButton>
-              <PrimaryButton
-                onClick={() => run(() => openhumanModelsRefresh(true), 'modelsForceRefresh')}
-                loading={operationLoading === 'modelsForceRefresh'}
-                variant="outline">
-                Force Refresh
               </PrimaryButton>
             </ActionPanel>
           </SectionCard>
