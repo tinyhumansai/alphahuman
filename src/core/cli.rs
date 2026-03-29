@@ -60,7 +60,7 @@ fn run_server_command(args: &[String]) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(async { crate::core::server::run_server(port).await })?;
+    rt.block_on(async { crate::core::jsonrpc::run_server(port).await })?;
     Ok(())
 }
 
