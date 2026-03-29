@@ -54,7 +54,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ring",
  "rppal",
- "rquickjs",
+ "rquickjs 0.11.0",
  "rusqlite",
  "rustls",
  "rustls-pki-types",
@@ -5445,6 +5445,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "ring",
+ "rquickjs 0.9.0",
  "rusqlite",
  "rustls",
  "rustls-pki-types",
@@ -6934,12 +6935,31 @@ dependencies = [
 
 [[package]]
 name = "rquickjs"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c5227859c4dfc83f428e58f9569bf439e628c8d139020e7faff437e6f5abaa0"
+dependencies = [
+ "rquickjs-core 0.9.0",
+]
+
+[[package]]
+name = "rquickjs"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c50dc6d6c587c339edb4769cf705867497a2baf0eca8b4645fa6ecd22f02c77a"
 dependencies = [
- "rquickjs-core",
+ "rquickjs-core 0.11.0",
  "rquickjs-macro",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e82e0ca83028ad5b533b53b96c395bbaab905a5774de4aaf1004eeacafa3d85d"
+dependencies = [
+ "async-lock",
+ "rquickjs-sys 0.9.0",
 ]
 
 [[package]]
@@ -6951,7 +6971,7 @@ dependencies = [
  "async-lock",
  "hashbrown 0.16.1",
  "relative-path",
- "rquickjs-sys",
+ "rquickjs-sys 0.11.0",
 ]
 
 [[package]]
@@ -6967,8 +6987,17 @@ dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
- "rquickjs-core",
+ "rquickjs-core 0.11.0",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fed0097b0b4fbb2a87f6dd3b995a7c64ca56de30007eb7e867dfdfc78324ba5"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
