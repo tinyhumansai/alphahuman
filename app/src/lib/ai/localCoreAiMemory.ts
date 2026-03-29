@@ -30,7 +30,7 @@ const embeddingCache = new Map<
   }
 >();
 
-let sessionIndex: Record<string, SessionEntry> = {};
+const sessionIndex: Record<string, SessionEntry> = {};
 const transcripts = new Map<string, string[]>();
 
 function cacheKey(provider: string, model: string, hash: string): string {
