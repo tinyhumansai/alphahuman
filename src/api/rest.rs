@@ -10,56 +10,10 @@ use std::time::Duration;
 
 use super::jwt::bearer_authorization_value;
 
-fn fetch_settings_ureq(url: &str, auth: &str) -> Result<String> {
-    let agent = ureq::Agent::new();
-    let resp = agent
-        .get(url)
-        .set("Authorization", auth)
-        .call()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let status = resp.status();
-    let body = resp.into_string().map_err(|e| anyhow::anyhow!(e))?;
-    if !(200..300).contains(&status) {
-        anyhow::bail!("GET /settings failed ({status}): {body}");
-    }
-    Ok(body)
-}
-
-/// `curl` fallback when in-process TLS stacks reject the host (e.g. `bad protocol version` on macOS).
-fn fetch_settings_curl(url: &str, auth: &str) -> Result<String> {
-    let output = std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "-f",
-            "--max-time",
-            "120",
-            "-H",
-            &format!("Authorization: {auth}"),
-            url,
-        ])
-        .output()
-        .map_err(|e| anyhow::anyhow!("curl: {e}"))?;
-    if !output.status.success() {
-        let hint = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("curl exit {}: {hint}", output.status);
-    }
-    String::from_utf8(output.stdout).map_err(|e| anyhow::anyhow!(e))
-}
-
-fn fetch_settings_blocking(url: &str, auth: &str) -> Result<String> {
-    fetch_settings_ureq(url, auth).or_else(|e_ureq| {
-        log::debug!("ureq GET /settings failed: {e_ureq:#}; trying curl");
-        fetch_settings_curl(url, auth).map_err(|e_curl| {
-            anyhow::anyhow!("GET /settings failed (ureq: {e_ureq:#}; curl: {e_curl:#})")
-        })
-    })
-}
-
 fn build_backend_reqwest_client() -> Result<Client> {
-    // Keep backend auth calls on reqwest's native TLS stack with HTTP/1.1 for broad
-    // compatibility across host environments and proxies.
+    // Force rustls for consistent cross-platform TLS behavior.
     Client::builder()
-        .use_native_tls()
+        .use_rustls_tls()
         .http1_only()
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(15))
@@ -253,19 +207,21 @@ impl BackendOAuthClient {
     }
 
     /// `GET /settings` — current user settings for the Bearer session JWT (used after login).
-    ///
-    /// Uses [`ureq`] on a blocking thread (not reqwest/hyper). Some hosts + macOS `native_tls`
-    /// fail with `bad protocol version`; we try ureq (rustls), then fall back to `curl` if installed.
     pub async fn fetch_settings(&self, bearer_jwt: &str) -> Result<Value> {
-        let url = self
-            .base
-            .join("settings")
-            .context("build /settings URL")?
-            .to_string();
-        let auth = bearer_authorization_value(bearer_jwt);
-        let text = tokio::task::spawn_blocking(move || fetch_settings_blocking(&url, &auth))
+        let url = self.base.join("settings").context("build /settings URL")?;
+        let resp = self
+            .client
+            .get(url)
+            .header(AUTHORIZATION, bearer_authorization_value(bearer_jwt))
+            .send()
             .await
-            .map_err(|e| anyhow::anyhow!("GET /settings join: {e}"))??;
+            .context("GET /settings")?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("GET /settings failed ({status}): {text}");
+        }
         parse_settings_response_json(&text)
     }
 
