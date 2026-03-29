@@ -1,3 +1,5 @@
+pub mod rpc;
+
 pub mod audit;
 pub mod bubblewrap;
 pub mod detect;

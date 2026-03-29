@@ -1,6 +1,7 @@
 //! Integration registry for UI display.
 
 pub mod registry;
+pub mod rpc;
 
 use crate::openhuman::config::Config;
 use anyhow::Result;

@@ -9,8 +9,8 @@ mod tests;
 
 pub const DEFAULT_CORE_RPC_URL: &str = "http://127.0.0.1:7788/rpc";
 pub const DEFAULT_ONBOARDING_FLAG_NAME: &str = ".skip_onboarding";
-pub const APP_SESSION_PROVIDER: &str = "app-session";
-pub const DEFAULT_AUTH_PROFILE_NAME: &str = "default";
+
+pub use crate::openhuman::credentials::{APP_SESSION_PROVIDER, DEFAULT_AUTH_PROFILE_NAME};
 
 pub use crate::openhuman::autocomplete::{
     AutocompleteAcceptParams, AutocompleteAcceptResult, AutocompleteCurrentParams,

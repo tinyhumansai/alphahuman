@@ -1,3 +1,5 @@
+pub mod rpc;
+
 use crate::openhuman::config::{AutocompleteConfig, Config};
 use crate::openhuman::local_ai;
 use chrono::Utc;

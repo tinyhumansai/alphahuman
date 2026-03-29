@@ -11,7 +11,6 @@
 // Many types/functions are not yet consumed but are intentionally exported.
 #![allow(dead_code)]
 
-pub mod accessibility;
 pub mod agent;
 pub mod approval;
 pub mod autocomplete;
@@ -35,9 +34,9 @@ pub mod memory;
 pub mod migration;
 pub mod multimodal;
 pub mod observability;
-pub mod onboard;
 pub mod peripherals;
 pub mod providers;
+pub mod rpc;
 pub mod runtime;
 pub mod screen_intelligence;
 pub mod security;

@@ -1,4 +1,5 @@
 pub mod daemon;
+pub mod rpc;
 pub mod schema;
 
 #[allow(unused_imports)]

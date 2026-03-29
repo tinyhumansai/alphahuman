@@ -1,5 +1,7 @@
 //! Service management helpers for OpenHuman daemon.
 
+pub mod rpc;
+
 use crate::openhuman::config::Config;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

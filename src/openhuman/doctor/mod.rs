@@ -1,5 +1,7 @@
 //! Diagnostic checks for OpenHuman configuration, workspace health, and daemon state.
 
+pub mod rpc;
+
 use crate::openhuman::config::Config;
 use anyhow::Result;
 use chrono::{DateTime, Utc};

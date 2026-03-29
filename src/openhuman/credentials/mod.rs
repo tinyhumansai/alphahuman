@@ -1,6 +1,14 @@
 pub mod anthropic_token;
 pub mod openai_oauth;
 pub mod profiles;
+pub mod responses;
+pub mod rpc;
+pub mod session_support;
+
+/// Provider id for the in-app session token profile (matches desktop/web handoff).
+pub const APP_SESSION_PROVIDER: &str = "app-session";
+/// Default named profile when none is specified.
+pub const DEFAULT_AUTH_PROFILE_NAME: &str = "default";
 
 use self::openai_oauth::refresh_access_token;
 use self::profiles::{

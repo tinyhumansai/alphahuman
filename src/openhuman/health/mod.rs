@@ -1,3 +1,5 @@
+pub mod rpc;
+
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::Serialize;

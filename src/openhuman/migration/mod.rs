@@ -1,5 +1,7 @@
 //! Data migration helpers for OpenHuman.
 
+pub mod rpc;
+
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::{self, Memory, MemoryCategory};
 use anyhow::{bail, Context, Result};

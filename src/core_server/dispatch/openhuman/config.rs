@@ -1,8 +1,7 @@
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::core_server::helpers::{
-    default_workspace_dir, env_flag_enabled, load_openhuman_config, parse_params, snapshot_config,
+    default_workspace_dir, load_openhuman_config, parse_params, rpc_invocation_from_outcome,
 };
 use crate::core_server::types::{
     BrowserSettingsUpdate, GatewaySettingsUpdate, InvocationResult, MemorySettingsUpdate,
@@ -10,48 +9,28 @@ use crate::core_server::types::{
     SetBrowserAllowAllParams,
 };
 use crate::core_server::DEFAULT_ONBOARDING_FLAG_NAME;
-use crate::openhuman::health;
-use crate::openhuman::screen_intelligence;
-use crate::openhuman::security::SecurityPolicy;
+use crate::openhuman::config::rpc::{
+    self as config_rpc, BrowserSettingsPatch, GatewaySettingsPatch, MemorySettingsPatch,
+    ModelSettingsPatch, RuntimeSettingsPatch, ScreenIntelligenceSettingsPatch,
+};
 
 pub async fn try_dispatch(
     method: &str,
     params: serde_json::Value,
 ) -> Option<Result<InvocationResult, String>> {
     match method {
-        "openhuman.health_snapshot" => Some(Ok(InvocationResult::with_logs(
-            health::snapshot_json(),
-            vec!["health_snapshot requested".to_string()],
-        )
-        .unwrap())),
+        "openhuman.health_snapshot" => Some(rpc_invocation_from_outcome(
+            crate::openhuman::health::rpc::health_snapshot(),
+        )),
 
-        "openhuman.security_policy_info" => {
-            let policy = SecurityPolicy::default();
-            let payload = json!({
-                "autonomy": policy.autonomy,
-                "workspace_only": policy.workspace_only,
-                "allowed_commands": policy.allowed_commands,
-                "max_actions_per_hour": policy.max_actions_per_hour,
-                "require_approval_for_medium_risk": policy.require_approval_for_medium_risk,
-                "block_high_risk_commands": policy.block_high_risk_commands,
-            });
-            Some(InvocationResult::with_logs(
-                payload,
-                vec!["security_policy_info computed".to_string()],
-            ))
-        }
+        "openhuman.security_policy_info" => Some(rpc_invocation_from_outcome(
+            crate::openhuman::security::rpc::security_policy_info(),
+        )),
 
         "openhuman.get_config" => Some(
             async move {
                 let config = load_openhuman_config().await?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "config loaded from {}",
-                        config.config_path.display()
-                    )],
-                )
+                rpc_invocation_from_outcome(config_rpc::get_config_snapshot(&config).await?)
             }
             .await,
         ),
@@ -60,45 +39,18 @@ pub async fn try_dispatch(
             async move {
                 let update: ModelSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                if let Some(api_key) = update.api_key {
-                    config.api_key = if api_key.trim().is_empty() {
-                        None
-                    } else {
-                        Some(api_key)
-                    };
-                }
-                if let Some(api_url) = update.api_url {
-                    config.api_url = if api_url.trim().is_empty() {
-                        None
-                    } else {
-                        Some(api_url)
-                    };
-                }
-                if let Some(provider) = update.default_provider {
-                    config.default_provider = if provider.trim().is_empty() {
-                        None
-                    } else {
-                        Some(provider)
-                    };
-                }
-                if let Some(model) = update.default_model {
-                    config.default_model = if model.trim().is_empty() {
-                        None
-                    } else {
-                        Some(model)
-                    };
-                }
-                if let Some(temp) = update.default_temperature {
-                    config.default_temperature = temp;
-                }
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "model settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_model_settings(
+                        &mut config,
+                        ModelSettingsPatch {
+                            api_key: update.api_key,
+                            api_url: update.api_url,
+                            default_provider: update.default_provider,
+                            default_model: update.default_model,
+                            default_temperature: update.default_temperature,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
@@ -108,29 +60,18 @@ pub async fn try_dispatch(
             async move {
                 let update: MemorySettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                if let Some(backend) = update.backend {
-                    config.memory.backend = backend;
-                }
-                if let Some(auto_save) = update.auto_save {
-                    config.memory.auto_save = auto_save;
-                }
-                if let Some(provider) = update.embedding_provider {
-                    config.memory.embedding_provider = provider;
-                }
-                if let Some(model) = update.embedding_model {
-                    config.memory.embedding_model = model;
-                }
-                if let Some(dimensions) = update.embedding_dimensions {
-                    config.memory.embedding_dimensions = dimensions;
-                }
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "memory settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_memory_settings(
+                        &mut config,
+                        MemorySettingsPatch {
+                            backend: update.backend,
+                            auto_save: update.auto_save,
+                            embedding_provider: update.embedding_provider,
+                            embedding_model: update.embedding_model,
+                            embedding_dimensions: update.embedding_dimensions,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
@@ -140,44 +81,21 @@ pub async fn try_dispatch(
             async move {
                 let update: ScreenIntelligenceSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-
-                if let Some(enabled) = update.enabled {
-                    config.screen_intelligence.enabled = enabled;
-                }
-                if let Some(capture_policy) = update.capture_policy {
-                    config.screen_intelligence.capture_policy = capture_policy;
-                }
-                if let Some(policy_mode) = update.policy_mode {
-                    config.screen_intelligence.policy_mode = policy_mode;
-                }
-                if let Some(baseline_fps) = update.baseline_fps {
-                    config.screen_intelligence.baseline_fps = baseline_fps.clamp(0.2, 30.0);
-                }
-                if let Some(vision_enabled) = update.vision_enabled {
-                    config.screen_intelligence.vision_enabled = vision_enabled;
-                }
-                if let Some(autocomplete_enabled) = update.autocomplete_enabled {
-                    config.screen_intelligence.autocomplete_enabled = autocomplete_enabled;
-                }
-                if let Some(allowlist) = update.allowlist {
-                    config.screen_intelligence.allowlist = allowlist;
-                }
-                if let Some(denylist) = update.denylist {
-                    config.screen_intelligence.denylist = denylist;
-                }
-
-                config.save().await.map_err(|e| e.to_string())?;
-                let _ = screen_intelligence::global_engine()
-                    .apply_config(config.screen_intelligence.clone())
-                    .await;
-
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "screen intelligence settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_screen_intelligence_settings(
+                        &mut config,
+                        ScreenIntelligenceSettingsPatch {
+                            enabled: update.enabled,
+                            capture_policy: update.capture_policy,
+                            policy_mode: update.policy_mode,
+                            baseline_fps: update.baseline_fps,
+                            vision_enabled: update.vision_enabled,
+                            autocomplete_enabled: update.autocomplete_enabled,
+                            allowlist: update.allowlist,
+                            denylist: update.denylist,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
@@ -187,26 +105,17 @@ pub async fn try_dispatch(
             async move {
                 let update: GatewaySettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                if let Some(host) = update.host {
-                    config.gateway.host = host;
-                }
-                if let Some(port) = update.port {
-                    config.gateway.port = port;
-                }
-                if let Some(require_pairing) = update.require_pairing {
-                    config.gateway.require_pairing = require_pairing;
-                }
-                if let Some(allow_public_bind) = update.allow_public_bind {
-                    config.gateway.allow_public_bind = allow_public_bind;
-                }
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "gateway settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_gateway_settings(
+                        &mut config,
+                        GatewaySettingsPatch {
+                            host: update.host,
+                            port: update.port,
+                            require_pairing: update.require_pairing,
+                            allow_public_bind: update.allow_public_bind,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
@@ -216,15 +125,8 @@ pub async fn try_dispatch(
             async move {
                 let tunnel: crate::openhuman::config::TunnelConfig = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                config.tunnel = tunnel;
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "tunnel settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_tunnel_settings(&mut config, tunnel).await?,
                 )
             }
             .await,
@@ -234,20 +136,15 @@ pub async fn try_dispatch(
             async move {
                 let update: RuntimeSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                if let Some(kind) = update.kind {
-                    config.runtime.kind = kind;
-                }
-                if let Some(reasoning_enabled) = update.reasoning_enabled {
-                    config.runtime.reasoning_enabled = Some(reasoning_enabled);
-                }
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "runtime settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_runtime_settings(
+                        &mut config,
+                        RuntimeSettingsPatch {
+                            kind: update.kind,
+                            reasoning_enabled: update.reasoning_enabled,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
@@ -257,47 +154,41 @@ pub async fn try_dispatch(
             async move {
                 let update: BrowserSettingsUpdate = parse_params(params)?;
                 let mut config = load_openhuman_config().await?;
-                if let Some(enabled) = update.enabled {
-                    config.browser.enabled = enabled;
-                }
-                config.save().await.map_err(|e| e.to_string())?;
-                let snapshot = snapshot_config(&config)?;
-                InvocationResult::with_logs(
-                    snapshot,
-                    vec![format!(
-                        "browser settings saved to {}",
-                        config.config_path.display()
-                    )],
+                rpc_invocation_from_outcome(
+                    config_rpc::apply_browser_settings(
+                        &mut config,
+                        BrowserSettingsPatch {
+                            enabled: update.enabled,
+                        },
+                    )
+                    .await?,
                 )
             }
             .await,
         ),
 
-        "openhuman.get_runtime_flags" => Some(Ok(InvocationResult::with_logs(
-            RuntimeFlags {
-                browser_allow_all: env_flag_enabled("OPENHUMAN_BROWSER_ALLOW_ALL"),
-                log_prompts: env_flag_enabled("OPENHUMAN_LOG_PROMPTS"),
-            },
-            vec!["runtime flags read".to_string()],
-        )
-        .unwrap())),
+        "openhuman.get_runtime_flags" => Some({
+            let o = config_rpc::get_runtime_flags();
+            rpc_invocation_from_outcome(crate::openhuman::rpc::RpcOutcome::new(
+                RuntimeFlags {
+                    browser_allow_all: o.value.browser_allow_all,
+                    log_prompts: o.value.log_prompts,
+                },
+                o.logs,
+            ))
+        }),
 
         "openhuman.set_browser_allow_all" => Some(
             async move {
                 let p: SetBrowserAllowAllParams = parse_params(params)?;
-                if p.enabled {
-                    std::env::set_var("OPENHUMAN_BROWSER_ALLOW_ALL", "1");
-                } else {
-                    std::env::remove_var("OPENHUMAN_BROWSER_ALLOW_ALL");
-                }
-                let flags = RuntimeFlags {
-                    browser_allow_all: env_flag_enabled("OPENHUMAN_BROWSER_ALLOW_ALL"),
-                    log_prompts: env_flag_enabled("OPENHUMAN_LOG_PROMPTS"),
-                };
-                InvocationResult::with_logs(
-                    flags,
-                    vec!["browser allow-all flag updated".to_string()],
-                )
+                let o = config_rpc::set_browser_allow_all(p.enabled);
+                rpc_invocation_from_outcome(crate::openhuman::rpc::RpcOutcome::new(
+                    RuntimeFlags {
+                        browser_allow_all: o.value.browser_allow_all,
+                        log_prompts: o.value.log_prompts,
+                    },
+                    o.logs,
+                ))
             }
             .await,
         ),
@@ -321,27 +212,21 @@ pub async fn try_dispatch(
                 {
                     return Err("Invalid onboarding flag name".to_string());
                 }
-
                 let workspace_dir = match load_openhuman_config().await {
                     Ok(cfg) => cfg.workspace_dir,
                     Err(_) => default_workspace_dir(),
                 };
-                InvocationResult::ok(workspace_dir.join(trimmed).is_file())
+                rpc_invocation_from_outcome(config_rpc::workspace_onboarding_flag_exists(
+                    workspace_dir,
+                    trimmed,
+                )?)
             }
             .await,
         ),
 
-        "openhuman.agent_server_status" => {
-            let payload = json!({
-                "running": true,
-                "url": crate::core_server::helpers::core_rpc_url(),
-            });
-            Some(Ok(InvocationResult::with_logs(
-                payload,
-                vec!["agent server status checked".to_string()],
-            )
-            .unwrap()))
-        }
+        "openhuman.agent_server_status" => Some(rpc_invocation_from_outcome(
+            config_rpc::agent_server_status(),
+        )),
 
         _ => None,
     }

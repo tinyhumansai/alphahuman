@@ -1,3 +1,5 @@
+pub mod rpc;
+
 use crate::openhuman::config::Config;
 use crate::openhuman::multimodal;
 use futures_util::StreamExt;
