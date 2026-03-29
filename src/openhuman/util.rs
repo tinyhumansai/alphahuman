@@ -17,7 +17,7 @@
 ///
 /// # Examples
 /// ```
-/// use tauri_app_lib::openhuman::util::truncate_with_ellipsis;
+/// use openhuman_core::openhuman::util::truncate_with_ellipsis;
 ///
 /// // ASCII string - no truncation needed
 /// assert_eq!(truncate_with_ellipsis("hello", 10), "hello");

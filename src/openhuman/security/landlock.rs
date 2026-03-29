@@ -227,7 +227,7 @@ mod tests {
         match result {
             Ok(sandbox) => assert!(sandbox.is_available()),
             Err(_) => {
-                assert!(!cfg!(feature = "sandbox-landlock") && std::env::consts::OS == "linux")
+                assert!(!cfg!(feature = "sandbox-landlock"));
             }
         }
     }

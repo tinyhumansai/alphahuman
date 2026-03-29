@@ -88,11 +88,7 @@ pub fn run_models_refresh(
         })
         .unwrap_or_default();
 
-    match fetch_live_models_for_provider(
-        &provider_name,
-        &api_key,
-        config.api_url.as_deref(),
-    ) {
+    match fetch_live_models_for_provider(&provider_name, &api_key, config.api_url.as_deref()) {
         Ok(models) if !models.is_empty() => {
             cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models)?;
             Ok(ModelRefreshResult {

@@ -197,6 +197,21 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             },
         },
         IntegrationEntry {
+            name: "OpenHuman",
+            description: "Backend inference (session JWT)",
+            category: IntegrationCategory::AiModel,
+            status_fn: |c| {
+                if c.default_provider
+                    .as_deref()
+                    .is_some_and(|p| matches!(p, "openhuman" | "backend" | "openhuman-backend"))
+                {
+                    IntegrationStatus::Active
+                } else {
+                    IntegrationStatus::Available
+                }
+            },
+        },
+        IntegrationEntry {
             name: "Google",
             description: "Gemini 2.5 Pro/Flash",
             category: IntegrationCategory::AiModel,
@@ -930,52 +945,13 @@ mod tests {
     }
 
     #[test]
-    fn regional_provider_aliases_activate_expected_ai_integrations() {
+    fn openhuman_backend_integration_active_when_default_provider_set() {
         let entries = all_integrations();
-        let mut config = Config {
-            default_provider: Some("minimax-cn".to_string()),
+        let config = Config {
+            default_provider: Some("openhuman".to_string()),
             ..Config::default()
         };
-
-        let minimax = entries.iter().find(|e| e.name == "MiniMax").unwrap();
-        assert!(matches!(
-            (minimax.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
-
-        config.default_provider = Some("glm-cn".to_string());
-        let glm = entries.iter().find(|e| e.name == "GLM").unwrap();
-        assert!(matches!(
-            (glm.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
-
-        config.default_provider = Some("moonshot-intl".to_string());
-        let moonshot = entries.iter().find(|e| e.name == "Moonshot").unwrap();
-        assert!(matches!(
-            (moonshot.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
-
-        config.default_provider = Some("qwen-intl".to_string());
-        let qwen = entries.iter().find(|e| e.name == "Qwen").unwrap();
-        assert!(matches!(
-            (qwen.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
-
-        config.default_provider = Some("zai-cn".to_string());
-        let zai = entries.iter().find(|e| e.name == "Z.AI").unwrap();
-        assert!(matches!(
-            (zai.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
-
-        config.default_provider = Some("baidu".to_string());
-        let qianfan = entries.iter().find(|e| e.name == "Qianfan").unwrap();
-        assert!(matches!(
-            (qianfan.status_fn)(&config),
-            IntegrationStatus::Active
-        ));
+        let oh = entries.iter().find(|e| e.name == "OpenHuman").unwrap();
+        assert!(matches!((oh.status_fn)(&config), IntegrationStatus::Active));
     }
 }

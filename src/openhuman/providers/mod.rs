@@ -372,10 +372,12 @@ mod tests {
 
     #[test]
     fn factory_openhuman() {
-        assert!(
-            create_provider_with_url("openhuman", Some("jwt"), Some("https://api.example.com"))
-                .is_ok()
-        );
+        assert!(create_provider_with_url(
+            "openhuman",
+            Some("jwt"),
+            Some("https://api.example.com")
+        )
+        .is_ok());
     }
 
     #[test]

@@ -28,8 +28,12 @@ impl OpenHumanBackendProvider {
     ) -> Self {
         Self {
             options: options.clone(),
-            api_url: api_url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
-            config_api_key: api_key.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            api_url: api_url
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            config_api_key: api_key
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -44,7 +48,10 @@ impl OpenHumanBackendProvider {
     fn resolve_bearer(&self) -> anyhow::Result<String> {
         let auth = AuthService::new(&self.state_dir(), self.options.secrets_encrypt);
         if let Some(t) = auth
-            .get_provider_bearer_token(APP_SESSION_PROVIDER, self.options.auth_profile_override.as_deref())?
+            .get_provider_bearer_token(
+                APP_SESSION_PROVIDER,
+                self.options.auth_profile_override.as_deref(),
+            )?
             .filter(|s| !s.trim().is_empty())
         {
             return Ok(t);

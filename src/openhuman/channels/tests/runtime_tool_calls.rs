@@ -173,7 +173,7 @@ async fn process_channel_message_handles_models_command_without_llm_call() {
             id: "msg-cmd-1".to_string(),
             sender: "alice".to_string(),
             reply_target: "chat-1".to_string(),
-            content: "/models openrouter".to_string(),
+            content: "/models openhuman".to_string(),
             channel: "telegram".to_string(),
             timestamp: 1,
             thread_ts: None,
@@ -183,7 +183,7 @@ async fn process_channel_message_handles_models_command_without_llm_call() {
 
     let sent = channel_impl.sent_messages.lock().await;
     assert_eq!(sent.len(), 1);
-    assert!(sent[0].contains("Provider switched to `openrouter`"));
+    assert!(sent[0].contains("Provider switched to `openhuman`"));
 
     let route_key = "telegram_alice";
     let route = runtime_ctx
@@ -193,7 +193,7 @@ async fn process_channel_message_handles_models_command_without_llm_call() {
         .get(route_key)
         .cloned()
         .expect("route should be stored for sender");
-    assert_eq!(route.provider, "openrouter");
+    assert_eq!(route.provider, "openhuman");
     assert_eq!(route.model, "default-model");
 
     assert_eq!(default_provider_impl.call_count.load(Ordering::SeqCst), 0);

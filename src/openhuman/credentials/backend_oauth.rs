@@ -116,10 +116,7 @@ impl BackendOAuthClient {
         let resp = self
             .client
             .get(url)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", bearer_jwt.trim()),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_jwt.trim()))
             .send()
             .await
             .context("auth connect request")?;
@@ -130,8 +127,8 @@ impl BackendOAuthClient {
             anyhow::bail!("auth connect failed ({status}): {text}");
         }
 
-        let env: ConnectEnvelope = serde_json::from_str(&text)
-            .with_context(|| format!("parse connect JSON: {text}"))?;
+        let env: ConnectEnvelope =
+            serde_json::from_str(&text).with_context(|| format!("parse connect JSON: {text}"))?;
         if !env.success {
             anyhow::bail!("auth connect unsuccessful: {text}");
         }
@@ -139,15 +136,15 @@ impl BackendOAuthClient {
             .oauth_url
             .filter(|u| !u.is_empty())
             .context("missing oauthUrl in response")?;
-        let state = env.state.filter(|s| !s.is_empty()).context("missing state")?;
+        let state = env
+            .state
+            .filter(|s| !s.is_empty())
+            .context("missing state")?;
         Ok(ConnectResponse { oauth_url, state })
     }
 
     /// `GET /auth/integrations`
-    pub async fn list_integrations(
-        &self,
-        bearer_jwt: &str,
-    ) -> Result<Vec<IntegrationSummary>> {
+    pub async fn list_integrations(&self, bearer_jwt: &str) -> Result<Vec<IntegrationSummary>> {
         let url = self
             .base
             .join("auth/integrations")
@@ -155,10 +152,7 @@ impl BackendOAuthClient {
         let resp = self
             .client
             .get(url)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", bearer_jwt.trim()),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_jwt.trim()))
             .send()
             .await
             .context("list integrations")?;
@@ -196,10 +190,7 @@ impl BackendOAuthClient {
         let resp = self
             .client
             .post(url)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", bearer_jwt.trim()),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_jwt.trim()))
             .json(&body)
             .send()
             .await
@@ -210,8 +201,8 @@ impl BackendOAuthClient {
         if !status.is_success() {
             anyhow::bail!("integration tokens failed ({status}): {text}");
         }
-        let env: TokensEnvelope = serde_json::from_str(&text)
-            .with_context(|| format!("parse tokens JSON: {text}"))?;
+        let env: TokensEnvelope =
+            serde_json::from_str(&text).with_context(|| format!("parse tokens JSON: {text}"))?;
         if !env.success {
             anyhow::bail!("integration tokens unsuccessful: {text}");
         }
@@ -230,10 +221,7 @@ impl BackendOAuthClient {
         let resp = self
             .client
             .delete(url)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", bearer_jwt.trim()),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_jwt.trim()))
             .send()
             .await
             .context("revoke integration")?;
@@ -289,7 +277,5 @@ fn key_bytes_from_string(key: &str) -> Result<Vec<u8>> {
             return Ok(decoded);
         }
     }
-    anyhow::bail!(
-        "encryption key must be 32 raw bytes or 44-char base64 (decoded to 32 bytes)"
-    );
+    anyhow::bail!("encryption key must be 32 raw bytes or 44-char base64 (decoded to 32 bytes)");
 }

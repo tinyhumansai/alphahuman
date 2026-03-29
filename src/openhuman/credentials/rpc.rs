@@ -2,13 +2,13 @@
 
 use serde_json::json;
 
-use crate::openhuman::config::Config;
+use super::backend_oauth::BackendOAuthClient;
 use crate::openhuman::auth_profiles::session_support::{
     build_session_state, get_session_token, parse_fields_value, profile_name_or_default,
     summarize_auth_profile,
 };
 use crate::openhuman::auth_profiles::AuthService;
-use super::backend_oauth::BackendOAuthClient;
+use crate::openhuman::config::Config;
 use crate::openhuman::rpc::RpcOutcome;
 use crate::openhuman::security::SecretStore;
 
@@ -231,8 +231,7 @@ pub async fn oauth_list_integrations(
         .map(str::trim)
         .filter(|u| !u.is_empty())
         .ok_or_else(|| "config.api_url is required".to_string())?;
-    let token = get_session_token(config)?
-        .ok_or_else(|| "session JWT required".to_string())?;
+    let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
     let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
     let list = client
         .list_integrations(&token)
@@ -255,8 +254,7 @@ pub async fn oauth_fetch_integration_tokens(
         .map(str::trim)
         .filter(|u| !u.is_empty())
         .ok_or_else(|| "config.api_url is required".to_string())?;
-    let token = get_session_token(config)?
-        .ok_or_else(|| "session JWT required".to_string())?;
+    let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
     let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
     let tokens = client
         .fetch_integration_tokens_handoff(integration_id, &token, encryption_key)
@@ -278,8 +276,7 @@ pub async fn oauth_revoke_integration(
         .map(str::trim)
         .filter(|u| !u.is_empty())
         .ok_or_else(|| "config.api_url is required".to_string())?;
-    let token = get_session_token(config)?
-        .ok_or_else(|| "session JWT required".to_string())?;
+    let token = get_session_token(config)?.ok_or_else(|| "session JWT required".to_string())?;
     let client = BackendOAuthClient::new(api_url).map_err(|e| e.to_string())?;
     client
         .revoke_integration(integration_id, &token)

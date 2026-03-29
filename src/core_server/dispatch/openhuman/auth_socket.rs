@@ -1,8 +1,8 @@
 use crate::core_server::helpers::{parse_params, rpc_invocation_from_outcome};
 use crate::core_server::types::{
     AuthListProviderCredentialsParams, AuthOauthConnectParams, AuthOauthIntegrationTokensParams,
-    AuthOauthRevokeParams, AuthRemoveProviderCredentialsParams,
-    AuthStoreProviderCredentialsParams, AuthStoreSessionParams, InvocationResult,
+    AuthOauthRevokeParams, AuthRemoveProviderCredentialsParams, AuthStoreProviderCredentialsParams,
+    AuthStoreSessionParams, InvocationResult,
 };
 use crate::openhuman::config::Config;
 

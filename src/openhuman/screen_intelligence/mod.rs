@@ -1537,9 +1537,12 @@ mod tests {
             if start.is_ok() {
                 let active = engine.status().await;
                 assert!(active.session.active);
+                // ttl_secs is clamped to [30, 3600]; a 1s request becomes 30s wall-clock expiry.
+                assert_eq!(active.session.ttl_secs, 30);
 
-                time::sleep(Duration::from_millis(1400)).await;
-
+                let _ = engine
+                    .stop_session(Some("test_session_end".to_string()))
+                    .await;
                 let ended = engine.status().await;
                 assert!(!ended.session.active);
             }
