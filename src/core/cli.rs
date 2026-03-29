@@ -238,13 +238,18 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("  openhuman <namespace> <function> [--param value ...]\n");
     println!("Available namespaces:");
     for namespace in grouped.keys() {
-        println!("  {namespace}");
+        let description = all::namespace_description(namespace.as_str())
+            .unwrap_or("No namespace description available.");
+        println!("  {namespace} - {description}");
     }
     println!("\nUse `openhuman <namespace> --help` to see functions.");
 }
 
 fn print_namespace_help(namespace: &str, schemas: &[ControllerSchema]) {
     println!("Namespace: {namespace}\n");
+    if let Some(description) = all::namespace_description(namespace) {
+        println!("{description}\n");
+    }
     println!("Functions:");
     for schema in schemas {
         println!("  {} - {}", schema.function, schema.description);

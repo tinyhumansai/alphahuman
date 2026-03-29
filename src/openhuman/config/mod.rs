@@ -1,5 +1,5 @@
 pub mod daemon;
-pub mod rpc;
+pub mod ops;
 pub mod schema;
 mod schemas;
 pub mod settings_cli;
@@ -23,6 +23,8 @@ pub use schema::{
     StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
     TailscaleTunnelConfig, TelegramConfig, TunnelConfig, WebSearchConfig, WebhookConfig,
 };
+pub use ops as rpc;
+pub use ops::*;
 pub use schemas::{
     all_controller_schemas as all_config_controller_schemas,
     all_registered_controllers as all_config_registered_controllers,

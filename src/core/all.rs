@@ -99,6 +99,25 @@ pub fn rpc_method_name(schema: &ControllerSchema) -> String {
     format!("openhuman.{}_{}", schema.namespace, schema.function)
 }
 
+pub fn namespace_description(namespace: &str) -> Option<&'static str> {
+    match namespace {
+        "auth" => Some("Manage app session and provider credentials."),
+        "autocomplete" => Some("Inline autocomplete engine controls and style settings."),
+        "config" => Some("Read and update persisted runtime configuration."),
+        "cron" => Some("Manage scheduled jobs and run history."),
+        "decrypt" => Some("Decrypt secure values managed by secret storage."),
+        "doctor" => Some("Run diagnostics for workspace and runtime health."),
+        "encrypt" => Some("Encrypt secure values managed by secret storage."),
+        "health" => Some("Process and component health snapshots."),
+        "local_ai" => Some("Local AI chat, inference, downloads, and media operations."),
+        "migrate" => Some("Data migration utilities."),
+        "screen_intelligence" => Some("Screen capture, permissions, and accessibility automation."),
+        "service" => Some("Desktop service lifecycle management."),
+        "socket" => Some("Skills runtime socket bridge controls."),
+        _ => None,
+    }
+}
+
 pub fn rpc_method_from_parts(namespace: &str, function: &str) -> Option<String> {
     registry()
         .iter()
@@ -303,4 +322,5 @@ mod tests {
         let err = validate_registry(&registered, &declared).expect_err("expected duplicate input");
         assert!(err.contains("duplicate required input `use_cache` in `doctor.models`"));
     }
+
 }
