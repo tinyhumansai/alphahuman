@@ -119,6 +119,23 @@ fn is_text_role(role: Option<&str>) -> bool {
     )
 }
 
+fn is_terminal_app(app_name: Option<&str>) -> bool {
+    let app = app_name.unwrap_or_default().to_ascii_lowercase();
+    [
+        "terminal",
+        "iterm",
+        "wezterm",
+        "warp",
+        "alacritty",
+        "kitty",
+        "ghostty",
+        "hyper",
+        "rio",
+    ]
+    .iter()
+    .any(|needle| app.contains(needle))
+}
+
 struct EngineState {
     running: bool,
     phase: String,
@@ -686,7 +703,9 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
         .map(|s| normalize_ax_value(s.trim()))
         .filter(|s| !s.is_empty());
 
-    if !is_text_role(role.as_deref()) {
+    let allow_terminal_text_value =
+        is_terminal_app(app_name.as_deref()) && !value.trim().is_empty();
+    if !is_text_role(role.as_deref()) && !allow_terminal_text_value {
         value.clear();
         selected_text = None;
         if raw_error.is_none() {
