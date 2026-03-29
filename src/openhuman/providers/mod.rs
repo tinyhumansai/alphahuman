@@ -106,6 +106,46 @@ pub fn sanitize_api_error(input: &str) -> String {
     format!("{}...", &scrubbed[..end])
 }
 
+const TRANSPORT_ERROR_MAX_CHARS: usize = 1200;
+
+/// Full `source()` chain for connection / TLS failures (scrubbed, longer than API body snippets).
+pub fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut parts: Vec<String> = vec![err.to_string()];
+    let mut src = std::error::Error::source(err);
+    while let Some(e) = src {
+        parts.push(e.to_string());
+        src = std::error::Error::source(e);
+    }
+    let joined = parts.join(" | ");
+    let scrubbed = scrub_secret_patterns(&joined);
+    if scrubbed.chars().count() <= TRANSPORT_ERROR_MAX_CHARS {
+        return scrubbed;
+    }
+    let mut end = TRANSPORT_ERROR_MAX_CHARS;
+    while end > 0 && !scrubbed.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &scrubbed[..end])
+}
+
+/// Cause chain from [`anyhow::Error`] (e.g. responses fallback), scrubbed and length-limited.
+pub fn format_anyhow_chain(err: &anyhow::Error) -> String {
+    let joined = err
+        .chain()
+        .map(|e| e.to_string())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let scrubbed = scrub_secret_patterns(&joined);
+    if scrubbed.chars().count() <= TRANSPORT_ERROR_MAX_CHARS {
+        return scrubbed;
+    }
+    let mut end = TRANSPORT_ERROR_MAX_CHARS;
+    while end > 0 && !scrubbed.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &scrubbed[..end])
+}
+
 /// Build a sanitized provider error from a failed HTTP response.
 pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::Error {
     let status = response.status();

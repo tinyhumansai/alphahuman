@@ -75,7 +75,9 @@ impl OpenHumanBackendProvider {
     }
 
     fn inner(&self, token: &str) -> anyhow::Result<OpenAiCompatibleProvider> {
-        Ok(OpenAiCompatibleProvider::new(
+        // Hosted OpenHuman API is chat-completions only; skip /v1/responses fallback so transport
+        // errors stay a single clear message (fallback would duplicate the same connection failure).
+        Ok(OpenAiCompatibleProvider::new_no_responses_fallback(
             PROVIDER_LABEL,
             &self.base_url()?,
             Some(token),

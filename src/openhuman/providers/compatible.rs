@@ -978,13 +978,14 @@ impl Provider for OpenAiCompatibleProvider {
             Ok(response) => response,
             Err(chat_error) => {
                 if self.supports_responses_fallback {
-                    let sanitized = super::sanitize_api_error(&chat_error.to_string());
+                    let detail = super::format_error_chain(&chat_error);
                     return self
                         .chat_via_responses(credential, &fallback_messages, model)
                         .await
                         .map_err(|responses_err| {
+                            let fb = super::format_anyhow_chain(&responses_err);
                             anyhow::anyhow!(
-                                "{} chat completions transport error: {sanitized} (responses fallback failed: {responses_err})",
+                                "{} chat completions transport error: {detail} (responses fallback failed: {fb})",
                                 self.name
                             )
                         });
@@ -1004,8 +1005,9 @@ impl Provider for OpenAiCompatibleProvider {
                     .chat_via_responses(credential, &fallback_messages, model)
                     .await
                     .map_err(|responses_err| {
+                        let fb = super::format_anyhow_chain(&responses_err);
                         anyhow::anyhow!(
-                            "{} API error ({status}): {sanitized} (chat completions unavailable; responses fallback failed: {responses_err})",
+                            "{} API error ({status}): {sanitized} (chat completions unavailable; responses fallback failed: {fb})",
                             self.name
                         )
                     });
@@ -1084,13 +1086,14 @@ impl Provider for OpenAiCompatibleProvider {
             Ok(response) => response,
             Err(chat_error) => {
                 if self.supports_responses_fallback {
-                    let sanitized = super::sanitize_api_error(&chat_error.to_string());
+                    let detail = super::format_error_chain(&chat_error);
                     return self
                         .chat_via_responses(credential, &effective_messages, model)
                         .await
                         .map_err(|responses_err| {
+                            let fb = super::format_anyhow_chain(&responses_err);
                             anyhow::anyhow!(
-                                "{} chat completions transport error: {sanitized} (responses fallback failed: {responses_err})",
+                                "{} chat completions transport error: {detail} (responses fallback failed: {fb})",
                                 self.name
                             )
                         });
@@ -1109,8 +1112,9 @@ impl Provider for OpenAiCompatibleProvider {
                     .chat_via_responses(credential, &effective_messages, model)
                     .await
                     .map_err(|responses_err| {
+                        let fb = super::format_anyhow_chain(&responses_err);
                         anyhow::anyhow!(
-                            "{} API error (chat completions unavailable; responses fallback failed: {responses_err})",
+                            "{} API error (chat completions unavailable; responses fallback failed: {fb})",
                             self.name
                         )
                     });
@@ -1282,7 +1286,7 @@ impl Provider for OpenAiCompatibleProvider {
             Ok(response) => response,
             Err(chat_error) => {
                 if self.supports_responses_fallback {
-                    let sanitized = super::sanitize_api_error(&chat_error.to_string());
+                    let detail = super::format_error_chain(&chat_error);
                     return self
                         .chat_via_responses(credential, &effective_messages, model)
                         .await
@@ -1291,8 +1295,9 @@ impl Provider for OpenAiCompatibleProvider {
                             tool_calls: vec![],
                         })
                         .map_err(|responses_err| {
+                            let fb = super::format_anyhow_chain(&responses_err);
                             anyhow::anyhow!(
-                                "{} native chat transport error: {sanitized} (responses fallback failed: {responses_err})",
+                                "{} native chat transport error: {detail} (responses fallback failed: {fb})",
                                 self.name
                             )
                         });
@@ -1328,8 +1333,9 @@ impl Provider for OpenAiCompatibleProvider {
                         tool_calls: vec![],
                     })
                     .map_err(|responses_err| {
+                        let fb = super::format_anyhow_chain(&responses_err);
                         anyhow::anyhow!(
-                            "{} API error ({status}): {sanitized} (chat completions unavailable; responses fallback failed: {responses_err})",
+                            "{} API error ({status}): {sanitized} (chat completions unavailable; responses fallback failed: {fb})",
                             self.name
                         )
                     });

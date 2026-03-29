@@ -233,15 +233,18 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagnosticItem>) {
     }
 
     // Backend API URL
-    if config.api_url.is_some() {
+    if let Some(url) = config
+        .api_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        items.push(DiagnosticItem::ok(cat, format!("api_url: {url}")));
+    } else {
+        let resolved = crate::api::config::effective_api_url(&config.api_url);
         items.push(DiagnosticItem::ok(
             cat,
-            format!("api_url: {}", config.api_url.as_deref().unwrap_or("")),
-        ));
-    } else {
-        items.push(DiagnosticItem::warn(
-            cat,
-            "no api_url set (OpenHuman backend uses default from environment)",
+            format!("api_url: (unset) resolved to {resolved}"),
         ));
     }
 
