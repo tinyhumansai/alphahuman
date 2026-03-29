@@ -166,7 +166,7 @@ pub fn select_profile_id(
 
 #[cfg(test)]
 mod tests {
-    use super::profiles::{AuthProfile, AuthProfileKind};
+    use crate::openhuman::credentials::profiles::{AuthProfile, AuthProfileKind};
     use super::*;
 
     #[test]
