@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::core::all;
@@ -87,6 +88,7 @@ pub fn build_core_http_router() -> Router {
     Router::new()
         .route("/", get(root_handler))
         .route("/health", get(health_handler))
+        .route("/schema", get(schema_handler))
         .route("/rpc", post(rpc_handler))
         .fallback(not_found_handler)
         .with_state(AppState {
@@ -98,6 +100,10 @@ async fn health_handler() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
+async fn schema_handler(State(_state): State<AppState>) -> impl IntoResponse {
+    (StatusCode::OK, Json(build_http_schema_dump())).into_response()
+}
+
 async fn root_handler() -> impl IntoResponse {
     (
         StatusCode::OK,
@@ -106,6 +112,7 @@ async fn root_handler() -> impl IntoResponse {
             "ok": true,
             "endpoints": {
                 "health": "/health",
+                "schema": "/schema",
                 "rpc": "/rpc"
             },
             "usage": {
@@ -125,7 +132,7 @@ async fn not_found_handler() -> impl IntoResponse {
         Json(json!({
             "ok": false,
             "error": "not_found",
-            "message": "Route not found. Try /, /health, or /rpc."
+            "message": "Route not found. Try /, /health, /schema, or /rpc."
         })),
     )
 }
@@ -165,11 +172,74 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct HttpSchemaDump {
+    methods: Vec<HttpMethodSchema>,
+}
+
+#[derive(Serialize)]
+struct HttpMethodSchema {
+    method: String,
+    namespace: String,
+    function: String,
+    description: String,
+    inputs: Vec<crate::core::FieldSchema>,
+    outputs: Vec<crate::core::FieldSchema>,
+}
+
+fn build_http_schema_dump() -> HttpSchemaDump {
+    let mut methods = vec![
+        HttpMethodSchema {
+            method: "core.ping".to_string(),
+            namespace: "core".to_string(),
+            function: "ping".to_string(),
+            description: "Liveness probe for the core JSON-RPC server.".to_string(),
+            inputs: vec![],
+            outputs: vec![crate::core::FieldSchema {
+                name: "ok",
+                ty: crate::core::TypeSchema::Bool,
+                comment: "Always true when the server is reachable.",
+                required: true,
+            }],
+        },
+        HttpMethodSchema {
+            method: "core.version".to_string(),
+            namespace: "core".to_string(),
+            function: "version".to_string(),
+            description: "Returns the core binary version.".to_string(),
+            inputs: vec![],
+            outputs: vec![crate::core::FieldSchema {
+                name: "version",
+                ty: crate::core::TypeSchema::String,
+                comment: "Semantic version string for the running core binary.",
+                required: true,
+            }],
+        },
+    ];
+
+    methods.extend(
+        all::all_controller_schemas()
+            .into_iter()
+            .map(|schema| HttpMethodSchema {
+                method: all::rpc_method_name(&schema),
+                namespace: schema.namespace.to_string(),
+                function: schema.function.to_string(),
+                description: schema.description.to_string(),
+                inputs: schema.inputs,
+                outputs: schema.outputs,
+            }),
+    );
+
+    methods.sort_by(|a, b| a.method.cmp(&b.method));
+
+    HttpSchemaDump { methods }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{default_state, invoke_method};
+    use super::{build_http_schema_dump, default_state, invoke_method};
 
     #[tokio::test]
     async fn invoke_health_snapshot_via_registry() {
@@ -265,5 +335,24 @@ mod tests {
         .await
         .expect_err("missing capability should fail");
         assert!(err.contains("missing required param 'capability'"));
+    }
+
+    #[test]
+    fn http_schema_dump_includes_openhuman_and_core_methods() {
+        let dump = build_http_schema_dump();
+        let methods = dump.methods;
+        assert!(
+            methods
+                .iter()
+                .any(|m| m.method == "core.version" && m.namespace == "core"),
+            "schema dump should include core methods"
+        );
+
+        assert!(
+            methods
+                .iter()
+                .any(|m| m.method == "openhuman.health_snapshot"),
+            "schema dump should include migrated openhuman methods"
+        );
     }
 }

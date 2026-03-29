@@ -1,4 +1,6 @@
 //! Shared core-level schemas and contracts used across adapters (RPC, CLI, etc.).
+use serde::Serialize;
+
 pub mod all;
 pub mod cli;
 pub mod dispatch;
@@ -10,7 +12,7 @@ pub mod types;
 ///
 /// This shape is transport-agnostic and can be consumed by RPC and CLI layers
 /// in different ways.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ControllerSchema {
     /// Domain/group identifier, e.g. `memory`, `config`, `credentials`.
     pub namespace: &'static str,
@@ -32,7 +34,7 @@ impl ControllerSchema {
 }
 
 /// Schema for one input/output field.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FieldSchema {
     /// Field name.
     pub name: &'static str,
@@ -47,7 +49,7 @@ pub struct FieldSchema {
 }
 
 /// Type-system shape used by controller input/output schema fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum TypeSchema {
     Bool,
     I64,
