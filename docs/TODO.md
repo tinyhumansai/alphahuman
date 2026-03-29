@@ -37,3 +37,4 @@ todo
 [ ] remove unwanted feature flags from the rust binary
 [ ] fix the config properly
 [ ] Allow for Migrating from OpenClaw
+[] allow users to choose which version of LLM model they'd like to choose based on their CPU. better ram and gpu means higher parameter model can be used.

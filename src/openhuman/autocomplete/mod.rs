@@ -408,7 +408,23 @@ impl AutocompleteEngine {
                 raw_error: None,
             }
         } else {
-            focused_text_context()?
+            let focused = focused_text_context_verbose()?;
+            if let Some(err) = focused.raw_error.as_deref() {
+                if is_no_text_candidate_error(err) {
+                    let mut state = self.inner.lock().await;
+                    state.app_name = focused.app_name;
+                    state.context = String::new();
+                    state.suggestion = None;
+                    state.phase = "idle".to_string();
+                    state.last_error = None;
+                    state.updated_at_ms = Some(Utc::now().timestamp_millis());
+                    return Ok(());
+                }
+                return Err(format!(
+                    "focused text unavailable via accessibility api: {err}"
+                ));
+            }
+            focused
         };
 
         let app_lower = focused.app_name.clone().unwrap_or_default().to_lowercase();
@@ -547,6 +563,10 @@ fn sanitize_suggestion(text: &str) -> String {
     truncate_tail(&cleaned, MAX_SUGGESTION_CHARS)
 }
 
+fn is_no_text_candidate_error(err: &str) -> bool {
+    err.contains("ERROR:no_text_candidate_found")
+}
+
 #[cfg(target_os = "macos")]
 fn focused_text_context() -> Result<FocusedTextContext, String> {
     let ctx = focused_text_context_verbose()?;
@@ -562,6 +582,7 @@ fn focused_text_context() -> Result<FocusedTextContext, String> {
 fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
     let script = r#"
       tell application "System Events"
+        set sep to character id 31
         set frontApp to first application process whose frontmost is true
         set appName to name of frontApp
         set roleValue to "unknown"
@@ -627,7 +648,7 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
           set errValue to "ERROR:no_text_candidate_found"
         end if
 
-        return appName & "\n" & roleValue & "\n" & textValue & "\n" & selectedValue & "\n" & errValue
+        return appName & sep & roleValue & sep & textValue & sep & selectedValue & sep & errValue
       end tell
     "#;
 
@@ -645,24 +666,22 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
     }
 
     let text = String::from_utf8_lossy(&output.stdout);
-    let mut lines = text.lines();
-    let app_name = lines
-        .next()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let role = lines
+    let trimmed = text.trim_end_matches(['\r', '\n']);
+    let mut segments = trimmed.splitn(5, '\u{1f}');
+    let app_name = segments
         .next()
         .map(|s| normalize_ax_value(s.trim()))
         .filter(|s| !s.is_empty());
-    let mut value = lines
-        .next()
-        .map(|s| normalize_ax_value(s.trim()))
-        .unwrap_or_default();
-    let mut selected_text = lines
+    let role = segments
         .next()
         .map(|s| normalize_ax_value(s.trim()))
         .filter(|s| !s.is_empty());
-    let mut raw_error = lines
+    let mut value = segments.next().map(normalize_ax_value).unwrap_or_default();
+    let mut selected_text = segments
+        .next()
+        .map(normalize_ax_value)
+        .filter(|s| !s.is_empty());
+    let mut raw_error = segments
         .next()
         .map(|s| normalize_ax_value(s.trim()))
         .filter(|s| !s.is_empty());
