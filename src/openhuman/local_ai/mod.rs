@@ -513,9 +513,17 @@ impl LocalAiService {
             .await
             .map_err(|e| format!("ollama vision request failed: {e}"))?;
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
             return Err(format!(
-                "ollama vision request failed with status {}",
-                response.status()
+                "ollama vision request failed with status {}{}",
+                status,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
             ));
         }
 
@@ -564,9 +572,17 @@ impl LocalAiService {
             .map_err(|e| format!("ollama embed request failed: {e}"))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
             return Err(format!(
-                "ollama embed request failed with status {}",
-                response.status()
+                "ollama embed request failed with status {}{}",
+                status,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
             ));
         }
 
@@ -1035,9 +1051,17 @@ impl LocalAiService {
             .await
             .map_err(|e| format!("ollama request failed: {e}"))?;
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
             return Err(format!(
-                "ollama request failed with status {}",
-                response.status()
+                "ollama request failed with status {}{}",
+                status,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
             ));
         }
 
@@ -1274,9 +1298,17 @@ impl LocalAiService {
             .await
             .map_err(|e| format!("ollama pull request failed: {e}"))?;
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
             return Err(format!(
-                "ollama pull failed with status {}",
-                response.status()
+                "ollama pull failed with status {}{}",
+                status,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
             ));
         }
 
@@ -1352,9 +1384,17 @@ impl LocalAiService {
             .await
             .map_err(|e| format!("ollama tags request failed: {e}"))?;
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.trim();
             return Err(format!(
-                "ollama tags failed with status {}",
-                response.status()
+                "ollama tags failed with status {}{}",
+                status,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
             ));
         }
         let payload: OllamaTagsResponse = response

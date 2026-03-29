@@ -7,7 +7,7 @@ use clap_complete::{generate, Shell};
 use serde_json::json;
 
 use crate::core_server::helpers::{
-    parse_params, rpc_outcome_fut_to_cli_json, rpc_outcome_to_cli_json,
+    load_openhuman_config, parse_params, rpc_outcome_fut_to_cli_json, rpc_outcome_to_cli_json,
 };
 use crate::core_server::repl::{run_repl, ReplOptions};
 use crate::core_server::types::{
@@ -98,6 +98,11 @@ enum CoreCommand {
     Autocomplete {
         #[command(subcommand)]
         command: AutocompleteCommand,
+    },
+    /// Local AI runtime commands (Ollama + local multimodal assets)
+    LocalAi {
+        #[command(subcommand)]
+        command: LocalAiCommand,
     },
     /// Tool wrappers for local CLI testing
     Tools {
@@ -250,6 +255,32 @@ enum AutocompleteCommand {
     SetStyle(AutocompleteSetStyleCliArgs),
 }
 
+#[derive(Debug, Subcommand)]
+enum LocalAiCommand {
+    /// Read local AI runtime status
+    Status,
+    /// Trigger background download/bootstrap for local AI assets
+    Download(LocalAiDownloadCliArgs),
+    /// Read per-capability local AI asset status
+    AssetsStatus,
+    /// Download a specific capability asset (chat, vision, embedding, stt, tts)
+    DownloadAsset(LocalAiDownloadAssetCliArgs),
+    /// Run a generic local prompt completion
+    Prompt(LocalAiPromptCliArgs),
+    /// Run a vision prompt with one or more image refs (path/url/data URI)
+    VisionPrompt(LocalAiVisionPromptCliArgs),
+    /// Summarize text with local AI
+    Summarize(LocalAiSummarizeCliArgs),
+    /// Suggest follow-up questions from context
+    Suggest(LocalAiSuggestCliArgs),
+    /// Generate embeddings for one or more inputs
+    Embed(LocalAiEmbedCliArgs),
+    /// Transcribe audio from a file path
+    Transcribe(LocalAiTranscribeCliArgs),
+    /// Synthesize speech to a WAV output file
+    Tts(LocalAiTtsCliArgs),
+}
+
 #[derive(Debug, Args)]
 struct RequestPermissionArgs {
     /// One of: screen_recording, accessibility, input_monitoring
@@ -330,6 +361,81 @@ struct AutocompleteSetStyleCliArgs {
     disabled_app: Vec<String>,
     #[arg(long)]
     accept_with_tab: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiDownloadCliArgs {
+    /// Reset state to idle before triggering download
+    #[arg(long, default_value_t = false)]
+    force: bool,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiDownloadAssetCliArgs {
+    /// Capability: chat | vision | embedding | stt | tts
+    #[arg(long)]
+    capability: String,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiPromptCliArgs {
+    #[arg(long)]
+    prompt: String,
+    #[arg(long)]
+    max_tokens: Option<u32>,
+    /// Suppress reasoning and ask for direct final answer only
+    #[arg(long, default_value_t = true)]
+    no_think: bool,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiVisionPromptCliArgs {
+    #[arg(long)]
+    prompt: String,
+    /// Repeatable image ref input (path/url/data URI)
+    #[arg(long = "image-ref")]
+    image_ref: Vec<String>,
+    #[arg(long)]
+    max_tokens: Option<u32>,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiSummarizeCliArgs {
+    #[arg(long)]
+    text: String,
+    #[arg(long)]
+    max_tokens: Option<u32>,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiSuggestCliArgs {
+    /// Full context in a single string
+    #[arg(long)]
+    context: Option<String>,
+    /// Context lines (repeatable), merged with newlines when --context is omitted
+    #[arg(long = "line")]
+    line: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiEmbedCliArgs {
+    /// Repeatable embedding input values
+    #[arg(long = "input")]
+    input: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiTranscribeCliArgs {
+    #[arg(long = "audio-path")]
+    audio_path: String,
+}
+
+#[derive(Debug, Args)]
+struct LocalAiTtsCliArgs {
+    #[arg(long)]
+    text: String,
+    #[arg(long = "output-path")]
+    output_path: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -861,6 +967,103 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 .await
             }
         },
+        CoreCommand::LocalAi { command } => {
+            let config = load_openhuman_config().await?;
+            match command {
+                LocalAiCommand::Status => {
+                    rpc_outcome_fut_to_cli_json(crate::openhuman::local_ai::rpc::local_ai_status(
+                        &config,
+                    ))
+                    .await
+                }
+                LocalAiCommand::Download(args) => {
+                    rpc_outcome_fut_to_cli_json(crate::openhuman::local_ai::rpc::local_ai_download(
+                        &config, args.force,
+                    ))
+                    .await
+                }
+                LocalAiCommand::AssetsStatus => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_assets_status(&config),
+                    )
+                    .await
+                }
+                LocalAiCommand::DownloadAsset(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_download_asset(
+                            &config,
+                            args.capability.trim(),
+                        ),
+                    )
+                    .await
+                }
+                LocalAiCommand::Prompt(args) => {
+                    rpc_outcome_fut_to_cli_json(crate::openhuman::local_ai::rpc::local_ai_prompt(
+                        &config,
+                        &args.prompt,
+                        args.max_tokens,
+                        Some(args.no_think),
+                    ))
+                    .await
+                }
+                LocalAiCommand::VisionPrompt(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_vision_prompt(
+                            &config,
+                            &args.prompt,
+                            &args.image_ref,
+                            args.max_tokens,
+                        ),
+                    )
+                    .await
+                }
+                LocalAiCommand::Summarize(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_summarize(
+                            &config,
+                            &args.text,
+                            args.max_tokens,
+                        ),
+                    )
+                    .await
+                }
+                LocalAiCommand::Suggest(args) => {
+                    let lines = (!args.line.is_empty()).then_some(args.line);
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_suggest_questions(
+                            &config,
+                            args.context,
+                            lines,
+                        ),
+                    )
+                    .await
+                }
+                LocalAiCommand::Embed(args) => {
+                    rpc_outcome_fut_to_cli_json(crate::openhuman::local_ai::rpc::local_ai_embed(
+                        &config,
+                        &args.input,
+                    ))
+                    .await
+                }
+                LocalAiCommand::Transcribe(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::local_ai::rpc::local_ai_transcribe(
+                            &config,
+                            &args.audio_path,
+                        ),
+                    )
+                    .await
+                }
+                LocalAiCommand::Tts(args) => {
+                    rpc_outcome_fut_to_cli_json(crate::openhuman::local_ai::rpc::local_ai_tts(
+                        &config,
+                        &args.text,
+                        args.output_path.as_deref(),
+                    ))
+                    .await
+                }
+            }
+        }
         CoreCommand::Auth { command } => match command {
             AuthCommand::Login(args) => {
                 let token = args.token.clone().unwrap_or_default();
