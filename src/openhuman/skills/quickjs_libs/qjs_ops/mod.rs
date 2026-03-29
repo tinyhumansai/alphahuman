@@ -7,9 +7,9 @@
 //! - `ops_storage` — IndexedDB, DB bridge, Store bridge
 //! - `ops_state`   — published state, filesystem data
 
+pub mod ops;
 mod ops_core;
 mod ops_net;
-pub mod ops;
 mod ops_state;
 mod ops_storage;
 pub mod types;
