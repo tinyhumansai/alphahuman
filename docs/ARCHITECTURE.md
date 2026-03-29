@@ -6,6 +6,20 @@ OpenHuman is a cross-platform communication and automation platform purpose-buil
 
 ---
 
+## Repository layout (monorepo)
+
+| Path                    | Contents                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`app/`**              | Yarn workspace **`openhuman-app`**: Vite/React UI (`app/src/`), Tauri shell (`app/src-tauri/`), Vitest tests                                                       |
+| **Repo root `src/`**    | Rust **`openhuman_core`** library + **`openhuman`** CLI binary — `core_server`, JSON-RPC, QuickJS skills runtime (`src/openhuman/skills/`), channels, memory, etc. |
+| **`Cargo.toml`** (root) | Builds `openhuman` binary (`cargo build --bin openhuman`) staged into `app/src-tauri/binaries/` for the desktop bundle                                             |
+| **`skills/`**           | Skill packages consumed by the runtime                                                                                                                             |
+| **`docs/`**             | This book + per-tree guides (`docs/src/`, `docs/src-tauri/`)                                                                                                       |
+
+The desktop app **WebView** loads the UI from `app/`; heavy RPC and skills run in the **`openhuman`** process, reachable over HTTP from the Tauri host (`core_rpc_relay`).
+
+---
+
 ## Platform reach
 
 **Supported today (end users):** desktop — Windows, macOS, Linux (native installers).
@@ -59,7 +73,7 @@ Tauri v2 compiles the Rust core into native binaries per platform, embedding the
      (Socket.io Server)        (Telegram, etc.)
 ```
 
-The frontend communicates with the Rust core through Tauri's IPC bridge — 47+ registered commands covering auth, socket management, AI encryption, skill lifecycle, and platform operations. The Rust core owns all persistent connections, cryptographic operations, and sandboxed skill execution.
+The frontend communicates with the **openhuman** Rust core in two ways: **Tauri IPC** for a small set of shell commands (windows, AI file helpers, **`core_rpc_relay`**) and **HTTP JSON-RPC** to the core process for business logic and skills. The core owns persistent connections where applicable, cryptographic work for memory/features, and **QuickJS** sandboxed skill execution.
 
 ---
 

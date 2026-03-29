@@ -2,19 +2,19 @@
 
 The application uses singleton services for external communication. This prevents connection leaks and provides consistent API access.
 
-## Service Architecture
+## Service architecture
 
 ```
-Services Layer
+app/src/services/
   ├─ apiClient (HTTP REST)
   │   ├─ reads auth.token from Redux
-  │   └─ makes requests to BACKEND_URL
+  │   └─ calls VITE_BACKEND_URL (see utils/config.ts)
   ├─ socketService (Socket.io)
-  │   ├─ manages real-time connection
-  │   └─ emits/listens for MCP messages
-  └─ mtprotoService (Telegram)
-      ├─ manages TelegramClient
-      └─ stores session in Redux
+  │   ├─ web: JS client
+  │   └─ Tauri: coordinates with Rust-side socket via utils/tauriSocket.ts
+  ├─ coreRpcClient.ts
+  │   └─ invoke('core_rpc_relay', …) → local openhuman core (JSON-RPC)
+  └─ services/api/* — domain REST modules (auth, user, teams, …)
 ```
 
 ## API Client (`services/apiClient.ts`)
@@ -31,16 +31,21 @@ HTTP REST client for backend communication.
 ### Usage
 
 ```typescript
-import apiClient from '../services/apiClient';
+import apiClient from "../services/apiClient";
 
 // GET request
-const user = await apiClient.get<User>('/users/me');
+const user = await apiClient.get<User>("/users/me");
 
 // POST request
-const result = await apiClient.post<LoginResponse>('/auth/login', { email, password });
+const result = await apiClient.post<LoginResponse>("/auth/login", {
+  email,
+  password,
+});
 
 // With custom headers
-const data = await apiClient.get<Data>('/endpoint', { headers: { 'X-Custom': 'value' } });
+const data = await apiClient.get<Data>("/endpoint", {
+  headers: { "X-Custom": "value" },
+});
 ```
 
 ### Configuration
@@ -48,7 +53,8 @@ const data = await apiClient.get<Data>('/endpoint', { headers: { 'X-Custom': 'va
 Reads `VITE_BACKEND_URL` from environment or uses default:
 
 ```typescript
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://api.example.com';
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL || "https://api.example.com";
 ```
 
 ## API Endpoints (`services/api/`)
@@ -58,7 +64,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://api.example.com
 Authentication-related endpoints.
 
 ```typescript
-import { authApi } from '../services/api/authApi';
+import { authApi } from "../services/api/authApi";
 
 // Login
 const { token, user } = await authApi.login(credentials);
@@ -75,7 +81,7 @@ await authApi.logout();
 User profile endpoints.
 
 ```typescript
-import { userApi } from '../services/api/userApi';
+import { userApi } from "../services/api/userApi";
 
 // Get current user
 const user = await userApi.getCurrentUser();
@@ -101,7 +107,7 @@ Socket.io client singleton for real-time communication.
 ### API
 
 ```typescript
-import socketService from '../services/socketService';
+import socketService from "../services/socketService";
 
 // Connect with auth token
 socketService.connect(token);
@@ -110,18 +116,18 @@ socketService.connect(token);
 socketService.disconnect();
 
 // Emit event
-socketService.emit('event-name', data);
+socketService.emit("event-name", data);
 
 // Listen for events
-socketService.on('event-name', data => {
+socketService.on("event-name", (data) => {
   // Handle event
 });
 
 // Remove listener
-socketService.off('event-name', handler);
+socketService.off("event-name", handler);
 
 // One-time listener
-socketService.once('event-name', data => {
+socketService.once("event-name", (data) => {
   // Handle once
 });
 
@@ -140,15 +146,15 @@ useEffect(() => {
   if (token) {
     socketService.connect(token);
 
-    socketService.on('connect', () => {
-      dispatch(setSocketStatus({ userId, status: 'connected' }));
+    socketService.on("connect", () => {
+      dispatch(setSocketStatus({ userId, status: "connected" }));
       dispatch(setSocketId({ userId, socketId: socket.id }));
       // Initialize MCP server
       initMCPServer(socketService.getSocket());
     });
 
-    socketService.on('disconnect', () => {
-      dispatch(setSocketStatus({ userId, status: 'disconnected' }));
+    socketService.on("disconnect", () => {
+      dispatch(setSocketStatus({ userId, status: "disconnected" }));
     });
   }
 
@@ -163,7 +169,7 @@ useEffect(() => {
 ```typescript
 const socket = io(BACKEND_URL, {
   auth: { token },
-  transports: ['polling', 'websocket'],
+  transports: ["polling", "websocket"],
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 1000,
@@ -172,129 +178,35 @@ const socket = io(BACKEND_URL, {
 
 ### Socket event contract (Tauri)
 
-In Tauri mode, the Rust socket forwards server events to the frontend via the `server:event` Tauri event. The frontend listens and can emit back via `emitViaRustSocket` (see `utils/tauriSocket.ts`). Encryption key is handled via the API, not the socket.
+In Tauri mode, connection and events are bridged through **`utils/tauriSocket.ts`** (`setupTauriSocketListeners`, `connectRustSocket`, etc.). See `providers/SocketProvider.tsx` for the full flow (including daemon lifecycle hooks).
 
-## MTProto Service (`services/mtprotoService.ts`)
+## Core RPC (`services/coreRpcClient.ts`)
 
-Telegram MTProto client singleton.
-
-### Features
-
-- Singleton pattern - one client per user
-- Session persistence via Redux (not localStorage)
-- Auto-retry for FLOOD_WAIT up to 60s
-- Supports QR login and phone auth
-
-### Initialization
+The desktop app runs a separate **`openhuman`** Rust binary (staged under `app/src-tauri/binaries/`). The UI calls JSON-RPC methods on that process through Tauri:
 
 ```typescript
-import mtprotoService from '../services/mtprotoService';
+import { callCoreRpc } from "../services/coreRpcClient";
 
-// Get or create instance for user
-const client = await mtprotoService.getInstance().initialize(userId);
-
-// Set session string (from Redux)
-await client.setSession(sessionString);
-
-// Connect to Telegram
-await client.connect();
+const result = await callCoreRpc<MyType>({
+  method: "some.openhuman.method",
+  params: {
+    /* … */
+  },
+  serviceManaged: false, // true if the relay should ensure the systemd/launchd-style service
+});
 ```
 
-### Session Management
+Implementation: `invoke('core_rpc_relay', { request: { method, params, serviceManaged } })` → `app/src-tauri/src/commands/core_relay.rs` → HTTP client in `app/src-tauri/src/core_rpc.rs`.
 
-```typescript
-// Session is stored in Redux, not localStorage
-// In TelegramProvider:
-const sessionString = useAppSelector(state => state.telegram.byUser[userId]?.sessionString);
-
-// When session updates
-useEffect(() => {
-  if (client && sessionString) {
-    client.setSession(sessionString);
-  }
-}, [sessionString]);
-
-// Save session after auth
-const newSession = await client.getSession();
-dispatch(setSessionString({ userId, sessionString: newSession }));
-```
-
-### API Operations
-
-```typescript
-// Get current user
-const me = await client.getMe();
-
-// Get dialogs (chats)
-const dialogs = await client.getDialogs({ limit: 20 });
-
-// Send message
-await client.sendMessage(peer, { message: 'Hello!' });
-
-// Get history
-const messages = await client.getMessages(peer, { limit: 50 });
-```
-
-### Error Handling
-
-```typescript
-try {
-  await client.connect();
-} catch (error) {
-  if (error.message.includes('FLOOD_WAIT')) {
-    const seconds = parseInt(error.message.match(/\d+/)?.[0] || '60');
-    if (seconds <= 60) {
-      // Auto-retry after wait
-      await new Promise(r => setTimeout(r, seconds * 1000));
-      await client.connect();
-    }
-  }
-  throw error;
-}
-```
-
-## Service Integration with Providers
+## Service integration with providers
 
 ### SocketProvider
 
-```typescript
-// providers/SocketProvider.tsx
-export function SocketProvider({ children }) {
-  const token = useAppSelector((state) => state.auth.token);
+`app/src/providers/SocketProvider.tsx` connects when `auth.token` is present. In **Tauri**, it prefers the Rust-backed socket path; in **web**, it uses the JS Socket.io client. See the source for logging and `useDaemonLifecycle` integration.
 
-  useEffect(() => {
-    if (token) {
-      socketService.connect(token);
-      // On connect, initialize MCP
-    }
-    return () => socketService.disconnect();
-  }, [token]);
+### UserProvider, AIProvider, SkillProvider
 
-  return <SocketContext.Provider value={...}>{children}</SocketContext.Provider>;
-}
-```
-
-### TelegramProvider
-
-```typescript
-// providers/TelegramProvider.tsx
-export function TelegramProvider({ children }) {
-  const dispatch = useAppDispatch();
-  const userId = useAppSelector((state) => state.user.profile?.id);
-
-  useEffect(() => {
-    if (userId) {
-      // Parallel init + connect for faster startup
-      Promise.all([
-        dispatch(initializeTelegram(userId)),
-        dispatch(connectTelegram(userId))
-      ]);
-    }
-  }, [userId]);
-
-  return <TelegramContext.Provider value={...}>{children}</TelegramContext.Provider>;
-}
-```
+These wrap user profile loading, AI/memory client coordination, and skills catalog/sync. They sit **inside** `PersistGate` and **outside** or alongside the router as shown in `App.tsx`.
 
 ## Best Practices
 
