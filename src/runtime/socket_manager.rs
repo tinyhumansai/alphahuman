@@ -301,7 +301,7 @@ async fn run_connection(
     internal_tx: &mpsc::UnboundedSender<String>,
 ) -> ConnectionOutcome {
     // 1. Build WebSocket URL
-    let ws_url = build_ws_url(url);
+    let ws_url = crate::api::socket::websocket_url(url);
     log::info!("[socket-mgr] WS URL: {}", ws_url);
 
     // 2. Connect via WebSocket (uses rustls TLS for wss://)
@@ -785,19 +785,6 @@ async fn handle_mcp_tool_call(
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
-
-/// Convert an HTTP(S) URL to a WebSocket URL with Engine.IO parameters.
-fn build_ws_url(url: &str) -> String {
-    let base = url.trim_end_matches('/');
-    let ws_base = if base.starts_with("https://") {
-        base.replacen("https://", "wss://", 1)
-    } else if base.starts_with("http://") {
-        base.replacen("http://", "ws://", 1)
-    } else {
-        base.to_string()
-    };
-    format!("{}/socket.io/?EIO=4&transport=websocket", ws_base)
-}
 
 /// Send a Socket.IO event through the emit channel.
 /// Formats: `42["eventName", data]`

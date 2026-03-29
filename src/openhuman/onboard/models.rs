@@ -1,5 +1,6 @@
 //! Model catalog refresh and caching utilities.
 
+use crate::api::config::{effective_api_url, DEFAULT_API_BASE_URL};
 use crate::openhuman::config::Config;
 use crate::openhuman::providers::{canonical_china_provider_name, is_qwen_oauth_alias};
 use anyhow::{bail, Context, Result};
@@ -81,14 +82,14 @@ pub fn run_models_refresh(
         .api_key
         .clone()
         .filter(|k| !k.trim().is_empty())
-        .or_else(|| {
-            crate::openhuman::auth_profiles::session_support::get_session_token(config)
-                .ok()
-                .flatten()
-        })
+        .or_else(|| crate::api::jwt::get_session_token(config).ok().flatten())
         .unwrap_or_default();
 
-    match fetch_live_models_for_provider(&provider_name, &api_key, config.api_url.as_deref()) {
+    match fetch_live_models_for_provider(
+        &provider_name,
+        &api_key,
+        Some(effective_api_url(&config.api_url)),
+    ) {
         Ok(models) if !models.is_empty() => {
             cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models)?;
             Ok(ModelRefreshResult {
@@ -438,9 +439,7 @@ fn fetch_live_models_for_provider(
             let base = api_base
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    anyhow::anyhow!("config api_url is required to list models for openhuman")
-                })?;
+                .unwrap_or(DEFAULT_API_BASE_URL);
             let endpoint = format!("{}/openai/v1/models", base.trim_end_matches('/'));
             fetch_openai_compatible_models(&endpoint, api_key.as_ref().map(|s| s.as_str()), false)?
         }
