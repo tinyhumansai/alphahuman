@@ -128,6 +128,14 @@ fn get_default_pricing() -> HashMap<String, ModelPricing> {
     );
 
     prices.insert(
+        "neocortex-mk1".into(),
+        ModelPricing {
+            input: 5.0,
+            output: 15.0,
+        },
+    );
+
+    prices.insert(
         "openai/gpt-4o".into(),
         ModelPricing {
             input: 5.0,

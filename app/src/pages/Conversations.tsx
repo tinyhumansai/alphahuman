@@ -192,7 +192,8 @@ const Conversations = () => {
       .then(data => {
         if (data.data.length > 0) {
           setAvailableModels(data.data);
-          setSelectedModel(data.data[0].id);
+          const preferred = data.data.find(m => m.id === 'neocortex-mk1');
+          setSelectedModel(preferred ? preferred.id : data.data[0].id);
         }
       })
       .catch(() => {

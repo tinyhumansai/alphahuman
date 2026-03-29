@@ -12,7 +12,6 @@ const AgentChatPanel = () => {
   const { navigateBack } = useSettingsNavigation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [providerOverride, setProviderOverride] = useState('');
   const [modelOverride, setModelOverride] = useState('');
   const [temperature, setTemperature] = useState('0.7');
   const [sending, setSending] = useState(false);
@@ -24,15 +23,11 @@ const AgentChatPanel = () => {
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         messages?: ChatMessage[];
-        providerOverride?: string;
         modelOverride?: string;
         temperature?: string;
       };
       if (parsed.messages && Array.isArray(parsed.messages)) {
         setMessages(parsed.messages);
-      }
-      if (parsed.providerOverride !== undefined) {
-        setProviderOverride(parsed.providerOverride);
       }
       if (parsed.modelOverride !== undefined) {
         setModelOverride(parsed.modelOverride);
@@ -46,13 +41,13 @@ const AgentChatPanel = () => {
   }, []);
 
   useEffect(() => {
-    const payload = { messages, providerOverride, modelOverride, temperature };
+    const payload = { messages, modelOverride, temperature };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // Ignore storage errors (e.g., private mode)
     }
-  }, [messages, providerOverride, modelOverride, temperature]);
+  }, [messages, modelOverride, temperature]);
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -64,7 +59,6 @@ const AgentChatPanel = () => {
     try {
       const response = await openhumanAgentChat(
         text,
-        providerOverride.trim() ? providerOverride : undefined,
         modelOverride.trim() ? modelOverride : undefined,
         Number.isFinite(Number(temperature)) ? Number(temperature) : undefined
       );
@@ -84,21 +78,16 @@ const AgentChatPanel = () => {
       <div className="flex-1 overflow-y-auto px-6 pb-10 space-y-6">
         <section className="space-y-3">
           <h3 className="text-lg font-semibold text-white">Overrides</h3>
-          <div className="grid gap-3 md:grid-cols-3">
-            <label className="space-y-2 text-sm text-gray-300">
-              Provider
-              <input
-                className="input input-bordered w-full text-slate-900 bg-white"
-                placeholder="openai"
-                value={providerOverride}
-                onChange={event => setProviderOverride(event.target.value)}
-              />
-            </label>
+          <p className="text-sm text-stone-400">
+            Inference uses your OpenHuman backend (config API URL and session). Optional model and
+            temperature override the defaults for this panel only.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
             <label className="space-y-2 text-sm text-gray-300">
               Model
               <input
                 className="input input-bordered w-full text-slate-900 bg-white"
-                placeholder="gpt-4.1-mini"
+                placeholder="gpt-4o"
                 value={modelOverride}
                 onChange={event => setModelOverride(event.target.value)}
               />

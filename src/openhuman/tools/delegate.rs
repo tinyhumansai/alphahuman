@@ -285,9 +285,9 @@ impl Tool for DelegateTool {
                 Ok(ToolResult {
                     success: true,
                     output: format!(
-                        "[Agent '{agent_name}' ({provider}/{model})]\n{rendered}",
-                        provider = agent_config.provider,
-                        model = agent_config.model
+                        "[Agent '{agent_name}' ({}/{}])\n{rendered}",
+                        providers::INFERENCE_BACKEND_ID,
+                        agent_config.model
                     ),
                     error: None,
                 })
@@ -315,7 +315,6 @@ mod tests {
         agents.insert(
             "researcher".to_string(),
             DelegateAgentConfig {
-                provider: "ollama".to_string(),
                 model: "llama3".to_string(),
                 system_prompt: Some("You are a research assistant.".to_string()),
                 api_key: None,
@@ -326,8 +325,7 @@ mod tests {
         agents.insert(
             "coder".to_string(),
             DelegateAgentConfig {
-                provider: "openrouter".to_string(),
-                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                model: "neocortex-mk1".to_string(),
                 system_prompt: None,
                 api_key: Some("delegate-test-credential".to_string()),
                 temperature: None,
@@ -428,29 +426,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_provider_returns_error() {
-        let mut agents = HashMap::new();
-        agents.insert(
-            "broken".to_string(),
-            DelegateAgentConfig {
-                provider: "totally-invalid-provider".to_string(),
-                model: "model".to_string(),
-                system_prompt: None,
-                api_key: None,
-                temperature: None,
-                max_depth: 3,
-            },
-        );
-        let tool = DelegateTool::new(agents, None, test_security());
-        let result = tool
-            .execute(json!({"agent": "broken", "prompt": "test"}))
-            .await
-            .unwrap();
-        assert!(!result.success);
-        assert!(result.error.unwrap().contains("Failed to create provider"));
-    }
-
-    #[tokio::test]
     async fn blank_agent_rejected() {
         let tool = DelegateTool::new(sample_agents(), None, test_security());
         let result = tool
@@ -536,7 +511,6 @@ mod tests {
         agents.insert(
             "tester".to_string(),
             DelegateAgentConfig {
-                provider: "invalid-for-test".to_string(),
                 model: "test-model".to_string(),
                 system_prompt: None,
                 api_key: None,
@@ -555,11 +529,14 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("Failed to create provider"));
+        assert!(
+            result.error.as_deref().unwrap_or("").contains("Agent 'tester' failed")
+                || result
+                    .error
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("timed out")
+        );
     }
 
     #[tokio::test]
@@ -568,7 +545,6 @@ mod tests {
         agents.insert(
             "tester".to_string(),
             DelegateAgentConfig {
-                provider: "invalid-for-test".to_string(),
                 model: "test-model".to_string(),
                 system_prompt: None,
                 api_key: None,
@@ -587,11 +563,14 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(result
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("Failed to create provider"));
+        assert!(
+            result.error.as_deref().unwrap_or("").contains("Agent 'tester' failed")
+                || result
+                    .error
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("timed out")
+        );
     }
 
     #[test]

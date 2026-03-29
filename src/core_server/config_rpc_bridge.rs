@@ -15,7 +15,6 @@ impl From<ModelSettingsUpdate> for ModelSettingsPatch {
         Self {
             api_key: u.api_key,
             api_url: u.api_url,
-            default_provider: u.default_provider,
             default_model: u.default_model,
             default_temperature: u.default_temperature,
         }

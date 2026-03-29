@@ -7,7 +7,6 @@ use super::{
     },
     Config,
 };
-use crate::openhuman::providers::{is_glm_alias, is_zai_alias};
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
@@ -379,35 +378,6 @@ impl Config {
                 self.api_key = Some(key);
             }
         }
-        if self.default_provider.as_deref().is_some_and(is_glm_alias) {
-            if let Ok(key) = std::env::var("GLM_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
-            }
-        }
-        if self.default_provider.as_deref().is_some_and(is_zai_alias) {
-            if let Ok(key) = std::env::var("ZAI_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
-            }
-        }
-
-        if let Ok(provider) = std::env::var("OPENHUMAN_PROVIDER") {
-            if !provider.is_empty() {
-                self.default_provider = Some(provider);
-            }
-        } else if let Ok(provider) = std::env::var("PROVIDER") {
-            let should_apply_legacy_provider = self
-                .default_provider
-                .as_deref()
-                .map_or(true, |c| c.trim().eq_ignore_ascii_case("openrouter"));
-            if should_apply_legacy_provider && !provider.is_empty() {
-                self.default_provider = Some(provider);
-            }
-        }
-
         if let Ok(model) = std::env::var("OPENHUMAN_MODEL").or_else(|_| std::env::var("MODEL")) {
             if !model.is_empty() {
                 self.default_model = Some(model);

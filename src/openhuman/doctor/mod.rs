@@ -233,33 +233,27 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagnosticItem>) {
         ));
     }
 
-    // Provider validity
-    if let Some(ref provider) = config.default_provider {
-        if let Some(reason) = provider_validation_error(provider) {
-            items.push(DiagnosticItem::error(
-                cat,
-                format!("default provider \"{provider}\" is invalid: {reason}"),
-            ));
-        } else {
-            items.push(DiagnosticItem::ok(
-                cat,
-                format!("provider \"{provider}\" is valid"),
-            ));
-        }
+    // Backend API URL
+    if config.api_url.is_some() {
+        items.push(DiagnosticItem::ok(
+            cat,
+            format!("api_url: {}", config.api_url.as_deref().unwrap_or("")),
+        ));
     } else {
-        items.push(DiagnosticItem::error(cat, "no default_provider configured"));
+        items.push(DiagnosticItem::warn(
+            cat,
+            "no api_url set (OpenHuman backend uses default from environment)",
+        ));
     }
 
-    // API key presence
-    if config.default_provider.as_deref() != Some("ollama") {
-        if config.api_key.is_some() {
-            items.push(DiagnosticItem::ok(cat, "API key configured"));
-        } else {
-            items.push(DiagnosticItem::warn(
-                cat,
-                "no api_key set (may rely on env vars or provider defaults)",
-            ));
-        }
+    // API key / session
+    if config.api_key.is_some() {
+        items.push(DiagnosticItem::ok(cat, "API key configured"));
+    } else {
+        items.push(DiagnosticItem::warn(
+            cat,
+            "no api_key set (may use app session JWT from auth profile)",
+        ));
     }
 
     // Model configured
@@ -294,29 +288,18 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagnosticItem>) {
         ));
     }
 
-    // Reliability: fallback providers
-    for fb in &config.reliability.fallback_providers {
-        if let Some(reason) = provider_validation_error(fb) {
-            items.push(DiagnosticItem::warn(
-                cat,
-                format!("fallback provider \"{fb}\" is invalid: {reason}"),
-            ));
-        }
+    // Reliability: fallback providers (legacy; ignored at runtime)
+    if !config.reliability.fallback_providers.is_empty() {
+        items.push(DiagnosticItem::warn(
+            cat,
+            "reliability.fallback_providers is set but ignored (single backend)",
+        ));
     }
 
     // Model routes validation
     for route in &config.model_routes {
         if route.hint.is_empty() {
             items.push(DiagnosticItem::warn(cat, "model route with empty hint"));
-        }
-        if let Some(reason) = provider_validation_error(&route.provider) {
-            items.push(DiagnosticItem::warn(
-                cat,
-                format!(
-                    "model route \"{}\" uses invalid provider \"{}\": {}",
-                    route.hint, route.provider, reason
-                ),
-            ));
         }
         if route.model.is_empty() {
             items.push(DiagnosticItem::warn(
@@ -400,33 +383,17 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagnosticItem>) {
         ));
     }
 
-    // Delegate agents: provider validity
+    // Delegate agents
     let mut agent_names: Vec<_> = config.agents.keys().collect();
     agent_names.sort();
     for name in agent_names {
         let agent = config.agents.get(name).unwrap();
-        if let Some(reason) = provider_validation_error(&agent.provider) {
+        if agent.model.trim().is_empty() {
             items.push(DiagnosticItem::warn(
                 cat,
-                format!(
-                    "agent \"{name}\" uses invalid provider \"{}\": {}",
-                    agent.provider, reason
-                ),
+                format!("delegate agent \"{name}\" has empty model"),
             ));
         }
-    }
-}
-
-fn provider_validation_error(name: &str) -> Option<String> {
-    match crate::openhuman::providers::create_provider(name, None) {
-        Ok(_) => None,
-        Err(err) => Some(
-            err.to_string()
-                .lines()
-                .next()
-                .unwrap_or("invalid provider")
-                .into(),
-        ),
     }
 }
 
@@ -851,12 +818,6 @@ mod tests {
         let ch_item = items.iter().find(|i| i.message.contains("channel"));
         assert!(ch_item.is_some());
         assert_eq!(ch_item.unwrap().severity, Severity::Warn);
-    }
-
-    #[test]
-    fn provider_validation_detects_invalid() {
-        let reason = provider_validation_error("imaginary");
-        assert!(reason.is_some());
     }
 
     #[test]

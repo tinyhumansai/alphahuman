@@ -132,13 +132,21 @@ async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
                 Some(prefixed_prompt),
                 model_override,
                 config.default_temperature,
+                vec![],
             )
             .await
         }
     };
 
     match run_result {
-        Ok(()) => (true, "agent job executed".to_string()),
+        Ok(response) => (
+            true,
+            if response.trim().is_empty() {
+                "agent job executed".to_string()
+            } else {
+                response
+            },
+        ),
         Err(e) => (false, format!("agent job failed: {e}")),
     }
 }

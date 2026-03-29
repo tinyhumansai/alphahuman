@@ -135,7 +135,6 @@ fn extract_string_outcome(result: &Value) -> String {
 fn write_min_config(openhuman_dir: &Path, api_origin: &str) {
     let cfg = format!(
         r#"api_url = "{api_origin}"
-default_provider = "openhuman"
 default_model = "e2e-mock-model"
 default_temperature = 0.7
 

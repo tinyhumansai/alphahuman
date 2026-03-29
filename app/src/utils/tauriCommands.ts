@@ -697,7 +697,6 @@ export interface ConfigSnapshot {
 export interface ModelSettingsUpdate {
   api_key?: string | null;
   api_url?: string | null;
-  default_provider?: string | null;
   default_model?: string | null;
   default_temperature?: number | null;
 }
@@ -1072,7 +1071,6 @@ export async function openhumanCronRuns(
 
 export async function openhumanAgentChat(
   message: string,
-  providerOverride?: string,
   modelOverride?: string,
   temperature?: number
 ): Promise<CommandResponse<string>> {
@@ -1081,12 +1079,7 @@ export async function openhumanAgentChat(
   }
   return await callCoreRpc<CommandResponse<string>>({
     method: 'openhuman.agent_chat',
-    params: {
-      message,
-      provider_override: providerOverride,
-      model_override: modelOverride,
-      temperature,
-    },
+    params: { message, model_override: modelOverride, temperature },
   });
 }
 
@@ -1298,7 +1291,6 @@ export async function openhumanDoctorReport(): Promise<CommandResponse<DoctorRep
 }
 
 export async function openhumanDoctorModels(
-  providerOverride?: string,
   useCache = true
 ): Promise<CommandResponse<ModelProbeReport>> {
   if (!isTauri()) {
@@ -1306,7 +1298,7 @@ export async function openhumanDoctorModels(
   }
   return await callCoreRpc<CommandResponse<ModelProbeReport>>({
     method: 'openhuman.doctor_models',
-    params: { provider_override: providerOverride, use_cache: useCache },
+    params: { use_cache: useCache },
   });
 }
 
@@ -1332,7 +1324,6 @@ export async function openhumanGetIntegrationInfo(
 }
 
 export async function openhumanModelsRefresh(
-  providerOverride?: string,
   force = false
 ): Promise<CommandResponse<ModelRefreshResult>> {
   if (!isTauri()) {
@@ -1340,7 +1331,7 @@ export async function openhumanModelsRefresh(
   }
   return await callCoreRpc<CommandResponse<ModelRefreshResult>>({
     method: 'openhuman.models_refresh',
-    params: { provider_override: providerOverride, force },
+    params: { force },
   });
 }
 

@@ -72,7 +72,6 @@ const TauriCommandsPanel = () => {
   const [error, setError] = useState<string>('');
 
   // Form states (preserved from original)
-  const [providerOverride, setProviderOverride] = useState<string>('');
   const [integrationName, setIntegrationName] = useState<string>('');
   const [hardwarePath, setHardwarePath] = useState<string>('');
   const [migrationSource, setMigrationSource] = useState<string>('');
@@ -80,7 +79,6 @@ const TauriCommandsPanel = () => {
   const [decryptInput, setDecryptInput] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
   const [apiUrl, setApiUrl] = useState<string>('');
-  const [defaultProvider, setDefaultProvider] = useState<string>('');
   const [defaultModel, setDefaultModel] = useState<string>('');
   const [defaultTemp, setDefaultTemp] = useState<string>('0.7');
   const [tunnelProvider, setTunnelProvider] = useState<string>('none');
@@ -98,7 +96,6 @@ const TauriCommandsPanel = () => {
   const [skills, setSkills] = useState<Array<{ snapshot: SkillSnapshot; enabled: boolean }>>([]);
   const [skillsLoading, setSkillsLoading] = useState<boolean>(false);
   const [chatInput, setChatInput] = useState<string>('');
-  const [chatProvider, setChatProvider] = useState<string>('');
   const [chatModel, setChatModel] = useState<string>('');
   const [chatTemperature, setChatTemperature] = useState<string>('0.7');
   const [chatLog, setChatLog] = useState<Array<{ role: 'user' | 'agent'; text: string }>>([]);
@@ -125,70 +122,14 @@ const TauriCommandsPanel = () => {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
-  // Provider configurations for smart defaults
-  const providerConfigs = useMemo(
-    () => ({
-      openhuman: {
-        defaultUrl: BACKEND_URL,
-        keyPattern: null,
-        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o1', 'o3-mini'],
-      },
-      openai: {
-        defaultUrl: 'https://api.openai.com/v1',
-        keyPattern: /^sk-[a-zA-Z0-9]{32,}$/,
-        models: ['gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-3.5-turbo'],
-      },
-      anthropic: {
-        defaultUrl: 'https://api.anthropic.com',
-        keyPattern: /^sk-ant-[a-zA-Z0-9_-]{32,}$/,
-        models: ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-3-5'],
-      },
-      ollama: {
-        defaultUrl: 'http://localhost:11434',
-        keyPattern: null, // No API key required
-        models: ['llama3', 'llama3:8b', 'codellama', 'mistral', 'phi3'],
-      },
-      groq: {
-        defaultUrl: 'https://api.groq.com/openai/v1',
-        keyPattern: /^gsk_[a-zA-Z0-9]{32,}$/,
-        models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-      },
-      cohere: {
-        defaultUrl: 'https://api.cohere.ai/v1',
-        keyPattern: /^[a-zA-Z0-9]{32,}$/,
-        models: ['command-r', 'command-r-plus', 'command-light'],
-      },
-    }),
+  const backendModelSuggestions = useMemo(
+    () => ['neocortex-mk1', 'gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o1', 'o3-mini'],
     []
   );
 
-  // Validation functions
-  const validateApiKey = useCallback(
-    (key: string, provider: string): string | null => {
-      if (!provider || provider === 'none') return null;
-      if (
-        !key.trim() &&
-        provider &&
-        provider !== 'none' &&
-        provider !== 'ollama' &&
-        provider !== 'openhuman'
-      ) {
-        return 'API key is required for this provider';
-      }
-      if (
-        key.trim() &&
-        provider &&
-        providerConfigs[provider as keyof typeof providerConfigs]?.keyPattern
-      ) {
-        const pattern = providerConfigs[provider as keyof typeof providerConfigs].keyPattern;
-        if (pattern && !pattern.test(key)) {
-          return `Invalid API key format for ${provider}`;
-        }
-      }
-      return null;
-    },
-    [providerConfigs]
-  );
+  const validateApiKey = useCallback((_key: string): string | null => {
+    return null;
+  }, []);
 
   const validateApiUrl = useCallback((url: string): string | null => {
     if (!url.trim()) return null;
@@ -210,32 +151,10 @@ const TauriCommandsPanel = () => {
     }
   }, []);
 
-  const validateProvider = useCallback(
-    (provider: string): string | null => {
-      if (!provider.trim()) return null;
-      const supportedProviders = Object.keys(providerConfigs);
-      if (!supportedProviders.includes(provider)) {
-        return `Unsupported provider. Supported: ${supportedProviders.join(', ')}`;
-      }
-      return null;
-    },
-    [providerConfigs]
-  );
-
-  const validateModel = useCallback(
-    (model: string, provider: string): string | null => {
-      if (!model.trim() || !provider.trim()) return null;
-      if (provider === 'openhuman') {
-        return null;
-      }
-      const config = providerConfigs[provider as keyof typeof providerConfigs];
-      if (config && !config.models.includes(model)) {
-        return `Model not available for ${provider}. Try: ${config.models.slice(0, 3).join(', ')}`;
-      }
-      return null;
-    },
-    [providerConfigs]
-  );
+  const validateModel = useCallback((model: string): string | null => {
+    if (!model.trim()) return null;
+    return null;
+  }, []);
 
   const validateTemperature = useCallback((temp: string): string | null => {
     if (!temp.trim()) return null;
@@ -249,16 +168,13 @@ const TauriCommandsPanel = () => {
   const performValidation = useCallback(() => {
     const errors: Record<string, string> = {};
 
-    const apiKeyError = validateApiKey(apiKey, defaultProvider);
+    const apiKeyError = validateApiKey(apiKey);
     if (apiKeyError) errors.apiKey = apiKeyError;
 
     const apiUrlError = validateApiUrl(apiUrl);
     if (apiUrlError) errors.apiUrl = apiUrlError;
 
-    const providerError = validateProvider(defaultProvider);
-    if (providerError) errors.defaultProvider = providerError;
-
-    const modelError = validateModel(defaultModel, defaultProvider);
+    const modelError = validateModel(defaultModel);
     if (modelError) errors.defaultModel = modelError;
 
     const tempError = validateTemperature(defaultTemp);
@@ -269,12 +185,10 @@ const TauriCommandsPanel = () => {
   }, [
     apiKey,
     apiUrl,
-    defaultProvider,
     defaultModel,
     defaultTemp,
     validateApiKey,
     validateApiUrl,
-    validateProvider,
     validateModel,
     validateTemperature,
   ]);
@@ -291,7 +205,6 @@ const TauriCommandsPanel = () => {
     const currentConfig = {
       api_key: apiKey,
       api_url: apiUrl,
-      default_provider: defaultProvider,
       default_model: defaultModel,
       default_temperature: defaultTemp,
     };
@@ -301,28 +214,7 @@ const TauriCommandsPanel = () => {
 
     // Perform validation on changes
     performValidation();
-  }, [
-    apiKey,
-    apiUrl,
-    defaultProvider,
-    defaultModel,
-    defaultTemp,
-    originalConfig,
-    configLoaded,
-    performValidation,
-  ]);
-
-  // Auto-populate URL based on provider
-  useEffect(() => {
-    if (
-      defaultProvider &&
-      !apiUrl &&
-      providerConfigs[defaultProvider as keyof typeof providerConfigs]
-    ) {
-      const config = providerConfigs[defaultProvider as keyof typeof providerConfigs];
-      setApiUrl(config.defaultUrl);
-    }
-  }, [defaultProvider, apiUrl, providerConfigs]);
+  }, [apiKey, apiUrl, defaultModel, defaultTemp, originalConfig, configLoaded, performValidation]);
 
   const run = async (fn: () => Promise<unknown>, operationName?: string) => {
     setError('');
@@ -370,14 +262,12 @@ const TauriCommandsPanel = () => {
       // Extract model configuration
       const modelApiKey = (config.api_key as string) ?? '';
       const modelApiUrl = (config.api_url as string) ?? '';
-      const modelProvider = (config.default_provider as string) ?? '';
       const modelModel = (config.default_model as string) ?? '';
       const modelTemp = String((config.default_temperature as number) ?? 0.7);
 
       // Set state
       setApiKey(modelApiKey);
       setApiUrl(modelApiUrl);
-      setDefaultProvider(modelProvider);
       setDefaultModel(modelModel);
       setDefaultTemp(modelTemp);
 
@@ -385,7 +275,6 @@ const TauriCommandsPanel = () => {
       const systemConfig = {
         api_key: modelApiKey,
         api_url: modelApiUrl,
-        default_provider: modelProvider,
         default_model: modelModel,
         default_temperature: modelTemp,
       };
@@ -490,7 +379,6 @@ const TauriCommandsPanel = () => {
       const result = await openhumanUpdateModelSettings({
         api_key: apiKey.trim() ? apiKey : null,
         api_url: apiUrl.trim() ? apiUrl : null,
-        default_provider: defaultProvider.trim() ? defaultProvider : null,
         default_model: defaultModel.trim() ? defaultModel : null,
         default_temperature: parseOptionalNumber(defaultTemp),
       });
@@ -506,7 +394,6 @@ const TauriCommandsPanel = () => {
       setOriginalConfig({
         api_key: apiKey,
         api_url: apiUrl,
-        default_provider: defaultProvider,
         default_model: defaultModel,
         default_temperature: defaultTemp,
       });
@@ -514,15 +401,10 @@ const TauriCommandsPanel = () => {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('API key')) {
         setFieldErrors(prev => ({ ...prev, apiKey: 'Invalid API key or authentication failed' }));
-      } else if (message.includes('provider')) {
-        setFieldErrors(prev => ({
-          ...prev,
-          defaultProvider: 'Provider not supported or misconfigured',
-        }));
       } else if (message.includes('model')) {
         setFieldErrors(prev => ({
           ...prev,
-          defaultModel: 'Model not available for this provider',
+          defaultModel: 'Model not available for the configured backend',
         }));
       }
       setError(message);
@@ -537,15 +419,7 @@ const TauriCommandsPanel = () => {
       return;
     }
 
-    if (
-      !defaultProvider ||
-      (!apiKey && defaultProvider !== 'ollama' && defaultProvider !== 'openhuman')
-    ) {
-      setError(
-        'Provider and API key are required to test connection (except Ollama and OpenHuman backend — session JWT is used when the key is empty)'
-      );
-      return;
-    }
+    // API key optional when using app session JWT
 
     // Check if running in Tauri environment
     if (!isTauri()) {
@@ -563,22 +437,18 @@ const TauriCommandsPanel = () => {
       );
 
       // Test connection by attempting to refresh models with current settings
-      const result = await Promise.race([
-        openhumanModelsRefresh(defaultProvider, false),
-        timeoutPromise,
-      ]);
+      const result = await Promise.race([openhumanModelsRefresh(false), timeoutPromise]);
 
       setOutput(formatJson(result));
 
       // If we get here, connection is successful
-      const successMessage = `Connection test successful for ${defaultProvider}`;
+      const successMessage = 'Connection test successful (OpenHuman backend)';
       setOutput(prev => prev + '\n\n' + successMessage);
 
       // Clear any previous connection errors
       setFieldErrors(prev => {
         const newErrors = { ...prev };
         delete newErrors.apiKey;
-        delete newErrors.defaultProvider;
         return newErrors;
       });
     } catch (err) {
@@ -589,17 +459,14 @@ const TauriCommandsPanel = () => {
       if (message.includes('authentication') || message.includes('401')) {
         setFieldErrors(prev => ({ ...prev, apiKey: 'Authentication failed - check API key' }));
       } else if (message.includes('provider') || message.includes('404')) {
-        setFieldErrors(prev => ({ ...prev, defaultProvider: 'Provider not found or unavailable' }));
+        setFieldErrors(prev => ({ ...prev, apiUrl: 'Backend not found or unavailable' }));
       } else if (message.includes('network') || message.includes('timeout')) {
         setFieldErrors(prev => ({
           ...prev,
           apiUrl: 'Network error - check API URL and connectivity',
         }));
       } else if (message.includes('Not running in Tauri')) {
-        setFieldErrors(prev => ({
-          ...prev,
-          defaultProvider: 'Desktop application required for testing',
-        }));
+        setFieldErrors(prev => ({ ...prev, apiUrl: 'Desktop application required for testing' }));
       }
 
       setError(`Connection test failed: ${message}`);
@@ -678,7 +545,6 @@ const TauriCommandsPanel = () => {
       () =>
         openhumanAgentChat(
           userMessage,
-          chatProvider.trim() ? chatProvider : undefined,
           chatModel.trim() ? chatModel : undefined,
           parseOptionalNumber(chatTemperature) ?? undefined
         ),
@@ -750,108 +616,26 @@ const TauriCommandsPanel = () => {
                 validationLoading
               }>
               <InputGroup
-                title="Model API Keys"
-                description="Configure your AI model provider settings with real-time validation">
-                <ValidatedSelect
-                  label="Default Provider"
-                  value={defaultProvider}
-                  onChange={value => {
-                    setDefaultProvider(value);
-                    // Auto-populate URL when provider changes
-                    if (value && providerConfigs[value as keyof typeof providerConfigs]) {
-                      const config = providerConfigs[value as keyof typeof providerConfigs];
-                      if (
-                        !apiUrl ||
-                        Object.values(providerConfigs).some(c => c.defaultUrl === apiUrl)
-                      ) {
-                        setApiUrl(config.defaultUrl);
-                      }
-                    }
-                  }}
-                  options={[
-                    {
-                      value: '',
-                      label: 'Select provider...',
-                      description: 'Choose your AI service provider',
-                    },
-                    {
-                      value: 'openhuman',
-                      label: 'OpenHuman (backend)',
-                      description:
-                        'Chat completions via your app backend (session JWT or optional API key)',
-                    },
-                    {
-                      value: 'openai',
-                      label: 'OpenAI',
-                      description: 'GPT models with high performance',
-                    },
-                    {
-                      value: 'anthropic',
-                      label: 'Anthropic',
-                      description: 'Claude models with safety focus',
-                    },
-                    {
-                      value: 'ollama',
-                      label: 'Ollama',
-                      description: 'Local models, no API key needed',
-                    },
-                    {
-                      value: 'groq',
-                      label: 'Groq',
-                      description: 'Fast inference with LPU acceleration',
-                    },
-                    {
-                      value: 'cohere',
-                      label: 'Cohere',
-                      description: 'Enterprise-grade language models',
-                    },
-                  ]}
-                  error={fieldErrors.defaultProvider}
-                  required={true}
-                  helpText="Use OpenHuman (backend) to route inference through your account on the OpenHuman API (same as the desktop app). Direct provider APIs are optional for advanced setups."
-                />
-
+                title="Inference (OpenHuman backend)"
+                description="Chat completions use your API origin plus /openai/v1. Session JWT from the app is used when API key is empty.">
                 <ValidatedField
                   label="API Key"
                   value={apiKey}
                   onChange={setApiKey}
                   error={fieldErrors.apiKey}
-                  required={
-                    !!defaultProvider &&
-                    defaultProvider !== 'ollama' &&
-                    defaultProvider !== 'openhuman'
-                  }
+                  required={false}
                   type="password"
-                  placeholder={
-                    defaultProvider === 'openhuman'
-                      ? 'Optional — uses app session when empty'
-                      : defaultProvider === 'openai'
-                        ? 'sk-...'
-                        : defaultProvider === 'anthropic'
-                          ? 'sk-ant-...'
-                          : defaultProvider === 'groq'
-                            ? 'gsk_...'
-                            : defaultProvider === 'ollama'
-                              ? 'Not required for Ollama'
-                              : 'Enter your API key...'
-                  }
-                  helpText={
-                    defaultProvider === 'ollama'
-                      ? 'API key not required for Ollama (local models)'
-                      : defaultProvider === 'openhuman'
-                        ? 'Optional override. When empty, the core uses the signed-in app session (JWT) against API Base URL.'
-                        : "Enter your AI provider's API key for authentication. Keep this secure and never share it publicly."
-                  }
+                  placeholder="Optional — uses app session when empty"
+                  helpText="Optional override. When empty, the core uses the signed-in app session (JWT) against API Base URL."
                   validation={
                     !apiKey
                       ? 'none'
                       : fieldErrors.apiKey
                         ? 'invalid'
-                        : defaultProvider && validateApiKey(apiKey, defaultProvider) === null
+                        : validateApiKey(apiKey) === null
                           ? 'valid'
                           : 'none'
                   }
-                  disabled={defaultProvider === 'ollama'}
                 />
 
                 <ValidatedField
@@ -860,10 +644,8 @@ const TauriCommandsPanel = () => {
                   onChange={setApiUrl}
                   error={fieldErrors.apiUrl}
                   type="url"
-                  placeholder={
-                    defaultProvider === 'openhuman' ? BACKEND_URL : 'https://api.openai.com/v1'
-                  }
-                  helpText="For OpenHuman (backend), this is your REST API origin (chat completions are at /openai/v1). Other providers use their vendor base URL."
+                  placeholder={BACKEND_URL}
+                  helpText="REST API origin for your OpenHuman backend (chat at /openai/v1/chat/completions)."
                   validation={
                     !apiUrl
                       ? 'none'
@@ -883,37 +665,22 @@ const TauriCommandsPanel = () => {
                     {
                       value: '',
                       label: 'Select model...',
-                      description: 'Choose specific model for this provider',
+                      description: 'Model id as exposed by your backend',
                     },
-                    ...((defaultProvider &&
-                      providerConfigs[defaultProvider as keyof typeof providerConfigs]?.models.map(
-                        model => ({
-                          value: model,
-                          label: model,
-                          description: model.includes('gpt-4')
-                            ? 'Advanced reasoning, higher cost'
-                            : model.includes('gpt-3.5')
-                              ? 'Fast and economical'
-                              : model.includes('claude')
-                                ? 'Excellent analysis and safety'
-                                : model.includes('llama')
-                                  ? 'Open source, good performance'
-                                  : model.includes('mixtral')
-                                    ? 'Mixture of experts model'
-                                    : 'High-quality language model',
-                        })
-                      )) ||
-                      []),
+                    ...backendModelSuggestions.map(model => ({
+                      value: model,
+                      label: model,
+                      description: 'Common backend model id',
+                    })),
                   ]}
                   error={fieldErrors.defaultModel}
-                  helpText="Primary language model for agent interactions. Available models are filtered based on your selected provider."
-                  disabled={!defaultProvider}
+                  helpText="Primary model id for agent and channel inference."
                   validation={
                     !defaultModel
                       ? 'none'
                       : fieldErrors.defaultModel
                         ? 'invalid'
-                        : defaultProvider && validateModel(defaultModel, defaultProvider) === null
+                        : validateModel(defaultModel) === null
                           ? 'valid'
                           : 'none'
                   }
@@ -952,10 +719,6 @@ const TauriCommandsPanel = () => {
                 <PrimaryButton
                   onClick={testConnection}
                   loading={validationLoading}
-                  disabled={
-                    !defaultProvider ||
-                    (!apiKey && defaultProvider !== 'ollama' && defaultProvider !== 'openhuman')
-                  }
                   variant="outline">
                   Test Connection
                 </PrimaryButton>
@@ -1238,20 +1001,6 @@ const TauriCommandsPanel = () => {
               </InputGroup>
 
               <div className="space-y-6">
-                <InputGroup title="Models">
-                  <Field
-                    label="Provider Override"
-                    helpText="Temporarily override the default AI provider for model operations. Leave empty to use the configured default provider. Useful for testing different providers or accessing provider-specific models."
-                    fullWidth>
-                    <input
-                      className="w-full px-4 py-3 rounded-lg bg-stone-900/40 border border-stone-800/60 text-white placeholder-stone-400 focus:border-primary-500/50 focus:ring-2 focus:ring-primary-500/30 focus:outline-none transition-all duration-200"
-                      placeholder="Provider override (optional)"
-                      value={providerOverride}
-                      onChange={event => setProviderOverride(event.target.value)}
-                    />
-                  </Field>
-                </InputGroup>
-
                 <InputGroup title="Integrations">
                   <Field
                     label="Integration Name"
@@ -1283,22 +1032,12 @@ const TauriCommandsPanel = () => {
                 Decrypt
               </PrimaryButton>
               <PrimaryButton
-                onClick={() =>
-                  run(
-                    () => openhumanModelsRefresh(providerOverride || undefined, false),
-                    'modelsRefresh'
-                  )
-                }
+                onClick={() => run(() => openhumanModelsRefresh(false), 'modelsRefresh')}
                 loading={operationLoading === 'modelsRefresh'}>
                 Refresh Models
               </PrimaryButton>
               <PrimaryButton
-                onClick={() =>
-                  run(
-                    () => openhumanModelsRefresh(providerOverride || undefined, true),
-                    'modelsForceRefresh'
-                  )
-                }
+                onClick={() => run(() => openhumanModelsRefresh(true), 'modelsForceRefresh')}
                 loading={operationLoading === 'modelsForceRefresh'}
                 variant="outline">
                 Force Refresh
@@ -1480,12 +1219,7 @@ const TauriCommandsPanel = () => {
                       Run Doctor Report
                     </PrimaryButton>
                     <PrimaryButton
-                      onClick={() =>
-                        run(
-                          () => openhumanDoctorModels(providerOverride || undefined, true),
-                          'probeModels'
-                        )
-                      }
+                      onClick={() => run(() => openhumanDoctorModels(true), 'probeModels')}
                       loading={operationLoading === 'probeModels'}
                       variant="outline">
                       Probe Models
@@ -1576,20 +1310,7 @@ const TauriCommandsPanel = () => {
             {/* Agent Chat - Preserve original styling */}
             <div className="space-y-6">
               <h4 className="text-lg font-medium text-white">Agent Chat</h4>
-              <div className="grid gap-4 md:grid-cols-3">
-                <label className="space-y-2 text-sm text-gray-300">
-                  Provider Override
-                  <input
-                    className="w-full px-4 py-3 rounded-lg bg-stone-900/40 border border-stone-800/60 text-white placeholder-stone-400 focus:border-primary-500/50 focus:ring-2 focus:ring-primary-500/30 focus:outline-none transition-all duration-200"
-                    placeholder="openai"
-                    value={chatProvider}
-                    onChange={event => setChatProvider(event.target.value)}
-                  />
-                  <p className="text-xs text-gray-400">
-                    Override the default AI provider for this chat session. Leave empty to use
-                    system default. Useful for testing different AI providers.
-                  </p>
-                </label>
+              <div className="grid gap-4 md:grid-cols-2">
                 <label className="space-y-2 text-sm text-gray-300">
                   Model Override
                   <input

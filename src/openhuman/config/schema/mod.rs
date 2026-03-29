@@ -179,7 +179,7 @@ impl Default for Config {
             config_path: openhuman_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_model: Some("gpt-4o".to_string()),
+            default_model: Some("neocortex-mk1".to_string()),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),

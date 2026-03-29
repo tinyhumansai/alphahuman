@@ -158,8 +158,6 @@ struct ModelSetArgs {
     #[arg(long)]
     api_url: Option<String>,
     #[arg(long)]
-    provider: Option<String>,
-    #[arg(long)]
     model: Option<String>,
     #[arg(long)]
     temperature: Option<f64>,
@@ -601,9 +599,6 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                     }
                     if let Some(v) = args.api_url {
                         payload.insert("api_url".to_string(), json!(v));
-                    }
-                    if let Some(v) = args.provider {
-                        payload.insert("default_provider".to_string(), json!(v));
                     }
                     if let Some(v) = args.model {
                         payload.insert("default_model".to_string(), json!(v));

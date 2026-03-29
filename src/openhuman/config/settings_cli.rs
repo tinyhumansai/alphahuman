@@ -21,7 +21,6 @@ pub fn settings_section_json(
         "model" => json!({
             "api_key": cfg.get("api_key"),
             "api_url": cfg.get("api_url"),
-            "default_provider": cfg.get("default_provider"),
             "default_model": cfg.get("default_model"),
             "default_temperature": cfg.get("default_temperature"),
         }),

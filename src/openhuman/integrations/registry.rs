@@ -1,8 +1,4 @@
 use super::{IntegrationCategory, IntegrationEntry, IntegrationStatus};
-use crate::openhuman::providers::{
-    is_glm_alias, is_minimax_alias, is_moonshot_alias, is_qianfan_alias, is_qwen_alias,
-    is_zai_alias,
-};
 
 /// Returns the full catalog of integrations
 #[allow(clippy::too_many_lines)]
@@ -164,47 +160,26 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             name: "OpenRouter",
             description: "200+ models, 1 API key",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("openrouter") && c.api_key.is_some() {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Anthropic",
             description: "Claude 3.5/4 Sonnet & Opus",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("anthropic") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "OpenAI",
             description: "GPT-4o, GPT-5, o1",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("openai") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "OpenHuman",
             description: "Backend inference (session JWT)",
             category: IntegrationCategory::AiModel,
             status_fn: |c| {
-                if c.default_provider
-                    .as_deref()
-                    .is_some_and(|p| matches!(p, "openhuman" | "backend" | "openhuman-backend"))
-                {
+                if c.api_url.is_some() || c.api_key.is_some() {
                     IntegrationStatus::Active
                 } else {
                     IntegrationStatus::Available
@@ -275,25 +250,13 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             name: "Ollama",
             description: "Local models (Llama, etc.)",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("ollama") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Perplexity",
             description: "Search-augmented AI",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("perplexity") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Hugging Face",
@@ -311,193 +274,97 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             name: "Venice",
             description: "Privacy-first inference (Llama, Opus)",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("venice") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Vercel AI",
             description: "Vercel AI Gateway",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("vercel") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Cloudflare AI",
             description: "Cloudflare AI Gateway",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("cloudflare") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Moonshot",
             description: "Kimi & Kimi Coding",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_moonshot_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Synthetic",
             description: "Synthetic AI models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("synthetic") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "OpenCode Zen",
             description: "Code-focused AI models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("opencode") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Z.AI",
             description: "Z.AI inference",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_zai_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "GLM",
             description: "ChatGLM / Zhipu models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_glm_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "MiniMax",
             description: "MiniMax AI models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_minimax_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Qwen",
             description: "Alibaba DashScope Qwen models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_qwen_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Amazon Bedrock",
             description: "AWS managed model access",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("bedrock") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Qianfan",
             description: "Baidu AI models",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref().is_some_and(is_qianfan_alias) {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Groq",
             description: "Ultra-fast LPU inference",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("groq") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Together AI",
             description: "Open-source model hosting",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("together") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Fireworks AI",
             description: "Fast open-source inference",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("fireworks") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         IntegrationEntry {
             name: "Cohere",
             description: "Command R+ & embeddings",
             category: IntegrationCategory::AiModel,
-            status_fn: |c| {
-                if c.default_provider.as_deref() == Some("cohere") {
-                    IntegrationStatus::Active
-                } else {
-                    IntegrationStatus::Available
-                }
-            },
+            status_fn: |_| IntegrationStatus::Available,
         },
         // ── Productivity ────────────────────────────────────────
         IntegrationEntry {
@@ -945,10 +812,10 @@ mod tests {
     }
 
     #[test]
-    fn openhuman_backend_integration_active_when_default_provider_set() {
+    fn openhuman_backend_integration_active_when_api_configured() {
         let entries = all_integrations();
         let config = Config {
-            default_provider: Some("openhuman".to_string()),
+            api_url: Some("https://api.example.com".into()),
             ..Config::default()
         };
         let oh = entries.iter().find(|e| e.name == "OpenHuman").unwrap();

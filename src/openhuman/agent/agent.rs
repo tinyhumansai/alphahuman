@@ -194,7 +194,7 @@ impl AgentBuilder {
             config: self.config.unwrap_or_default(),
             model_name: self
                 .model_name
-                .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into()),
+                .unwrap_or_else(|| "neocortex-mk1".into()),
             temperature: self.temperature.unwrap_or(0.7),
             workspace_dir: self
                 .workspace_dir
@@ -269,7 +269,7 @@ impl Agent {
         let model_name = config
             .default_model
             .as_deref()
-            .unwrap_or("gpt-4o")
+            .unwrap_or("neocortex-mk1")
             .to_string();
 
         let provider: Box<dyn Provider> = providers::create_routed_provider(
@@ -575,7 +575,7 @@ pub async fn run(
     let model_name = effective_config
         .default_model
         .as_deref()
-        .unwrap_or("gpt-4o")
+        .unwrap_or("neocortex-mk1")
         .to_string();
 
     agent.observer.record_event(&ObserverEvent::AgentStart {
