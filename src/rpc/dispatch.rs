@@ -127,16 +127,6 @@ struct DoctorModelsParams {
 }
 
 #[derive(Debug, Deserialize)]
-struct IntegrationInfoParams {
-    name: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ModelsRefreshParams {
-    force: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
 struct MigrateOpenClawParams {
     source_workspace: Option<String>,
     dry_run: Option<bool>,
@@ -1067,41 +1057,6 @@ pub async fn try_dispatch(
                     crate::openhuman::doctor::rpc::doctor_models(
                         &config,
                         p.use_cache.unwrap_or(true),
-                    )
-                    .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.list_integrations" => Some(
-            async move {
-                let config = load_config().await?;
-                rpc_json(crate::openhuman::integrations::rpc::list_integrations(&config).await?)
-            }
-            .await,
-        ),
-
-        "openhuman.get_integration_info" => Some(
-            async move {
-                let p: IntegrationInfoParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::integrations::rpc::get_integration_info(&config, &p.name)
-                        .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.models_refresh" => Some(
-            async move {
-                let p: ModelsRefreshParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::model_catalog::rpc::models_refresh(
-                        &config,
-                        p.force.unwrap_or(false),
                     )
                     .await?,
                 )

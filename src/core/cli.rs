@@ -151,7 +151,10 @@ fn run_namespace_command(
     Ok(())
 }
 
-fn parse_function_params(schema: &ControllerSchema, args: &[String]) -> Result<Map<String, Value>, String> {
+fn parse_function_params(
+    schema: &ControllerSchema,
+    args: &[String],
+) -> Result<Map<String, Value>, String> {
     let mut out = Map::new();
     let mut i = 0usize;
 
@@ -257,7 +260,11 @@ fn print_function_help(namespace: &str, schema: &ControllerSchema) {
         println!("  none");
     } else {
         for input in &schema.inputs {
-            let required = if input.required { "required" } else { "optional" };
+            let required = if input.required {
+                "required"
+            } else {
+                "optional"
+            };
             println!("  --{} ({}) - {}", input.name, required, input.comment);
         }
     }

@@ -1,6 +1,6 @@
-use serde_json::json;
 use crate::core::rpc_log;
 use crate::core::types::{AppState, InvocationResult};
+use serde_json::json;
 
 pub async fn dispatch(
     state: AppState,
@@ -17,12 +17,11 @@ pub async fn dispatch(
         log::debug!("[rpc:dispatch] routed method={} subsystem=core", method);
         return result.map(crate::core::types::invocation_to_rpc_json);
     }
-    if let Some(result) = crate::openhuman::ai_memory::rpc::try_dispatch(method, params.clone()).await {
-        log::debug!("[rpc:dispatch] routed method={} subsystem=ai_memory", method);
-        return result;
-    }
     if let Some(result) = crate::rpc::try_dispatch(method, params).await {
-        log::debug!("[rpc:dispatch] routed method={} subsystem=openhuman", method);
+        log::debug!(
+            "[rpc:dispatch] routed method={} subsystem=openhuman",
+            method
+        );
         return result;
     }
 
@@ -37,7 +36,9 @@ fn try_core_dispatch(
 ) -> Option<Result<InvocationResult, String>> {
     match method {
         "core.ping" => Some(InvocationResult::ok(json!({ "ok": true }))),
-        "core.version" => Some(InvocationResult::ok(json!({ "version": state.core_version }))),
+        "core.version" => Some(InvocationResult::ok(
+            json!({ "version": state.core_version }),
+        )),
         _ => None,
     }
 }

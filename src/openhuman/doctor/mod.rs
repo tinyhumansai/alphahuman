@@ -126,35 +126,6 @@ pub struct ModelProbeReport {
     pub summary: ModelProbeSummary,
 }
 
-fn classify_model_probe_error(err_message: &str) -> ModelProbeOutcome {
-    let lower = err_message.to_lowercase();
-
-    if lower.contains("does not support live model discovery") {
-        return ModelProbeOutcome::Skipped;
-    }
-
-    if [
-        "401",
-        "403",
-        "429",
-        "unauthorized",
-        "forbidden",
-        "api key",
-        "token",
-        "insufficient balance",
-        "insufficient quota",
-        "plan does not include",
-        "rate limit",
-    ]
-    .iter()
-    .any(|hint| lower.contains(hint))
-    {
-        return ModelProbeOutcome::AuthOrAccess;
-    }
-
-    ModelProbeOutcome::Error
-}
-
 fn doctor_model_targets() -> Vec<String> {
     crate::openhuman::providers::list_providers()
         .into_iter()
@@ -162,54 +133,30 @@ fn doctor_model_targets() -> Vec<String> {
         .collect()
 }
 
-pub fn run_models(config: &Config, use_cache: bool) -> Result<ModelProbeReport> {
+pub fn run_models(_config: &Config, _use_cache: bool) -> Result<ModelProbeReport> {
     let targets = doctor_model_targets();
 
     if targets.is_empty() {
         anyhow::bail!("No providers available for model probing");
     }
 
-    let mut entries = Vec::new();
-    let mut ok_count = 0usize;
-    let mut skipped_count = 0usize;
-    let mut auth_count = 0usize;
-    let mut error_count = 0usize;
-
-    for provider_name in &targets {
-        match crate::openhuman::model_catalog::run_models_refresh(config, !use_cache) {
-            Ok(_) => {
-                ok_count += 1;
-                entries.push(ModelProbeEntry {
-                    provider: provider_name.clone(),
-                    outcome: ModelProbeOutcome::Ok,
-                    message: None,
-                });
-            }
-            Err(error) => {
-                let error_text = format_error_chain(&error);
-                let outcome = classify_model_probe_error(&error_text);
-                match outcome {
-                    ModelProbeOutcome::Skipped => skipped_count += 1,
-                    ModelProbeOutcome::AuthOrAccess => auth_count += 1,
-                    ModelProbeOutcome::Error => error_count += 1,
-                    ModelProbeOutcome::Ok => ok_count += 1,
-                }
-                entries.push(ModelProbeEntry {
-                    provider: provider_name.clone(),
-                    outcome,
-                    message: Some(truncate_for_display(&error_text, 160)),
-                });
-            }
-        }
-    }
+    let skipped_count = targets.len();
+    let entries = targets
+        .into_iter()
+        .map(|provider| ModelProbeEntry {
+            provider,
+            outcome: ModelProbeOutcome::Skipped,
+            message: Some("model catalog refresh removed".to_string()),
+        })
+        .collect();
 
     Ok(ModelProbeReport {
         entries,
         summary: ModelProbeSummary {
-            ok: ok_count,
+            ok: 0,
             skipped: skipped_count,
-            auth_or_access: auth_count,
-            errors: error_count,
+            auth_or_access: 0,
+            errors: 0,
         },
     })
 }
@@ -777,19 +724,6 @@ fn parse_rfc3339(input: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(input)
         .ok()
         .map(|dt| dt.with_timezone(&Utc))
-}
-
-fn format_error_chain(err: &anyhow::Error) -> String {
-    let mut out = err.to_string();
-    let mut cursor = err.source();
-
-    while let Some(source) = cursor {
-        out.push_str(": ");
-        out.push_str(&source.to_string());
-        cursor = source.source();
-    }
-
-    out
 }
 
 fn truncate_for_display(text: &str, max_len: usize) -> String {

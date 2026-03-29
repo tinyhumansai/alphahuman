@@ -3,14 +3,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type IntegrationCategory,
   type IntegrationInfo,
-  openhumanGetConfig,
   openhumanGetRuntimeFlags,
-  openhumanListIntegrations,
   openhumanSetBrowserAllowAll,
   openhumanUpdateBrowserSettings,
   runtimeDisableSkill,
   runtimeEnableSkill,
-  runtimeIsSkillEnabled,
 } from '../../../utils/tauriCommands';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
@@ -40,28 +37,10 @@ const SkillsPanel = () => {
   useEffect(() => {
     const loadIntegrations = async () => {
       try {
-        const response = await openhumanListIntegrations();
-        setIntegrations(response.result);
-        const configResponse = await openhumanGetConfig();
-        const config = configResponse.result.config as Record<string, unknown>;
-        const browserConfig = (config.browser as Record<string, unknown>) ?? {};
+        setIntegrations([]);
         const runtimeFlags = await openhumanGetRuntimeFlags();
         setBrowserAllowAll(runtimeFlags.result.browser_allow_all);
-        const entries = await Promise.all(
-          response.result.map(async integration => {
-            const skillId = integrationSkillId(integration);
-            try {
-              const enabled =
-                integration.name === 'Browser'
-                  ? ((browserConfig.enabled as boolean) ?? false)
-                  : await runtimeIsSkillEnabled(skillId);
-              return [integration.name, enabled] as const;
-            } catch {
-              return [integration.name, false] as const;
-            }
-          })
-        );
-        setEnabledMap(Object.fromEntries(entries));
+        setEnabledMap({});
       } catch (error) {
         console.warn('Could not load integrations from OpenHuman:', error);
         const message = error instanceof Error ? error.message : String(error);

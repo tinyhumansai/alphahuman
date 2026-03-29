@@ -35,11 +35,7 @@ pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcReque
     }
 }
 
-pub async fn invoke_method(
-    state: AppState,
-    method: &str,
-    params: Value,
-) -> Result<Value, String> {
+pub async fn invoke_method(state: AppState, method: &str, params: Value) -> Result<Value, String> {
     if let Some(schema) = all::schema_for_rpc_method(method) {
         let params_obj = params_to_object(params)?;
         all::validate_params(&schema, &params_obj)?;

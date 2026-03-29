@@ -12,7 +12,6 @@
 #![allow(dead_code)]
 
 pub mod agent;
-pub mod ai_memory;
 pub mod approval;
 pub mod autocomplete;
 pub mod channels;
@@ -25,11 +24,9 @@ pub mod doctor;
 pub mod encryption;
 pub mod health;
 pub mod heartbeat;
-pub mod integrations;
 pub mod local_ai;
 pub mod memory;
 pub mod migration;
-pub mod model_catalog;
 pub mod providers;
 pub mod screen_intelligence;
 pub mod security;

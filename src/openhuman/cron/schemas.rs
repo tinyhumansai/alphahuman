@@ -116,7 +116,9 @@ pub fn schemas(function: &str) -> ControllerSchema {
             namespace: "cron",
             function: "run",
             description: "Run a cron job immediately and record run metadata.",
-            inputs: vec![job_id_input("Identifier of the cron job to execute immediately.")],
+            inputs: vec![job_id_input(
+                "Identifier of the cron job to execute immediately.",
+            )],
             outputs: vec![FieldSchema {
                 name: "result",
                 ty: TypeSchema::Object {

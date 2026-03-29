@@ -49,10 +49,16 @@ pub fn schema_for_rpc_method(method: &str) -> Option<ControllerSchema> {
         .map(|r| r.schema)
 }
 
-pub fn validate_params(schema: &ControllerSchema, params: &Map<String, Value>) -> Result<(), String> {
+pub fn validate_params(
+    schema: &ControllerSchema,
+    params: &Map<String, Value>,
+) -> Result<(), String> {
     for input in &schema.inputs {
         if input.required && !params.contains_key(input.name) {
-            return Err(format!("missing required param '{}': {}", input.name, input.comment));
+            return Err(format!(
+                "missing required param '{}': {}",
+                input.name, input.comment
+            ));
         }
     }
 

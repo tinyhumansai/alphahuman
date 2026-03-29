@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+import { dispatchLocalAiMethod } from '../lib/ai/localCoreAiMemory';
+
 interface CoreRpcRelayRequest {
   method: string;
   params?: unknown;
@@ -31,6 +33,9 @@ export async function callCoreRpc<T>({
   params,
   serviceManaged = false,
 }: CoreRpcRelayRequest): Promise<T> {
+  if (method.startsWith('ai.')) {
+    return dispatchLocalAiMethod(method, (params ?? {}) as Record<string, unknown>) as T;
+  }
   try {
     return await invoke<T>('core_rpc_relay', {
       request: { method, params: params ?? {}, serviceManaged },
