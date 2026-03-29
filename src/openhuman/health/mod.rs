@@ -1,4 +1,9 @@
 pub mod rpc;
+mod schemas;
+pub use schemas::{
+    all_controller_schemas as all_health_controller_schemas,
+    all_registered_controllers as all_health_registered_controllers,
+};
 
 use chrono::Utc;
 use parking_lot::Mutex;

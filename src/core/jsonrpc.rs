@@ -138,6 +138,7 @@ fn core_port() -> u16 {
 }
 
 pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
+    let _ = all::all_registered_controllers();
     let port = port.unwrap_or_else(core_port);
     let bind_addr = format!("127.0.0.1:{port}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -162,4 +163,39 @@ pub async fn run_server(port: Option<u16>) -> anyhow::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{default_state, invoke_method};
+
+    #[tokio::test]
+    async fn invoke_health_snapshot_via_registry() {
+        let result = invoke_method(default_state(), "openhuman.health_snapshot", json!({}))
+            .await
+            .expect("health snapshot should succeed");
+        assert!(result.get("result").is_some());
+    }
+
+    #[tokio::test]
+    async fn invoke_encrypt_secret_missing_required_param_fails_validation() {
+        let err = invoke_method(default_state(), "openhuman.encrypt_secret", json!({}))
+            .await
+            .expect_err("missing plaintext should fail");
+        assert!(err.contains("missing required param 'plaintext'"));
+    }
+
+    #[tokio::test]
+    async fn invoke_doctor_models_rejects_unknown_param() {
+        let err = invoke_method(
+            default_state(),
+            "openhuman.doctor_models",
+            json!({ "invalid": true }),
+        )
+        .await
+        .expect_err("unknown param should fail");
+        assert!(err.contains("unknown param 'invalid'"));
+    }
 }

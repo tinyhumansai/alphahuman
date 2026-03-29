@@ -273,3 +273,17 @@ fn print_function_help(namespace: &str, schema: &ControllerSchema) {
 fn is_help(value: &str) -> bool {
     matches!(value, "-h" | "--help" | "help")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::grouped_schemas;
+
+    #[test]
+    fn grouped_schemas_contains_migrated_namespaces() {
+        let grouped = grouped_schemas();
+        assert!(grouped.contains_key("health"));
+        assert!(grouped.contains_key("doctor"));
+        assert!(grouped.contains_key("encrypt"));
+        assert!(grouped.contains_key("decrypt"));
+    }
+}

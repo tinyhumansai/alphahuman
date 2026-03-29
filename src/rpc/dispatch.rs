@@ -77,23 +77,6 @@ struct WorkspaceOnboardingFlagParams {
 }
 
 #[derive(Debug, Deserialize)]
-struct CronJobIdParams {
-    job_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct CronUpdateParams {
-    job_id: String,
-    patch: crate::openhuman::cron::CronJobPatch,
-}
-
-#[derive(Debug, Deserialize)]
-struct CronRunsParams {
-    job_id: String,
-    limit: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
 struct AgentChatParams {
     message: String,
     model_override: Option<String>,
@@ -122,24 +105,9 @@ struct AgentReplSessionControlParams {
 }
 
 #[derive(Debug, Deserialize)]
-struct DoctorModelsParams {
-    use_cache: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
 struct MigrateOpenClawParams {
     source_workspace: Option<String>,
     dry_run: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EncryptSecretParams {
-    plaintext: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct DecryptSecretParams {
-    ciphertext: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -387,10 +355,6 @@ pub async fn try_dispatch(
             .await,
         ),
 
-        "openhuman.health_snapshot" => {
-            Some(rpc_json(crate::openhuman::health::rpc::health_snapshot()))
-        }
-
         "openhuman.security_policy_info" => Some(rpc_json(
             crate::openhuman::security::rpc::security_policy_info(),
         )),
@@ -502,69 +466,6 @@ pub async fn try_dispatch(
         ),
 
         "openhuman.agent_server_status" => Some(rpc_json(config_rpc::agent_server_status())),
-
-        "openhuman.cron_list" => Some(
-            async move {
-                let config = load_config().await?;
-                rpc_json(crate::openhuman::cron::rpc::cron_list(&config).await?)
-            }
-            .await,
-        ),
-
-        "openhuman.cron_update" => Some(
-            async move {
-                let payload: CronUpdateParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::cron::rpc::cron_update(
-                        &config,
-                        payload.job_id.trim(),
-                        payload.patch,
-                    )
-                    .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.cron_remove" => Some(
-            async move {
-                let payload: CronJobIdParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::cron::rpc::cron_remove(&config, payload.job_id.trim())
-                        .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.cron_run" => Some(
-            async move {
-                let payload: CronJobIdParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::cron::rpc::cron_run(&config, payload.job_id.trim()).await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.cron_runs" => Some(
-            async move {
-                let payload: CronRunsParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::cron::rpc::cron_runs(
-                        &config,
-                        payload.job_id.trim(),
-                        payload.limit,
-                    )
-                    .await?,
-                )
-            }
-            .await,
-        ),
 
         "openhuman.agent_chat" => Some(
             async move {
@@ -1012,53 +913,6 @@ pub async fn try_dispatch(
                 rpc_json(
                     crate::openhuman::screen_intelligence::rpc::accessibility_vision_flush()
                         .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.encrypt_secret" => Some(
-            async move {
-                let p: EncryptSecretParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::credentials::rpc::encrypt_secret(&config, &p.plaintext)
-                        .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.decrypt_secret" => Some(
-            async move {
-                let p: DecryptSecretParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::credentials::rpc::decrypt_secret(&config, &p.ciphertext)
-                        .await?,
-                )
-            }
-            .await,
-        ),
-
-        "openhuman.doctor_report" => Some(
-            async move {
-                let config = load_config().await?;
-                rpc_json(crate::openhuman::doctor::rpc::doctor_report(&config).await?)
-            }
-            .await,
-        ),
-
-        "openhuman.doctor_models" => Some(
-            async move {
-                let p: DoctorModelsParams = parse_params(params)?;
-                let config = load_config().await?;
-                rpc_json(
-                    crate::openhuman::doctor::rpc::doctor_models(
-                        &config,
-                        p.use_cache.unwrap_or(true),
-                    )
-                    .await?,
                 )
             }
             .await,

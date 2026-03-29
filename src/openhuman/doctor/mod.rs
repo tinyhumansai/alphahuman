@@ -1,6 +1,11 @@
 //! Diagnostic checks for OpenHuman configuration, workspace health, and daemon state.
 
 pub mod rpc;
+mod schemas;
+pub use schemas::{
+    all_controller_schemas as all_doctor_controller_schemas,
+    all_registered_controllers as all_doctor_registered_controllers,
+};
 
 use crate::openhuman::config::Config;
 use anyhow::Result;

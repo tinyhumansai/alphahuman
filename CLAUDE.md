@@ -12,11 +12,13 @@ This file orients contributors and coding agents. Authoritative narrative archit
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`app/`**              | Yarn workspace **`openhuman-app`**: Vite + React (`app/src/`), Tauri desktop host (`app/src-tauri/`), Vitest tests                                                                                        |
 | **Repo root `src/`**    | Rust library **`openhuman_core`** and **`openhuman`** CLI binary (`src/bin/openhuman.rs`) — `core_server`, `openhuman::*` domains, skills runtime (QuickJS / `rquickjs`), MCP routing in the core process |
-| **`skills/`**           | Skill packages (built into `skills/skills` for bundling)                                                                                                                                                  |
+| **Skills registry**     | **[`tinyhumansai/openhuman-skills`](https://github.com/tinyhumansai/openhuman-skills)** on GitHub — canonical skill packages and TS build; not vendored in this tree (see blurb below).                                                                                                                                                    |
 | **`Cargo.toml`** (root) | Core crate; `cargo build --bin openhuman` produces the sidecar the UI stages via `app`’s `core:stage`                                                                                                     |
 | **`docs/`**             | Architecture and module guides (numbered pages under `docs/src/`, `docs/src-tauri/`)                                                                                                                      |
 
 Commands in documentation assume the **repo root** unless noted: `yarn dev` runs the `app` workspace.
+
+**Skills registry:** Skill sources and the bundler live in **[github.com/tinyhumansai/openhuman-skills](https://github.com/tinyhumansai/openhuman-skills)**. Clone that repository to author or change skills (`yarn install`, `yarn build`). The desktop app’s skills catalog defaults to that GitHub slug; override with `VITE_SKILLS_GITHUB_REPO` (see [`app/src/utils/config.ts`](app/src/utils/config.ts)).
 
 ---
 
@@ -54,7 +56,8 @@ yarn format:check
 # Stage openhuman core binary next to Tauri resources (required for core RPC)
 cd app && yarn core:stage
 
-# Skills (under skills/)
+# Skills — develop in the GitHub registry repo, then build (see tinyhumansai/openhuman-skills).
+# If you keep a local clone path wired in app scripts, you can also run:
 yarn workspace openhuman-app skills:build
 yarn workspace openhuman-app skills:watch
 
@@ -182,4 +185,4 @@ Skills runtime uses **QuickJS** (`rquickjs`) in **`src/openhuman/skills/`** (e.g
 
 ---
 
-_Last aligned with monorepo layout (`app/` + root `src/`), QuickJS skills in `openhuman_core`, and Tauri shell IPC as of repo state._
+_Last aligned with monorepo layout (`app/` + root `src/`), QuickJS skills in `openhuman_core`, skills catalog on GitHub (`tinyhumansai/openhuman-skills`), and Tauri shell IPC as of repo state._

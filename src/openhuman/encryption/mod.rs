@@ -4,6 +4,13 @@
 //! encrypted at rest using AES-256-GCM. Keys are derived from a user
 //! password via Argon2id.
 
+pub mod rpc;
+mod schemas;
+pub use schemas::{
+    all_controller_schemas as all_encryption_controller_schemas,
+    all_registered_controllers as all_encryption_registered_controllers,
+};
+
 use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
