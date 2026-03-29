@@ -13,7 +13,7 @@ mod ops_state;
 mod ops_storage;
 pub mod types;
 
-// Re-export public API used by qjs_skill_instance.rs
+// Re-export public API used by `qjs_skill_instance`
 pub use types::{poll_timers, SkillContext, SkillState, TimerState, WebSocketState};
 
 use parking_lot::RwLock;
