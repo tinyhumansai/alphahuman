@@ -1,6 +1,6 @@
 # OpenHuman
 
-**AI-powered assistant for crypto communities — React + Tauri v2 desktop app with a Rust core (JSON-RPC / CLI) and sandboxed QuickJS skills.**
+**AI-powered assistant for communities — React + Tauri v2 desktop app with a Rust core (JSON-RPC / CLI) and sandboxed QuickJS skills.**
 
 This file orients contributors and coding agents. Authoritative narrative architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Frontend layout: [`docs/src/README.md`](docs/src/README.md). Tauri shell: [`docs/src-tauri/README.md`](docs/src-tauri/README.md).
 
@@ -25,6 +25,11 @@ Commands in documentation assume the **repo root** unless noted: `yarn dev` runs
 - **Shipped product**: desktop — Windows, macOS, Linux (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) “Platform reach”).
 - **Tauri host** (`app/src-tauri`): **desktop-only** (`compile_error!` for non-desktop targets). Do not add Android/iOS branches inside `app/src-tauri`.
 - **Core binary** (`openhuman`): spawned/staged as a **sidecar**; the Web UI talks to it over HTTP (`core_rpc_relay` + `core_rpc` client), not by re-implementing domain logic in the shell.
+
+**Where logic lives**
+
+- **Rust (`openhuman` / repo root `src/`)**: **Business logic and execution**—domains, skills runtime, RPC, persistence, and CLI behavior. This is the authoritative place for rules and side effects.
+- **Tauri + React (`app/`)**: **Interaction and UX**—screens, navigation, input, accessibility, windowing, and bridging to the core. The shell presents and orchestrates; it does not duplicate core business rules.
 
 ---
 
@@ -121,23 +126,26 @@ Deep link plugin is registered where supported; behavior is platform-specific (s
 
 Skills runtime uses **QuickJS** (`rquickjs`) in **`src/openhuman/skills/`** (e.g. `qjs_skill_instance.rs`, `qjs_engine.rs`), not V8/deno_core in this repository.
 
+### Controller migration checklist
+
+- `src/openhuman/<domain>/mod.rs`: keep export-focused, add `mod schemas;` and re-export:
+  - `all_controller_schemas as all_<domain>_controller_schemas`
+  - `all_registered_controllers as all_<domain>_registered_controllers`
+- `src/openhuman/<domain>/schemas.rs` must define:
+  - `schemas(function: &str) -> ControllerSchema`
+  - `all_controller_schemas() -> Vec<ControllerSchema>`
+  - `all_registered_controllers() -> Vec<RegisteredController>`
+  - domain handler fns `fn handle_*(_: Map<String, Value>) -> ControllerFuture`
+- Handlers should delegate to existing domain `rpc.rs` functions during migration.
+- Wire domain exports into `src/core/all.rs` for both declared schemas and registered handlers.
+- Keep adapters generic: do not add domain-specific logic to `src/core/cli.rs` or `src/core/jsonrpc.rs`.
+- Remove migrated method branches from `src/rpc/dispatch.rs` once registry coverage is in place.
+
 ---
 
 ## App theme & design system
 
-**Design intent**: Premium, calm crypto UI — ocean primary (`#4A83DD`), sage / amber / coral semantic colors, Inter + Cabinet Grotesk + JetBrains Mono, Tailwind with custom radii/spacing/shadows. Details: [`docs/DESIGN_GUIDELINES.md`](docs/DESIGN_GUIDELINES.md).
-
----
-
-## Environment variables (Vite)
-
-Set in `.env` for the **`app`** workspace (`VITE_*` exposed to the client):
-
-| Variable                  | Purpose                                                                   |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `VITE_BACKEND_URL`        | API base (default in code: production API; see `app/src/utils/config.ts`) |
-| `VITE_SENTRY_DSN`         | Optional Sentry DSN                                                       |
-| `VITE_SKILLS_GITHUB_REPO` | Skills catalog GitHub repo slug                                           |
+**Design intent**: Premium, calm visual language — ocean primary (`#4A83DD`), sage / amber / coral semantic colors, Inter + Cabinet Grotesk + JetBrains Mono, Tailwind with custom radii/spacing/shadows. Details: [`docs/DESIGN_GUIDELINES.md`](docs/DESIGN_GUIDELINES.md).
 
 ---
 
@@ -145,6 +153,13 @@ Set in `.env` for the **`app`** workspace (`VITE_*` exposed to the client):
 
 - **Public repo**; push to your working branch; PRs target **`main`**.
 - Use [`.github/pull_request_template.md`](.github/pull_request_template.md); AI-generated PR text should follow its sections and checklist.
+
+---
+
+## Coding philosophy
+
+- **Unix-style modules**: Prefer **individual modules** with a **single, sharp responsibility**—each should do one thing really well. Compose behavior through small, well-named units and clear boundaries instead of monolithic code.
+- **Tests before the next layer**: Ship **enough unit tests and coverage** for the behavior you are adding or changing **before** building additional features on top of it. Treat untested code as incomplete; do not accumulate depth on a shaky base.
 
 ---
 
