@@ -84,8 +84,11 @@ pub async fn try_dispatch(
                 let p: ModelsRefreshParams = parse_params(params)?;
                 let config = load_openhuman_config().await?;
                 rpc_invocation_from_outcome(
-                    crate::openhuman::onboard::rpc::models_refresh(&config, p.force.unwrap_or(false))
-                        .await?,
+                    crate::openhuman::onboard::rpc::models_refresh(
+                        &config,
+                        p.force.unwrap_or(false),
+                    )
+                    .await?,
                 )
             }
             .await,

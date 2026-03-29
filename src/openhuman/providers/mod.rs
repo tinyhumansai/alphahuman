@@ -170,7 +170,12 @@ pub fn create_resilient_provider(
     api_url: Option<&str>,
     reliability: &crate::openhuman::config::ReliabilityConfig,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    create_resilient_provider_with_options(api_key, api_url, reliability, &ProviderRuntimeOptions::default())
+    create_resilient_provider_with_options(
+        api_key,
+        api_url,
+        reliability,
+        &ProviderRuntimeOptions::default(),
+    )
 }
 
 /// Create provider chain with retry/fallback behavior and auth runtime options.
@@ -316,11 +321,9 @@ mod tests {
 
     #[test]
     fn legacy_create_provider_with_url_ignores_name() {
-        assert!(create_provider_with_url(
-            "anything",
-            Some("jwt"),
-            Some("https://api.example.com")
-        )
-        .is_ok());
+        assert!(
+            create_provider_with_url("anything", Some("jwt"), Some("https://api.example.com"))
+                .is_ok()
+        );
     }
 }

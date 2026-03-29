@@ -530,12 +530,12 @@ mod tests {
 
         assert!(!result.success);
         assert!(
-            result.error.as_deref().unwrap_or("").contains("Agent 'tester' failed")
-                || result
-                    .error
-                    .as_deref()
-                    .unwrap_or("")
-                    .contains("timed out")
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("Agent 'tester' failed")
+                || result.error.as_deref().unwrap_or("").contains("timed out")
         );
     }
 
@@ -564,12 +564,12 @@ mod tests {
 
         assert!(!result.success);
         assert!(
-            result.error.as_deref().unwrap_or("").contains("Agent 'tester' failed")
-                || result
-                    .error
-                    .as_deref()
-                    .unwrap_or("")
-                    .contains("timed out")
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("Agent 'tester' failed")
+                || result.error.as_deref().unwrap_or("").contains("timed out")
         );
     }
 
