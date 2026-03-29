@@ -1,8 +1,8 @@
+use crate::openhuman::agent::host_runtime;
 use crate::openhuman::approval::ApprovalManager;
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::{self, Memory, MemoryCategory};
 use crate::openhuman::providers::{self, ChatMessage, Provider};
-use crate::openhuman::runtime;
 use crate::openhuman::security::SecurityPolicy;
 use crate::openhuman::tools::{self, Tool};
 use crate::openhuman::util::truncate_with_ellipsis;
@@ -24,8 +24,8 @@ pub async fn run(
     peripheral_overrides: Vec<String>,
 ) -> Result<String> {
     // ── Wire up agnostic subsystems ──────────────────────────────
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
+    let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
+        Arc::from(host_runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,
@@ -73,7 +73,7 @@ pub async fn run(
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
-        crate::openhuman::peripherals::create_peripheral_tools(&config.peripherals).await?;
+        tools::create_peripheral_tools(&config.peripherals).await?;
     if !peripheral_tools.is_empty() {
         tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
         tools_registry.extend(peripheral_tools);
@@ -445,8 +445,8 @@ pub async fn run(
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
 pub async fn process_message(config: Config, message: &str) -> Result<String> {
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
+    let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
+        Arc::from(host_runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,
@@ -481,7 +481,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &config,
     );
     let peripheral_tools: Vec<Box<dyn Tool>> =
-        crate::openhuman::peripherals::create_peripheral_tools(&config.peripherals).await?;
+        tools::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
 
     let provider_name = providers::INFERENCE_BACKEND_ID;

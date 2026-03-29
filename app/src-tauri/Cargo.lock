@@ -39,7 +39,6 @@ dependencies = [
  "matrix-sdk",
  "nusb 0.2.3",
  "once_cell",
- "openhuman",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -54,7 +53,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ring",
  "rppal",
- "rquickjs 0.11.0",
+ "rquickjs",
  "rusqlite",
  "rustls",
  "rustls-pki-types",
@@ -1136,15 +1135,6 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
-]
-
-[[package]]
-name = "clap_complete"
-version = "4.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19c9f1dde76b736e3681f28cec9d5a61299cbaae0fce80a68e43724ad56031eb"
-dependencies = [
- "clap",
 ]
 
 [[package]]
@@ -5402,76 +5392,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openhuman"
-version = "0.49.16"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "async-imap",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chacha20poly1305",
- "chrono",
- "chrono-tz",
- "clap",
- "clap_complete",
- "console",
- "cron",
- "dialoguer",
- "directories",
- "dirs 5.0.1",
- "env_logger",
- "futures",
- "futures-util",
- "glob",
- "hex",
- "hmac",
- "hostname",
- "lettre",
- "log",
- "mail-parser",
- "once_cell",
- "openssl",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "parking_lot",
- "postgres",
- "prometheus",
- "prost 0.14.3",
- "rand 0.9.2",
- "regex",
- "reqwest 0.12.28",
- "ring",
- "rquickjs 0.9.0",
- "rusqlite",
- "rustls",
- "rustls-pki-types",
- "schemars 1.2.1",
- "serde",
- "serde_json",
- "sha2",
- "shellexpand",
- "tauri",
- "thiserror 2.0.18",
- "tokio",
- "tokio-rustls",
- "tokio-stream",
- "tokio-tungstenite 0.24.0",
- "tokio-util",
- "toml 1.1.0+spec-1.1.0",
- "tower",
- "tracing",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "uuid",
- "webpki-roots 1.0.6",
-]
-
-[[package]]
 name = "openssl"
 version = "0.10.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6935,31 +6855,12 @@ dependencies = [
 
 [[package]]
 name = "rquickjs"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c5227859c4dfc83f428e58f9569bf439e628c8d139020e7faff437e6f5abaa0"
-dependencies = [
- "rquickjs-core 0.9.0",
-]
-
-[[package]]
-name = "rquickjs"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c50dc6d6c587c339edb4769cf705867497a2baf0eca8b4645fa6ecd22f02c77a"
 dependencies = [
- "rquickjs-core 0.11.0",
+ "rquickjs-core",
  "rquickjs-macro",
-]
-
-[[package]]
-name = "rquickjs-core"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e82e0ca83028ad5b533b53b96c395bbaab905a5774de4aaf1004eeacafa3d85d"
-dependencies = [
- "async-lock",
- "rquickjs-sys 0.9.0",
 ]
 
 [[package]]
@@ -6971,7 +6872,7 @@ dependencies = [
  "async-lock",
  "hashbrown 0.16.1",
  "relative-path",
- "rquickjs-sys 0.11.0",
+ "rquickjs-sys",
 ]
 
 [[package]]
@@ -6987,17 +6888,8 @@ dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
- "rquickjs-core 0.11.0",
+ "rquickjs-core",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "rquickjs-sys"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fed0097b0b4fbb2a87f6dd3b995a7c64ca56de30007eb7e867dfdfc78324ba5"
-dependencies = [
- "cc",
 ]
 
 [[package]]

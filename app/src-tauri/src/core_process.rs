@@ -46,19 +46,32 @@ impl CoreProcessHandle {
 
         match self.run_mode {
             CoreRunMode::InProcess => {
-                let mut guard = self.task.lock().await;
+                log::warn!(
+                    "[core] in-process core mode is unavailable in host-only build; falling back to child process"
+                );
+                let mut guard = self.child.lock().await;
                 if guard.is_none() {
-                    let port = self.port;
-                    log::info!("[core] launching in-process core server on port {}", port);
-                    let task = tokio::spawn(async move {
-                        if let Err(err) = openhuman_core::core_server::run_server(Some(port)).await
-                        {
-                            log::error!("[core] in-process core server exited with error: {err}");
-                        } else {
-                            log::warn!("[core] in-process core server exited");
+                    let mut cmd = if let Some(core_bin) = &self.core_bin {
+                        let mut cmd = Command::new(core_bin);
+                        if is_current_exe_path(core_bin) {
+                            cmd.arg("core");
                         }
-                    });
-                    *guard = Some(task);
+                        cmd.arg("run").arg("--port").arg(self.port.to_string());
+                        cmd
+                    } else {
+                        let exe = std::env::current_exe()
+                            .map_err(|e| format!("failed to resolve current executable: {e}"))?;
+                        let mut cmd = Command::new(exe);
+                        cmd.arg("core")
+                            .arg("run")
+                            .arg("--port")
+                            .arg(self.port.to_string());
+                        cmd
+                    };
+                    let child = cmd
+                        .spawn()
+                        .map_err(|e| format!("failed to spawn core process: {e}"))?;
+                    *guard = Some(child);
                 }
             }
             CoreRunMode::ChildProcess => {

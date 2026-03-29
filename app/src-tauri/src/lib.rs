@@ -20,11 +20,15 @@ mod models;
 mod openhuman_daemon;
 mod runtime;
 mod services;
+mod tray;
 mod utils;
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use commands::chat::ChatState;
 use commands::*;
-use openhuman_core::ai::*;
+use rand::TryRngCore;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -41,6 +45,67 @@ use tauri_plugin_deep_link::DeepLinkExt;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+fn derive_key(password: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    let hash = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hash[..32]);
+    key
+}
+
+#[tauri::command]
+fn ai_init_encryption(password: String) -> Result<bool, String> {
+    if password.is_empty() {
+        return Err("password cannot be empty".to_string());
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+fn ai_encrypt(password: String, plaintext: String) -> Result<String, String> {
+    let key_bytes = derive_key(&password);
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut nonce_bytes)
+        .map_err(|e| format!("failed to generate nonce: {e}"))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .map_err(|e| format!("encryption failed: {e}"))?;
+
+    let mut payload = Vec::with_capacity(12 + ciphertext.len());
+    payload.extend_from_slice(&nonce_bytes);
+    payload.extend_from_slice(&ciphertext);
+    Ok(B64.encode(payload))
+}
+
+#[tauri::command]
+fn ai_decrypt(password: String, encrypted: String) -> Result<String, String> {
+    let payload = B64
+        .decode(encrypted.as_bytes())
+        .map_err(|e| format!("invalid encrypted payload: {e}"))?;
+    if payload.len() < 13 {
+        return Err("invalid encrypted payload length".to_string());
+    }
+
+    let (nonce_bytes, ciphertext) = payload.split_at(12);
+    let key_bytes = derive_key(&password);
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("decryption failed: {e}"))?;
+    String::from_utf8(plaintext).map_err(|e| format!("decrypted value is not UTF-8: {e}"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -515,7 +580,7 @@ pub fn run() {
                     let daemon_host_cfg =
                         tauri::async_runtime::block_on(daemon_host_config::load(app.handle()));
                     if daemon_host_cfg.show_tray {
-                        openhuman_core::setup_tray(app.handle())
+                        crate::tray::setup_tray(app.handle())
                             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
                     } else {
                         log::info!(
@@ -576,7 +641,7 @@ pub fn run() {
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
                             .join(".openhuman")
                     });
-                let daemon_config = openhuman_core::DaemonConfig::from_app_data_dir(&data_dir);
+                let daemon_config = openhuman_daemon::DaemonConfig::from_app_data_dir(&data_dir);
                 let cancel = tokio_util::sync::CancellationToken::new();
                 let daemon_handle = openhuman_daemon::DaemonHandle {
                     cancel: cancel.clone(),
@@ -777,7 +842,7 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => {
                     if !daemon_mode {
-                        openhuman_core::show_main_window(app_handle);
+                        crate::tray::show_main_window(app_handle);
                     }
                 }
 
@@ -803,5 +868,14 @@ pub fn run() {
 }
 
 pub fn run_core_from_args(args: &[String]) -> anyhow::Result<()> {
-    openhuman_core::run_core_from_args(args)
+    let core_bin = crate::core_process::default_core_bin()
+        .ok_or_else(|| anyhow::anyhow!("openhuman core binary not found"))?;
+    let status = std::process::Command::new(core_bin)
+        .args(args)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to execute core binary: {e}"))?;
+    if !status.success() {
+        anyhow::bail!("core binary exited with status {status}");
+    }
+    Ok(())
 }

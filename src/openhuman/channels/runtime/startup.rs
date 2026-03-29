@@ -2,6 +2,7 @@
 
 use super::dispatch::run_message_dispatch_loop;
 use super::supervision::{compute_max_in_flight_messages, spawn_supervised_listener};
+use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::loop_::build_tool_instructions;
 use crate::openhuman::channels::context::{
     effective_channel_message_timeout_secs, ChannelRuntimeContext,
@@ -31,7 +32,6 @@ use crate::openhuman::channels::Channel;
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{self, Provider};
-use crate::openhuman::runtime;
 use crate::openhuman::security::SecurityPolicy;
 use crate::openhuman::tools;
 use anyhow::Result;
@@ -58,8 +58,8 @@ pub async fn start_channels(config: Config) -> Result<()> {
         tracing::warn!("Provider warmup failed (non-fatal): {e}");
     }
 
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
+    let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
+        Arc::from(host_runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,

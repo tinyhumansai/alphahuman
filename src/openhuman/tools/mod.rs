@@ -63,9 +63,9 @@ pub use traits::Tool;
 pub use traits::{ToolResult, ToolSpec};
 pub use web_search_tool::WebSearchTool;
 
+use crate::openhuman::agent::host_runtime::{NativeRuntime, RuntimeAdapter};
 use crate::openhuman::config::{Config, DelegateAgentConfig};
 use crate::openhuman::memory::Memory;
-use crate::openhuman::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::openhuman::security::SecurityPolicy;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -246,6 +246,13 @@ pub fn all_tools_with_runtime(
     }
 
     tools
+}
+
+/// Hardware peripheral tools — always empty (boards removed); config kept for compatibility.
+pub async fn create_peripheral_tools(
+    _config: &crate::openhuman::config::PeripheralsConfig,
+) -> anyhow::Result<Vec<Box<dyn Tool>>> {
+    Ok(Vec::new())
 }
 
 #[cfg(test)]

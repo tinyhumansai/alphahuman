@@ -4,9 +4,26 @@
 //! waits until the app signals shutdown via `CancellationToken`.
 
 use anyhow::Result;
-use openhuman_core::DaemonConfig;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
+
+#[derive(Debug, Clone)]
+pub struct DaemonConfig {
+    pub data_dir: PathBuf,
+    pub workspace_dir: PathBuf,
+}
+
+impl DaemonConfig {
+    pub fn from_app_data_dir(app_data_dir: &Path) -> Self {
+        let data_dir = app_data_dir.join("openhuman");
+        let workspace_dir = data_dir.join("workspace");
+        Self {
+            data_dir,
+            workspace_dir,
+        }
+    }
+}
 
 pub struct DaemonHandle {
     pub cancel: CancellationToken,

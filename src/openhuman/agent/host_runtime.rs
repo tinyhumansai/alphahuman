@@ -1,3 +1,5 @@
+//! Native and Docker shell runtime adapters (`RuntimeAdapter` implementations).
+
 use crate::openhuman::config::RuntimeConfig;
 use std::path::{Path, PathBuf};
 

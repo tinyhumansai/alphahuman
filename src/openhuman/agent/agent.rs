@@ -3,10 +3,10 @@ use super::dispatcher::{
 };
 use super::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use super::prompt::{PromptContext, SystemPromptBuilder};
+use crate::openhuman::agent::host_runtime;
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::{self, Memory, MemoryCategory};
 use crate::openhuman::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::openhuman::runtime;
 use crate::openhuman::security::SecurityPolicy;
 use crate::openhuman::tools::{self, Tool, ToolSpec};
 use crate::openhuman::util::truncate_with_ellipsis;
@@ -208,8 +208,8 @@ impl Agent {
     }
 
     pub fn from_config(config: &Config) -> Result<Self> {
-        let runtime: Arc<dyn runtime::RuntimeAdapter> =
-            Arc::from(runtime::create_runtime(&config.runtime)?);
+        let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
+            Arc::from(host_runtime::create_runtime(&config.runtime)?);
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,

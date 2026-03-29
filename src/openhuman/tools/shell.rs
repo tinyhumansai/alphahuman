@@ -1,5 +1,5 @@
 use super::traits::{Tool, ToolResult};
-use crate::openhuman::runtime::RuntimeAdapter;
+use crate::openhuman::agent::host_runtime::RuntimeAdapter;
 use crate::openhuman::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
@@ -164,7 +164,7 @@ impl Tool for ShellTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openhuman::runtime::{NativeRuntime, RuntimeAdapter};
+    use crate::openhuman::agent::host_runtime::{NativeRuntime, RuntimeAdapter};
     use crate::openhuman::security::{AutonomyLevel, SecurityPolicy};
 
     fn test_security(autonomy: AutonomyLevel) -> Arc<SecurityPolicy> {

@@ -14,12 +14,12 @@ pub struct CoreRpcRelayRequest {
 }
 
 async fn invoke_core_cli_call(method: &str, params: Value) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("failed to resolve current exe: {e}"))?;
+    let core_bin = crate::core_process::default_core_bin()
+        .ok_or_else(|| "openhuman core binary not found".to_string())?;
     let params_json =
         serde_json::to_string(&params).map_err(|e| format!("failed to serialize params: {e}"))?;
 
-    let output = tokio::process::Command::new(exe)
-        .arg("core")
+    let output = tokio::process::Command::new(core_bin)
         .arg("call")
         .arg("--method")
         .arg(method)
