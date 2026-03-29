@@ -45,57 +45,6 @@ fn derive_key(password: &str) -> [u8; 32] {
     key
 }
 
-#[tauri::command]
-fn ai_init_encryption(password: String) -> Result<bool, String> {
-    if password.is_empty() {
-        return Err("password cannot be empty".to_string());
-    }
-    Ok(true)
-}
-
-#[tauri::command]
-fn ai_encrypt(password: String, plaintext: String) -> Result<String, String> {
-    let key_bytes = derive_key(&password);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-
-    let mut nonce_bytes = [0u8; 12];
-    rand::rngs::OsRng
-        .try_fill_bytes(&mut nonce_bytes)
-        .map_err(|e| format!("failed to generate nonce: {e}"))?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| format!("encryption failed: {e}"))?;
-
-    let mut payload = Vec::with_capacity(12 + ciphertext.len());
-    payload.extend_from_slice(&nonce_bytes);
-    payload.extend_from_slice(&ciphertext);
-    Ok(B64.encode(payload))
-}
-
-#[tauri::command]
-fn ai_decrypt(password: String, encrypted: String) -> Result<String, String> {
-    let payload = B64
-        .decode(encrypted.as_bytes())
-        .map_err(|e| format!("invalid encrypted payload: {e}"))?;
-    if payload.len() < 13 {
-        return Err("invalid encrypted payload length".to_string());
-    }
-
-    let (nonce_bytes, ciphertext) = payload.split_at(12);
-    let key_bytes = derive_key(&password);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(nonce_bytes);
-
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|e| format!("decryption failed: {e}"))?;
-    String::from_utf8(plaintext).map_err(|e| format!("decrypted value is not UTF-8: {e}"))
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AIPreview {
@@ -646,10 +595,6 @@ pub fn run() {
                     maximize_window,
                     close_window,
                     set_window_title,
-                    // AI encryption commands
-                    ai_init_encryption,
-                    ai_encrypt,
-                    ai_decrypt,
                     // OpenHuman local host commands (core RPC uses core_rpc_relay)
                     openhuman_get_daemon_host_config,
                     openhuman_set_daemon_host_config,
