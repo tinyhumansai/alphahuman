@@ -1,4 +1,3 @@
-pub mod ai;
 pub mod api;
 pub mod core_server;
 pub mod openhuman;

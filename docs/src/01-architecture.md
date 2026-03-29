@@ -7,7 +7,7 @@ OpenHuman’s desktop UI is a **React 19** app (`app/src/`) that:
 - Uses **Redux Toolkit** with persistence for session-related state
 - Connects to the backend with **REST** (`apiClient`) and **Socket.io** (`socketService`)
 - Calls the **Rust core** process over HTTP via **`coreRpcClient`** / Tauri **`core_rpc_relay`** (JSON-RPC methods implemented in repo root `src/openhuman/`, exposed through `core_server`)
-- Loads **AI prompts** from bundled `src/ai/prompts` (repo root) and from Tauri **`ai_get_config`** when packaged
+- Loads **AI prompts** from bundled `src/openhuman/agent/prompts` (repo root) and from Tauri **`ai_get_config`** when packaged
 - Uses a **minimal MCP-style** helper layer under `lib/mcp/` (transport, validation) — not a large in-repo Telegram MCP tool bundle
 
 ## Entry points

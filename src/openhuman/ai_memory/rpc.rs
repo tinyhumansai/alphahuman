@@ -23,7 +23,7 @@ pub async fn try_dispatch(
 
                 let payload: ListMemoryFilesParams = parse_params(params)?;
                 let relative_dir = payload.relative_dir.unwrap_or_else(|| "memory".to_string());
-                to_json(crate::ai::sessions::ai_list_memory_files(relative_dir).await?)
+                to_json(crate::openhuman::ai_memory::sessions::ai_list_memory_files(relative_dir).await?)
             }
             .await,
         ),
@@ -36,7 +36,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: ReadMemoryFileParams = parse_params(params)?;
-                to_json(crate::ai::sessions::ai_read_memory_file(payload.relative_path).await?)
+                to_json(crate::openhuman::ai_memory::sessions::ai_read_memory_file(payload.relative_path).await?)
             }
             .await,
         ),
@@ -51,7 +51,7 @@ pub async fn try_dispatch(
 
                 let payload: WriteMemoryFileParams = parse_params(params)?;
                 to_json(
-                    crate::ai::sessions::ai_write_memory_file(
+                    crate::openhuman::ai_memory::sessions::ai_write_memory_file(
                         payload.relative_path,
                         payload.content,
                     )
@@ -61,7 +61,7 @@ pub async fn try_dispatch(
             .await,
         ),
 
-        "ai.memory_init" => Some(async move { to_json(crate::ai::ai_memory_init().await?) }.await),
+        "ai.memory_init" => Some(async move { to_json(crate::openhuman::ai_memory::ai_memory_init().await?) }.await),
 
         "ai.memory_get_file" => Some(
             async move {
@@ -71,7 +71,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryGetFileParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_get_file(payload.path).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_get_file(payload.path).await?)
             }
             .await,
         ),
@@ -84,7 +84,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryDeleteChunksByPathParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_delete_chunks_by_path(payload.path).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_delete_chunks_by_path(payload.path).await?)
             }
             .await,
         ),
@@ -93,11 +93,11 @@ pub async fn try_dispatch(
             async move {
                 #[derive(Debug, Deserialize)]
                 struct MemoryUpsertChunkParams {
-                    chunk: crate::ai::ChunkRecord,
+                    chunk: crate::openhuman::ai_memory::ChunkRecord,
                 }
 
                 let payload: MemoryUpsertChunkParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_upsert_chunk(payload.chunk).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_upsert_chunk(payload.chunk).await?)
             }
             .await,
         ),
@@ -106,11 +106,11 @@ pub async fn try_dispatch(
             async move {
                 #[derive(Debug, Deserialize)]
                 struct MemoryUpsertFileParams {
-                    file: crate::ai::FileRecord,
+                    file: crate::openhuman::ai_memory::FileRecord,
                 }
 
                 let payload: MemoryUpsertFileParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_upsert_file(payload.file).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_upsert_file(payload.file).await?)
             }
             .await,
         ),
@@ -124,7 +124,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemorySetMetaParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_set_meta(payload.key, payload.value).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_set_meta(payload.key, payload.value).await?)
             }
             .await,
         ),
@@ -137,7 +137,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryGetMetaParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_get_meta(payload.key).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_get_meta(payload.key).await?)
             }
             .await,
         ),
@@ -151,13 +151,13 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryFtsSearchParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_fts_search(payload.query, payload.limit).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_fts_search(payload.query, payload.limit).await?)
             }
             .await,
         ),
 
         "ai.memory_get_all_embeddings" => {
-            Some(async move { to_json(crate::ai::ai_memory_get_all_embeddings().await?) }.await)
+            Some(async move { to_json(crate::openhuman::ai_memory::ai_memory_get_all_embeddings().await?) }.await)
         }
 
         "ai.memory_get_chunks" => Some(
@@ -168,7 +168,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: MemoryGetChunksParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_get_chunks(payload.path).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_get_chunks(payload.path).await?)
             }
             .await,
         ),
@@ -177,11 +177,11 @@ pub async fn try_dispatch(
             async move {
                 #[derive(Debug, Deserialize)]
                 struct MemoryCacheEmbeddingParams {
-                    entry: crate::ai::EmbeddingCacheEntry,
+                    entry: crate::openhuman::ai_memory::EmbeddingCacheEntry,
                 }
 
                 let payload: MemoryCacheEmbeddingParams = parse_params(params)?;
-                to_json(crate::ai::ai_memory_cache_embedding(payload.entry).await?)
+                to_json(crate::openhuman::ai_memory::ai_memory_cache_embedding(payload.entry).await?)
             }
             .await,
         ),
@@ -197,7 +197,7 @@ pub async fn try_dispatch(
 
                 let payload: MemoryGetCachedEmbeddingParams = parse_params(params)?;
                 to_json(
-                    crate::ai::ai_memory_get_cached_embedding(
+                    crate::openhuman::ai_memory::ai_memory_get_cached_embedding(
                         payload.provider,
                         payload.model,
                         payload.hash,
@@ -209,11 +209,11 @@ pub async fn try_dispatch(
         ),
 
         "ai.sessions_init" => {
-            Some(async move { to_json(crate::ai::sessions::ai_sessions_init().await?) }.await)
+            Some(async move { to_json(crate::openhuman::ai_memory::sessions::ai_sessions_init().await?) }.await)
         }
 
         "ai.sessions_load_index" => {
-            Some(async move { to_json(crate::ai::sessions::ai_sessions_load_index().await?) }.await)
+            Some(async move { to_json(crate::openhuman::ai_memory::sessions::ai_sessions_load_index().await?) }.await)
         }
 
         "ai.sessions_update_index" => Some(
@@ -221,12 +221,12 @@ pub async fn try_dispatch(
                 #[derive(Debug, Deserialize)]
                 struct UpdateSessionIndexParams {
                     session_id: String,
-                    entry: crate::ai::sessions::SessionIndexEntry,
+                    entry: crate::openhuman::ai_memory::sessions::SessionIndexEntry,
                 }
 
                 let payload: UpdateSessionIndexParams = parse_params(params)?;
                 to_json(
-                    crate::ai::sessions::ai_sessions_update_index(
+                    crate::openhuman::ai_memory::sessions::ai_sessions_update_index(
                         payload.session_id,
                         payload.entry,
                     )
@@ -246,7 +246,7 @@ pub async fn try_dispatch(
 
                 let payload: AppendTranscriptParams = parse_params(params)?;
                 to_json(
-                    crate::ai::sessions::ai_sessions_append_transcript(
+                    crate::openhuman::ai_memory::sessions::ai_sessions_append_transcript(
                         payload.session_id,
                         payload.line,
                     )
@@ -264,7 +264,7 @@ pub async fn try_dispatch(
                 }
 
                 let payload: ReadTranscriptParams = parse_params(params)?;
-                to_json(crate::ai::sessions::ai_sessions_read_transcript(payload.session_id).await?)
+                to_json(crate::openhuman::ai_memory::sessions::ai_sessions_read_transcript(payload.session_id).await?)
             }
             .await,
         ),
@@ -277,13 +277,13 @@ pub async fn try_dispatch(
                 }
 
                 let payload: DeleteSessionParams = parse_params(params)?;
-                to_json(crate::ai::sessions::ai_sessions_delete(payload.session_id).await?)
+                to_json(crate::openhuman::ai_memory::sessions::ai_sessions_delete(payload.session_id).await?)
             }
             .await,
         ),
 
         "ai.sessions_list" => {
-            Some(async move { to_json(crate::ai::sessions::ai_sessions_list().await?) }.await)
+            Some(async move { to_json(crate::openhuman::ai_memory::sessions::ai_sessions_list().await?) }.await)
         }
 
         _ => None,

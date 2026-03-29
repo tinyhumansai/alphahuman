@@ -18,8 +18,13 @@ pub async fn dispatch(
         log::debug!("[rpc:dispatch] routed method={} subsystem=core", method);
         return result.map(crate::core_server::types::invocation_to_rpc_json);
     }
-    if let Some(result) = crate::ai::rpc::try_dispatch(method, params.clone()).await {
-        log::debug!("[rpc:dispatch] routed method={} subsystem=ai", method);
+    if let Some(result) =
+        crate::openhuman::ai_memory::rpc::try_dispatch(method, params.clone()).await
+    {
+        log::debug!(
+            "[rpc:dispatch] routed method={} subsystem=ai_memory",
+            method
+        );
         return result;
     }
     if let Some(result) = crate::rpc::try_dispatch(method, params).await {

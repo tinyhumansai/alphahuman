@@ -39,7 +39,7 @@ React (invoke)
 
 ## Bundled resources
 
-`tauri.conf.json` bundles **`../../skills/skills`** and **`../../src/ai/prompts`** so skills and prompt markdown ship with the app.
+`tauri.conf.json` bundles **`../../skills/skills`** and **`../../src/openhuman/agent/prompts`** so skills and prompt markdown ship with the app.
 
 ## Related
 

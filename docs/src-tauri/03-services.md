@@ -25,7 +25,7 @@ This document replaces the old “SessionService / SocketService” split. The T
 
 ## `utils/dev_paths.rs`
 
-- Resolves **`src/ai/prompts`** for development and bundled resource paths for AI preview.
+- Resolves **`src/openhuman/agent/prompts`** for development and bundled resource paths for AI preview.
 
 ## `utils/tauriSocket.ts` (frontend)
 

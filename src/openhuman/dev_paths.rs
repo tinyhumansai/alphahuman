@@ -5,9 +5,14 @@ use std::path::{Path, PathBuf};
 /// OpenClaw markdown directory inside a bundled resource dir.
 pub fn bundled_openclaw_prompts_dir(resource_dir: &Path) -> Option<PathBuf> {
     let candidates = [
+        resource_dir.join("openhuman").join("agent").join("prompts"),
         resource_dir.join("prompts"),
         resource_dir.join("ai"),
-        resource_dir.join("src").join("ai").join("prompts"),
+        resource_dir
+            .join("src")
+            .join("openhuman")
+            .join("agent")
+            .join("prompts"),
     ];
     for p in candidates {
         if p.is_dir() {
@@ -17,7 +22,7 @@ pub fn bundled_openclaw_prompts_dir(resource_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Locate `src/ai/prompts` by walking up from `cwd`.
+/// Locate `src/openhuman/agent/prompts` by walking up from `cwd`.
 pub fn repo_ai_prompts_dir(cwd: &Path) -> Option<PathBuf> {
     for up in 0..=8 {
         let mut base = cwd.to_path_buf();
@@ -31,7 +36,11 @@ pub fn repo_ai_prompts_dir(cwd: &Path) -> Option<PathBuf> {
         if !ok {
             continue;
         }
-        let candidate = base.join("src").join("ai").join("prompts");
+        let candidate = base
+            .join("src")
+            .join("openhuman")
+            .join("agent")
+            .join("prompts");
         if candidate.is_dir() {
             return Some(candidate);
         }

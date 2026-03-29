@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::encryption::get_data_dir;
+use crate::openhuman::encryption::get_data_dir;
 
 /// Session entry in the index file.
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -8,16 +8,16 @@ use crate::openhuman::skills::init_skills_dir;
 use std::path::Path;
 
 const BOOTSTRAP_FILES: [(&str, &str); 7] = [
-    ("AGENTS.md", include_str!("../../ai/prompts/AGENTS.md")),
-    ("SOUL.md", include_str!("../../ai/prompts/SOUL.md")),
-    ("TOOLS.md", include_str!("../../ai/prompts/TOOLS.md")),
-    ("IDENTITY.md", include_str!("../../ai/prompts/IDENTITY.md")),
-    ("USER.md", include_str!("../../ai/prompts/USER.md")),
+    ("AGENTS.md", include_str!("../agent/prompts/AGENTS.md")),
+    ("SOUL.md", include_str!("../agent/prompts/SOUL.md")),
+    ("TOOLS.md", include_str!("../agent/prompts/TOOLS.md")),
+    ("IDENTITY.md", include_str!("../agent/prompts/IDENTITY.md")),
+    ("USER.md", include_str!("../agent/prompts/USER.md")),
     (
         "BOOTSTRAP.md",
-        include_str!("../../ai/prompts/BOOTSTRAP.md"),
+        include_str!("../agent/prompts/BOOTSTRAP.md"),
     ),
-    ("MEMORY.md", include_str!("../../ai/prompts/MEMORY.md")),
+    ("MEMORY.md", include_str!("../agent/prompts/MEMORY.md")),
 ];
 
 fn ensure_workspace_file(

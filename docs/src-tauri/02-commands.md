@@ -12,9 +12,9 @@ All commands are registered in **`app/src-tauri/src/lib.rs`** inside `tauri::gen
 
 | Command                | Purpose                                                                                      |
 | ---------------------- | -------------------------------------------------------------------------------------------- |
-| `ai_get_config`        | Build `AIPreview` from resolved `SOUL.md` / `TOOLS.md` under bundled or dev `src/ai/prompts` |
+| `ai_get_config`        | Build `AIPreview` from resolved `SOUL.md` / `TOOLS.md` under bundled or dev `src/openhuman/agent/prompts` |
 | `ai_refresh_config`    | Same read path as `ai_get_config` (refresh hook)                                             |
-| `write_ai_config_file` | Write a single `.md` under repo `src/ai/prompts` (dev / safe filename checks)                |
+| `write_ai_config_file` | Write a single `.md` under repo `src/openhuman/agent/prompts` (dev / safe filename checks)                |
 
 ## Core JSON-RPC relay
 

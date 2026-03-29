@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::encryption::get_data_dir;
+use crate::openhuman::encryption::get_data_dir;
 
 /// Lazy-initialized index directory state.
 static INDEX_INIT: once_cell::sync::OnceCell<Mutex<()>> = once_cell::sync::OnceCell::new();
