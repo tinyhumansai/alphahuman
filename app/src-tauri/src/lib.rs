@@ -1,12 +1,8 @@
 //! OpenHuman Desktop Application
 //!
 //! This is the Rust backend for the cross-platform crypto community platform.
-//! It provides:
-//! - System tray with background execution
-//! - Deep link authentication
-//! - Persistent Socket.io connection
-//! - Secure session storage
-//! - Native notifications
+//! It provides deep link handling, core process RPC relay, window management,
+//! and AI configuration helpers.
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supported.");
@@ -14,19 +10,11 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 mod commands;
 mod core_process;
 mod core_rpc;
-mod daemon_host_config;
-pub mod memory;
-mod models;
-mod openhuman_daemon;
-mod runtime;
-mod services;
-mod tray;
 mod utils;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use commands::chat::ChatState;
 use commands::*;
 use rand::TryRngCore;
 use serde::Serialize;
@@ -331,7 +319,6 @@ async fn ai_get_config(app: tauri::AppHandle) -> Result<AIPreview, String> {
 
 #[tauri::command]
 async fn ai_refresh_config(app: tauri::AppHandle) -> Result<AIPreview, String> {
-    commands::chat::clear_openclaw_context_cache();
     Ok(build_ai_preview(&app))
 }
 
@@ -364,20 +351,12 @@ async fn write_ai_config_file(filename: String, content: String) -> Result<bool,
     // Write the file
     std::fs::write(&file_path, content)
         .map_err(|e| format!("Failed to write file {}: {e}", filename))?;
-    commands::chat::clear_openclaw_context_cache();
 
     Ok(true)
 }
 
 fn is_daemon_mode() -> bool {
     std::env::args().any(|arg| arg == "daemon" || arg == "--daemon")
-}
-
-fn daemon_foreground_requested() -> bool {
-    matches!(
-        std::env::var("OPENHUMAN_DAEMON_FOREGROUND").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
 }
 
 /// Watch daemon health file and bridge changes to frontend Tauri events
@@ -573,23 +552,6 @@ pub fn run() {
                 app.deep_link().register_all()?;
             }
 
-            // Setup system tray (desktop only)
-            #[cfg(desktop)]
-            {
-                if daemon_mode {
-                    let daemon_host_cfg =
-                        tauri::async_runtime::block_on(daemon_host_config::load(app.handle()));
-                    if daemon_host_cfg.show_tray {
-                        crate::tray::setup_tray(app.handle())
-                            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-                    } else {
-                        log::info!(
-                            "[app] Daemon host tray disabled by local config (show_tray=false)"
-                        );
-                    }
-                }
-            }
-
             // macOS-specific: Handle window close event to minimize to tray
             #[cfg(target_os = "macos")]
             {
@@ -607,14 +569,7 @@ pub fn run() {
                 }
             }
 
-
-            // Create the SocketManager (persistent Rust-native Socket.io)
-            let socket_mgr = std::sync::Arc::new(
-                runtime::socket_manager::SocketManager::new(),
-            );
-            socket_mgr.set_app_handle(app.handle().clone());
-
-            // QuickJS / in-process skill engine (optional). Default build uses core RPC only.
+            // Bridge external daemon health file and ensure core background service.
             {
                 let data_dir = app
                     .path()
@@ -624,79 +579,21 @@ pub fn run() {
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
                             .join(".openhuman")
                     });
-                let skills_data_dir = data_dir.join("skills");
-
-                if let Err(e) = runtime::qjs_engine::RuntimeEngine::new(skills_data_dir) {
-                    log::info!("[runtime] In-process skill engine not active: {e}");
-                }
-            }
-
-            // Start the openhuman daemon supervisor
-            {
-                let data_dir = app
-                    .path()
-                    .app_data_dir()
-                    .unwrap_or_else(|_| {
-                        dirs::home_dir()
-                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join(".openhuman")
-                    });
-                let daemon_config = openhuman_daemon::DaemonConfig::from_app_data_dir(&data_dir);
-                let cancel = tokio_util::sync::CancellationToken::new();
-                let daemon_handle = openhuman_daemon::DaemonHandle {
-                    cancel: cancel.clone(),
-                };
-                app.manage(daemon_handle);
-
-                // Determine daemon mode: internal supervisor vs external platform service
-                let use_internal_daemon = daemon_mode
-                    || daemon_foreground_requested()
-                    || std::env::var("OPENHUMAN_DAEMON_INTERNAL").unwrap_or("false".to_string()) == "true";  // Cross-platform override via env var
-
-                if use_internal_daemon {
-                    // Run internal daemon supervisor with health event emission
-                    // This path is taken when:
-                    // - Daemon mode enabled, OR
-                    // - Foreground daemon requested, OR
-                    // - OPENHUMAN_DAEMON_INTERNAL=true env var (any platform)
-                    log::info!(
-                        "[openhuman] Using internal daemon supervisor (daemon mode / foreground / OPENHUMAN_DAEMON_INTERNAL=true)"
-                    );
-                    let app_handle_for_daemon = app.handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        log::info!("[openhuman] Starting daemon supervisor with health monitoring");
-                        if let Err(e) =
-                            openhuman_daemon::run(daemon_config, app_handle_for_daemon, cancel)
-                                .await
-                        {
-                            log::error!("[openhuman] Daemon supervisor error: {e}");
+                let app_handle_for_watcher = app.handle().clone();
+                let data_dir_clone = data_dir.clone();
+                tauri::async_runtime::spawn(async move {
+                    watch_daemon_health_file(app_handle_for_watcher, data_dir_clone).await;
+                });
+                tauri::async_runtime::spawn(async move {
+                    match commands::core_relay::ensure_service_managed_core_running().await {
+                        Ok(()) => {
+                            log::info!("[openhuman] Core background service ensured via core RPC");
                         }
-                    });
-                } else {
-                    // Start external platform-specific service for background daemon
-                    // This path is taken on all platforms when OPENHUMAN_DAEMON_INTERNAL=false/unset
-                    // and not in daemon mode, foreground mode, or debug build
-                    log::info!("[openhuman] Using external daemon service (OPENHUMAN_DAEMON_INTERNAL=false/unset)");
-
-                    // Setup file watching to bridge external daemon health events to frontend
-                    let app_handle_for_watcher = app.handle().clone();
-                    let data_dir_clone = data_dir.clone();
-                    tauri::async_runtime::spawn(async move {
-                        watch_daemon_health_file(app_handle_for_watcher, data_dir_clone).await;
-                    });
-
-                    // Start the external platform service
-                    tauri::async_runtime::spawn(async move {
-                        match commands::core_relay::ensure_service_managed_core_running().await {
-                            Ok(()) => {
-                                log::info!("[openhuman] External daemon service ensured via core RPC");
-                            }
-                            Err(e) => {
-                                log::error!("[openhuman] Failed to ensure external daemon service: {e}");
-                            }
+                        Err(e) => {
+                            log::error!("[openhuman] Failed to ensure core background service: {e}");
                         }
-                    });
-                }
+                    }
+                });
             }
 
             // Start/ensure standalone core process for business logic RPC.
@@ -730,29 +627,6 @@ pub fn run() {
                 }
             }
 
-            // Initialize local memory state at startup (token-independent).
-            let memory_client = crate::memory::MemoryClient::new_local()
-                .map(std::sync::Arc::new)
-                .ok();
-            app.manage(crate::memory::MemoryState(std::sync::Mutex::new(
-                memory_client,
-            )));
-            log::info!("[memory] Local memory state registered");
-
-            // Spawn conscious loop periodic timer
-            let app_for_conscious = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                commands::conscious_loop::conscious_loop_timer(app_for_conscious).await;
-            });
-
-            // Initialize ChatState for managing in-flight conversation requests
-            let chat_state = std::sync::Arc::new(ChatState::new());
-            app.manage(chat_state);
-            log::info!("[chat] ChatState registered");
-
-            // Store SocketManager as Tauri state
-            app.manage(socket_mgr.clone());
-
             Ok(())
         })
         // Register all commands (desktop build lists handlers explicitly below).
@@ -778,39 +652,6 @@ pub fn run() {
                     ai_init_encryption,
                     ai_encrypt,
                     ai_decrypt,
-                    // Runtime commands
-                    runtime_discover_skills,
-                    runtime_list_skills,
-                    runtime_start_skill,
-                    runtime_stop_skill,
-                    runtime_get_skill_state,
-                    runtime_call_tool,
-                    runtime_all_tools,
-                    runtime_get_tool_schemas,
-                    runtime_execute_tool,
-                    runtime_broadcast_event,
-                    // Runtime enable/disable + KV commands
-                    runtime_enable_skill,
-                    runtime_disable_skill,
-                    runtime_is_skill_enabled,
-                    runtime_get_skill_preferences,
-                    runtime_skill_kv_get,
-                    runtime_skill_kv_set,
-                    // Runtime JSON-RPC + data commands
-                    runtime_rpc,
-                    runtime_skill_data_read,
-                    runtime_skill_data_write,
-                    runtime_skill_data_dir,
-                    runtime_skill_data_stats,
-                    // Socket.io commands (Rust-native persistent connection)
-                    runtime_socket_connect,
-                    runtime_socket_disconnect,
-                    runtime_socket_state,
-                    runtime_socket_emit,
-                    // Telegram commands removed (unified system eliminated as per user request)
-                    // Model commands (backend API proxy)
-                    model_summarize,
-                    model_generate,
                     // OpenHuman local host commands (core RPC uses core_rpc_relay)
                     openhuman_get_daemon_host_config,
                     openhuman_set_daemon_host_config,
@@ -819,12 +660,6 @@ pub fn run() {
                     openhuman_service_stop,
                     openhuman_service_status,
                     openhuman_service_uninstall,
-                    // Neocortex memory: use callCoreRpc / memory.* on openhuman-core (see coreRpcClient)
-                    // Chat commands (agentic conversation loop)
-                    chat_send,
-                    chat_cancel,
-                    // Conscious loop (periodic background intelligence)
-                    conscious_loop_run,
                 ]
             }
         })
@@ -842,20 +677,17 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => {
                     if !daemon_mode {
-                        crate::tray::show_main_window(app_handle);
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
                     }
                 }
 
                 // Gracefully shut down background services before process exit.
                 RunEvent::Exit => {
                     log::info!("[app] Exit event received, shutting down");
-
-                    // Cancel the openhuman daemon supervisor
-                    if let Some(daemon) = app_handle.try_state::<openhuman_daemon::DaemonHandle>()
-                    {
-                        daemon.cancel.cancel();
-                        log::info!("[openhuman] Daemon shutdown signalled");
-                    }
 
                     let _ = app_handle;
                 }
