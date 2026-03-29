@@ -7,28 +7,31 @@
  *
  * Usage: node scripts/tools-generator/discover-tools.js
  */
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-import { generateOpenClawMarkdown } from './openClaw-formatter.js';
+import { generateOpenClawMarkdown } from "./openClaw-formatter.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '../..');
-const AI_DIR = join(PROJECT_ROOT, 'src-tauri', 'ai');
-const TOOLS_OUTPUT = join(AI_DIR, 'TOOLS.md');
+const PROJECT_ROOT = join(__dirname, "../..");
+const AI_DIR = join(PROJECT_ROOT, "rust-core", "ai");
+const TOOLS_OUTPUT = join(AI_DIR, "TOOLS.md");
 
 // Environment categories for OpenClaw compatibility
 const ENVIRONMENTS = {
   development: {
-    name: 'Development',
-    description: 'Local development environment with full access',
+    name: "Development",
+    description: "Local development environment with full access",
   },
   production: {
-    name: 'Production',
-    description: 'Production environment with security restrictions',
+    name: "Production",
+    description: "Production environment with security restrictions",
   },
-  testing: { name: 'Testing', description: 'Testing environment for automated validation' },
+  testing: {
+    name: "Testing",
+    description: "Testing environment for automated validation",
+  },
 };
 
 /**
@@ -36,10 +39,10 @@ const ENVIRONMENTS = {
  * @returns {Promise<Array>} Array of discovered tools with skill metadata
  */
 async function discoverTools() {
-  console.log('🔍 Discovering tools from mock registry...');
+  console.log("🔍 Discovering tools from mock registry...");
   const mockTools = generateMockToolsForDevelopment();
   console.log(
-    `✅ Using mock data: ${mockTools.length} tools from ${new Set(mockTools.map(t => t.skillId)).size} skills`
+    `✅ Using mock data: ${mockTools.length} tools from ${new Set(mockTools.map((t) => t.skillId)).size} skills`,
   );
   return mockTools;
 }
@@ -51,65 +54,80 @@ async function discoverTools() {
 function generateMockToolsForDevelopment() {
   return [
     {
-      skillId: 'telegram',
-      name: 'send_message',
-      description: 'Send a message to a Telegram chat or user',
+      skillId: "telegram",
+      name: "send_message",
+      description: "Send a message to a Telegram chat or user",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
-          chat_id: { type: 'string', description: 'Telegram chat ID or username' },
-          message: { type: 'string', description: 'Message text to send' },
+          chat_id: {
+            type: "string",
+            description: "Telegram chat ID or username",
+          },
+          message: { type: "string", description: "Message text to send" },
           parse_mode: {
-            type: 'string',
-            enum: ['HTML', 'Markdown'],
-            description: 'Message formatting mode',
+            type: "string",
+            enum: ["HTML", "Markdown"],
+            description: "Message formatting mode",
           },
         },
-        required: ['chat_id', 'message'],
+        required: ["chat_id", "message"],
       },
     },
     {
-      skillId: 'telegram',
-      name: 'get_chat_history',
-      description: 'Retrieve message history from a Telegram chat',
+      skillId: "telegram",
+      name: "get_chat_history",
+      description: "Retrieve message history from a Telegram chat",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
-          chat_id: { type: 'string', description: 'Telegram chat ID or username' },
-          limit: { type: 'number', description: 'Number of messages to retrieve (max 100)' },
-          offset: { type: 'number', description: 'Offset for pagination' },
+          chat_id: {
+            type: "string",
+            description: "Telegram chat ID or username",
+          },
+          limit: {
+            type: "number",
+            description: "Number of messages to retrieve (max 100)",
+          },
+          offset: { type: "number", description: "Offset for pagination" },
         },
-        required: ['chat_id'],
+        required: ["chat_id"],
       },
     },
     {
-      skillId: 'notion',
-      name: 'create_page',
-      description: 'Create a new page in Notion workspace',
+      skillId: "notion",
+      name: "create_page",
+      description: "Create a new page in Notion workspace",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
-          parent_id: { type: 'string', description: 'Parent database or page ID' },
-          title: { type: 'string', description: 'Page title' },
-          content: { type: 'array', description: 'Page content blocks' },
-          properties: { type: 'object', description: 'Page properties for database pages' },
+          parent_id: {
+            type: "string",
+            description: "Parent database or page ID",
+          },
+          title: { type: "string", description: "Page title" },
+          content: { type: "array", description: "Page content blocks" },
+          properties: {
+            type: "object",
+            description: "Page properties for database pages",
+          },
         },
-        required: ['parent_id', 'title'],
+        required: ["parent_id", "title"],
       },
     },
     {
-      skillId: 'gmail',
-      name: 'send_email',
-      description: 'Send an email via Gmail',
+      skillId: "gmail",
+      name: "send_email",
+      description: "Send an email via Gmail",
       inputSchema: {
-        type: 'object',
+        type: "object",
         properties: {
-          to: { type: 'string', description: 'Recipient email address' },
-          subject: { type: 'string', description: 'Email subject line' },
-          body: { type: 'string', description: 'Email body content' },
-          attachments: { type: 'array', description: 'File attachments' },
+          to: { type: "string", description: "Recipient email address" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body content" },
+          attachments: { type: "array", description: "File attachments" },
         },
-        required: ['to', 'subject', 'body'],
+        required: ["to", "subject", "body"],
       },
     },
   ];
@@ -122,14 +140,14 @@ function generateMockToolsForDevelopment() {
  */
 async function main() {
   try {
-    console.log('🚀 Starting OpenHuman tools discovery...');
+    console.log("🚀 Starting OpenHuman tools discovery...");
 
     // Discover all available tools
     const tools = await discoverTools();
 
     if (tools.length === 0) {
       console.warn(
-        '⚠️  No tools discovered. This might indicate an issue with the skills runtime.'
+        "⚠️  No tools discovered. This might indicate an issue with the skills runtime.",
       );
     }
 
@@ -140,19 +158,19 @@ async function main() {
     }
 
     // Generate OpenClaw-compliant markdown
-    console.log('📝 Generating OpenClaw-compliant TOOLS.md content...');
+    console.log("📝 Generating OpenClaw-compliant TOOLS.md content...");
     const markdownContent = generateOpenClawMarkdown(tools);
 
     // Write to output file
     console.log(`💾 Writing TOOLS.md to: ${TOOLS_OUTPUT}`);
-    writeFileSync(TOOLS_OUTPUT, markdownContent, 'utf8');
+    writeFileSync(TOOLS_OUTPUT, markdownContent, "utf8");
 
-    console.log('✅ TOOLS.md generated successfully!');
+    console.log("✅ TOOLS.md generated successfully!");
     console.log(
-      `📊 Generated documentation for ${tools.length} tools across ${new Set(tools.map(t => t.skillId)).size} skills`
+      `📊 Generated documentation for ${tools.length} tools across ${new Set(tools.map((t) => t.skillId)).size} skills`,
     );
   } catch (error) {
-    console.error('❌ Error generating TOOLS.md:', error.message);
+    console.error("❌ Error generating TOOLS.md:", error.message);
     process.exit(1);
   }
 }

@@ -79,9 +79,9 @@ jobs:
             throw new Error(`Invalid release_type: ${releaseType}`);
           }
 
-          const packagePath = 'package.json';
-          const tauriPath = 'src-tauri/tauri.conf.json';
-          const cargoPath = 'src-tauri/Cargo.toml';
+          const packagePath = 'app/package.json';
+          const tauriPath = 'app/src-tauri/tauri.conf.json';
+          const cargoPath = 'app/src-tauri/Cargo.toml';
 
           const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
           const match = String(pkg.version || '').match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -119,7 +119,7 @@ jobs:
             `$1${nextVersion}$3`,
           );
           if (updatedCargo === cargo) {
-            throw new Error('Failed to update [package].version in src-tauri/Cargo.toml');
+            throw new Error('Failed to update [package].version in app/src-tauri/Cargo.toml');
           }
           fs.writeFileSync(cargoPath, updatedCargo);
 
@@ -147,7 +147,7 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
-          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git add app/package.json app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml
           git commit -m "chore(release): v${VERSION}"
           git push origin main
 
@@ -244,8 +244,8 @@ jobs:
           node-version: 24.x
           cache: yarn
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
           targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
@@ -260,7 +260,7 @@ jobs:
         id: cargo-lock-fingerprint
         shell: bash
         run: |
-          echo "hash=$(tail -n +8 src-tauri/Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo registry and git sources
         uses: actions/cache@v4
@@ -287,7 +287,7 @@ jobs:
         env:
           BASE_URL: ${{ vars.BASE_URL }}
           UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY }}
-          WITH_UPDATER: 'true'
+          WITH_UPDATER: "true"
         with:
           script: |
             const workspacePath = process.env.GITHUB_WORKSPACE.replace(/\\/g, '/');
@@ -313,12 +313,14 @@ jobs:
             CORE_DIR="openhuman_core"
           elif [ -f "rust-core/Cargo.toml" ]; then
             CORE_DIR="rust-core"
+          elif [ -f "Cargo.toml" ] && grep -q '^name = "openhuman"' Cargo.toml; then
+            CORE_DIR="."
           else
-            echo "No core Cargo manifest found (expected openhuman_core/Cargo.toml or rust-core/Cargo.toml)"
+            echo "No core Cargo manifest found (expected root Cargo.toml with openhuman, openhuman_core/Cargo.toml, or rust-core/Cargo.toml)"
             exit 1
           fi
 
-          SIDE_CAR_BASE="$(node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));const b=(c.bundle&&Array.isArray(c.bundle.externalBin)&&c.bundle.externalBin[0])||'binaries/openhuman';process.stdout.write(String(b).split('/').pop());")"
+          SIDE_CAR_BASE="$(node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('app/src-tauri/tauri.conf.json','utf8'));const b=(c.bundle&&Array.isArray(c.bundle.externalBin)&&c.bundle.externalBin[0])||'binaries/openhuman';process.stdout.write(String(b).split('/').pop());")"
           CORE_BIN_NAME="${SIDE_CAR_BASE}"
 
           echo "core_dir=$CORE_DIR" >> "$GITHUB_OUTPUT"
@@ -346,9 +348,9 @@ jobs:
       - name: Stage sidecar for Tauri bundler
         shell: bash
         run: |
-          mkdir -p src-tauri/binaries
+          mkdir -p app/src-tauri/binaries
           SOURCE="$CORE_TARGET_DIR/$CORE_BIN_NAME"
-          DEST="src-tauri/binaries/$SIDECAR_BASE-$MATRIX_TARGET"
+          DEST="app/src-tauri/binaries/$SIDECAR_BASE-$MATRIX_TARGET"
           cp "$SOURCE" "$DEST"
           chmod +x "$DEST"
         env:
@@ -370,9 +372,10 @@ jobs:
           BASE_URL: ${{ vars.BASE_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
-          WITH_UPDATER: 'true'
+          WITH_UPDATER: "true"
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
         with:
+          projectPath: app
           # Tools discovery now uses a JS mock registry (no Rust discovery
           # binary target), so there is no extra helper executable for Tauri
           # to copy/sign inside release app bundles.
@@ -391,7 +394,7 @@ jobs:
         if: matrix.settings.platform == 'macos-latest'
         shell: bash
         run: |
-          APP_PATH="src-tauri/target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
+          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
           echo "Inspecting bundle at: $APP_PATH"
           ls -la "$APP_PATH/Contents/MacOS"
           ls -la "$APP_PATH/Contents/Resources" | grep openhuman || true

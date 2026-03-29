@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT/app"
 
 run() {
   "$ROOT/scripts/e2e-run-spec.sh" "$1" "$2"

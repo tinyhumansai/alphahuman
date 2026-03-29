@@ -137,7 +137,7 @@ if [[ "${1:-}" == "--manual" ]]; then
 
     echo ""
     echo "=== Build complete ==="
-    echo "Check src-tauri/target/aarch64-apple-darwin/release/bundle/ for output"
+    echo "Check target/aarch64-apple-darwin/release/bundle/ (repo root) for output"
     exit 0
 fi
 

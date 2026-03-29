@@ -26,7 +26,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Cache node modules
         id: yarn-cache
@@ -64,8 +64,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
           targets: x86_64-unknown-linux-gnu
 
@@ -91,11 +91,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-test-cargo-
 
-      - name: Test rust-core (openhuman-core)
-        run: cargo test -p openhuman-core
+      - name: Test rust-core (openhuman)
+        run: cargo test -p openhuman
 
       - name: Test src-tauri (OpenHuman)
-        run: cargo test -p OpenHuman
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml
 
   e2e-macos:
     name: E2E (macOS / Appium)
@@ -112,10 +112,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: 'yarn'
+          cache: "yarn"
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.93.0
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -124,7 +124,7 @@ jobs:
         run: cd skills && yarn install --frozen-lockfile
 
       - name: Ensure .env exists for E2E build
-        run: touch .env
+        run: touch app/.env
 
       - name: Install Appium and mac2 driver
         run: |
@@ -134,7 +134,7 @@ jobs:
       - name: Build E2E app bundle
         run: yarn test:e2e:build
         env:
-          E2E_SKIP_CARGO_CLEAN: '1'
+          E2E_SKIP_CARGO_CLEAN: "1"
 
       - name: Run all E2E flows
         run: yarn test:e2e:all:flows

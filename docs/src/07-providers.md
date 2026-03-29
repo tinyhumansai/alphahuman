@@ -2,113 +2,53 @@
 
 React context providers manage service lifecycle and provide shared state.
 
-## Provider Chain
+## Provider chain
 
-The providers wrap the application in a specific order:
+The providers wrap the application in a specific order (`app/src/App.tsx`):
 
-```typescript
-// App.tsx
-<Provider store={store}>
-  <PersistGate loading={null} persistor={persistor}>
-    <UserProvider>
-      <SocketProvider>
-        <TelegramProvider>
-          <HashRouter>
-            <AppRoutes />
-          </HashRouter>
-        </TelegramProvider>
-      </SocketProvider>
-    </UserProvider>
-  </PersistGate>
-</Provider>
+```tsx
+<Sentry.ErrorBoundary>
+  <Provider store={store}>
+    <PersistGate persistor={persistor} onBeforeLift={...}>
+      <UserProvider>
+        <SocketProvider>
+          <AIProvider>
+            <SkillProvider>
+              <Router>
+                <AppRoutes />
+              </Router>
+            </SkillProvider>
+          </AIProvider>
+        </SocketProvider>
+      </UserProvider>
+    </PersistGate>
+  </Provider>
+</Sentry.ErrorBoundary>
 ```
+
+(`Router` is `HashRouter` from `react-router-dom`.)
 
 **Order matters because:**
 
-1. Redux must be outermost for state access
-2. PersistGate rehydrates state before rendering children
-3. SocketProvider depends on Redux auth token
-4. TelegramProvider depends on Redux telegram state
-5. HashRouter provides navigation to all routes
+1. Redux is outermost for store access.
+2. `PersistGate` rehydrates persisted slices before children rely on auth.
+3. `SocketProvider` uses the JWT from the store.
+4. `AIProvider` / `SkillProvider` depend on socket and store-backed features.
+5. The router supplies navigation to all routes.
 
-## SocketProvider (`providers/SocketProvider.tsx`)
+## SocketProvider (`app/src/providers/SocketProvider.tsx`)
 
-Manages Socket.io connection lifecycle and MCP initialization.
+Manages realtime connectivity: **web** uses the JS Socket.io client; **Tauri** bridges to the Rust socket via `utils/tauriSocket.ts` and reports status back to Redux.
 
 ### Responsibilities
 
-- Auto-connect when auth token is available
-- Auto-disconnect when token is cleared
-- Initialize MCP server when socket connects
-- Update Redux with connection status
+- Connect when `auth.token` is available; disconnect when cleared
+- In Tauri: install listeners once, connect Rust socket, coordinate daemon lifecycle (`useDaemonLifecycle`)
+- Update Redux socket slice / connection status
 
 ### Implementation
 
-```typescript
-interface SocketContextValue {
-  socket: Socket | null;
-  isConnected: boolean;
-  emit: (event: string, data: unknown) => void;
-  on: (event: string, handler: Function) => void;
-  off: (event: string, handler: Function) => void;
-}
-
-export function SocketProvider({ children }) {
-  const token = useAppSelector((state) => state.auth.token);
-  const userId = useAppSelector((state) => state.user.profile?.id);
-  const dispatch = useAppDispatch();
-
-  useEffect(() => {
-    if (!token || !userId) {
-      socketService.disconnect();
-      dispatch(setSocketStatus({ userId, status: 'disconnected' }));
-      return;
-    }
-
-    // Connect with auth token
-    socketService.connect(token);
-    dispatch(setSocketStatus({ userId, status: 'connecting' }));
-
-    // Handle connection events
-    socketService.on('connect', () => {
-      dispatch(setSocketStatus({ userId, status: 'connected' }));
-      dispatch(setSocketId({ userId, socketId: socketService.getSocket()?.id }));
-
-      // Initialize MCP server
-      initMCPServer(socketService.getSocket());
-    });
-
-    socketService.on('disconnect', () => {
-      dispatch(setSocketStatus({ userId, status: 'disconnected' }));
-      cleanupMCP();
-    });
-
-    socketService.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-      dispatch(setSocketStatus({ userId, status: 'disconnected' }));
-    });
-
-    return () => {
-      socketService.disconnect();
-      cleanupMCP();
-    };
-  }, [token, userId]);
-
-  const contextValue: SocketContextValue = {
-    socket: socketService.getSocket(),
-    isConnected: socketService.isConnected(),
-    emit: socketService.emit.bind(socketService),
-    on: socketService.on.bind(socketService),
-    off: socketService.off.bind(socketService)
-  };
-
-  return (
-    <SocketContext.Provider value={contextValue}>
-      {children}
-    </SocketContext.Provider>
-  );
-}
-```
+See **`app/src/providers/SocketProvider.tsx`**. The file branches on **`isTauri()`**: web mode uses `socketService` directly; Tauri sets up `tauriSocket` listeners and `connectRustSocket` / `disconnectRustSocket`. Do not treat the pseudocode below as the live implementation.
 
 ### Usage
 
@@ -137,116 +77,13 @@ function MyComponent() {
 }
 ```
 
-## TelegramProvider (`providers/TelegramProvider.tsx`)
+## AIProvider (`app/src/providers/AIProvider.tsx`)
 
-Manages Telegram MTProto connection lifecycle.
+Initializes **memory**, **sessions**, **tool registry** (including memory + web-search tools), **entity manager**, **LLM / embedding providers**, and **constitution** loading. Exposes `useAI()` for children. Heavy logic lives under `app/src/lib/ai/`.
 
-### Responsibilities
+## SkillProvider (`app/src/providers/SkillProvider.tsx`)
 
-- Initialize MTProto client when user is authenticated
-- Connect to Telegram servers
-- Store session string in Redux
-- Provide Telegram context to children
-
-### Implementation
-
-```typescript
-interface TelegramContextValue {
-  client: TelegramClient | null;
-  connectionStatus: ConnectionStatus;
-  authStatus: AuthStatus;
-  connect: () => Promise<void>;
-  disconnect: () => Promise<void>;
-}
-
-export function TelegramProvider({ children }) {
-  const dispatch = useAppDispatch();
-  const userId = useAppSelector((state) => state.user.profile?.id);
-  const telegramState = useAppSelector((state) =>
-    state.telegram.byUser[userId]
-  );
-
-  useEffect(() => {
-    if (!userId) return;
-
-    // Parallel initialization for faster startup
-    const init = async () => {
-      try {
-        // Initialize and connect in parallel
-        await Promise.all([
-          dispatch(initializeTelegram(userId)).unwrap(),
-          dispatch(connectTelegram(userId)).unwrap()
-        ]);
-      } catch (error) {
-        console.error('Telegram initialization failed:', error);
-      }
-    };
-
-    init();
-
-    return () => {
-      dispatch(disconnectTelegram(userId));
-    };
-  }, [userId]);
-
-  // Restore session from persisted state
-  useEffect(() => {
-    if (telegramState?.sessionString) {
-      const client = mtprotoService.getInstance().getClient();
-      if (client) {
-        client.setSession(telegramState.sessionString);
-      }
-    }
-  }, [telegramState?.sessionString]);
-
-  const contextValue: TelegramContextValue = {
-    client: mtprotoService.getInstance().getClient(),
-    connectionStatus: telegramState?.connectionStatus || 'disconnected',
-    authStatus: telegramState?.authStatus || 'not_authenticated',
-    connect: () => dispatch(connectTelegram(userId)).unwrap(),
-    disconnect: () => dispatch(disconnectTelegram(userId)).unwrap()
-  };
-
-  return (
-    <TelegramContext.Provider value={contextValue}>
-      {children}
-    </TelegramContext.Provider>
-  );
-}
-```
-
-### Usage
-
-```typescript
-import { useTelegram } from '../providers/TelegramProvider';
-
-function ChatList() {
-  const { client, connectionStatus, authStatus } = useTelegram();
-  const [chats, setChats] = useState([]);
-
-  useEffect(() => {
-    if (connectionStatus === 'connected' && authStatus === 'authenticated') {
-      const fetchChats = async () => {
-        const dialogs = await client.getDialogs({ limit: 20 });
-        setChats(dialogs);
-      };
-      fetchChats();
-    }
-  }, [client, connectionStatus, authStatus]);
-
-  if (connectionStatus !== 'connected') {
-    return <div>Connecting to Telegram...</div>;
-  }
-
-  return (
-    <ul>
-      {chats.map((chat) => (
-        <li key={chat.id}>{chat.title}</li>
-      ))}
-    </ul>
-  );
-}
-```
+On mount (when authenticated), discovers skills from the **QuickJS** skills engine via Tauri helpers (`runtimeDiscoverSkills`), syncs manifests into Redux, listens for skill-related Tauri events, and can auto-start configured skills in development.
 
 ## UserProvider (`providers/UserProvider.tsx`)
 
@@ -316,25 +153,16 @@ Providers read from and dispatch to Redux:
 
 ```typescript
 // Read state
-const token = useAppSelector(state => state.auth.token);
+const token = useAppSelector((state) => state.auth.token);
 
 // Dispatch actions
 const dispatch = useAppDispatch();
-dispatch(setStatus({ userId, status: 'connected' }));
+dispatch(setStatus({ userId, status: "connected" }));
 ```
 
-### Parallel Initialization
+### Parallel initialization
 
-TelegramProvider runs init and connect in parallel:
-
-```typescript
-await Promise.all([
-  dispatch(initializeTelegram(userId)).unwrap(),
-  dispatch(connectTelegram(userId)).unwrap(),
-]);
-```
-
-This reduces startup time compared to sequential operations.
+`SkillProvider` and `AIProvider` may kick off several async tasks on mount (skill discovery, memory init, constitution load). Prefer reading the source for ordering guarantees rather than assuming parallel `Promise.all` everywhere.
 
 ### Session Restoration
 

@@ -1,25 +1,29 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "openhuman",
-  "version": "0.1.0",
-  "identifier": "com.tinyhumansai.openhuman",
+  "productName": "OpenHuman",
+  "version": "0.49.16",
+  "identifier": "com.openhuman.app",
   "build": {
-    "beforeDevCommand": "yarn dev",
+    "beforeDevCommand": "npm run core:stage && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "npm run build:app && npm run core:stage",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
-        "title": "openhuman",
+        "label": "main",
+        "title": "OpenHuman",
         "width": 800,
-        "height": 600
+        "height": 720,
+        "visible": false,
+        "decorations": true,
+        "resizable": true,
+        "center": true
       }
     ],
-    "security": {
-      "csp": null
-    }
+    "security": { "csp": null },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
@@ -30,6 +34,22 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": ["../../skills/skills", "../../src/ai/prompts"],
+    "externalBin": ["binaries/openhuman"],
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "dmg": { "background": "./images/background-dmg.png" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA1NkI1NEQzNjVDMjA0NDgKUldSSUJNSmwwMVJyQmJCTnQrQWxPSmhZQmVyWU1NMXdwRlRCSHR0ZEdlbkRncCtpQnhaZU5rUEQK",
+      "endpoints": [
+        "https://github.com/tinyhumansai/openhuman/releases/latest/download/latest.json"
+      ]
+    },
+    "deep-link": { "desktop": { "schemes": ["openhuman"] } }
   }
 }
