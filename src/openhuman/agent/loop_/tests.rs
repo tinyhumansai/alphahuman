@@ -9,7 +9,7 @@ use super::parse::{
     parse_tool_calls, parse_tool_calls_from_json_value, tools_to_openai_format,
 };
 use super::tool_loop::{run_tool_call_loop, DEFAULT_MAX_TOOL_ITERATIONS};
-use crate::openhuman::memory::{Memory, MemoryCategory, SqliteMemory};
+use crate::openhuman::memory::{embeddings::NoopEmbedding, Memory, MemoryCategory, UnifiedMemory};
 use crate::openhuman::providers::traits::ProviderCapabilities;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, ChatResponse, Provider};
 use crate::openhuman::tools::{self, Tool};
@@ -637,7 +637,7 @@ fn autosave_memory_key_has_prefix_and_uniqueness() {
 #[tokio::test]
 async fn autosave_memory_keys_preserve_multiple_turns() {
     let tmp = TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+    let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
 
     let key1 = autosave_memory_key("user_msg");
     let key2 = autosave_memory_key("user_msg");

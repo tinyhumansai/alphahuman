@@ -9,7 +9,6 @@
     "opener:default",
     "deep-link:default",
     "os:default",
-    "core:tray:default",
     "autostart:default",
     "autostart:allow-enable",
     "autostart:allow-disable",

@@ -109,7 +109,7 @@ impl Tool for MemoryStoreTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openhuman::memory::SqliteMemory;
+    use crate::openhuman::memory::{embeddings::NoopEmbedding, UnifiedMemory};
     use crate::openhuman::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
 
@@ -119,7 +119,7 @@ mod tests {
 
     fn test_mem() -> (TempDir, Arc<dyn Memory>) {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
         (tmp, Arc::new(mem))
     }
 
@@ -138,13 +138,13 @@ mod tests {
         let (_tmp, mem) = test_mem();
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
-            .execute(json!({"key": "lang", "content": "Prefers Rust"}))
+            .execute(json!({"namespace": "global", "key": "lang", "content": "Prefers Rust"}))
             .await
             .unwrap();
         assert!(result.success);
         assert!(result.output.contains("lang"));
 
-        let entry = mem.get("lang").await.unwrap();
+        let entry = mem.get("global/lang").await.unwrap();
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().content, "Prefers Rust");
     }
@@ -154,7 +154,9 @@ mod tests {
         let (_tmp, mem) = test_mem();
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
-            .execute(json!({"key": "note", "content": "Fixed bug", "category": "daily"}))
+            .execute(
+                json!({"namespace": "global", "key": "note", "content": "Fixed bug", "category": "daily"}),
+            )
             .await
             .unwrap();
         assert!(result.success);
@@ -166,13 +168,13 @@ mod tests {
         let tool = MemoryStoreTool::new(mem.clone(), test_security());
         let result = tool
             .execute(
-                json!({"key": "proj_note", "content": "Uses async runtime", "category": "project"}),
+                json!({"namespace": "global", "key": "proj_note", "content": "Uses async runtime", "category": "project"}),
             )
             .await
             .unwrap();
         assert!(result.success);
 
-        let entry = mem.get("proj_note").await.unwrap().unwrap();
+        let entry = mem.get("global/proj_note").await.unwrap().unwrap();
         assert_eq!(entry.content, "Uses async runtime");
         assert_eq!(entry.category, MemoryCategory::Custom("project".into()));
     }
@@ -202,7 +204,7 @@ mod tests {
         });
         let tool = MemoryStoreTool::new(mem.clone(), readonly);
         let result = tool
-            .execute(json!({"key": "lang", "content": "Prefers Rust"}))
+            .execute(json!({"namespace": "global", "key": "lang", "content": "Prefers Rust"}))
             .await
             .unwrap();
         assert!(!result.success);
@@ -211,7 +213,7 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("read-only mode"));
-        assert!(mem.get("lang").await.unwrap().is_none());
+        assert!(mem.get("global/lang").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -223,7 +225,7 @@ mod tests {
         });
         let tool = MemoryStoreTool::new(mem.clone(), limited);
         let result = tool
-            .execute(json!({"key": "lang", "content": "Prefers Rust"}))
+            .execute(json!({"namespace": "global", "key": "lang", "content": "Prefers Rust"}))
             .await
             .unwrap();
         assert!(!result.success);
@@ -232,6 +234,6 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("Rate limit exceeded"));
-        assert!(mem.get("lang").await.unwrap().is_none());
+        assert!(mem.get("global/lang").await.unwrap().is_none());
     }
 }

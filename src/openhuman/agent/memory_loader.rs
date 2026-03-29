@@ -95,6 +95,7 @@ mod tests {
                 id: "1".into(),
                 key: "k".into(),
                 content: "v".into(),
+                namespace: None,
                 category: MemoryCategory::Conversation,
                 timestamp: "now".into(),
                 session_id: None,

@@ -90,7 +90,7 @@ impl Tool for MemoryForgetTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openhuman::memory::{MemoryCategory, SqliteMemory};
+    use crate::openhuman::memory::{embeddings::NoopEmbedding, MemoryCategory, UnifiedMemory};
     use crate::openhuman::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
 
@@ -100,7 +100,7 @@ mod tests {
 
     fn test_mem() -> (TempDir, Arc<dyn Memory>) {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
         (tmp, Arc::new(mem))
     }
 
@@ -115,23 +115,34 @@ mod tests {
     #[tokio::test]
     async fn forget_existing() {
         let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
+        mem.store(
+            "global/temp",
+            "temporary",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
 
         let tool = MemoryForgetTool::new(mem.clone(), test_security());
-        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "key": "temp"}))
+            .await
+            .unwrap();
         assert!(result.success);
         assert!(result.output.contains("Forgot"));
 
-        assert!(mem.get("temp").await.unwrap().is_none());
+        assert!(mem.get("global/temp").await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn forget_nonexistent() {
         let (_tmp, mem) = test_mem();
         let tool = MemoryForgetTool::new(mem, test_security());
-        let result = tool.execute(json!({"key": "nope"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "key": "nope"}))
+            .await
+            .unwrap();
         assert!(result.success);
         assert!(result.output.contains("No memory found"));
     }
@@ -147,42 +158,58 @@ mod tests {
     #[tokio::test]
     async fn forget_blocked_in_readonly_mode() {
         let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
+        mem.store(
+            "global/temp",
+            "temporary",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
         let readonly = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
         });
         let tool = MemoryForgetTool::new(mem.clone(), readonly);
-        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "key": "temp"}))
+            .await
+            .unwrap();
         assert!(!result.success);
         assert!(result
             .error
             .as_deref()
             .unwrap_or("")
             .contains("read-only mode"));
-        assert!(mem.get("temp").await.unwrap().is_some());
+        assert!(mem.get("global/temp").await.unwrap().is_some());
     }
 
     #[tokio::test]
     async fn forget_blocked_when_rate_limited() {
         let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
+        mem.store(
+            "global/temp",
+            "temporary",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
         let limited = Arc::new(SecurityPolicy {
             max_actions_per_hour: 0,
             ..SecurityPolicy::default()
         });
         let tool = MemoryForgetTool::new(mem.clone(), limited);
-        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "key": "temp"}))
+            .await
+            .unwrap();
         assert!(!result.success);
         assert!(result
             .error
             .as_deref()
             .unwrap_or("")
             .contains("Rate limit exceeded"));
-        assert!(mem.get("temp").await.unwrap().is_some());
+        assert!(mem.get("global/temp").await.unwrap().is_some());
     }
 }

@@ -571,14 +571,11 @@ pub fn run() {
 
             // Bridge external daemon health file and ensure core background service.
             {
-                let data_dir = app
-                    .path()
-                    .app_data_dir()
-                    .unwrap_or_else(|_| {
-                        dirs::home_dir()
-                            .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join(".openhuman")
-                    });
+                let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join(".openhuman")
+                });
                 let app_handle_for_watcher = app.handle().clone();
                 let data_dir_clone = data_dir.clone();
                 tauri::async_runtime::spawn(async move {
@@ -590,7 +587,9 @@ pub fn run() {
                             log::info!("[openhuman] Core background service ensured via core RPC");
                         }
                         Err(e) => {
-                            log::error!("[openhuman] Failed to ensure core background service: {e}");
+                            log::error!(
+                                "[openhuman] Failed to ensure core background service: {e}"
+                            );
                         }
                     }
                 });
@@ -599,8 +598,7 @@ pub fn run() {
             // Start/ensure standalone core process for business logic RPC.
             {
                 let core_run_mode = core_process::default_core_run_mode(daemon_mode);
-                let core_bin = if matches!(core_run_mode, core_process::CoreRunMode::ChildProcess)
-                {
+                let core_bin = if matches!(core_run_mode, core_process::CoreRunMode::ChildProcess) {
                     core_process::default_core_bin()
                 } else {
                     None

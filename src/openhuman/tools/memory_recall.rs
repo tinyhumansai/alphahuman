@@ -100,12 +100,12 @@ impl Tool for MemoryRecallTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openhuman::memory::{MemoryCategory, SqliteMemory};
+    use crate::openhuman::memory::{embeddings::NoopEmbedding, MemoryCategory, UnifiedMemory};
     use tempfile::TempDir;
 
     fn seeded_mem() -> (TempDir, Arc<dyn Memory>) {
         let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
+        let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
         (tmp, Arc::new(mem))
     }
 
@@ -113,7 +113,10 @@ mod tests {
     async fn recall_empty() {
         let (_tmp, mem) = seeded_mem();
         let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "anything"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "query": "anything"}))
+            .await
+            .unwrap();
         assert!(result.success);
         assert!(result.output.contains("No memories found"));
     }
@@ -121,15 +124,23 @@ mod tests {
     #[tokio::test]
     async fn recall_finds_match() {
         let (_tmp, mem) = seeded_mem();
-        mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        mem.store("tz", "Timezone is EST", MemoryCategory::Core, None)
+        mem.store(
+            "global/lang",
+            "User prefers Rust",
+            MemoryCategory::Core,
+            None,
+        )
+        .await
+        .unwrap();
+        mem.store("global/tz", "Timezone is EST", MemoryCategory::Core, None)
             .await
             .unwrap();
 
         let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "Rust"})).await.unwrap();
+        let result = tool
+            .execute(json!({"namespace": "global", "query": "Rust"}))
+            .await
+            .unwrap();
         assert!(result.success);
         assert!(result.output.contains("Rust"));
         assert!(result.output.contains("Found 1"));
@@ -140,7 +151,7 @@ mod tests {
         let (_tmp, mem) = seeded_mem();
         for i in 0..10 {
             mem.store(
-                &format!("k{i}"),
+                &format!("global/k{i}"),
                 &format!("Rust fact {i}"),
                 MemoryCategory::Core,
                 None,
@@ -151,7 +162,7 @@ mod tests {
 
         let tool = MemoryRecallTool::new(mem);
         let result = tool
-            .execute(json!({"query": "Rust", "limit": 3}))
+            .execute(json!({"namespace": "global", "query": "Rust", "limit": 3}))
             .await
             .unwrap();
         assert!(result.success);

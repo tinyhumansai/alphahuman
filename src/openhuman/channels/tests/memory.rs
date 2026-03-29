@@ -5,7 +5,7 @@ use super::super::context::{
 use super::super::runtime::process_channel_message;
 use super::super::{traits, Channel};
 use super::common::{HistoryCaptureProvider, NoopMemory, RecordingChannel};
-use crate::openhuman::memory::{Memory, MemoryCategory, SqliteMemory};
+use crate::openhuman::memory::{embeddings::NoopEmbedding, Memory, MemoryCategory, UnifiedMemory};
 use crate::openhuman::providers::{self, ChatMessage, Provider};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -55,7 +55,7 @@ fn conversation_memory_key_is_unique_per_message() {
 #[tokio::test]
 async fn autosave_keys_preserve_multiple_conversation_facts() {
     let tmp = TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+    let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
 
     let msg1 = traits::ChannelMessage {
         id: "msg_1".into(),
@@ -102,7 +102,7 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
 #[tokio::test]
 async fn build_memory_context_includes_recalled_entries() {
     let tmp = TempDir::new().unwrap();
-    let mem = SqliteMemory::new(tmp.path()).unwrap();
+    let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
     mem.store("age_fact", "Age is 45", MemoryCategory::Conversation, None)
         .await
         .unwrap();
