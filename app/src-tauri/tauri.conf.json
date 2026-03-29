@@ -40,12 +40,7 @@
     "createUpdaterArtifacts": true,
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "dmg": { "background": "./images/background-dmg.png" },
-      "infoPlist": {
-        "CFBundleName": "OpenHuman",
-        "CFBundleDisplayName": "OpenHuman",
-        "CFBundleIconFile": "icon.icns"
-      }
+      "dmg": { "background": "./images/background-dmg.png" }
     }
   },
   "plugins": {
