@@ -7,10 +7,6 @@ pub struct CommandResponse<T> {
     pub logs: Vec<String>,
 }
 
-pub fn command_response<T>(result: T, logs: Vec<String>) -> CommandResponse<T> {
-    CommandResponse { result, logs }
-}
-
 /// Success payload from a core RPC handler before JSON-RPC wrapping.
 #[derive(Debug, Clone)]
 pub struct InvocationResult {

@@ -1,9 +1,7 @@
 use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use anyhow::Result;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use serde_json::json;
@@ -12,20 +10,19 @@ use crate::core_server::helpers::{
     parse_params, rpc_outcome_fut_to_cli_json, rpc_outcome_to_cli_json,
 };
 use crate::core_server::types::{
-    command_response, BrowserSettingsUpdate, CommandResponse, ConfigSnapshot,
-    GatewaySettingsUpdate, MemorySettingsUpdate, ModelSettingsUpdate, RuntimeSettingsUpdate,
+    BrowserSettingsUpdate, CommandResponse, ConfigSnapshot, GatewaySettingsUpdate,
+    MemorySettingsUpdate, ModelSettingsUpdate, RuntimeSettingsUpdate,
 };
 use crate::core_server::{call_method, run_server, APP_SESSION_PROVIDER};
 use crate::openhuman::config::rpc as config_rpc;
-use crate::openhuman::config::{Config, TunnelConfig};
-use crate::openhuman::credentials;
-use crate::openhuman::heartbeat::engine::HeartbeatEngine;
-use crate::openhuman::screen_intelligence::{
-    AccessibilityStatus, CaptureImageRefResult, PermissionState,
+use crate::openhuman::config::settings_cli::{settings_section_json, ConfigSnapshotFields};
+use crate::openhuman::config::TunnelConfig;
+use crate::openhuman::credentials::cli as credentials_cli;
+use crate::openhuman::tools::local_cli::{
+    run_cli_screenshot, run_cli_screenshot_ref, tools_wrappers_list_json, CliScreenshotArgs,
+    CliScreenshotRefArgs,
 };
-use crate::openhuman::security::SecurityPolicy;
-use crate::openhuman::skills::init_skills_dir;
-use crate::openhuman::tools::{ScreenshotTool, Tool};
+use crate::openhuman::workspace;
 
 #[derive(Debug, Parser)]
 #[command(name = "openhuman")]
@@ -533,272 +530,11 @@ fn parse_json_arg(raw: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(raw).map_err(|e| format!("invalid JSON for --json/--params: {e}"))
 }
 
-fn parse_key_value_flags(entries: &[String]) -> Result<serde_json::Value, String> {
-    let mut fields = serde_json::Map::new();
-    for entry in entries {
-        let Some((raw_key, raw_value)) = entry.split_once('=') else {
-            return Err(format!(
-                "invalid --field value '{entry}', expected key=value format"
-            ));
-        };
-        let key = raw_key.trim();
-        if key.is_empty() {
-            return Err("invalid --field value with empty key".to_string());
-        }
-        fields.insert(
-            key.to_string(),
-            serde_json::Value::String(raw_value.to_string()),
-        );
-    }
-    Ok(serde_json::Value::Object(fields))
-}
-
 fn ensure_non_empty_payload(payload: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
     if payload.is_empty() {
         return Err(anyhow::anyhow!("no fields provided for set operation"));
     }
     Ok(())
-}
-
-fn extract_data_url(raw: &str) -> Option<String> {
-    raw.lines().find_map(|line| {
-        let trimmed = line.trim();
-        trimmed
-            .starts_with("data:image/")
-            .then(|| trimmed.to_string())
-    })
-}
-
-fn extract_saved_path(raw: &str) -> Option<PathBuf> {
-    const PREFIX: &str = "Screenshot saved to: ";
-    raw.lines()
-        .find_map(|line| line.strip_prefix(PREFIX).map(PathBuf::from))
-}
-
-fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {
-    let (meta, payload) = data_url
-        .split_once(',')
-        .ok_or_else(|| "invalid data URL: missing comma separator".to_string())?;
-    if !meta.starts_with("data:image/") || !meta.ends_with(";base64") {
-        return Err("invalid data URL: expected data:image/*;base64,...".to_string());
-    }
-    BASE64_STANDARD
-        .decode(payload)
-        .map_err(|e| format!("failed to decode base64 image payload: {e}"))
-}
-
-fn write_bytes_to_path(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("failed to create output directory: {e}"))?;
-        }
-    }
-    std::fs::write(path, bytes).map_err(|e| format!("failed to write output file: {e}"))
-}
-
-const BOOTSTRAP_FILES: [(&str, &str); 7] = [
-    ("AGENTS.md", include_str!("../ai/prompts/AGENTS.md")),
-    ("SOUL.md", include_str!("../ai/prompts/SOUL.md")),
-    ("TOOLS.md", include_str!("../ai/prompts/TOOLS.md")),
-    ("IDENTITY.md", include_str!("../ai/prompts/IDENTITY.md")),
-    ("USER.md", include_str!("../ai/prompts/USER.md")),
-    ("BOOTSTRAP.md", include_str!("../ai/prompts/BOOTSTRAP.md")),
-    ("MEMORY.md", include_str!("../ai/prompts/MEMORY.md")),
-];
-
-fn ensure_workspace_file(
-    workspace_dir: &Path,
-    filename: &str,
-    contents: &str,
-    force: bool,
-) -> Result<&'static str, String> {
-    let path = workspace_dir.join(filename);
-    if path.exists() && !force {
-        return Ok("existing");
-    }
-    std::fs::write(&path, contents)
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
-    Ok(if force { "overwritten" } else { "created" })
-}
-
-async fn execute_init_command(args: InitCliArgs) -> Result<serde_json::Value, String> {
-    let config = config_rpc::load_config_with_timeout().await?;
-    let workspace_dir = config.workspace_dir.clone();
-
-    let mut created_dirs = Vec::new();
-    let mut existing_dirs = Vec::new();
-    for rel in ["memory", "sessions", "state", "cron"] {
-        let dir = workspace_dir.join(rel);
-        if dir.exists() {
-            existing_dirs.push(dir.display().to_string());
-        } else {
-            std::fs::create_dir_all(&dir)
-                .map_err(|e| format!("failed to create directory {}: {e}", dir.display()))?;
-            created_dirs.push(dir.display().to_string());
-        }
-    }
-
-    let mut created_files = Vec::new();
-    let mut overwritten_files = Vec::new();
-    let mut existing_files = Vec::new();
-    for (filename, contents) in BOOTSTRAP_FILES {
-        match ensure_workspace_file(&workspace_dir, filename, contents, args.force)? {
-            "created" => created_files.push(workspace_dir.join(filename).display().to_string()),
-            "overwritten" => {
-                overwritten_files.push(workspace_dir.join(filename).display().to_string())
-            }
-            _ => existing_files.push(workspace_dir.join(filename).display().to_string()),
-        }
-    }
-
-    let skills_readme = workspace_dir.join("skills").join("README.md");
-    let had_skills_readme = skills_readme.exists();
-    let heartbeat = workspace_dir.join("HEARTBEAT.md");
-    let had_heartbeat = heartbeat.exists();
-    init_skills_dir(&workspace_dir).map_err(|e| format!("failed to initialize skills dir: {e}"))?;
-    HeartbeatEngine::ensure_heartbeat_file(&workspace_dir)
-        .await
-        .map_err(|e| format!("failed to initialize HEARTBEAT.md: {e}"))?;
-
-    if had_skills_readme {
-        existing_files.push(skills_readme.display().to_string());
-    } else {
-        created_files.push(skills_readme.display().to_string());
-    }
-
-    if had_heartbeat {
-        existing_files.push(heartbeat.display().to_string());
-    } else {
-        created_files.push(heartbeat.display().to_string());
-    }
-
-    Ok(json!({
-        "result": {
-            "workspace_dir": workspace_dir.display().to_string(),
-            "config_path": config.config_path.display().to_string(),
-            "directories": {
-                "created": created_dirs,
-                "existing": existing_dirs
-            },
-            "files": {
-                "created": created_files,
-                "overwritten": overwritten_files,
-                "existing": existing_files
-            }
-        },
-        "logs": [
-            "workspace initialization completed"
-        ]
-    }))
-}
-
-async fn execute_tools_screenshot(args: ToolsScreenshotArgs) -> Result<serde_json::Value, String> {
-    let config = config_rpc::load_config_with_timeout().await?;
-    let security = Arc::new(SecurityPolicy::from_config(
-        &config.autonomy,
-        &config.workspace_dir,
-    ));
-    let tool = ScreenshotTool::new(security);
-
-    let mut payload = serde_json::Map::new();
-    if let Some(filename) = args.filename {
-        payload.insert("filename".to_string(), json!(filename));
-    }
-    if let Some(region) = args.region {
-        payload.insert("region".to_string(), json!(region));
-    }
-
-    let tool_result = tool
-        .execute(serde_json::Value::Object(payload))
-        .await
-        .map_err(|e| format!("screenshot tool failed to execute: {e}"))?;
-
-    let mut logs = vec!["tools.screenshot executed".to_string()];
-
-    if let Some(output_path) = args.output.as_ref() {
-        if let Some(saved_path) = extract_saved_path(&tool_result.output) {
-            std::fs::copy(&saved_path, output_path).map_err(|e| {
-                format!(
-                    "failed to copy screenshot from {} to {}: {e}",
-                    saved_path.display(),
-                    output_path.display()
-                )
-            })?;
-            logs.push(format!("copied screenshot to {}", output_path.display()));
-        } else if let Some(data_url) = extract_data_url(&tool_result.output) {
-            let bytes = decode_data_url_bytes(&data_url)?;
-            write_bytes_to_path(output_path, &bytes)?;
-            logs.push(format!(
-                "decoded data URL and wrote {} bytes to {}",
-                bytes.len(),
-                output_path.display()
-            ));
-        } else {
-            return Err(
-                "screenshot tool response did not contain a saved path or image data URL"
-                    .to_string(),
-            );
-        }
-    }
-
-    let data_url = extract_data_url(&tool_result.output);
-    let response = json!({
-        "result": {
-            "success": tool_result.success,
-            "error": tool_result.error,
-            "output_path": args.output.as_ref().map(|p| p.display().to_string()),
-            "tool_output": tool_result.output,
-            "data_url": if args.print_data_url { data_url } else { None::<String> },
-        },
-        "logs": logs
-    });
-
-    Ok(response)
-}
-
-async fn execute_tools_screenshot_ref(
-    args: ToolsScreenshotRefArgs,
-) -> Result<serde_json::Value, String> {
-    let raw = rpc_outcome_fut_to_cli_json(
-        crate::openhuman::screen_intelligence::rpc::accessibility_capture_image_ref(),
-    )
-    .await?;
-    let payload: CommandResponse<CaptureImageRefResult> =
-        serde_json::from_value(raw).map_err(|e| {
-            format!("failed to decode screen intelligence capture_image_ref response: {e}")
-        })?;
-
-    let mut logs = payload.logs;
-    logs.push("tools.screenshot-ref executed".to_string());
-
-    if let Some(output_path) = args.output.as_ref() {
-        if let Some(data_url) = payload.result.image_ref.as_deref() {
-            let bytes = decode_data_url_bytes(data_url)?;
-            write_bytes_to_path(output_path, &bytes)?;
-            logs.push(format!(
-                "decoded image_ref and wrote {} bytes to {}",
-                bytes.len(),
-                output_path.display()
-            ));
-        } else {
-            return Err(
-                "screen intelligence capture_image_ref did not return image_ref".to_string(),
-            );
-        }
-    }
-
-    Ok(json!({
-        "result": {
-            "ok": payload.result.ok,
-            "mime_type": payload.result.mime_type,
-            "bytes_estimate": payload.result.bytes_estimate,
-            "message": payload.result.message,
-            "output_path": args.output.as_ref().map(|p| p.display().to_string()),
-            "image_ref": if args.print_data_url { payload.result.image_ref } else { None::<String> },
-        },
-        "logs": logs
-    }))
 }
 
 async fn get_config_snapshot() -> Result<CommandResponse<ConfigSnapshot>, String> {
@@ -807,56 +543,9 @@ async fn get_config_snapshot() -> Result<CommandResponse<ConfigSnapshot>, String
         .map_err(|e| format!("failed to decode config snapshot: {e}"))
 }
 
-fn settings_view_response(
-    section: &'static str,
-    snapshot: CommandResponse<ConfigSnapshot>,
-) -> CommandResponse<serde_json::Value> {
-    let cfg = &snapshot.result.config;
-    let settings = match section {
-        "model" => json!({
-            "api_key": cfg.get("api_key"),
-            "api_url": cfg.get("api_url"),
-            "default_provider": cfg.get("default_provider"),
-            "default_model": cfg.get("default_model"),
-            "default_temperature": cfg.get("default_temperature"),
-        }),
-        "memory" => cfg
-            .get("memory")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "gateway" => cfg
-            .get("gateway")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "tunnel" => cfg
-            .get("tunnel")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "runtime" => cfg
-            .get("runtime")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "browser" => cfg
-            .get("browser")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        _ => serde_json::Value::Null,
-    };
-
-    command_response(
-        json!({
-            "section": section,
-            "settings": settings,
-            "workspace_dir": snapshot.result.workspace_dir,
-            "config_path": snapshot.result.config_path,
-        }),
-        snapshot.logs,
-    )
-}
-
 async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
     match cli.command {
-        CoreCommand::Init(args) => execute_init_command(args).await,
+        CoreCommand::Init(args) => workspace::init_workspace(args.force).await,
         CoreCommand::Run { port } => run_server(port)
             .await
             .map(|_| serde_json::Value::Null)
@@ -883,8 +572,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Model { command } => match command {
                 ModelSettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("model", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "model",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 ModelSettingsCommand::Set(args) => {
                     let mut payload = serde_json::Map::new();
@@ -915,8 +611,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Memory { command } => match command {
                 MemorySettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("memory", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "memory",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 MemorySettingsCommand::Set(args) => {
                     let mut payload = serde_json::Map::new();
@@ -947,8 +650,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Gateway { command } => match command {
                 GatewaySettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("gateway", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "gateway",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 GatewaySettingsCommand::Set(args) => {
                     let mut payload = serde_json::Map::new();
@@ -976,8 +686,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Tunnel { command } => match command {
                 TunnelSettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("tunnel", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "tunnel",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 TunnelSettingsCommand::Set(args) => {
                     let tunnel: TunnelConfig = parse_params(parse_json_arg(&args.json)?)?;
@@ -988,8 +705,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Runtime { command } => match command {
                 RuntimeSettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("runtime", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "runtime",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 RuntimeSettingsCommand::Set(args) => {
                     let mut payload = serde_json::Map::new();
@@ -1011,8 +735,15 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             SettingsCommand::Browser { command } => match command {
                 BrowserSettingsCommand::Get => {
                     let snapshot = get_config_snapshot().await?;
-                    serde_json::to_value(settings_view_response("browser", snapshot))
-                        .map_err(|e| e.to_string())
+                    Ok(settings_section_json(
+                        "browser",
+                        &ConfigSnapshotFields {
+                            config: snapshot.result.config.clone(),
+                            workspace_dir: snapshot.result.workspace_dir.clone(),
+                            config_path: snapshot.result.config_path.clone(),
+                        },
+                        snapshot.logs,
+                    ))
                 }
                 BrowserSettingsCommand::Set(args) => {
                     let mut payload = serde_json::Map::new();
@@ -1029,137 +760,79 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                 }
             },
         },
-        CoreCommand::Accessibility { command } => match command {
-            AccessibilityCommand::Status => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_status(),
-                )
-                .await
-            }
-            AccessibilityCommand::Doctor => {
-                let raw = rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_status(),
-                )
-                .await?;
-                let payload: CommandResponse<AccessibilityStatus> = serde_json::from_value(raw)
-                    .map_err(|e| format!("failed to decode screen intelligence status: {e}"))?;
-                let permissions = &payload.result.permissions;
-
-                let screen_ready = permissions.screen_recording == PermissionState::Granted;
-                let control_ready = permissions.accessibility == PermissionState::Granted;
-                let monitoring_ready = permissions.input_monitoring == PermissionState::Granted;
-                let overall_ready =
-                    payload.result.platform_supported && screen_ready && control_ready;
-
-                let mut recommendations: Vec<String> = Vec::new();
-                if !payload.result.platform_supported {
-                    recommendations.push(
-                        "Accessibility automation is macOS-only in this build/runtime.".to_string(),
-                    );
+        CoreCommand::Accessibility { command } => {
+            match command {
+                AccessibilityCommand::Status => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_status(),
+                    )
+                    .await
                 }
-                if permissions.screen_recording != PermissionState::Granted {
-                    recommendations.push(
-                        "Grant Screen Recording in System Settings -> Privacy & Security -> Screen Recording."
-                            .to_string(),
-                    );
+                AccessibilityCommand::Doctor => {
+                    crate::openhuman::screen_intelligence::rpc::accessibility_doctor_cli_json()
+                        .await
                 }
-                if permissions.accessibility != PermissionState::Granted {
-                    recommendations.push(
-                        "Grant Accessibility in System Settings -> Privacy & Security -> Accessibility."
-                            .to_string(),
-                    );
-                }
-                if permissions.input_monitoring != PermissionState::Granted {
-                    recommendations.push(
-                        "Grant Input Monitoring in System Settings -> Privacy & Security -> Input Monitoring (optional but recommended)."
-                            .to_string(),
-                    );
-                }
-                if recommendations.is_empty() {
-                    recommendations
-                        .push("No action required. Accessibility automation is ready.".to_string());
-                }
-
-                Ok(json!({
-                    "result": {
-                        "summary": {
-                            "overall_ready": overall_ready,
-                            "platform_supported": payload.result.platform_supported,
-                            "session_active": payload.result.session.active,
-                            "screen_capture_ready": screen_ready,
-                            "device_control_ready": control_ready,
-                            "input_monitoring_ready": monitoring_ready
-                        },
-                        "permissions": permissions,
-                        "features": payload.result.features,
-                        "recommendations": recommendations
-                    },
-                    "logs": payload.logs
-                }))
-            }
-            AccessibilityCommand::RequestPermissions => {
-                rpc_outcome_fut_to_cli_json(
+                AccessibilityCommand::RequestPermissions => rpc_outcome_fut_to_cli_json(
                     crate::openhuman::screen_intelligence::rpc::accessibility_request_permissions(),
                 )
-                .await
-            }
-            AccessibilityCommand::RequestPermission(args) => {
-                rpc_outcome_fut_to_cli_json(
+                .await,
+                AccessibilityCommand::RequestPermission(args) => rpc_outcome_fut_to_cli_json(
                     crate::openhuman::screen_intelligence::rpc::accessibility_request_permission(
                         parse_params(json!({ "permission": args.permission }))?,
                     ),
                 )
-                .await
+                .await,
+                AccessibilityCommand::StartSession(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_start_session(
+                            parse_params(json!({
+                                "consent": args.consent,
+                                "ttl_secs": args.ttl_secs,
+                                "screen_monitoring": args.screen_monitoring,
+                                "device_control": args.device_control,
+                                "predictive_input": args.predictive_input,
+                            }))?,
+                        ),
+                    )
+                    .await
+                }
+                AccessibilityCommand::StopSession(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_stop_session(
+                            parse_params(json!({ "reason": args.reason }))?,
+                        ),
+                    )
+                    .await
+                }
+                AccessibilityCommand::CaptureNow => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_capture_now(),
+                    )
+                    .await
+                }
+                AccessibilityCommand::CaptureImageRef => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_capture_image_ref(
+                        ),
+                    )
+                    .await
+                }
+                AccessibilityCommand::VisionRecent(args) => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_vision_recent(
+                            args.limit,
+                        ),
+                    )
+                    .await
+                }
+                AccessibilityCommand::VisionFlush => {
+                    rpc_outcome_fut_to_cli_json(
+                        crate::openhuman::screen_intelligence::rpc::accessibility_vision_flush(),
+                    )
+                    .await
+                }
             }
-            AccessibilityCommand::StartSession(args) => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_start_session(
-                        parse_params(json!({
-                            "consent": args.consent,
-                            "ttl_secs": args.ttl_secs,
-                            "screen_monitoring": args.screen_monitoring,
-                            "device_control": args.device_control,
-                            "predictive_input": args.predictive_input,
-                        }))?,
-                    ),
-                )
-                .await
-            }
-            AccessibilityCommand::StopSession(args) => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_stop_session(
-                        parse_params(json!({ "reason": args.reason }))?,
-                    ),
-                )
-                .await
-            }
-            AccessibilityCommand::CaptureNow => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_capture_now(),
-                )
-                .await
-            }
-            AccessibilityCommand::CaptureImageRef => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_capture_image_ref(),
-                )
-                .await
-            }
-            AccessibilityCommand::VisionRecent(args) => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_vision_recent(
-                        args.limit,
-                    ),
-                )
-                .await
-            }
-            AccessibilityCommand::VisionFlush => {
-                rpc_outcome_fut_to_cli_json(
-                    crate::openhuman::screen_intelligence::rpc::accessibility_vision_flush(),
-                )
-                .await
-            }
-        },
+        }
         CoreCommand::Autocomplete { command } => match command {
             AutocompleteCommand::Status => {
                 rpc_outcome_fut_to_cli_json(
@@ -1219,78 +892,30 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
         },
         CoreCommand::Auth { command } => match command {
             AuthCommand::Login(args) => {
-                let provider = args.provider.trim().to_string();
                 let token = args.token.clone().unwrap_or_default();
-                let fields = parse_key_value_flags(&args.field)?;
-                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
-
-                if provider == APP_SESSION_PROVIDER {
-                    let user = match args.user_json {
-                        Some(raw) => Some(parse_json_arg(&raw)?),
-                        None => None,
-                    };
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::store_session(
-                        &config,
-                        &token,
-                        args.user_id.clone(),
-                        user,
-                    ))
-                    .await
-                } else {
-                    let fields_opt = match &fields {
-                        serde_json::Value::Object(map) if map.is_empty() => None,
-                        _ => Some(fields),
-                    };
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::store_provider_credentials(
-                        &config,
-                        &provider,
-                        args.profile.as_deref(),
-                        args.token.clone(),
-                        fields_opt,
-                        Some(args.set_active),
-                    ))
-                    .await
-                }
-            }
-            AuthCommand::Logout(args) => {
-                let provider = args.provider.trim().to_string();
-                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
-                if provider == APP_SESSION_PROVIDER {
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::clear_session(&config)).await
-                } else {
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::remove_provider_credentials(
-                        &config,
-                        &provider,
-                        args.profile.as_deref(),
-                    ))
-                    .await
-                }
-            }
-            AuthCommand::Status(args) => {
-                let provider = args.provider.trim().to_string();
-                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
-                if provider == APP_SESSION_PROVIDER {
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::auth_get_state(&config)).await
-                } else {
-                    rpc_outcome_fut_to_cli_json(credentials::rpc::list_provider_credentials(
-                        &config,
-                        Some(provider),
-                    ))
-                    .await
-                }
-            }
-            AuthCommand::List(args) => {
-                let config = Config::load_or_init().await.map_err(|e| e.to_string())?;
-                let filter = args
-                    .provider
-                    .as_ref()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                rpc_outcome_fut_to_cli_json(credentials::rpc::list_provider_credentials(
-                    &config, filter,
-                ))
+                let fields = credentials_cli::parse_field_equals_entries(&args.field)?;
+                let user = match args.user_json {
+                    Some(raw) => Some(parse_json_arg(&raw)?),
+                    None => None,
+                };
+                credentials_cli::cli_auth_login(
+                    args.provider,
+                    token,
+                    args.user_id,
+                    user,
+                    fields,
+                    args.profile,
+                    args.set_active,
+                )
                 .await
             }
+            AuthCommand::Logout(args) => {
+                credentials_cli::cli_auth_logout(args.provider, args.profile).await
+            }
+            AuthCommand::Status(args) => {
+                credentials_cli::cli_auth_status(args.provider, args.profile).await
+            }
+            AuthCommand::List(args) => credentials_cli::cli_auth_list(args.provider).await,
         },
         CoreCommand::Socket { command } => match command {
             SocketCommand::Connect(args) => {
@@ -1319,29 +944,29 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
             }
         },
         CoreCommand::Tools { command } => match command {
-            ToolsCommand::List => Ok(json!({
-                "result": {
-                    "wrappers": [
-                        {
-                            "name": "screenshot",
-                            "description": "Capture a screenshot with screenshot tool wrapper."
-                        },
-                        {
-                            "name": "screenshot-ref",
-                            "description": "Capture data URL from screen intelligence capture_image_ref."
-                        }
-                    ]
-                },
-                "logs": ["tools wrappers listed"]
-            })),
-            ToolsCommand::Screenshot(args) => execute_tools_screenshot(args).await,
-            ToolsCommand::ScreenshotRef(args) => execute_tools_screenshot_ref(args).await,
+            ToolsCommand::List => Ok(tools_wrappers_list_json()),
+            ToolsCommand::Screenshot(args) => {
+                crate::openhuman::tools::local_cli::run_cli_screenshot(CliScreenshotArgs {
+                    filename: args.filename,
+                    region: args.region,
+                    output: args.output,
+                    print_data_url: args.print_data_url,
+                })
+                .await
+            }
+            ToolsCommand::ScreenshotRef(args) => {
+                run_cli_screenshot_ref(CliScreenshotRefArgs {
+                    output: args.output,
+                    print_data_url: args.print_data_url,
+                })
+                .await
+            }
             ToolsCommand::Run(args) => {
                 let parsed = parse_json_arg(&args.args)?;
                 match args.name.as_str() {
                     "screenshot" => {
                         let payload = parsed.as_object().cloned().unwrap_or_default();
-                        let wrapped = ToolsScreenshotArgs {
+                        run_cli_screenshot(CliScreenshotArgs {
                             filename: payload
                                 .get("filename")
                                 .and_then(serde_json::Value::as_str)
@@ -1358,12 +983,12 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                                 .get("print_data_url")
                                 .and_then(serde_json::Value::as_bool)
                                 .unwrap_or(false),
-                        };
-                        execute_tools_screenshot(wrapped).await
+                        })
+                        .await
                     }
                     "screenshot-ref" | "screenshot_ref" => {
                         let payload = parsed.as_object().cloned().unwrap_or_default();
-                        let wrapped = ToolsScreenshotRefArgs {
+                        run_cli_screenshot_ref(CliScreenshotRefArgs {
                             output: payload
                                 .get("output")
                                 .and_then(serde_json::Value::as_str)
@@ -1372,8 +997,8 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
                                 .get("print_data_url")
                                 .and_then(serde_json::Value::as_bool)
                                 .unwrap_or(false),
-                        };
-                        execute_tools_screenshot_ref(wrapped).await
+                        })
+                        .await
                     }
                     other => Err(format!(
                         "unsupported tool wrapper '{other}'. available: screenshot, screenshot-ref"

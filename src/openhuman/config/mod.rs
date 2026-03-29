@@ -1,6 +1,7 @@
 pub mod daemon;
 pub mod rpc;
 pub mod schema;
+pub mod settings_cli;
 
 #[allow(unused_imports)]
 pub use daemon::DaemonConfig;

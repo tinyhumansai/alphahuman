@@ -1,4 +1,5 @@
 pub mod anthropic_token;
+pub mod cli;
 pub mod openai_oauth;
 pub mod profiles;
 pub mod responses;

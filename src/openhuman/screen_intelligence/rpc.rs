@@ -1,9 +1,11 @@
 //! JSON-RPC / CLI controller surface for screen capture and accessibility automation.
 
+use serde_json::json;
+
 use crate::openhuman::rpc::RpcOutcome;
 use crate::openhuman::screen_intelligence::{
     self, AccessibilityStatus, CaptureImageRefResult, CaptureNowResult, InputActionParams,
-    InputActionResult, PermissionRequestParams, PermissionStatus, SessionStatus,
+    InputActionResult, PermissionRequestParams, PermissionState, PermissionStatus, SessionStatus,
     StartSessionParams, StopSessionParams, VisionFlushResult, VisionRecentResult,
 };
 
@@ -18,6 +20,64 @@ pub async fn accessibility_status() -> Result<RpcOutcome<AccessibilityStatus>, S
         status,
         "screen intelligence status fetched",
     ))
+}
+
+/// CLI `accessibility doctor`: recommendations from current [`AccessibilityStatus`].
+pub async fn accessibility_doctor_cli_json() -> Result<serde_json::Value, String> {
+    let RpcOutcome {
+        value: status,
+        logs,
+    } = accessibility_status().await?;
+    let permissions = &status.permissions;
+
+    let screen_ready = permissions.screen_recording == PermissionState::Granted;
+    let control_ready = permissions.accessibility == PermissionState::Granted;
+    let monitoring_ready = permissions.input_monitoring == PermissionState::Granted;
+    let overall_ready = status.platform_supported && screen_ready && control_ready;
+
+    let mut recommendations: Vec<String> = Vec::new();
+    if !status.platform_supported {
+        recommendations
+            .push("Accessibility automation is macOS-only in this build/runtime.".to_string());
+    }
+    if permissions.screen_recording != PermissionState::Granted {
+        recommendations.push(
+            "Grant Screen Recording in System Settings -> Privacy & Security -> Screen Recording."
+                .to_string(),
+        );
+    }
+    if permissions.accessibility != PermissionState::Granted {
+        recommendations.push(
+            "Grant Accessibility in System Settings -> Privacy & Security -> Accessibility."
+                .to_string(),
+        );
+    }
+    if permissions.input_monitoring != PermissionState::Granted {
+        recommendations.push(
+            "Grant Input Monitoring in System Settings -> Privacy & Security -> Input Monitoring (optional but recommended)."
+                .to_string(),
+        );
+    }
+    if recommendations.is_empty() {
+        recommendations.push("No action required. Accessibility automation is ready.".to_string());
+    }
+
+    Ok(json!({
+        "result": {
+            "summary": {
+                "overall_ready": overall_ready,
+                "platform_supported": status.platform_supported,
+                "session_active": status.session.active,
+                "screen_capture_ready": screen_ready,
+                "device_control_ready": control_ready,
+                "input_monitoring_ready": monitoring_ready
+            },
+            "permissions": permissions,
+            "features": status.features,
+            "recommendations": recommendations
+        },
+        "logs": logs
+    }))
 }
 
 pub async fn accessibility_request_permissions() -> Result<RpcOutcome<PermissionStatus>, String> {

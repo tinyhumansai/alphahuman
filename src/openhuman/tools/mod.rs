@@ -16,6 +16,8 @@ pub mod hardware_memory_map;
 pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
+pub mod image_output;
+pub mod local_cli;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;

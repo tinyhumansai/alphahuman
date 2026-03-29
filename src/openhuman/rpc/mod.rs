@@ -4,6 +4,7 @@
 //! [`crate::core_server::types::InvocationResult`] only in `core_server::dispatch`.
 
 use serde::Serialize;
+use serde_json::json;
 
 /// Successful RPC handler result: serialized JSON value plus optional log lines.
 #[derive(Debug)]
@@ -23,6 +24,17 @@ impl<T: Serialize> RpcOutcome<T> {
         Self {
             value,
             logs: vec![log.into()],
+        }
+    }
+
+    /// JSON shape matches the core CLI / `invocation_to_rpc_json` wrapper (`result` + `logs`).
+    pub fn into_cli_compatible_json(self) -> Result<serde_json::Value, String> {
+        let RpcOutcome { value, logs } = self;
+        let value = serde_json::to_value(value).map_err(|e| e.to_string())?;
+        if logs.is_empty() {
+            Ok(value)
+        } else {
+            Ok(json!({ "result": value, "logs": logs }))
         }
     }
 }
