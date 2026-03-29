@@ -3,21 +3,21 @@
 //! Landlock provides unprivileged sandboxing through the Linux kernel.
 //! This module uses the pure-Rust `landlock` crate for filesystem access control.
 
-#[cfg(feature = "sandbox-landlock")]
+#[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
 use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr};
-#[cfg(feature = "sandbox-landlock")]
+#[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
 use std::path::Path;
 
 use crate::openhuman::security::traits::Sandbox;
 
 /// Landlock sandbox backend for Linux
-#[cfg(feature = "sandbox-landlock")]
+#[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
 #[derive(Debug)]
 pub struct LandlockSandbox {
     workspace_dir: Option<std::path::PathBuf>,
 }
 
-#[cfg(feature = "sandbox-landlock")]
+#[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
 impl LandlockSandbox {
     /// Create a new Landlock sandbox with the given workspace directory
     pub fn new() -> std::io::Result<Self> {
@@ -124,7 +124,7 @@ impl LandlockSandbox {
     }
 }
 
-#[cfg(feature = "sandbox-landlock")]
+#[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
 impl Sandbox for LandlockSandbox {
     fn wrap_command(&self, _cmd: &mut std::process::Command) -> std::io::Result<()> {
         // Apply Landlock restrictions before executing the command
@@ -151,10 +151,10 @@ impl Sandbox for LandlockSandbox {
 }
 
 // Stub implementations for non-Linux or when feature is disabled
-#[cfg(not(feature = "sandbox-landlock"))]
+#[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
 pub struct LandlockSandbox;
 
-#[cfg(not(feature = "sandbox-landlock"))]
+#[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
 impl LandlockSandbox {
     pub fn new() -> std::io::Result<Self> {
         Err(std::io::Error::new(
@@ -178,7 +178,7 @@ impl LandlockSandbox {
     }
 }
 
-#[cfg(not(feature = "sandbox-landlock"))]
+#[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
 impl Sandbox for LandlockSandbox {
     fn wrap_command(&self, _cmd: &mut std::process::Command) -> std::io::Result<()> {
         Err(std::io::Error::new(
@@ -204,7 +204,7 @@ impl Sandbox for LandlockSandbox {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "sandbox-landlock")]
+    #[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
     #[test]
     fn landlock_sandbox_name() {
         if let Ok(sandbox) = LandlockSandbox::new() {
@@ -212,7 +212,7 @@ mod tests {
         }
     }
 
-    #[cfg(not(feature = "sandbox-landlock"))]
+    #[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
     #[test]
     fn landlock_not_available_on_non_linux() {
         assert!(!LandlockSandbox.is_available());
@@ -227,14 +227,14 @@ mod tests {
         match result {
             Ok(sandbox) => assert!(sandbox.is_available()),
             Err(_) => {
-                assert!(!cfg!(feature = "sandbox-landlock"));
+                // Stub, feature off, or Linux kernel without Landlock support
             }
         }
     }
 
     // ── §1.1 Landlock stub tests ──────────────────────────────
 
-    #[cfg(not(feature = "sandbox-landlock"))]
+    #[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
     #[test]
     fn landlock_stub_wrap_command_returns_unsupported() {
         let sandbox = LandlockSandbox;

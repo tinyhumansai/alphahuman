@@ -70,7 +70,6 @@ async-trait = "0.1"
 chacha20poly1305 = "0.10"
 hex = "0.4"
 tokio-util = { version = "0.7", features = ["rt"] }
-landlock = { version = "0.4", optional = true }
 
 # V8 JavaScript runtime is desktop-only in this host.
 
@@ -152,6 +151,7 @@ rquickjs = { version = "0.11", features = ["futures", "macro", "loader", "parall
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
+landlock = { version = "0.4", optional = true }
 rppal = { version = "0.22", optional = true }
 
 [dev-dependencies]
