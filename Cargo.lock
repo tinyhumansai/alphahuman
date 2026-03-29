@@ -5082,7 +5082,6 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
- "ureq 2.12.1",
  "url",
  "urlencoding",
  "uuid",
@@ -8773,21 +8772,6 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "ureq"
-version = "2.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
-dependencies = [
- "base64 0.22.1",
- "log",
- "once_cell",
- "rustls",
- "rustls-pki-types",
- "url",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "ureq"
 version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0"
@@ -9177,7 +9161,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "tokio",
- "ureq 3.3.0",
+ "ureq",
  "wa-rs-core",
 ]
 
