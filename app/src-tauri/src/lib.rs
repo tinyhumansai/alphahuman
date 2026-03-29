@@ -630,61 +630,20 @@ pub fn run() {
             );
             socket_mgr.set_app_handle(app.handle().clone());
 
-            // Initialize QuickJS Runtime Engine
+            // QuickJS / in-process skill engine (optional). Default build uses core RPC only.
             {
                 let data_dir = app
                     .path()
                     .app_data_dir()
                     .unwrap_or_else(|_| {
-                        // Fallback for platforms where app_data_dir isn't available
                         dirs::home_dir()
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
                             .join(".openhuman")
                     });
                 let skills_data_dir = data_dir.join("skills");
 
-                match runtime::qjs_engine::RuntimeEngine::new(skills_data_dir) {
-                    Ok(engine) => {
-                        engine.set_app_handle(app.handle().clone());
-
-                        // Set resource directory for bundled skills (production builds)
-                        if let Ok(resource_dir) = app.path().resource_dir() {
-                            engine.set_resource_dir(resource_dir);
-                        }
-
-                        let engine = std::sync::Arc::new(engine);
-
-                        // Wire the SkillRegistry into the SocketManager for MCP
-                        socket_mgr.set_registry(engine.registry());
-                        // Wire the SocketManager into the engine for tool:sync
-                        engine.set_socket_manager(socket_mgr.clone());
-
-                        app.manage(engine.clone());
-
-                        // Start the cron scheduler
-                        let cron = engine.cron_scheduler();
-                        tauri::async_runtime::spawn(async move {
-                            cron.start();
-                        });
-
-                        // Start the ping scheduler (health-checks running skills)
-                        let ping = engine.ping_scheduler();
-                        tauri::async_runtime::spawn(async move {
-                            ping.start();
-                        });
-
-                        // Auto-start skills in background (no delay needed for QuickJS -
-                        // lightweight contexts don't have V8's memory reservation issue)
-                        let engine_clone = engine.clone();
-                        tauri::async_runtime::spawn(async move {
-                            engine_clone.auto_start_skills().await;
-                        });
-
-                        log::info!("[runtime] QuickJS runtime engine initialized");
-                    }
-                    Err(e) => {
-                        log::error!("[runtime] Failed to initialize QuickJS runtime: {e}");
-                    }
+                if let Err(e) = runtime::qjs_engine::RuntimeEngine::new(skills_data_dir) {
+                    log::info!("[runtime] In-process skill engine not active: {e}");
                 }
             }
 
