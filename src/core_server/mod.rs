@@ -3,6 +3,7 @@ mod config_rpc_bridge;
 mod dispatch;
 mod helpers;
 mod json_rpc;
+mod rpc_log;
 mod server;
 mod types;
 
@@ -39,14 +40,45 @@ pub async fn call_method(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    dispatch::dispatch(
+    log::debug!(
+        "[rpc:call] begin method={} params={}",
+        method,
+        rpc_log::redact_params_for_log(&params)
+    );
+    let started = std::time::Instant::now();
+    let out = dispatch::dispatch(
         types::AppState {
             core_version: env!("CARGO_PKG_VERSION").to_string(),
         },
         method,
         params,
     )
-    .await
+    .await;
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+    match &out {
+        Ok(v) => {
+            log::info!(
+                "[rpc:call] ok method={} elapsed_ms={:.2} result={}",
+                method,
+                elapsed_ms,
+                rpc_log::summarize_rpc_result(v)
+            );
+            log::trace!(
+                "[rpc:call] method={} body={}",
+                method,
+                rpc_log::redact_result_for_trace(v)
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "[rpc:call] err method={} elapsed_ms={:.2} message={}",
+                method,
+                elapsed_ms,
+                e
+            );
+        }
+    }
+    out
 }
 
 pub fn run_from_cli_args(args: &[String]) -> anyhow::Result<()> {

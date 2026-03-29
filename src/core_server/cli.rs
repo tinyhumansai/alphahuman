@@ -1001,6 +1001,10 @@ async fn execute_core_cli(cli: CoreCli) -> Result<serde_json::Value, String> {
 }
 
 pub fn run_from_cli_args(args: &[String]) -> Result<()> {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_secs()
+        .try_init();
+
     print_cli_banner();
     let mut argv = Vec::with_capacity(args.len() + 1);
     argv.push("openhuman".to_string());
