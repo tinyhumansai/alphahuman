@@ -62,7 +62,7 @@ pub(crate) fn resolve_daemon_executable() -> Result<PathBuf> {
     Ok(exe)
 }
 
-pub(crate) fn daemon_program_args(exe: &std::path::Path) -> Vec<String> {
+pub(crate) fn daemon_program_args(_exe: &std::path::Path) -> Vec<String> {
     vec!["run".to_string()]
 }
 
