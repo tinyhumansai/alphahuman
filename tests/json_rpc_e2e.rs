@@ -204,17 +204,14 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
 
     let _home_guard = EnvVarGuard::set_to_path("HOME", home);
     let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    // Always use the in-process Axum mock for /settings + /openai so this test does not pick up
+    // BACKEND_URL/VITE_BACKEND_URL from the developer shell (e.g. mock-api that returns 401 for
+    // the synthetic JWT used below).
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
 
-    let external_backend = std::env::var("BACKEND_URL")
-        .ok()
-        .or_else(|| std::env::var("VITE_BACKEND_URL").ok())
-        .filter(|s| !s.trim().is_empty());
-    let (mock_origin, mock_join) = if let Some(origin) = external_backend {
-        (origin, None)
-    } else {
-        let (mock_addr, join) = serve_on_ephemeral(mock_upstream_router()).await;
-        (format!("http://{}", mock_addr), Some(join))
-    };
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
 
     write_min_config(&openhuman_home, &mock_origin);
 
@@ -319,9 +316,7 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
         "expected non-empty chat_done response payload: {sse_event}"
     );
 
-    if let Some(join) = mock_join {
-        join.abort();
-    }
+    mock_join.abort();
     rpc_join.abort();
 }
 
