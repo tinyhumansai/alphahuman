@@ -42,8 +42,7 @@ const ScreenIntelligenceDebugPanel = () => {
         <h3 className="text-sm font-semibold text-stone-100">Debug & Diagnostics</h3>
         <button
           onClick={handleRefreshStatus}
-          className="rounded-lg border border-stone-700 bg-stone-800/60 px-3 py-1 text-xs text-stone-300 transition-colors hover:bg-stone-700/60"
-        >
+          className="rounded-lg border border-stone-700 bg-stone-800/60 px-3 py-1 text-xs text-stone-300 transition-colors hover:bg-stone-700/60">
           Refresh
         </button>
       </div>
@@ -62,9 +61,7 @@ const ScreenIntelligenceDebugPanel = () => {
 
       {/* Session Status */}
       <div className="rounded-xl border border-stone-700 bg-stone-900/50 p-3">
-        <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">
-          Session
-        </h4>
+        <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">Session</h4>
         <div className="space-y-1 text-xs text-stone-300">
           <div className="flex justify-between">
             <span>Active</span>
@@ -101,8 +98,7 @@ const ScreenIntelligenceDebugPanel = () => {
         <button
           onClick={handleCaptureTest}
           disabled={isCaptureTestRunning}
-          className="mb-3 w-full rounded-lg border border-primary-600/40 bg-primary-600/20 px-3 py-2 text-sm font-medium text-primary-300 transition-colors hover:bg-primary-600/30 disabled:opacity-50"
-        >
+          className="mb-3 w-full rounded-lg border border-primary-600/40 bg-primary-600/20 px-3 py-2 text-sm font-medium text-primary-300 transition-colors hover:bg-primary-600/30 disabled:opacity-50">
           {isCaptureTestRunning ? 'Capturing...' : 'Test Capture'}
         </button>
 
@@ -178,8 +174,7 @@ const ScreenIntelligenceDebugPanel = () => {
             {recentVisionSummaries.map(summary => (
               <div
                 key={summary.id}
-                className="rounded-lg border border-stone-700/50 bg-stone-800/30 p-2 text-xs"
-              >
+                className="rounded-lg border border-stone-700/50 bg-stone-800/30 p-2 text-xs">
                 <div className="flex justify-between text-stone-400">
                   <span>{summary.app_name ?? 'Unknown'}</span>
                   <span>

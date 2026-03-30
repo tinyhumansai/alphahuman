@@ -31,6 +31,8 @@ impl QjsSkillInstance {
     }
 
     /// Take a snapshot of the current skill state.
+    /// Note: `setup_complete` and `connection_status` are populated later
+    /// by RuntimeEngine::enrich_snapshot() which has access to PreferencesStore.
     pub fn snapshot(&self) -> SkillSnapshot {
         let state = self.state.read();
         SkillSnapshot {
@@ -40,6 +42,8 @@ impl QjsSkillInstance {
             tools: state.tools.clone(),
             error: state.error.clone(),
             state: state.published_state.clone(),
+            setup_complete: false,
+            connection_status: String::new(),
         }
     }
 

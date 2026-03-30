@@ -430,9 +430,7 @@ Allowlist Telegram username (without '@') or numeric user ID.",
 
         let _ = self
             .send(&SendMessage::new(
-                format!(
-                    "🔐 This bot requires operator approval.\n\nAsk the operator to approve the pairing in the web UI, then send your message again."
-                ),
+                "🔐 This bot requires operator approval.\n\nAsk the operator to approve the pairing in the web UI, then send your message again.".to_string(),
                 &chat_id,
             ))
             .await;

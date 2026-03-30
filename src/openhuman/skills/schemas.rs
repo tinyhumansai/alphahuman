@@ -40,6 +40,8 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         skills_schema("enable"),
         skills_schema("disable"),
         skills_schema("is_enabled"),
+        skills_schema("set_setup_complete"),
+        skills_schema("get_all_snapshots"),
     ]
 }
 
@@ -151,6 +153,14 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: skills_schema("is_enabled"),
             handler: handle_skills_is_enabled,
+        },
+        RegisteredController {
+            schema: skills_schema("set_setup_complete"),
+            handler: handle_skills_set_setup_complete,
+        },
+        RegisteredController {
+            schema: skills_schema("get_all_snapshots"),
+            handler: handle_skills_get_all_snapshots,
         },
     ]
 }
@@ -551,6 +561,39 @@ fn skills_schema(function: &str) -> ControllerSchema {
                 required: true,
             }],
         },
+        "set_setup_complete" => ControllerSchema {
+            namespace: "skills",
+            function: "set_setup_complete",
+            description: "Persist setup completion flag for a skill.",
+            inputs: vec![
+                skill_id_input("The skill ID."),
+                FieldSchema {
+                    name: "complete",
+                    ty: TypeSchema::Bool,
+                    comment: "Whether setup is complete.",
+                    required: true,
+                },
+            ],
+            outputs: vec![FieldSchema {
+                name: "result",
+                ty: TypeSchema::Json,
+                comment: "Acknowledgment.",
+                required: true,
+            }],
+        },
+        "get_all_snapshots" => ControllerSchema {
+            namespace: "skills",
+            function: "get_all_snapshots",
+            description:
+                "Get all skill snapshots enriched with setup_complete and connection_status.",
+            inputs: vec![],
+            outputs: vec![FieldSchema {
+                name: "result",
+                ty: TypeSchema::Json,
+                comment: "Array of enriched skill snapshots.",
+                required: true,
+            }],
+        },
         _ => ControllerSchema {
             namespace: "skills",
             function: "unknown",
@@ -669,14 +712,6 @@ struct CallToolParams {
     arguments: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize)]
-struct SkillRpcParams {
-    skill_id: String,
-    method: String,
-    #[serde(default)]
-    params: Option<serde_json::Value>,
-}
-
 fn handle_skills_start(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let p: SkillIdParams =
@@ -759,6 +794,14 @@ fn handle_skills_call_tool(params: Map<String, Value>) -> ControllerFuture {
             .await?;
         serde_json::to_value(&result).map_err(|e| e.to_string())
     })
+}
+
+#[derive(Deserialize)]
+struct SkillRpcParams {
+    skill_id: String,
+    method: String,
+    #[serde(default)]
+    params: Option<serde_json::Value>,
 }
 
 fn handle_skills_rpc(params: Map<String, Value>) -> ControllerFuture {
@@ -870,6 +913,36 @@ fn handle_skills_is_enabled(params: Map<String, Value>) -> ControllerFuture {
         let engine = require_engine()?;
         let enabled = engine.is_skill_enabled(&p.skill_id);
         Ok(serde_json::json!({ "enabled": enabled }))
+    })
+}
+
+#[derive(Deserialize)]
+struct SetSetupCompleteParams {
+    skill_id: String,
+    complete: bool,
+}
+
+fn handle_skills_set_setup_complete(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let p: SetSetupCompleteParams =
+            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
+        let engine = require_engine()?;
+        engine
+            .preferences()
+            .set_setup_complete(&p.skill_id, p.complete);
+        Ok(serde_json::json!({
+            "success": true,
+            "skill_id": p.skill_id,
+            "setup_complete": p.complete
+        }))
+    })
+}
+
+fn handle_skills_get_all_snapshots(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let engine = require_engine()?;
+        let snapshots = engine.list_skills();
+        serde_json::to_value(&snapshots).map_err(|e| e.to_string())
     })
 }
 

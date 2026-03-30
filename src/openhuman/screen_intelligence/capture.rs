@@ -114,13 +114,11 @@ pub(crate) fn capture_screen_image_ref_for_context(
                     let resized = std::fs::read(&tmp_path)
                         .map_err(|e| format!("failed to read resized screenshot: {e}"))?;
                     let _ = std::fs::remove_file(&tmp_path);
-                    tracing::debug!(
-                        "[screen_intelligence] resized to {} bytes",
-                        resized.len()
-                    );
+                    tracing::debug!("[screen_intelligence] resized to {} bytes", resized.len());
                     if resized.len() > MAX_SCREENSHOT_BYTES {
-                        return Err("captured screenshot exceeds size limit after downscale"
-                            .to_string());
+                        return Err(
+                            "captured screenshot exceeds size limit after downscale".to_string()
+                        );
                     }
                     let encoded = BASE64_STANDARD.encode(resized);
                     return Ok(format!("data:image/png;base64,{encoded}"));
@@ -131,8 +129,9 @@ pub(crate) fn capture_screen_image_ref_for_context(
                         "[screen_intelligence] sips failed with status: {:?}",
                         s.code()
                     );
-                    return Err("captured screenshot exceeds size limit and downscale failed"
-                        .to_string());
+                    return Err(
+                        "captured screenshot exceeds size limit and downscale failed".to_string(),
+                    );
                 }
                 Err(e) => {
                     let _ = std::fs::remove_file(&tmp_path);

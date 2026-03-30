@@ -3,37 +3,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { skillManager } from '../lib/skills/manager';
-import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
+import { emitSkillStateChange } from '../lib/skills/skillEvents';
+import { setSetupComplete as rpcSetSetupComplete } from '../lib/skills/skillsApi';
+import { consumeLoginToken } from '../services/api/authApi';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
-import { setSkillSetupComplete, setSkillState, setSkillStatus } from '../store/skillsSlice';
-import {
-  decryptIntegrationTokens,
-  hexToBase64,
-  type IntegrationTokensPayload,
-} from './integrationTokensCrypto';
-
-function getCurrentUserId(): string | null {
-  const state = store.getState();
-  const explicitId = state.user.user?._id;
-  if (explicitId) return explicitId;
-
-  const token = state.auth.token;
-  if (!token) return null;
-
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padLen = (4 - (payloadBase64.length % 4)) % 4;
-    const padded = padLen ? payloadBase64 + '='.repeat(padLen) : payloadBase64;
-    const payloadJson = atob(padded);
-    const payload = JSON.parse(payloadJson);
-    return payload.tgUserId || payload.userId || payload.sub || null;
-  } catch {
-    return null;
-  }
-}
 
 const focusMainWindow = async () => {
   try {
@@ -128,83 +102,23 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
     // Always mark the skill as connected first — the OAuth completed on the backend.
     // Token handoff is best-effort; the backend stores credentials server-side regardless.
-    store.dispatch(setSkillStatus({ skillId, status: 'ready' }));
-    store.dispatch(setSkillSetupComplete({ skillId, complete: true }));
-    store.dispatch(
-      setSkillState({
-        skillId,
-        state: {
-          ...(store.getState().skills.skillStates[skillId] ?? {}),
-          connection_status: 'connected',
-          integrationId,
-        },
-      })
+    await rpcSetSetupComplete(skillId, true).catch(err =>
+      console.warn('[DeepLink] Failed to persist setup_complete via RPC:', err)
     );
+    // Notify hooks to re-fetch
+    emitSkillStateChange(skillId);
 
-    // Best-effort: try to fetch and store encrypted tokens locally
+    // Best-effort: notify skill runtime of OAuth completion and trigger sync
     try {
-      const userId = getCurrentUserId();
-      const state = store.getState();
-      const encryptionKeyHex = userId ? state.auth.encryptionKeyByUser[userId] : undefined;
-
-      if (userId && encryptionKeyHex && typeof encryptionKeyHex === 'string') {
-        const trimmedHex = encryptionKeyHex.trim().replace(/^0x/i, '');
-        if (trimmedHex && trimmedHex.length % 2 === 0 && /^[0-9a-fA-F]*$/.test(trimmedHex)) {
-          const keyForBackend = hexToBase64(trimmedHex);
-          if (keyForBackend) {
-            const response = await fetchIntegrationTokens(integrationId, keyForBackend);
-            if (response.success && response.data?.encrypted) {
-              store.dispatch(
-                setSkillState({
-                  skillId,
-                  state: {
-                    ...(store.getState().skills.skillStates[skillId] ?? {}),
-                    oauthTokens: {
-                      ...(store.getState().skills.skillStates[skillId]?.oauthTokens as
-                        | Record<string, { encrypted: string }>
-                        | undefined),
-                      [integrationId]: { encrypted: response.data.encrypted },
-                    },
-                  },
-                })
-              );
-
-              // Pass decrypted access token to skill runtime if running
-              let extraCredential: { accessToken?: string } | undefined;
-              try {
-                const decryptedJson = await decryptIntegrationTokens(
-                  response.data.encrypted,
-                  trimmedHex
-                );
-                const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
-                if (payload.accessToken) {
-                  extraCredential = { accessToken: payload.accessToken };
-                }
-              } catch (e) {
-                console.warn('[DeepLink] Could not decrypt integration token:', e);
-              }
-
-              try {
-                await skillManager.notifyOAuthComplete(
-                  skillId,
-                  integrationId,
-                  undefined,
-                  extraCredential
-                );
-                await skillManager.triggerSync(skillId);
-              } catch (runtimeErr) {
-                console.warn('[DeepLink] Runtime notify skipped (skill not running):', runtimeErr);
-              }
-            }
-          }
-        }
-      } else {
-        console.warn('[DeepLink] Skipping token handoff: no encryption key available');
-      }
-    } catch (err) {
-      // Token handoff failed but skill is already marked connected above
-      console.warn('[DeepLink] Token handoff failed (skill still connected):', err);
+      await skillManager.notifyOAuthComplete(skillId, integrationId);
+      await skillManager.triggerSync(skillId);
+    } catch (runtimeErr) {
+      // Skill runtime may not be running — that's OK, setup is already persisted
+      console.warn('[DeepLink] Runtime notify skipped (skill not running):', runtimeErr);
     }
+
+    // Re-emit so hooks pick up the latest state
+    emitSkillStateChange(skillId);
   } else if (path === 'error') {
     const error = parsed.searchParams.get('error') ?? 'Unknown error';
     const provider = parsed.searchParams.get('provider') ?? 'unknown';

@@ -120,9 +120,7 @@ const Mnemonic = () => {
     const n = filledWords.length;
 
     if (!BIP39_IMPORT_LENGTHS.includes(n as (typeof BIP39_IMPORT_LENGTHS)[number])) {
-      setError(
-        `Recovery phrase must be ${BIP39_IMPORT_LENGTHS.join(', ')} words (you have ${n}).`
-      );
+      setError(`Recovery phrase must be ${BIP39_IMPORT_LENGTHS.join(', ')} words (you have ${n}).`);
       setImportValid(false);
       return false;
     }
@@ -199,8 +197,8 @@ const Mnemonic = () => {
                 <h1 className="text-xl font-bold mb-2">Your Recovery Phrase</h1>
                 <p className="opacity-70 text-sm">
                   Write down these {MNEMONIC_GENERATE_WORD_COUNT} words in order and store them
-                  somewhere safe. This phrase is used to encrypt your data and can never be recovered
-                  if lost.
+                  somewhere safe. This phrase is used to encrypt your data and can never be
+                  recovered if lost.
                 </p>
               </div>
 
@@ -280,8 +278,8 @@ const Mnemonic = () => {
               <div className="text-center mb-4">
                 <h1 className="text-xl font-bold mb-2">Import Recovery Phrase</h1>
                 <p className="opacity-70 text-sm">
-                  Enter your recovery phrase below, or paste the full phrase into any field (12 words
-                  for new backups; 24-word phrases from older versions still work).
+                  Enter your recovery phrase below, or paste the full phrase into any field (12
+                  words for new backups; 24-word phrases from older versions still work).
                 </p>
               </div>
 

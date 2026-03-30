@@ -69,14 +69,7 @@ impl SkillRegistry {
             .iter()
             .map(|(skill_id, entry)| {
                 let state = entry.state.read();
-                SkillSnapshot {
-                    skill_id: skill_id.clone(),
-                    name: entry.config.name.clone(),
-                    status: state.status,
-                    tools: state.tools.clone(),
-                    error: state.error.clone(),
-                    state: state.published_state.clone(),
-                }
+                Self::build_snapshot(skill_id, entry, &state)
             })
             .collect()
     }
@@ -86,15 +79,28 @@ impl SkillRegistry {
         let skills = self.skills.read();
         skills.get(skill_id).map(|entry| {
             let state = entry.state.read();
-            SkillSnapshot {
-                skill_id: skill_id.to_string(),
-                name: entry.config.name.clone(),
-                status: state.status,
-                tools: state.tools.clone(),
-                error: state.error.clone(),
-                state: state.published_state.clone(),
-            }
+            Self::build_snapshot(skill_id, entry, &state)
         })
+    }
+
+    fn build_snapshot(skill_id: &str, entry: &RegistryEntry, state: &SkillState) -> SkillSnapshot {
+        use crate::openhuman::skills::types::derive_connection_status;
+
+        // setup_complete is populated later by the caller who has access to PreferencesStore
+        let setup_complete = false;
+        let connection_status =
+            derive_connection_status(state.status, setup_complete, &state.published_state);
+
+        SkillSnapshot {
+            skill_id: skill_id.to_string(),
+            name: entry.config.name.clone(),
+            status: state.status,
+            tools: state.tools.clone(),
+            error: state.error.clone(),
+            state: state.published_state.clone(),
+            setup_complete,
+            connection_status,
+        }
     }
 
     /// Get the status of a skill.

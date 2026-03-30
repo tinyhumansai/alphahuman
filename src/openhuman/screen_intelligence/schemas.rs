@@ -189,7 +189,10 @@ pub fn schemas(function: &str) -> ControllerSchema {
             function: "capture_test",
             description: "Standalone capture test with diagnostics (no session required).",
             inputs: vec![],
-            outputs: vec![json_output("result", "Capture test result with diagnostics.")],
+            outputs: vec![json_output(
+                "result",
+                "Capture test result with diagnostics.",
+            )],
         },
         _ => ControllerSchema {
             namespace: "screen_intelligence",

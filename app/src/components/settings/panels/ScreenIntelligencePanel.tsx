@@ -426,8 +426,7 @@ const DebugSection = () => {
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="flex w-full items-center justify-between text-sm font-semibold text-white"
-      >
+        className="flex w-full items-center justify-between text-sm font-semibold text-white">
         <span>Debug & Diagnostics</span>
         <span className="text-xs text-stone-400">{isOpen ? 'Collapse' : 'Expand'}</span>
       </button>

@@ -6,10 +6,9 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { store } from "../../store/index.ts";
-import { useAppSelector } from "../../store/hooks.ts";
+import { useSkillSnapshot } from "../../lib/skills/hooks.ts";
 import { skillManager } from "../../lib/skills/manager.ts";
-import { setSkillSetupComplete } from "../../store/skillsSlice.ts";
+import { setSetupComplete } from "../../lib/skills/skillsApi.ts";
 import { apiClient } from "../../services/apiClient.ts";
 import { openUrl } from "../../utils/openUrl.ts";
 import type { SetupStep, SetupFieldError } from "../../lib/skills/types.ts";
@@ -43,11 +42,9 @@ export default function SkillSetupWizard({
 }: SkillSetupWizardProps) {
   const [state, setState] = useState<WizardState>({ phase: "loading" });
 
-  // Watch skill state for OAuth completion (skill pushes connection_status: "connected")
-  const skillState = useAppSelector(
-    (s) => s.skills.skillStates[skillId],
-  );
-  const isConnected = skillState?.connection_status === "connected";
+  // Watch skill snapshot for OAuth completion via RPC-backed hook
+  const snap = useSkillSnapshot(skillId);
+  const isConnected = snap?.connection_status === "connected" || snap?.setup_complete === true;
 
   // When skill state changes to connected during OAuth waiting, mark complete
   useEffect(() => {
@@ -55,39 +52,44 @@ export default function SkillSetupWizard({
       (state.phase === "oauth" || state.phase === "oauth_waiting") &&
       isConnected
     ) {
-      store.dispatch(setSkillSetupComplete({ skillId, complete: true }));
+      setSetupComplete(skillId, true).catch(() => {});
       setState({ phase: "complete", message: "Successfully connected!" });
     }
   }, [isConnected, state.phase, skillId]);
 
-  // Start the skill (if not running) then start the setup flow on mount
+  // Start the setup flow on mount
   useEffect(() => {
     let cancelled = false;
 
     async function initSetup() {
       try {
         console.log("[SkillSetupWizard] initSetup", skillId);
-        const manifest = store.getState().skills.skills[skillId]?.manifest;
-        console.log("[SkillSetupWizard] manifest", manifest);
-        if (!manifest) {
+
+        // Find the available skill entry from the registry for OAuth config
+        const { listAvailable } = await import("../../lib/skills/skillsApi.ts");
+        const available = await listAvailable();
+        const entry = available.find(e => e.id === skillId);
+
+        if (!entry) {
           if (!cancelled) {
             setState({
               phase: "error",
-              message: "Skill not found. Try refreshing the page.",
+              message: "Skill not found in registry. Try refreshing the page.",
             });
           }
           return;
         }
 
+        const setup = entry.setup as { required?: boolean; oauth?: OAuthConfig } | null | undefined;
+
         // If the skill has OAuth config, show OAuth login directly
-        // (no need to start the QuickJS runtime for OAuth initiation)
-        if (manifest.setup?.oauth) {
+        if (setup?.oauth) {
           if (!cancelled) {
             setState({
               phase: "oauth",
               oauth: {
-                provider: manifest.setup.oauth.provider,
-                scopes: manifest.setup.oauth.scopes,
+                provider: setup.oauth.provider,
+                scopes: setup.oauth.scopes,
               },
             });
           }
@@ -95,28 +97,20 @@ export default function SkillSetupWizard({
         }
 
         // Non-OAuth skills need the runtime running for setup steps
-        if (!skillManager.isSkillRunning(skillId)) {
-          console.log("[SkillSetupWizard] starting skill", skillId);
-          try {
-            await skillManager.startSkill(manifest);
-            console.log("[SkillSetupWizard] skill started", skillId);
-          } catch (startErr) {
-            console.warn("[SkillSetupWizard] runtime start failed, may not be available:", startErr);
+        try {
+          const { startSkill } = await import("../../lib/skills/skillsApi.ts");
+          await startSkill(skillId);
+          console.log("[SkillSetupWizard] skill started via RPC", skillId);
+        } catch (startErr) {
+          console.warn("[SkillSetupWizard] runtime start failed:", startErr);
+          if (!cancelled) {
+            const msg = startErr instanceof Error ? startErr.message : String(startErr);
+            setState({ phase: "error", message: msg });
           }
+          return;
         }
 
         if (cancelled) return;
-
-        if (!skillManager.isSkillRunning(skillId)) {
-          console.log("[SkillSetupWizard] skill not running", skillId);
-          const status = skillManager.getSkillStatus(skillId);
-          console.log("[SkillSetupWizard] status", status);
-          const errMsg =
-            status === "error"
-              ? store.getState().skills.skills[skillId]?.error ?? "Skill failed to start"
-              : "Skill failed to start. Check the console for errors.";
-          throw new Error(errMsg);
-        }
 
         console.log("[SkillSetupWizard] starting setup", skillId);
         const firstStep = await skillManager.startSetup(skillId);

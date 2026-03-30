@@ -459,14 +459,36 @@ impl RuntimeEngine {
         Ok(())
     }
 
-    /// List all registered skills.
+    /// List all registered skills, enriched with persistent preferences.
     pub fn list_skills(&self) -> Vec<SkillSnapshot> {
-        self.registry.list_skills()
+        let mut snapshots = self.registry.list_skills();
+        for snap in &mut snapshots {
+            self.enrich_snapshot(snap);
+        }
+        snapshots
     }
 
-    /// Get the state of a specific skill.
+    /// Get the state of a specific skill, enriched with persistent preferences.
     pub fn get_skill_state(&self, skill_id: &str) -> Option<SkillSnapshot> {
-        self.registry.get_skill(skill_id)
+        self.registry.get_skill(skill_id).map(|mut snap| {
+            self.enrich_snapshot(&mut snap);
+            snap
+        })
+    }
+
+    /// Populate `setup_complete` from preferences and re-derive `connection_status`.
+    fn enrich_snapshot(&self, snap: &mut SkillSnapshot) {
+        snap.setup_complete = self.preferences.is_setup_complete(&snap.skill_id);
+        snap.connection_status = crate::openhuman::skills::types::derive_connection_status(
+            snap.status,
+            snap.setup_complete,
+            &snap.state,
+        );
+    }
+
+    /// Get the preferences store (for RPC handlers that need to set setup_complete).
+    pub fn preferences(&self) -> &PreferencesStore {
+        &self.preferences
     }
 
     /// Call a tool on a skill.

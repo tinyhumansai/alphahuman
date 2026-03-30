@@ -709,7 +709,9 @@ impl AccessibilityEngine {
                 match &state.session {
                     Some(session) => now_ms() >= session.expires_at_ms,
                     None => {
-                        tracing::debug!("[screen_intelligence] capture worker: no session, exiting");
+                        tracing::debug!(
+                            "[screen_intelligence] capture worker: no session, exiting"
+                        );
                         return;
                     }
                 }
@@ -896,7 +898,11 @@ impl AccessibilityEngine {
             .any(|d| !d.trim().is_empty() && compound.contains(&d.to_lowercase()))
     }
 
-    pub(crate) fn should_capture_context(&self, ctx: &AppContext, config: &ScreenIntelligenceConfig) -> bool {
+    pub(crate) fn should_capture_context(
+        &self,
+        ctx: &AppContext,
+        config: &ScreenIntelligenceConfig,
+    ) -> bool {
         let blacklisted = self.rule_matches_context(ctx, &config.denylist);
         let whitelisted = self.rule_matches_context(ctx, &config.allowlist);
 

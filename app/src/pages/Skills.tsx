@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   DefaultIcon,
@@ -6,17 +6,14 @@ import {
   SkillActionButton,
   type SkillListEntry,
   STATUS_DISPLAY,
-  STATUS_PRIORITY,
 } from '../components/skills/shared';
 import SkillSetupModal from '../components/skills/SkillSetupModal';
-import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/hooks';
+import { useAvailableSkills, useSkillConnectionStatus } from '../lib/skills/hooks';
 import { skillManager } from '../lib/skills/manager';
+import { installSkill } from '../lib/skills/skillsApi';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
-import { callCoreRpc } from '../services/coreRpcClient';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { addSkill } from '../store/skillsSlice';
+import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
-import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 import { deriveSkillSyncSummaryText, deriveSkillSyncUiState } from './skillsSyncUi';
 
 /** Status dot color for skill connection status */
@@ -174,13 +171,8 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
 // ─── Main Skills Page ───────────────────────────────────────────────────────
 
 export default function Skills() {
-  const dispatch = useAppDispatch();
-
-  // Skills state
-  const [skillsList, setSkillsList] = useState<SkillListEntry[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(true);
-  const skillsState = useAppSelector(state => state.skills.skills);
-  const skillStates = useAppSelector(state => state.skills.skillStates);
+  // Skills from registry via RPC
+  const { skills: availableSkills, loading: skillsLoading } = useAvailableSkills();
 
   // Modal state
   const [setupModalOpen, setSetupModalOpen] = useState(false);
@@ -189,139 +181,35 @@ export default function Skills() {
   const [activeSkillDescription, setActiveSkillDescription] = useState('');
   const [activeSkillHasSetup, setActiveSkillHasSetup] = useState(false);
 
-  // Load skills from registry (with fallback to runtime discover)
-  useEffect(() => {
-    const loadSkills = async () => {
-      try {
-        // Try the registry-based list first
-        const response = await callCoreRpc<Record<string, unknown>[]>({
-          method: 'openhuman.skills_list_available',
-        });
-        const entries = Array.isArray(response) ? response : [];
-
-        if (entries.length > 0) {
-          const processed: SkillListEntry[] = entries
-            .filter(e => {
-              const id = e.id as string;
-              if (id.includes('_')) return false;
-              if (!IS_DEV && e.ignore_in_production) return false;
-              return true;
-            })
-            .map(e => {
-              const setup = e.setup as Record<string, unknown> | undefined;
-              const oauthConfig = setup?.oauth as Record<string, unknown> | undefined;
-              // Register manifest in Redux so SkillSetupWizard can find it
-              dispatch(
-                addSkill({
-                  manifest: {
-                    id: e.id as string,
-                    name: (e.name as string) || (e.id as string),
-                    version: (e.version as string) || '0.0.0',
-                    description: (e.description as string) || '',
-                    runtime: 'quickjs',
-                    entry: (e.entry as string) || 'index.js',
-                    setup: setup
-                      ? {
-                          required: (setup.required as boolean) ?? false,
-                          label: setup.label as string | undefined,
-                          oauth: oauthConfig
-                            ? {
-                                provider: (oauthConfig.provider as string) || '',
-                                scopes: (oauthConfig.scopes as string[]) || [],
-                                apiBaseUrl: (oauthConfig.apiBaseUrl as string) || '',
-                              }
-                            : undefined,
-                        }
-                      : undefined,
-                  },
-                })
-              );
-
-              return {
-                id: e.id as string,
-                name:
-                  (e.name as string) ||
-                  (e.id as string).charAt(0).toUpperCase() + (e.id as string).slice(1),
-                description: (e.description as string) || '',
-                icon: SKILL_ICONS[e.id as string],
-                ignoreInProduction: (e.ignore_in_production as boolean) ?? false,
-                hasSetup: !!(setup && setup.required),
-              };
-            });
-
-          setSkillsList(processed);
-          setSkillsLoading(false);
-          return;
-        }
-      } catch {
-        // Registry unavailable, fall through to runtime discover
-      }
-
-      // Fallback: try runtime discover (Tauri command)
-      try {
-        const manifests = await runtimeDiscoverSkills();
-        const processed: SkillListEntry[] = manifests
-          .filter(m => {
-            const id = m.id as string;
-            if (id.includes('_')) return false;
-            return true;
-          })
-          .map(m => {
-            const setup = m.setup as Record<string, unknown> | undefined;
-            return {
-              id: m.id as string,
-              name:
-                (m.name as string) ||
-                (m.id as string).charAt(0).toUpperCase() + (m.id as string).slice(1),
-              description: (m.description as string) || '',
-              icon: SKILL_ICONS[m.id as string],
-              ignoreInProduction: (m.ignoreInProduction as boolean) ?? false,
-              hasSetup: !!(setup && setup.required),
-            };
-          })
-          .filter(s => IS_DEV || !s.ignoreInProduction);
-
-        setSkillsList(processed);
-      } catch {
-        // Skills unavailable
-      } finally {
-        setSkillsLoading(false);
-      }
-    };
-    loadSkills();
-  }, [dispatch]);
-
-  // Sort skills by connection status
-  const sortedSkillsList = useMemo(() => {
-    return [...skillsList]
-      .sort((a, b) => {
-        const skillA = skillsState[a.id];
-        const skillB = skillsState[b.id];
-        const stateA = skillStates[a.id];
-        const stateB = skillStates[b.id];
-
-        const statusA = deriveConnectionStatus(skillA?.status, skillA?.setupComplete, stateA);
-        const statusB = deriveConnectionStatus(skillB?.status, skillB?.setupComplete, stateB);
-
-        const priorityA = STATUS_PRIORITY[statusA] ?? 999;
-        const priorityB = STATUS_PRIORITY[statusB] ?? 999;
-
-        if (priorityA === priorityB) return a.name.localeCompare(b.name);
-        return priorityA - priorityB;
+  // Transform registry entries to SkillListEntry
+  const skillsList: SkillListEntry[] = useMemo(() => {
+    return availableSkills
+      .filter(e => {
+        if (e.id.includes('_')) return false;
+        if (!IS_DEV && e.ignore_in_production) return false;
+        return true;
       })
-      .filter(s => IS_DEV || !s.ignoreInProduction);
-  }, [skillsList, skillsState, skillStates]);
+      .map(e => ({
+        id: e.id,
+        name: e.name || e.id.charAt(0).toUpperCase() + e.id.slice(1),
+        description: e.description || '',
+        icon: SKILL_ICONS[e.id],
+        ignoreInProduction: e.ignore_in_production,
+        hasSetup: !!(e.setup && e.setup.required),
+      }));
+  }, [availableSkills]);
+
+  // Sort by name (connection status sorting will use the hook per-card)
+  const sortedSkillsList = useMemo(() => {
+    return [...skillsList].sort((a, b) => a.name.localeCompare(b.name));
+  }, [skillsList]);
 
   const [installing, setInstalling] = useState<string | null>(null);
 
   const openSkillSetup = async (skill: SkillListEntry) => {
-    // Install skill from registry if not yet on disk
     try {
       setInstalling(skill.id);
-      await callCoreRpc<{ success: boolean }>({
-        method: 'openhuman.skills_install',
-        params: { skill_id: skill.id },
-      });
+      await installSkill(skill.id);
     } catch (err) {
       console.warn(`[Skills] install failed for ${skill.id}, continuing anyway:`, err);
     } finally {

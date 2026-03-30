@@ -20,7 +20,10 @@ fn parse_foreground_output_valid_6_lines() {
     assert_eq!(ctx.app_name.as_deref(), Some("Safari"));
     assert_eq!(ctx.window_title.as_deref(), Some("GitHub - Pull Requests"));
     let bounds = ctx.bounds.unwrap();
-    assert_eq!((bounds.x, bounds.y, bounds.width, bounds.height), (100, 200, 1400, 900));
+    assert_eq!(
+        (bounds.x, bounds.y, bounds.width, bounds.height),
+        (100, 200, 1400, 900)
+    );
 }
 
 #[test]
@@ -56,7 +59,10 @@ fn parse_foreground_output_extra_whitespace() {
     assert_eq!(ctx.app_name.as_deref(), Some("Code"));
     assert_eq!(ctx.window_title.as_deref(), Some("main.rs"));
     let bounds = ctx.bounds.unwrap();
-    assert_eq!((bounds.x, bounds.y, bounds.width, bounds.height), (50, 75, 1200, 800));
+    assert_eq!(
+        (bounds.x, bounds.y, bounds.width, bounds.height),
+        (50, 75, 1200, 800)
+    );
 }
 
 #[test]
@@ -79,7 +85,10 @@ fn parse_foreground_output_zero_size_bounds() {
 fn parse_foreground_output_negative_size() {
     let stdout = "App\nWindow\n100\n200\n-1\n600\n";
     let ctx = parse_foreground_output(stdout).unwrap();
-    assert!(ctx.bounds.is_none(), "negative width should yield None bounds");
+    assert!(
+        ctx.bounds.is_none(),
+        "negative width should yield None bounds"
+    );
 }
 
 // ── parse_vision_summary_output ─────────────────────────────────────────
@@ -502,8 +511,7 @@ async fn capture_test_returns_diagnostics() {
     // On any platform this should not panic — it may fail gracefully.
     assert!(result.timing_ms < 30000, "capture test should not hang");
     assert!(
-        result.capture_mode == "windowed"
-            || result.capture_mode == "fullscreen",
+        result.capture_mode == "windowed" || result.capture_mode == "fullscreen",
         "capture_mode should be windowed or fullscreen"
     );
 

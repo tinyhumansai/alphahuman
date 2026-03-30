@@ -24,7 +24,9 @@ function mapSummaryToItem(summary: AccessibilityVisionSummary) {
   };
 }
 
-const makeSummary = (overrides: Partial<AccessibilityVisionSummary> = {}): AccessibilityVisionSummary => ({
+const makeSummary = (
+  overrides: Partial<AccessibilityVisionSummary> = {}
+): AccessibilityVisionSummary => ({
   id: 'vision-123',
   captured_at_ms: 1700000000000,
   app_name: 'Safari',

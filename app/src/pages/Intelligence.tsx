@@ -11,12 +11,12 @@ import {
   useSnoozeActionableItem,
   useUpdateActionableItem,
 } from '../hooks/useIntelligenceApiFallback';
-import { useScreenIntelligenceItems } from '../hooks/useScreenIntelligenceItems';
 import {
   useIntelligenceSocket,
   useIntelligenceSocketManager,
 } from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
+import { useScreenIntelligenceItems } from '../hooks/useScreenIntelligenceItems';
 import type { RootState } from '../store';
 import { setSearchFilter, setSourceFilter } from '../store/intelligenceSlice';
 import type {
