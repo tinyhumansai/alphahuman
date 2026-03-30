@@ -13,22 +13,20 @@
 - How the implementation solves the problem.
 - Note important design decisions and tradeoffs.
 
-## Testing
+## Submission Checklist
 
-- [ ] `yarn -s compile`
-- [ ] `cargo check --manifest-path app/src-tauri/Cargo.toml`
-- [ ] Other checks run (list commands)
-- [ ] Manual validation completed (list scenarios)
+- [ ] **Unit tests** — Vitest (`app/`) and/or `cargo test` (core) for logic you add or change
+- [ ] **E2E / integration** — Where behavior is user-visible or crosses UI → Tauri → sidecar → JSON-RPC; use existing harnesses (`app/test/e2e`, mock backend, `tests/json_rpc_e2e.rs` as appropriate)
+- [ ] **N/A** — If truly not applicable, say why (e.g. change is documentation-only)
+- [ ] **Doc comments** — `///` / `//!` (Rust), JSDoc or brief file/module headers (TS) on public APIs and non-obvious modules
+- [ ] **Inline comments** — Where logic, invariants, or edge cases aren’t clear from names alone (keep them grep-friendly; avoid restating the code)
+
+(Any feature related checklist can go in here)
 
 ## Impact
 
 - Runtime/platform impact (desktop/mobile/web/CLI), if any.
 - Performance, security, migration, or compatibility implications.
-
-## Breaking Changes
-
-- [ ] None
-- [ ] Yes (describe clearly, including migration steps)
 
 ## Related
 
