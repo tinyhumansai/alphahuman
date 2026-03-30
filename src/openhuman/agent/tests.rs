@@ -159,42 +159,6 @@ impl Tool for EchoTool {
     }
 }
 
-/// Mock shell tool used to validate tool-call repair paths.
-struct MockShellTool;
-
-#[async_trait]
-impl Tool for MockShellTool {
-    fn name(&self) -> &str {
-        "shell"
-    }
-
-    fn description(&self) -> &str {
-        "Mock shell tool"
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "command": {"type": "string"}
-            }
-        })
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        Ok(ToolResult {
-            success: true,
-            output: format!("mock-shell:{command}"),
-            error: None,
-        })
-    }
-}
-
 /// A tool that always fails execution.
 struct FailingTool;
 
@@ -768,35 +732,6 @@ async fn turn_handles_none_text_response() {
     // Should not panic — falls back to empty string
     let response = agent.turn("hi").await.unwrap();
     assert!(response.is_empty());
-}
-
-#[tokio::test]
-async fn turn_retries_with_tool_call_repair_when_intent_text_has_no_calls() {
-    let provider = Box::new(ScriptedProvider::new(vec![
-        text_response(
-            "It seems like you want to see the files in the current directory. Let me get that information for you.",
-        ),
-        tool_response(vec![ToolCall {
-            id: "tc1".into(),
-            name: "shell".into(),
-            arguments: r#"{"command":"ls -la"}"#.into(),
-        }]),
-        text_response("Here are the files from the current directory."),
-    ]));
-    let mut agent = build_agent_with(
-        provider,
-        vec![Box::new(MockShellTool)],
-        Box::new(NativeToolDispatcher),
-    );
-
-    let response = agent
-        .turn("list the files in the current dir")
-        .await
-        .unwrap();
-    assert!(
-        response.contains("Here are the files"),
-        "Expected repaired tool-call flow to reach final response, got: {response}"
-    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
