@@ -1238,11 +1238,16 @@ fn xml_dispatcher_generates_tool_instructions() {
 }
 
 #[test]
-fn native_dispatcher_returns_empty_instructions() {
+fn native_dispatcher_prompt_instructions_are_protocol_only_not_tool_catalog() {
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EchoTool)];
     let dispatcher = NativeToolDispatcher;
     let instructions = dispatcher.prompt_instructions(&tools);
-    assert!(instructions.is_empty());
+    assert!(instructions.contains("## Tool Use Protocol"));
+    assert!(instructions.contains("native tool-calling"));
+    assert!(
+        !instructions.contains("echo"),
+        "native dispatcher does not inline tool names/schemas; provider sends tool specs when should_send_tool_specs is true"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
