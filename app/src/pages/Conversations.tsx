@@ -26,7 +26,7 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
-import { BACKEND_URL } from '../utils/config';
+import { API_BASE_URL } from '../utils/config';
 import {
   openhumanAgentChat,
   openhumanLocalAiTranscribeBytes,
@@ -446,7 +446,7 @@ const Conversations = () => {
         message: trimmed,
         model: selectedModel,
         authToken,
-        backendUrl: BACKEND_URL,
+        backendUrl: API_BASE_URL,
         messages: chatMessages,
         notionContext: notionCtx,
       });

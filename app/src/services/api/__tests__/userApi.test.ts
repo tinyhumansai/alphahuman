@@ -9,7 +9,7 @@ vi.mock('../../../store', () => ({
 }));
 
 // Mock the config to use test backend URL
-vi.mock('../../../utils/config', () => ({ BACKEND_URL: 'http://localhost:5005', IS_DEV: true }));
+vi.mock('../../../utils/config', () => ({ API_BASE_URL: 'http://localhost:5005', IS_DEV: true }));
 
 // Import after mocks
 const { userApi } = await import('../userApi');

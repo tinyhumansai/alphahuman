@@ -23,7 +23,7 @@ import { store } from '../store';
 import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
-import { BACKEND_URL } from './config';
+import { API_BASE_URL } from './config';
 
 let runtimeSocketCommandsAvailable = true;
 
@@ -78,8 +78,8 @@ export async function connectRustSocket(token: string): Promise<void> {
   if (!runtimeSocketCommandsAvailable) return;
 
   try {
-    console.log('[TauriSocket] Connecting Rust socket to', BACKEND_URL);
-    await invoke('runtime_socket_connect', { token, url: BACKEND_URL });
+    console.log('[TauriSocket] Connecting Rust socket to', API_BASE_URL);
+    await invoke('runtime_socket_connect', { token, url: API_BASE_URL });
     console.log('[TauriSocket] Rust socket connect call succeeded');
   } catch (error) {
     handleRuntimeSocketInvokeError('connect Rust socket', error);

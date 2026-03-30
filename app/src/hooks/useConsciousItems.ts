@@ -23,7 +23,7 @@ import type {
   ActionableItemPriority,
   ActionableItemSource,
 } from '../types/intelligence';
-import { BACKEND_URL } from '../utils/config';
+import { API_BASE_URL } from '../utils/config';
 import { consciousLoopRun, isTauri, memoryQueryNamespace } from '../utils/tauriCommands';
 
 // ─── Types from conscious_loop.rs (mirrored) ────────────────────────────────
@@ -178,7 +178,7 @@ export function useConsciousItems(): UseConsciousItemsResult {
   const triggerAnalysis = useCallback(async () => {
     if (!isTauri() || !authToken || isRunning) return;
     try {
-      await consciousLoopRun(authToken, BACKEND_URL);
+      await consciousLoopRun(authToken, API_BASE_URL);
     } catch (err) {
       console.warn('[conscious] Failed to trigger analysis:', err);
     }

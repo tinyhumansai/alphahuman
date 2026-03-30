@@ -12,7 +12,7 @@ import type { SkillManifest } from '../lib/skills/types';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
-import { DEV_AUTO_LOAD_SKILL, IS_DEV } from '../utils/config';
+import { IS_DEV } from '../utils/config';
 import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 
 // ---------------------------------------------------------------------------
@@ -144,18 +144,6 @@ export default function SkillProvider({ children }: { children: ReactNode }) {
       // Register all discovered skills
       for (const manifest of manifests) {
         skillManager.registerSkill(manifest);
-      }
-
-      // Auto-start skill specified in DEV_AUTO_LOAD_SKILL env variable (dev only)
-      if (DEV_AUTO_LOAD_SKILL) {
-        const autoLoadManifest = manifests.find(m => m.id === DEV_AUTO_LOAD_SKILL);
-        if (autoLoadManifest) {
-          try {
-            await skillManager.startSkill(autoLoadManifest);
-          } catch (err) {
-            console.error(`[SkillProvider] Failed to auto-load skill ${DEV_AUTO_LOAD_SKILL}:`, err);
-          }
-        }
       }
 
       // Auto-start skills with completed setup

@@ -55,12 +55,11 @@ vi.mock('../utils/tauriCommands', () => ({
 
 // Mock the config module
 vi.mock('../utils/config', () => ({
-  BACKEND_URL: 'http://localhost:5005',
+  API_BASE_URL: 'http://localhost:5005',
   TELEGRAM_BOT_USERNAME: 'test_bot',
   TELEGRAM_BOT_ID: '12345',
   IS_DEV: true,
   SKILLS_GITHUB_REPO: 'test/skills',
-  DEV_AUTO_LOAD_SKILL: undefined,
 }));
 
 // Mock redux-persist to avoid CJS/ESM issues in vitest

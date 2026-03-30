@@ -8,7 +8,7 @@ import { store } from '../store';
 import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { resetForUser, setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
-import { BACKEND_URL, IS_DEV } from '../utils/config';
+import { API_BASE_URL, IS_DEV } from '../utils/config';
 import { createSafeLogData, sanitizeError } from '../utils/sanitize';
 
 // Socket service logger using debug package
@@ -127,11 +127,11 @@ class SocketService {
     this.token = token;
     const uid = getSocketUserId();
 
-    socketLog('Connecting', { userId: uid, backendUrl: BACKEND_URL });
+    socketLog('Connecting', { userId: uid, backendUrl: API_BASE_URL });
 
     store.dispatch(setStatusForUser({ userId: uid, status: 'connecting' }));
 
-    const backendUrl = BACKEND_URL;
+    const backendUrl = API_BASE_URL;
 
     // Ensure we're not connecting to the wrong URL
     if (backendUrl.includes('localhost:1420') || backendUrl.includes(':1420')) {

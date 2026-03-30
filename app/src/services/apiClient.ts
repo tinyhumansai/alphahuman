@@ -1,5 +1,5 @@
 import type { ApiError } from '../types/api';
-import { BACKEND_URL } from '../utils/config';
+import { API_BASE_URL } from '../utils/config';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -170,6 +170,6 @@ class ApiClient {
 }
 
 // Export singleton instance
-export const apiClient = new ApiClient(BACKEND_URL);
+export const apiClient = new ApiClient(API_BASE_URL);
 
-console.log('[ApiClient] Backend URL', BACKEND_URL);
+console.log('[ApiClient] Backend URL', API_BASE_URL);
