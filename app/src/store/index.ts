@@ -24,10 +24,8 @@ import aiReducer from './aiSlice';
 import authReducer, { setOnboardedForUser, setToken } from './authSlice';
 import channelConnectionsReducer from './channelConnectionsSlice';
 import daemonReducer from './daemonSlice';
-import gmailReducer from './gmailSlice';
 import intelligenceReducer from './intelligenceSlice';
 import inviteReducer from './inviteSlice';
-import notionReducer from './notionSlice';
 import skillsReducer from './skillsSlice';
 import socketReducer from './socketSlice';
 import teamReducer from './teamSlice';
@@ -134,12 +132,10 @@ export const store = configureStore({
     daemon: daemonReducer,
     ai: persistedAiReducer,
     skills: persistedSkillsReducer,
-    gmail: gmailReducer,
     team: teamReducer,
     thread: persistedThreadReducer,
     intelligence: intelligenceReducer,
     invite: inviteReducer,
-    notion: notionReducer,
     accessibility: accessibilityReducer,
     channelConnections: persistedChannelConnectionsReducer,
   },

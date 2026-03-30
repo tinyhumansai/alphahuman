@@ -2,8 +2,33 @@
  * In-process replacement for the removed `openhuman::ai_memory` core RPC surface.
  * Keeps session + memory index behavior in RAM for the desktop UI (no disk persistence).
  */
-import type { ChunkRecordRust } from './memory/types';
-import type { SessionEntry } from './sessions/types';
+interface ChunkRecordRust {
+  id: string;
+  path: string;
+  source: string;
+  start_line: number;
+  end_line: number;
+  hash: string;
+  model: string;
+  text: string;
+  embedding: number[] | null;
+  updated_at: number;
+}
+
+interface SessionEntry {
+  sessionId: string;
+  updatedAt: number;
+  sessionFile: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  model: string;
+  compactionCount: number;
+  memoryFlushAt?: number;
+  memoryFlushCompactionCount?: number;
+  label?: string;
+  channel?: string;
+}
 
 interface FileRecordJson {
   path: string;
