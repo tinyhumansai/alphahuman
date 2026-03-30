@@ -57,4 +57,34 @@ describe('ServiceBlockingGate', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Install Service' }));
     await waitFor(() => expect(mockInstall).toHaveBeenCalled());
   });
+
+  it('renders children when service is running even if agent is not running', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockServiceStatus.mockResolvedValue({ result: { state: 'Running' }, logs: [] });
+    mockAgentStatus.mockResolvedValue({ result: { running: false }, logs: [] });
+
+    render(
+      <ServiceBlockingGate>
+        <div>App Content</div>
+      </ServiceBlockingGate>
+    );
+
+    await waitFor(() => expect(screen.getByText('App Content')).toBeInTheDocument());
+    expect(screen.queryByText('OpenHuman Service Required')).not.toBeInTheDocument();
+  });
+
+  it('renders children when service is running and agent probe fails', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockServiceStatus.mockResolvedValue({ result: { state: 'Running' }, logs: [] });
+    mockAgentStatus.mockRejectedValue(new Error('agent status unavailable'));
+
+    render(
+      <ServiceBlockingGate>
+        <div>App Content</div>
+      </ServiceBlockingGate>
+    );
+
+    await waitFor(() => expect(screen.getByText('App Content')).toBeInTheDocument());
+    expect(screen.queryByText('OpenHuman Service Required')).not.toBeInTheDocument();
+  });
 });
