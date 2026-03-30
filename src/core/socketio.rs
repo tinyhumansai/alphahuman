@@ -40,11 +40,23 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
 
     io.ns("/", |socket: SocketRef| {
         let client_id = socket.id.to_string();
+        log::debug!("[socketio] connect client_id={client_id}");
         let _ = socket.join(client_id.clone());
         let ready_payload = json!({ "sid": client_id });
+        log::debug!("[socketio] emit event=ready to_client={}", socket.id);
         let _ = socket.emit("ready", &ready_payload);
 
         socket.on("rpc:request", |socket: SocketRef, Data(payload): Data<SocketRpcRequest>| async move {
+            let client_id = socket.id.to_string();
+            log::debug!(
+                "[socketio] recv event=rpc:request client_id={} id={} method={} params_type={} params_bytes={}",
+                client_id,
+                payload.id,
+                payload.method,
+                json_type_name(&payload.params),
+                payload.params.to_string().len()
+            );
+
             let response = match crate::core::jsonrpc::invoke_method(
                 crate::core::jsonrpc::default_state(),
                 payload.method.as_str(),
@@ -52,14 +64,31 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
             )
             .await
             {
-                Ok(result) => ("rpc:response", json!({ "id": payload.id, "result": result })),
-                Err(message) => (
-                    "rpc:error",
-                    json!({
-                        "id": payload.id,
-                        "error": { "code": -32000, "message": message }
-                    }),
-                ),
+                Ok(result) => {
+                    log::debug!(
+                        "[socketio] send event=rpc:response client_id={} id={} result_type={} result_bytes={}",
+                        client_id,
+                        payload.id,
+                        json_type_name(&result),
+                        result.to_string().len()
+                    );
+                    ("rpc:response", json!({ "id": payload.id, "result": result }))
+                }
+                Err(message) => {
+                    log::debug!(
+                        "[socketio] send event=rpc:error client_id={} id={} message={}",
+                        client_id,
+                        payload.id,
+                        message
+                    );
+                    (
+                        "rpc:error",
+                        json!({
+                            "id": payload.id,
+                            "error": { "code": -32000, "message": message }
+                        }),
+                    )
+                }
             };
 
             let _ = socket.emit(response.0, &response.1);
@@ -69,6 +98,14 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
             let client_id = socket.id.to_string();
             let thread_id = payload.thread_id.clone();
             let model_override = payload.model_override.or(payload.model);
+            log::debug!(
+                "[socketio] recv event=chat:start client_id={} thread_id={} message_bytes={} model_override={:?} temperature={:?}",
+                client_id,
+                thread_id,
+                payload.message.len(),
+                model_override,
+                payload.temperature
+            );
 
             if let Err(error) = crate::openhuman::web_channel::ops::channel_web_chat(
                 &client_id,
@@ -87,12 +124,18 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
                     "message": error,
                     "error_type": "inference",
                 });
+                log::debug!("[socketio] send event=chat_error client_id={} thread_id={} message={}", socket.id, payload.thread_id, error);
                 let _ = socket.emit("chat_error", &error_payload);
             }
         });
 
         socket.on("chat:cancel", |socket: SocketRef, Data(payload): Data<ChatCancelPayload>| async move {
             let client_id = socket.id.to_string();
+            log::debug!(
+                "[socketio] recv event=chat:cancel client_id={} thread_id={}",
+                client_id,
+                payload.thread_id
+            );
             let _ = crate::openhuman::web_channel::ops::channel_web_cancel(
                 &client_id,
                 &payload.thread_id,
@@ -119,6 +162,7 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
 
             emit_web_channel_event(&io, event);
         }
+        log::debug!("[socketio] web_channel bridge stopped");
     });
 }
 
@@ -126,6 +170,30 @@ fn emit_web_channel_event(io: &SocketIo, event: WebChannelEvent) {
     let room = event.client_id.clone();
     let name = event.event.clone();
     if let Ok(payload) = serde_json::to_value(event) {
+        log::debug!(
+            "[socketio] send event={} room={} thread_id={} request_id={}",
+            name,
+            room,
+            payload
+                .get("thread_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            payload
+                .get("request_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+        );
         let _ = io.to(room).emit(name, &payload);
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }

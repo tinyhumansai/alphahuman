@@ -148,6 +148,13 @@ class SocketService {
     };
 
     this.socket = io(backendUrl, socketOptions);
+    this.socket.onAny((event, ...args) => {
+      const firstArg = args.length > 0 ? args[0] : undefined;
+      socketLog(
+        'Inbound event',
+        createSafeLogData({ event, argsCount: args.length, hasData: args.length > 0 }, firstArg)
+      );
+    });
 
     // Initialize MCP transport for client→server MCP requests
     this.mcpTransport = new SocketIOMCPTransportImpl(this.socket);
@@ -198,80 +205,6 @@ class SocketService {
           },
         })
       );
-    });
-
-    // MCP handlers (shared across web and desktop)
-    this.socket.on('mcp:listTools', (data: { requestId: string }) => {
-      socketLog('MCP list tools request', { requestId: data.requestId });
-
-      // Aggregate tools from all ready skills
-      const skillsState = store.getState().skills.skills;
-      const allTools: MCPTool[] = [];
-
-      for (const [skillId, skill] of Object.entries(skillsState)) {
-        if (skill.status === 'ready' && skill.tools?.length) {
-          for (const tool of skill.tools) {
-            allTools.push({
-              name: `${skillId}__${tool.name}`,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-            });
-          }
-        }
-      }
-
-      socketLog('MCP list tools response', {
-        requestId: data.requestId,
-        toolCount: allTools.length,
-      });
-
-      this.socket?.emit('mcp:listToolsResponse', { requestId: data.requestId, tools: allTools });
-    });
-
-    this.socket.on('mcp:toolCall', async (data: { requestId: string; toolCall: MCPToolCall }) => {
-      const { requestId, toolCall } = data;
-      socketLog('MCP tool call', createSafeLogData({ requestId, toolName: toolCall?.name }, data));
-
-      const separatorIdx = toolCall.name.indexOf('__');
-      if (separatorIdx === -1) {
-        socketError('MCP tool call - invalid tool name format', { requestId, name: toolCall.name });
-        this.socket?.emit('mcp:toolCallResponse', {
-          requestId,
-          result: {
-            content: [
-              {
-                type: 'text',
-                text: `Invalid tool name: ${toolCall.name}. Expected format: skillId__toolName`,
-              },
-            ],
-            isError: true,
-          },
-        });
-        return;
-      }
-
-      const skillId = toolCall.name.substring(0, separatorIdx);
-      const toolName = toolCall.name.substring(separatorIdx + 2);
-
-      try {
-        const result = await skillManager.callTool(skillId, toolName, toolCall.arguments);
-
-        socketLog('MCP tool call success', { requestId, skillId, toolName });
-
-        this.socket?.emit('mcp:toolCallResponse', { requestId, result });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        socketError('MCP tool call failed', {
-          requestId,
-          skillId,
-          toolName,
-          error: sanitizeError(err),
-        });
-        this.socket?.emit('mcp:toolCallResponse', {
-          requestId,
-          result: { content: [{ type: 'text', text: msg }], isError: true },
-        });
-      }
     });
 
     this.socket.connect();
