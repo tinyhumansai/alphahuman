@@ -20,6 +20,29 @@ cd "$APP_DIR"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/e2e-resolve-node-appium.sh"
 
+CREATED_TEMP_WORKSPACE=""
+APPIUM_PID=""
+if [ -z "${OPENHUMAN_WORKSPACE:-}" ]; then
+  OPENHUMAN_WORKSPACE="$(mktemp -d)"
+  CREATED_TEMP_WORKSPACE="$OPENHUMAN_WORKSPACE"
+  export OPENHUMAN_WORKSPACE
+  echo "Using temporary OPENHUMAN_WORKSPACE: $OPENHUMAN_WORKSPACE"
+else
+  echo "Using OPENHUMAN_WORKSPACE from environment: $OPENHUMAN_WORKSPACE"
+fi
+
+cleanup() {
+  if [ -n "$APPIUM_PID" ]; then
+    echo "Stopping Appium (pid $APPIUM_PID)..."
+    kill "$APPIUM_PID" 2>/dev/null || true
+    wait "$APPIUM_PID" 2>/dev/null || true
+  fi
+  if [ -n "$CREATED_TEMP_WORKSPACE" ]; then
+    rm -rf "$CREATED_TEMP_WORKSPACE"
+  fi
+}
+trap cleanup EXIT
+
 export VITE_BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT}"
 export BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT}"
 
@@ -47,13 +70,6 @@ echo "Starting Appium on port $APPIUM_PORT (Node $NODE_VER)..."
 echo "  Appium logs: $APPIUM_LOG"
 "$APPIUM_BIN" --port "$APPIUM_PORT" --relaxed-security > "$APPIUM_LOG" 2>&1 &
 APPIUM_PID=$!
-
-cleanup() {
-  echo "Stopping Appium (pid $APPIUM_PID)..."
-  kill "$APPIUM_PID" 2>/dev/null || true
-  wait "$APPIUM_PID" 2>/dev/null || true
-}
-trap cleanup EXIT
 
 for i in $(seq 1 30); do
   if curl -sf "http://127.0.0.1:$APPIUM_PORT/status" >/dev/null 2>&1; then

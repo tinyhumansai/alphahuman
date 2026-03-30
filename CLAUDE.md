@@ -122,7 +122,10 @@ yarn test:e2e:all:flows
 
 ### Deterministic core-sidecar reset
 
-For reproducible E2E runs, isolate `openhuman` storage using a temp workspace:
+By default, `scripts/e2e-run-spec.sh` creates and cleans a temp `OPENHUMAN_WORKSPACE`
+automatically when the variable is not provided.
+
+If you need a fixed workspace for debugging, provide one explicitly:
 
 ```bash
 export OPENHUMAN_WORKSPACE="$(mktemp -d)"
@@ -134,7 +137,7 @@ rm -rf "$OPENHUMAN_WORKSPACE"
 - `OPENHUMAN_WORKSPACE` redirects core config + workspace storage away from `~/.openhuman`.
 - Default reset strategy:
   - Rebuild/stage sidecar once per E2E run (`yarn test:e2e:build`).
-  - Isolate state per test case with a fresh temp workspace.
+  - Isolate state per test case with a fresh temp workspace (default behavior in `e2e-run-spec.sh`).
 
 Example per-test-case pattern inside a harness script:
 
