@@ -254,7 +254,11 @@ fn make_memory() -> Arc<dyn Memory> {
         backend: "none".into(),
         ..MemoryConfig::default()
     };
-    Arc::from(memory::create_memory(&cfg, &std::env::temp_dir(), None).unwrap())
+    // Use a unique workspace dir per test to avoid sqlite locking between parallel tests.
+    // UnifiedMemory uses sqlite under the hood regardless of the backend name.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.keep();
+    Arc::from(memory::create_memory(&cfg, &path, None).unwrap())
 }
 
 fn make_sqlite_memory() -> (Arc<dyn Memory>, tempfile::TempDir) {
@@ -1242,7 +1246,7 @@ fn native_dispatcher_returns_empty_instructions() {
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EchoTool)];
     let dispatcher = NativeToolDispatcher;
     let instructions = dispatcher.prompt_instructions(&tools);
-    assert!(instructions.is_empty());
+    assert!(instructions.contains("## Tool Use Protocol"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

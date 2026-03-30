@@ -1646,20 +1646,14 @@ export async function runtimeDiscoverSkills(): Promise<RuntimeDiscoveredSkill[]>
         name: 'Gmail',
         description: 'Connect your Gmail account',
         runtime: 'quickjs',
-        setup: {
-          required: true,
-          oauth: { provider: 'google', scopes: [], apiBaseUrl: '' },
-        },
+        setup: { required: true, oauth: { provider: 'google', scopes: [], apiBaseUrl: '' } },
       },
       {
         id: 'notion',
         name: 'Notion',
         description: 'Connect your Notion workspace',
         runtime: 'quickjs',
-        setup: {
-          required: true,
-          oauth: { provider: 'notion', scopes: [], apiBaseUrl: '' },
-        },
+        setup: { required: true, oauth: { provider: 'notion', scopes: [], apiBaseUrl: '' } },
       },
     ];
   }

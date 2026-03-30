@@ -4,8 +4,8 @@ import { useEffect } from 'react';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillManifest, SkillStatus } from '../lib/skills/types';
 import { store } from '../store';
-import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { setSkillError, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import { isTauri, runtimeDiscoverSkills } from '../utils/tauriCommands';
 
 type RuntimeSkillStateChangedEvent = {
