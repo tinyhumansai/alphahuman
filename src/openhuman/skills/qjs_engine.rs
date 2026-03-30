@@ -235,7 +235,8 @@ impl RuntimeEngine {
         }
 
         // 2. Scan workspace skills directory (user-installed from registry)
-        if let Some(workspace_dir) = self.workspace_dir.read().as_ref() {
+        let workspace_dir_opt = self.workspace_dir.read().clone();
+        if let Some(workspace_dir) = workspace_dir_opt {
             let workspace_skills = workspace_dir.join("skills");
             if workspace_skills.exists() {
                 log::info!(
