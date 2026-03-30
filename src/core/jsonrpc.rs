@@ -95,6 +95,7 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         .route("/events", get(events_handler))
         .route("/rpc", post(rpc_handler))
         .fallback(not_found_handler)
+        .layer(middleware::from_fn(http_request_log_middleware))
         .layer(middleware::from_fn(cors_middleware))
         .with_state(AppState {
             core_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -107,6 +108,28 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
     }
 
     router
+}
+
+async fn http_request_log_middleware(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let query_len = req.uri().query().map(str::len).unwrap_or(0);
+    let started = std::time::Instant::now();
+
+    let response = next.run(req).await;
+
+    let status = response.status().as_u16();
+    let ms = started.elapsed().as_millis();
+    log::info!(
+        "[http] {} {}{} -> {} ({}ms)",
+        method,
+        path,
+        if query_len > 0 { "?…" } else { "" },
+        status,
+        ms
+    );
+
+    response
 }
 
 async fn cors_middleware(req: Request, next: Next) -> Response {
@@ -230,10 +253,13 @@ pub async fn run_server(port: Option<u16>, socketio_enabled: bool) -> anyhow::Re
 
     let app = build_core_http_router(socketio_enabled);
 
-    log::info!("[core] listening on http://{bind_addr}");
-    log::info!("[rpc:http] JSON-RPC server running — POST http://{bind_addr}/rpc (JSON-RPC 2.0)");
+    log::info!(
+        "[core] OpenHuman core is ready — listening on http://{bind_addr} (version {})",
+        env!("CARGO_PKG_VERSION")
+    );
+    log::info!("[rpc:http] JSON-RPC — POST http://{bind_addr}/rpc (JSON-RPC 2.0)");
     if socketio_enabled {
-        log::info!("[rpc:socketio] Socket.IO server running — ws://{bind_addr}/socket.io/");
+        log::info!("[rpc:socketio] Socket.IO — ws://{bind_addr}/socket.io/ (same HTTP server)");
     } else {
         log::info!("[rpc:socketio] disabled (--jsonrpc-only)");
     }

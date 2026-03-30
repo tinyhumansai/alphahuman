@@ -59,14 +59,14 @@ struct ChatCancelPayload {
 pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
     let (layer, io) = SocketIo::new_layer();
 
-    log::debug!(
-        "[socketio] configured with req_path={}",
+    log::info!(
+        "[socketio] engine ready (namespace /, path {})",
         io.config().engine_config.req_path
     );
 
     io.ns("/", |socket: SocketRef| {
         let client_id = socket.id.to_string();
-        log::debug!("[socketio] connect client_id={client_id}");
+        log::info!("[socketio] client connected id={client_id}");
         let _ = socket.join(client_id.clone());
         let ready_payload = json!({ "sid": client_id });
         log::debug!("[socketio] emit event=ready to_client={}", socket.id);
@@ -74,11 +74,14 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
 
         socket.on("rpc:request", |socket: SocketRef, Data(payload): Data<SocketRpcRequest>| async move {
             let client_id = socket.id.to_string();
-            log::debug!(
-                "[socketio] recv event=rpc:request client_id={} id={} method={} params_type={} params_bytes={}",
-                client_id,
-                payload.id,
+            log::info!(
+                "[socketio] rpc:request method={} id={} client={}",
                 payload.method,
+                payload.id,
+                client_id
+            );
+            log::debug!(
+                "[socketio] rpc:request params_type={} params_bytes={}",
                 json_type_name(&payload.params),
                 payload.params.to_string().len()
             );

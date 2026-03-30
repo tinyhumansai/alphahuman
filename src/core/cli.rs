@@ -37,6 +37,7 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
 fn run_server_command(args: &[String]) -> Result<()> {
     let mut port: Option<u16> = None;
     let mut socketio_enabled = true;
+    let mut verbose = false;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -54,13 +55,27 @@ fn run_server_command(args: &[String]) -> Result<()> {
                 socketio_enabled = false;
                 i += 1;
             }
+            "-v" | "--verbose" => {
+                verbose = true;
+                i += 1;
+            }
             "-h" | "--help" => {
-                println!("Usage: openhuman run [--port <u16>] [--jsonrpc-only]");
+                println!("Usage: openhuman run [--port <u16>] [--jsonrpc-only] [-v|--verbose]");
+                println!();
+                println!(
+                    "  --port <u16>     Listen address port (default: 7788 or OPENHUMAN_CORE_PORT)"
+                );
+                println!("  --jsonrpc-only   HTTP JSON-RPC only; disable Socket.IO");
+                println!("  -v, --verbose    Shorthand for RUST_LOG=debug when RUST_LOG is unset");
+                println!();
+                println!("Logging: set RUST_LOG (e.g. RUST_LOG=debug openhuman run). Default level is info.");
                 return Ok(());
             }
             other => return Err(anyhow::anyhow!("unknown run arg: {other}")),
         }
     }
+
+    crate::core::logging::init_for_cli_run(verbose);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -238,7 +253,7 @@ fn grouped_schemas() -> BTreeMap<String, Vec<ControllerSchema>> {
 fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("OpenHuman core CLI\n");
     println!("Usage:");
-    println!("  openhuman run [--port <u16>]");
+    println!("  openhuman run [--port <u16>] [--jsonrpc-only] [--verbose]");
     println!("  openhuman call --method <name> [--params '<json>']");
     println!("  openhuman <namespace> <function> [--param value ...]\n");
     println!("Available namespaces:");

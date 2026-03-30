@@ -5110,6 +5110,7 @@ dependencies = [
  "toml 1.1.0+spec-1.1.0",
  "tower",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "url",
  "urlencoding",

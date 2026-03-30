@@ -5,6 +5,7 @@ pub mod all;
 pub mod cli;
 pub mod dispatch;
 pub mod jsonrpc;
+pub mod logging;
 pub mod rpc_log;
 pub mod socketio;
 pub mod types;
