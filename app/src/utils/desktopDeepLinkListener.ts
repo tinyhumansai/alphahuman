@@ -1,4 +1,5 @@
-import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
+import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { skillManager } from '../lib/skills/manager';
@@ -35,6 +36,17 @@ function getCurrentUserId(): string | null {
   }
 }
 
+const focusMainWindow = async () => {
+  try {
+    const window = getCurrentWindow();
+    await window.show();
+    await window.unminimize();
+    await window.setFocus();
+  } catch (err) {
+    console.warn('[DeepLink] Failed to focus window:', err);
+  }
+};
+
 /**
  * Handle an `openhuman://auth?token=...` deep link for login.
  */
@@ -48,11 +60,7 @@ const handleAuthDeepLink = async (parsed: URL) => {
 
   console.log('[DeepLink] Received auth token', token);
 
-  try {
-    await invoke('show_window');
-  } catch (err) {
-    console.warn('[DeepLink] Failed to show window:', err);
-  }
+  await focusMainWindow();
 
   if (key === 'auth') {
     store.dispatch(setToken(token));
@@ -72,11 +80,7 @@ const handleAuthDeepLink = async (parsed: URL) => {
 const handlePaymentDeepLink = async (parsed: URL) => {
   const path = parsed.pathname.replace(/^\/+/, '');
 
-  try {
-    await invoke('show_window');
-  } catch {
-    // Not fatal
-  }
+  await focusMainWindow();
 
   if (path === 'success') {
     const sessionId = parsed.searchParams.get('session_id');
@@ -110,11 +114,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
   // pathname is "/success" or "/error" (hostname is "oauth")
   const path = parsed.pathname.replace(/^\/+/, '');
 
-  try {
-    await invoke('show_window');
-  } catch {
-    // Not fatal
-  }
+  await focusMainWindow();
 
   if (path === 'success') {
     const integrationId = parsed.searchParams.get('integrationId');

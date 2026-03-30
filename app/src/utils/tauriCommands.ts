@@ -4,6 +4,7 @@
  * Helper functions for invoking Tauri commands from the frontend.
  */
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { callCoreRpc } from '../services/coreRpcClient';
 
@@ -86,7 +87,10 @@ export async function showWindow(): Promise<void> {
     return;
   }
 
-  await invoke('show_window');
+  const window = getCurrentWindow();
+  await window.show();
+  await window.unminimize();
+  await window.setFocus();
 }
 
 /**
@@ -97,7 +101,7 @@ export async function hideWindow(): Promise<void> {
     return;
   }
 
-  await invoke('hide_window');
+  await getCurrentWindow().hide();
 }
 
 /**
@@ -108,7 +112,15 @@ export async function toggleWindow(): Promise<void> {
     return;
   }
 
-  await invoke('toggle_window');
+  const window = getCurrentWindow();
+  const visible = await window.isVisible();
+  if (visible) {
+    await window.hide();
+    return;
+  }
+  await window.show();
+  await window.unminimize();
+  await window.setFocus();
 }
 
 /**
@@ -119,7 +131,7 @@ export async function isWindowVisible(): Promise<boolean> {
     return true; // In browser, window is always visible
   }
 
-  return await invoke('is_window_visible');
+  return await getCurrentWindow().isVisible();
 }
 
 /**
@@ -130,7 +142,7 @@ export async function minimizeWindow(): Promise<void> {
     return;
   }
 
-  await invoke('minimize_window');
+  await getCurrentWindow().minimize();
 }
 
 /**
@@ -141,7 +153,8 @@ export async function maximizeWindow(): Promise<void> {
     return;
   }
 
-  await invoke('maximize_window');
+  const window = getCurrentWindow();
+  await window.toggleMaximize();
 }
 
 /**
@@ -152,7 +165,7 @@ export async function closeWindow(): Promise<void> {
     return;
   }
 
-  await invoke('close_window');
+  await getCurrentWindow().close();
 }
 
 /**
@@ -164,7 +177,7 @@ export async function setWindowTitle(title: string): Promise<void> {
     return;
   }
 
-  await invoke('set_window_title', { title });
+  await getCurrentWindow().setTitle(title);
 }
 
 // --- Memory Commands ---
@@ -346,10 +359,6 @@ export type HardwareTransport = 'Native' | 'Serial' | 'Probe' | 'None';
 export interface CommandResponse<T> {
   result: T;
   logs: string[];
-}
-
-function wrapCommandResult<T>(result: T): CommandResponse<T> {
-  return { result, logs: [] };
 }
 
 export interface SkillSnapshot {
@@ -1254,17 +1263,34 @@ export async function openhumanLocalAiDownloadAsset(
 }
 
 export async function aiGetConfig(): Promise<AIPreview> {
-  if (!isTauri()) {
-    throw new Error('Not running in Tauri');
-  }
-  return await invoke('ai_get_config');
+  return {
+    soul: {
+      raw: '',
+      name: 'OpenHuman',
+      description: 'AI assistant',
+      personalityPreview: [],
+      safetyRulesPreview: [],
+      loadedAt: Date.now(),
+    },
+    tools: {
+      raw: '',
+      totalTools: 0,
+      activeSkills: 0,
+      skillsPreview: [],
+      loadedAt: Date.now(),
+    },
+    metadata: {
+      loadedAt: Date.now(),
+      loadingDuration: 0,
+      hasFallbacks: true,
+      sources: { soul: 'frontend', tools: 'frontend' },
+      errors: ['AI prompt preview has been moved out of the Tauri host.'],
+    },
+  };
 }
 
 export async function aiRefreshConfig(): Promise<AIPreview> {
-  if (!isTauri()) {
-    throw new Error('Not running in Tauri');
-  }
-  return await invoke('ai_refresh_config');
+  return aiGetConfig();
 }
 
 export async function openhumanEncryptSecret(plaintext: string): Promise<CommandResponse<string>> {
@@ -1344,8 +1370,8 @@ export async function openhumanServiceInstall(): Promise<CommandResponse<Service
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<ServiceStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.service_install', params: {} },
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_install',
   });
 }
 
@@ -1353,8 +1379,8 @@ export async function openhumanServiceStart(): Promise<CommandResponse<ServiceSt
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<ServiceStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.service_start', params: {} },
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_start',
   });
 }
 
@@ -1362,8 +1388,8 @@ export async function openhumanServiceStop(): Promise<CommandResponse<ServiceSta
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<ServiceStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.service_stop', params: {} },
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_stop',
   });
 }
 
@@ -1371,8 +1397,8 @@ export async function openhumanServiceStatus(): Promise<CommandResponse<ServiceS
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<ServiceStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.service_status', params: {} },
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_status',
   });
 }
 
@@ -1380,8 +1406,8 @@ export async function openhumanServiceUninstall(): Promise<CommandResponse<Servi
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<ServiceStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.service_uninstall', params: {} },
+  return await callCoreRpc<CommandResponse<ServiceStatus>>({
+    method: 'openhuman.service_uninstall',
   });
 }
 
@@ -1389,8 +1415,8 @@ export async function openhumanAgentServerStatus(): Promise<CommandResponse<Agen
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<CommandResponse<AgentServerStatus>>('core_rpc_relay', {
-    request: { method: 'openhuman.agent_server_status', params: {} },
+  return await callCoreRpc<CommandResponse<AgentServerStatus>>({
+    method: 'openhuman.agent_server_status',
   });
 }
 
@@ -1398,8 +1424,9 @@ export async function openhumanGetDaemonHostConfig(): Promise<CommandResponse<Da
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<DaemonHostConfig>('openhuman_get_daemon_host_config');
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<DaemonHostConfig>>({
+    method: 'openhuman.service_daemon_host_get',
+  });
 }
 
 export async function openhumanSetDaemonHostConfig(
@@ -1408,8 +1435,10 @@ export async function openhumanSetDaemonHostConfig(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  const result = await invoke<DaemonHostConfig>('openhuman_set_daemon_host_config', { showTray });
-  return wrapCommandResult(result);
+  return await callCoreRpc<CommandResponse<DaemonHostConfig>>({
+    method: 'openhuman.service_daemon_host_set',
+    params: { show_tray: showTray },
+  });
 }
 
 export async function openhumanAccessibilityStatus(): Promise<

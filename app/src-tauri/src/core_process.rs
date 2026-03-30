@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::{timeout, Duration};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoreRunMode {
@@ -35,8 +37,19 @@ impl CoreProcessHandle {
         format!("http://127.0.0.1:{}/rpc", self.port)
     }
 
+    async fn is_rpc_port_open(&self) -> bool {
+        matches!(
+            timeout(
+                Duration::from_millis(150),
+                TcpStream::connect(("127.0.0.1", self.port)),
+            )
+            .await,
+            Ok(Ok(_))
+        )
+    }
+
     pub async fn ensure_running(&self) -> Result<(), String> {
-        if crate::core_rpc::ping().await {
+        if self.is_rpc_port_open().await {
             log::info!(
                 "[core] found existing core rpc endpoint at {}",
                 self.rpc_url()
@@ -115,7 +128,7 @@ impl CoreProcessHandle {
         }
 
         for _ in 0..40 {
-            if crate::core_rpc::ping().await {
+            if self.is_rpc_port_open().await {
                 log::info!("[core] core rpc became ready at {}", self.rpc_url());
                 return Ok(());
             }

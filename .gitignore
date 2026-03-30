@@ -52,3 +52,5 @@ tauri.key
 tauri.key.pub
 /target/
 src-tauri/target/
+
+openhuman-skills
