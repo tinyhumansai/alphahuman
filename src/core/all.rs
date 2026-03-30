@@ -49,6 +49,9 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(
         crate::openhuman::channels::providers::web::all_web_channel_registered_controllers(),
     );
+    controllers.extend(
+        crate::openhuman::channels::controllers::all_channels_registered_controllers(),
+    );
     controllers.extend(crate::openhuman::config::all_config_registered_controllers());
     controllers.extend(crate::openhuman::credentials::all_credentials_registered_controllers());
     controllers.extend(crate::openhuman::service::all_service_registered_controllers());
@@ -76,6 +79,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::autocomplete::all_autocomplete_controller_schemas());
     schemas
         .extend(crate::openhuman::channels::providers::web::all_web_channel_controller_schemas());
+    schemas.extend(crate::openhuman::channels::controllers::all_channels_controller_schemas());
     schemas.extend(crate::openhuman::config::all_config_controller_schemas());
     schemas.extend(crate::openhuman::credentials::all_credentials_controller_schemas());
     schemas.extend(crate::openhuman::service::all_service_controller_schemas());
@@ -108,6 +112,7 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
     match namespace {
         "auth" => Some("Manage app session and provider credentials."),
         "autocomplete" => Some("Inline autocomplete engine controls and style settings."),
+        "channels" => Some("Channel definitions, connections, and lifecycle management."),
         "config" => Some("Read and update persisted runtime configuration."),
         "cron" => Some("Manage scheduled jobs and run history."),
         "decrypt" => Some("Decrypt secure values managed by secret storage."),

@@ -351,13 +351,16 @@ mod tests {
     }
 
     #[test]
-    fn serialization_round_trip() {
+    fn serialization_produces_expected_structure() {
         let def = telegram_definition();
-        let json = serde_json::to_string(&def).expect("serialize");
-        let back: ChannelDefinition = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(back.id, def.id);
-        assert_eq!(back.auth_modes.len(), def.auth_modes.len());
-        assert_eq!(back.capabilities.len(), def.capabilities.len());
+        let v = serde_json::to_value(&def).expect("serialize");
+        let obj = v.as_object().expect("top-level object");
+        assert_eq!(obj.get("id").and_then(|v| v.as_str()), Some("telegram"));
+        assert_eq!(obj.get("display_name").and_then(|v| v.as_str()), Some("Telegram"));
+        let modes = obj.get("auth_modes").and_then(|v| v.as_array()).expect("auth_modes");
+        assert_eq!(modes.len(), def.auth_modes.len());
+        let caps = obj.get("capabilities").and_then(|v| v.as_array()).expect("capabilities");
+        assert_eq!(caps.len(), def.capabilities.len());
     }
 
     #[test]

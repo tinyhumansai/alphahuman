@@ -696,6 +696,9 @@ mod tests {
 
     #[tokio::test]
     async fn turn_without_tools_returns_text() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let workspace_path = workspace.path().to_path_buf();
+
         let provider = Box::new(MockProvider {
             responses: Mutex::new(vec![crate::openhuman::providers::ChatResponse {
                 text: Some("hello".into()),
@@ -710,7 +713,7 @@ mod tests {
         let mem: Arc<dyn Memory> = Arc::from(
             crate::openhuman::memory::create_memory(
                 &memory_cfg,
-                std::path::Path::new("/tmp"),
+                &workspace_path,
                 None,
             )
             .unwrap(),
@@ -721,7 +724,7 @@ mod tests {
             .tools(vec![Box::new(MockTool)])
             .memory(mem)
             .tool_dispatcher(Box::new(XmlToolDispatcher))
-            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .workspace_dir(workspace_path)
             .build()
             .unwrap();
 
@@ -731,6 +734,9 @@ mod tests {
 
     #[tokio::test]
     async fn turn_with_native_dispatcher_handles_tool_results_variant() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let workspace_path = workspace.path().to_path_buf();
+
         let provider = Box::new(MockProvider {
             responses: Mutex::new(vec![
                 crate::openhuman::providers::ChatResponse {
@@ -755,7 +761,7 @@ mod tests {
         let mem: Arc<dyn Memory> = Arc::from(
             crate::openhuman::memory::create_memory(
                 &memory_cfg,
-                std::path::Path::new("/tmp"),
+                &workspace_path,
                 None,
             )
             .unwrap(),
@@ -766,7 +772,7 @@ mod tests {
             .tools(vec![Box::new(MockTool)])
             .memory(mem)
             .tool_dispatcher(Box::new(NativeToolDispatcher))
-            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .workspace_dir(workspace_path)
             .build()
             .unwrap();
 
