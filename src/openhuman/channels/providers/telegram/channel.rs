@@ -1,3 +1,13 @@
+//! Telegram Bot API channel implementation.
+
+use super::attachments::{
+    is_http_url, parse_attachment_markers, parse_path_only_attachment, TelegramAttachment,
+    TelegramAttachmentKind,
+};
+use super::text::{
+    split_message_for_telegram, strip_tool_call_tags, TELEGRAM_BIND_COMMAND,
+    TELEGRAM_MAX_MESSAGE_LENGTH,
+};
 use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use crate::openhuman::config::{Config, StreamMode};
 use crate::openhuman::security::pairing::PairingGuard;
@@ -10,293 +20,6 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::fs;
-
-/// Telegram's maximum message length for text messages
-const TELEGRAM_MAX_MESSAGE_LENGTH: usize = 4096;
-const TELEGRAM_BIND_COMMAND: &str = "/bind";
-
-/// Split a message into chunks that respect Telegram's 4096 character limit.
-/// Tries to split at word boundaries when possible, and handles continuation.
-fn split_message_for_telegram(message: &str) -> Vec<String> {
-    if message.chars().count() <= TELEGRAM_MAX_MESSAGE_LENGTH {
-        return vec![message.to_string()];
-    }
-
-    let mut chunks = Vec::new();
-    let mut remaining = message;
-
-    while !remaining.is_empty() {
-        // Find the byte offset for the Nth character boundary.
-        let hard_split = remaining
-            .char_indices()
-            .nth(TELEGRAM_MAX_MESSAGE_LENGTH)
-            .map_or(remaining.len(), |(idx, _)| idx);
-
-        let chunk_end = if hard_split == remaining.len() {
-            hard_split
-        } else {
-            // Try to find a good break point (newline, then space)
-            let search_area = &remaining[..hard_split];
-
-            // Prefer splitting at newline
-            if let Some(pos) = search_area.rfind('\n') {
-                // Don't split if the newline is too close to the start
-                if search_area[..pos].chars().count() >= TELEGRAM_MAX_MESSAGE_LENGTH / 2 {
-                    pos + 1
-                } else {
-                    // Try space as fallback
-                    search_area.rfind(' ').unwrap_or(hard_split) + 1
-                }
-            } else if let Some(pos) = search_area.rfind(' ') {
-                pos + 1
-            } else {
-                // Hard split at character boundary
-                hard_split
-            }
-        };
-
-        chunks.push(remaining[..chunk_end].to_string());
-        remaining = &remaining[chunk_end..];
-    }
-
-    chunks
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TelegramAttachmentKind {
-    Image,
-    Document,
-    Video,
-    Audio,
-    Voice,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TelegramAttachment {
-    kind: TelegramAttachmentKind,
-    target: String,
-}
-
-impl TelegramAttachmentKind {
-    fn from_marker(marker: &str) -> Option<Self> {
-        match marker.trim().to_ascii_uppercase().as_str() {
-            "IMAGE" | "PHOTO" => Some(Self::Image),
-            "DOCUMENT" | "FILE" => Some(Self::Document),
-            "VIDEO" => Some(Self::Video),
-            "AUDIO" => Some(Self::Audio),
-            "VOICE" => Some(Self::Voice),
-            _ => None,
-        }
-    }
-}
-
-fn is_http_url(target: &str) -> bool {
-    target.starts_with("http://") || target.starts_with("https://")
-}
-
-fn infer_attachment_kind_from_target(target: &str) -> Option<TelegramAttachmentKind> {
-    let normalized = target
-        .split('?')
-        .next()
-        .unwrap_or(target)
-        .split('#')
-        .next()
-        .unwrap_or(target);
-
-    let extension = Path::new(normalized)
-        .extension()
-        .and_then(|ext| ext.to_str())?
-        .to_ascii_lowercase();
-
-    match extension.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => Some(TelegramAttachmentKind::Image),
-        "mp4" | "mov" | "mkv" | "avi" | "webm" => Some(TelegramAttachmentKind::Video),
-        "mp3" | "m4a" | "wav" | "flac" => Some(TelegramAttachmentKind::Audio),
-        "ogg" | "oga" | "opus" => Some(TelegramAttachmentKind::Voice),
-        "pdf" | "txt" | "md" | "csv" | "json" | "zip" | "tar" | "gz" | "doc" | "docx" | "xls"
-        | "xlsx" | "ppt" | "pptx" => Some(TelegramAttachmentKind::Document),
-        _ => None,
-    }
-}
-
-fn parse_path_only_attachment(message: &str) -> Option<TelegramAttachment> {
-    let trimmed = message.trim();
-    if trimmed.is_empty() || trimmed.contains('\n') {
-        return None;
-    }
-
-    let candidate = trimmed.trim_matches(|c| matches!(c, '`' | '"' | '\''));
-    if candidate.chars().any(char::is_whitespace) {
-        return None;
-    }
-
-    let candidate = candidate.strip_prefix("file://").unwrap_or(candidate);
-    let kind = infer_attachment_kind_from_target(candidate)?;
-
-    if !is_http_url(candidate) && !Path::new(candidate).exists() {
-        return None;
-    }
-
-    Some(TelegramAttachment {
-        kind,
-        target: candidate.to_string(),
-    })
-}
-
-/// Strip tool_call XML-style tags from message text.
-/// These tags are used internally but must not be sent to Telegram as raw markup,
-/// since Telegram's Markdown parser will reject them (causing status 400 errors).
-fn strip_tool_call_tags(message: &str) -> String {
-    const TOOL_CALL_OPEN_TAGS: [&str; 5] = [
-        "<tool_call>",
-        "<toolcall>",
-        "<tool-call>",
-        "<tool>",
-        "<invoke>",
-    ];
-
-    fn find_first_tag<'a>(haystack: &str, tags: &'a [&'a str]) -> Option<(usize, &'a str)> {
-        tags.iter()
-            .filter_map(|tag| haystack.find(tag).map(|idx| (idx, *tag)))
-            .min_by_key(|(idx, _)| *idx)
-    }
-
-    fn matching_close_tag(open_tag: &str) -> Option<&'static str> {
-        match open_tag {
-            "<tool_call>" => Some("</tool_call>"),
-            "<toolcall>" => Some("</toolcall>"),
-            "<tool-call>" => Some("</tool-call>"),
-            "<tool>" => Some("</tool>"),
-            "<invoke>" => Some("</invoke>"),
-            _ => None,
-        }
-    }
-
-    fn extract_first_json_end(input: &str) -> Option<usize> {
-        let trimmed = input.trim_start();
-        let trim_offset = input.len().saturating_sub(trimmed.len());
-
-        for (byte_idx, ch) in trimmed.char_indices() {
-            if ch != '{' && ch != '[' {
-                continue;
-            }
-
-            let slice = &trimmed[byte_idx..];
-            let mut stream =
-                serde_json::Deserializer::from_str(slice).into_iter::<serde_json::Value>();
-            if let Some(Ok(_value)) = stream.next() {
-                let consumed = stream.byte_offset();
-                if consumed > 0 {
-                    return Some(trim_offset + byte_idx + consumed);
-                }
-            }
-        }
-
-        None
-    }
-
-    fn strip_leading_close_tags(mut input: &str) -> &str {
-        loop {
-            let trimmed = input.trim_start();
-            if !trimmed.starts_with("</") {
-                return trimmed;
-            }
-
-            let Some(close_end) = trimmed.find('>') else {
-                return "";
-            };
-            input = &trimmed[close_end + 1..];
-        }
-    }
-
-    let mut kept_segments = Vec::new();
-    let mut remaining = message;
-
-    while let Some((start, open_tag)) = find_first_tag(remaining, &TOOL_CALL_OPEN_TAGS) {
-        let before = &remaining[..start];
-        if !before.is_empty() {
-            kept_segments.push(before.to_string());
-        }
-
-        let Some(close_tag) = matching_close_tag(open_tag) else {
-            break;
-        };
-        let after_open = &remaining[start + open_tag.len()..];
-
-        if let Some(close_idx) = after_open.find(close_tag) {
-            remaining = &after_open[close_idx + close_tag.len()..];
-            continue;
-        }
-
-        if let Some(consumed_end) = extract_first_json_end(after_open) {
-            remaining = strip_leading_close_tags(&after_open[consumed_end..]);
-            continue;
-        }
-
-        kept_segments.push(remaining[start..].to_string());
-        remaining = "";
-        break;
-    }
-
-    if !remaining.is_empty() {
-        kept_segments.push(remaining.to_string());
-    }
-
-    let mut result = kept_segments.concat();
-
-    // Clean up any resulting blank lines (but preserve paragraphs)
-    while result.contains("\n\n\n") {
-        result = result.replace("\n\n\n", "\n\n");
-    }
-
-    result.trim().to_string()
-}
-
-fn parse_attachment_markers(message: &str) -> (String, Vec<TelegramAttachment>) {
-    let mut cleaned = String::with_capacity(message.len());
-    let mut attachments = Vec::new();
-    let mut cursor = 0;
-
-    while cursor < message.len() {
-        let Some(open_rel) = message[cursor..].find('[') else {
-            cleaned.push_str(&message[cursor..]);
-            break;
-        };
-
-        let open = cursor + open_rel;
-        cleaned.push_str(&message[cursor..open]);
-
-        let Some(close_rel) = message[open..].find(']') else {
-            cleaned.push_str(&message[open..]);
-            break;
-        };
-
-        let close = open + close_rel;
-        let marker = &message[open + 1..close];
-
-        let parsed = marker.split_once(':').and_then(|(kind, target)| {
-            let kind = TelegramAttachmentKind::from_marker(kind)?;
-            let target = target.trim();
-            if target.is_empty() {
-                return None;
-            }
-            Some(TelegramAttachment {
-                kind,
-                target: target.to_string(),
-            })
-        });
-
-        if let Some(attachment) = parsed {
-            attachments.push(attachment);
-        } else {
-            cleaned.push_str(&message[open..=close]);
-        }
-
-        cursor = close + 1;
-    }
-
-    (cleaned.trim().to_string(), attachments)
-}
 
 /// Telegram channel — long-polls the Bot API for updates
 pub struct TelegramChannel {
@@ -1812,7 +1535,18 @@ Ensure only one `openhuman` process is using this bot token."
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::attachments::{
+        infer_attachment_kind_from_target, parse_attachment_markers, parse_path_only_attachment,
+        TelegramAttachmentKind,
+    };
+    use super::super::text::{
+        split_message_for_telegram, strip_tool_call_tags, TELEGRAM_MAX_MESSAGE_LENGTH,
+    };
+    use super::TelegramChannel;
+    use crate::openhuman::channels::traits::{Channel, SendMessage};
+    use crate::openhuman::config::StreamMode;
+    use std::path::Path;
+    use std::time::Duration;
 
     #[test]
     fn telegram_channel_name() {
