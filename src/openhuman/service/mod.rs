@@ -11,6 +11,7 @@ mod common;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+pub(crate) mod mock;
 #[cfg(windows)]
 mod windows;
 

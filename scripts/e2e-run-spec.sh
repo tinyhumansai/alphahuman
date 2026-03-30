@@ -31,6 +31,12 @@ else
   echo "Using OPENHUMAN_WORKSPACE from environment: $OPENHUMAN_WORKSPACE"
 fi
 
+if [ "${OPENHUMAN_SERVICE_MOCK:-0}" = "1" ] && [ -z "${OPENHUMAN_SERVICE_MOCK_STATE_FILE:-}" ]; then
+  OPENHUMAN_SERVICE_MOCK_STATE_FILE="$OPENHUMAN_WORKSPACE/service-mock-state.json"
+  export OPENHUMAN_SERVICE_MOCK_STATE_FILE
+  echo "Using OPENHUMAN_SERVICE_MOCK_STATE_FILE: $OPENHUMAN_SERVICE_MOCK_STATE_FILE"
+fi
+
 cleanup() {
   if [ -n "$APPIUM_PID" ]; then
     echo "Stopping Appium (pid $APPIUM_PID)..."

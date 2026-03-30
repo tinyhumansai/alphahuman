@@ -4,6 +4,7 @@ import {
   isTauri,
   openhumanAgentServerStatus,
   openhumanServiceInstall,
+  openhumanServiceUninstall,
   openhumanServiceStart,
   openhumanServiceStatus,
   openhumanServiceStop,
@@ -80,6 +81,11 @@ const ServiceBlockingGate = ({ children }: ServiceBlockingGateProps) => {
     [refreshStatus]
   );
 
+  const restartService = useCallback(async () => {
+    await openhumanServiceStop();
+    await openhumanServiceStart();
+  }, []);
+
   if (gateStatus === 'ready') {
     return <>{children}</>;
   }
@@ -129,6 +135,20 @@ const ServiceBlockingGate = ({ children }: ServiceBlockingGateProps) => {
             onClick={() => void runOperation(() => openhumanServiceStop())}
             className="px-3 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-400">
             Stop Service
+          </button>
+
+          <button
+            disabled={isOperating || !installed}
+            onClick={() => void runOperation(restartService)}
+            className="px-3 py-2 rounded-lg text-sm bg-cyan-700 hover:bg-cyan-800 disabled:bg-gray-700 disabled:text-gray-400">
+            Restart Service
+          </button>
+
+          <button
+            disabled={isOperating || !installed}
+            onClick={() => void runOperation(() => openhumanServiceUninstall())}
+            className="px-3 py-2 rounded-lg text-sm bg-amber-700 hover:bg-amber-800 disabled:bg-gray-700 disabled:text-gray-400">
+            Uninstall Service
           </button>
 
           <button

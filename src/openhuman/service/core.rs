@@ -26,6 +26,10 @@ pub struct ServiceStatus {
 }
 
 pub fn install(config: &Config) -> Result<ServiceStatus> {
+    if super::mock::is_enabled() {
+        return super::mock::install(config);
+    }
+
     #[cfg(target_os = "macos")]
     {
         macos::install(config)?;
@@ -46,6 +50,10 @@ pub fn install(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn start(config: &Config) -> Result<ServiceStatus> {
+    if super::mock::is_enabled() {
+        return super::mock::start(config);
+    }
+
     #[cfg(target_os = "macos")]
     return macos::start(config);
     #[cfg(target_os = "linux")]
@@ -57,6 +65,10 @@ pub fn start(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn stop(config: &Config) -> Result<ServiceStatus> {
+    if super::mock::is_enabled() {
+        return super::mock::stop(config);
+    }
+
     #[cfg(target_os = "macos")]
     {
         macos::stop(config)?;
@@ -77,6 +89,10 @@ pub fn stop(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn status(config: &Config) -> Result<ServiceStatus> {
+    if super::mock::is_enabled() {
+        return super::mock::status(config);
+    }
+
     #[cfg(target_os = "macos")]
     return macos::status(config);
     #[cfg(target_os = "linux")]
@@ -88,6 +104,10 @@ pub fn status(config: &Config) -> Result<ServiceStatus> {
 }
 
 pub fn uninstall(config: &Config) -> Result<ServiceStatus> {
+    if super::mock::is_enabled() {
+        return super::mock::uninstall(config);
+    }
+
     let _ = stop(config);
 
     #[cfg(target_os = "macos")]

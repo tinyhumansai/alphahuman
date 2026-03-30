@@ -47,6 +47,9 @@ vi.mock('../utils/tauriCommands', () => ({
   openhumanServiceStart: vi.fn().mockResolvedValue({ result: { state: 'Running' }, logs: [] }),
   openhumanServiceStop: vi.fn().mockResolvedValue({ result: { state: 'Stopped' }, logs: [] }),
   openhumanServiceStatus: vi.fn().mockResolvedValue({ result: { state: 'Running' }, logs: [] }),
+  openhumanServiceUninstall: vi
+    .fn()
+    .mockResolvedValue({ result: { state: 'NotInstalled' }, logs: [] }),
   openhumanAgentServerStatus: vi.fn().mockResolvedValue({ result: { running: true }, logs: [] }),
   exchangeToken: vi.fn(),
   invoke: vi.fn(),

@@ -22,6 +22,7 @@
     "test:e2e": "yarn workspace openhuman-app test:e2e",
     "test:e2e:all": "yarn workspace openhuman-app test:e2e:all",
     "test:e2e:all:flows": "yarn workspace openhuman-app test:e2e:all:flows",
+    "test:e2e:service-connectivity": "yarn workspace openhuman-app test:e2e:service-connectivity",
     "test:e2e:build": "yarn workspace openhuman-app test:e2e:build",
     "mock:api": "node scripts/mock-api-server.mjs",
     "typecheck": "yarn workspace openhuman-app compile"
