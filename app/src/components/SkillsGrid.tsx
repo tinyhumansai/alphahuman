@@ -4,12 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAvailableSkills, useSkillConnectionStatus } from '../lib/skills/hooks';
 import { deriveSkillSyncSummaryText } from '../pages/skillsSyncUi';
 import { IS_DEV } from '../utils/config';
-import {
-  DefaultIcon,
-  SKILL_ICONS,
-  type SkillListEntry,
-  STATUS_DISPLAY,
-} from './skills/shared';
+import { DefaultIcon, SKILL_ICONS, type SkillListEntry, STATUS_DISPLAY } from './skills/shared';
 import SkillSetupModal from './skills/SkillSetupModal';
 
 interface SkillRowProps {

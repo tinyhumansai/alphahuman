@@ -224,10 +224,20 @@ class SkillManager {
    */
   async triggerSync(skillId: string): Promise<void> {
     const runtime = this.runtimes.get(skillId);
-    if (!runtime) {
-      throw new Error(`Skill ${skillId} is not running`);
+    if (runtime) {
+      await runtime.triggerSync();
+    } else {
+      // Try via core RPC pass-through
+      try {
+        const { callCoreRpc } = await import("../../services/coreRpcClient");
+        await callCoreRpc({
+          method: "openhuman.skills_sync",
+          params: { skill_id: skillId },
+        });
+      } catch {
+        // Skill not running — skip sync silently
+      }
     }
-    await runtime.triggerSync();
   }
 
   /**
@@ -254,23 +264,42 @@ class SkillManager {
     provider?: string,
     extraCredential?: { accessToken?: string },
   ): Promise<void> {
+    // Persist setup completion via RPC (always, regardless of runtime)
+    await rpcSetSetupComplete(skillId, true).catch(() => {});
+
+    // Try to notify the local runtime if one exists
     const runtime = this.runtimes.get(skillId);
-    if (!runtime || !runtime.isRunning) {
-      console.warn(`[SkillManager] Cannot notify OAuth complete: skill ${skillId} not running`);
-      return;
+    if (runtime?.isRunning) {
+      const credential = {
+        credentialId: integrationId,
+        provider: provider ?? "unknown",
+        grantedScopes: [] as string[],
+        ...extraCredential,
+      };
+      try {
+        await runtime.oauthComplete(credential);
+      } catch (err) {
+        console.warn(`[SkillManager] oauthComplete RPC failed for ${skillId}:`, err);
+      }
+      await this.activateSkill(skillId);
+    } else {
+      // No local runtime — try notifying via core RPC pass-through
+      try {
+        const { callCoreRpc } = await import("../../services/coreRpcClient");
+        await callCoreRpc({
+          method: "openhuman.skills_rpc",
+          params: {
+            skill_id: skillId,
+            method: "oauth/complete",
+            params: { integrationId, provider, ...extraCredential },
+          },
+        });
+      } catch {
+        // Skill may not be running in the core either — that's OK,
+        // setup_complete is already persisted above
+      }
     }
 
-    const credential = {
-      credentialId: integrationId,
-      provider: provider ?? "unknown",
-      grantedScopes: [] as string[],
-      ...extraCredential,
-    };
-
-    await runtime.oauthComplete(credential);
-
-    await rpcSetSetupComplete(skillId, true).catch(() => {});
-    await this.activateSkill(skillId);
     emitSkillStateChange(skillId);
   }
 
