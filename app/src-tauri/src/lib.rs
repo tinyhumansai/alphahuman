@@ -13,10 +13,14 @@ mod core_rpc;
 mod utils;
 
 use commands::*;
+use openhuman_core::openhuman::skills::manifest::SkillSetup;
+use openhuman_core::openhuman::skills::qjs_engine::RuntimeEngine;
+use openhuman_core::openhuman::skills::types::SkillSnapshot;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tokio::time::{interval, Duration};
 
@@ -78,6 +82,217 @@ struct AIPreviewSources {
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+#[derive(Clone)]
+struct RuntimeState {
+    engine: Arc<RuntimeEngine>,
+}
+
+impl RuntimeState {
+    fn engine(&self) -> Arc<RuntimeEngine> {
+        Arc::clone(&self.engine)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RuntimeSkillDataStats {
+    exists: bool,
+    path: String,
+    total_bytes: u64,
+    file_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeDiscoveredSkill {
+    id: String,
+    name: String,
+    runtime: String,
+    entry: String,
+    auto_start: bool,
+    version: Option<String>,
+    ignore_in_production: bool,
+    description: Option<String>,
+    setup: Option<SkillSetup>,
+    platforms: Option<Vec<String>>,
+    skill_type: String,
+}
+
+fn runtime_state(app: &AppHandle) -> Result<RuntimeState, String> {
+    app.try_state::<RuntimeState>()
+        .map(|state| (*state).clone())
+        .ok_or_else(|| "runtime state is not available".to_string())
+}
+
+fn collect_dir_stats(dir: &Path) -> Result<(u64, u64), String> {
+    let mut total_bytes = 0u64;
+    let mut file_count = 0u64;
+    let mut pending = vec![dir.to_path_buf()];
+
+    while let Some(current) = pending.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|e| format!("failed to read dir {}: {e}", current.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
+            let path = entry.path();
+            let metadata = entry
+                .metadata()
+                .map_err(|e| format!("failed to read metadata {}: {e}", path.display()))?;
+            if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file() {
+                total_bytes = total_bytes.saturating_add(metadata.len());
+                file_count = file_count.saturating_add(1);
+            }
+        }
+    }
+
+    Ok((total_bytes, file_count))
+}
+
+fn resolve_dev_skills_source_dir(cwd: &Path) -> Option<PathBuf> {
+    let candidates = [
+        cwd.join("openhuman-skills").join("skills"),
+        cwd.join("skills").join("skills"),
+        cwd.join("openhuman-skills").join("src"),
+        cwd.join("..").join("openhuman-skills").join("skills"),
+        cwd.join("..").join("skills").join("skills"),
+        cwd.join("..").join("openhuman-skills").join("src"),
+        cwd.join("..").join("..").join("openhuman-skills").join("skills"),
+        cwd.join("..").join("..").join("skills").join("skills"),
+        cwd.join("..").join("..").join("openhuman-skills").join("src"),
+    ];
+
+    for candidate in candidates {
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+async fn runtime_list_skills(app: tauri::AppHandle) -> Result<Vec<SkillSnapshot>, String> {
+    let state = runtime_state(&app)?;
+    Ok(state.engine().list_skills())
+}
+
+#[tauri::command]
+async fn runtime_discover_skills(app: tauri::AppHandle) -> Result<Vec<RuntimeDiscoveredSkill>, String> {
+    let state = runtime_state(&app)?;
+    let manifests = state.engine().discover_skills().await?;
+    Ok(manifests
+        .into_iter()
+        .map(|manifest| RuntimeDiscoveredSkill {
+            id: manifest.id,
+            name: manifest.name,
+            runtime: manifest.runtime,
+            entry: manifest.entry,
+            auto_start: manifest.auto_start,
+            version: manifest.version,
+            ignore_in_production: manifest.ignore_in_production,
+            description: manifest.description,
+            setup: manifest.setup,
+            platforms: manifest.platforms,
+            skill_type: manifest.skill_type,
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn runtime_start_skill(app: tauri::AppHandle, skill_id: String) -> Result<SkillSnapshot, String> {
+    let state = runtime_state(&app)?;
+    state.engine().start_skill(&skill_id).await
+}
+
+#[tauri::command]
+async fn runtime_stop_skill(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+    let state = runtime_state(&app)?;
+    state.engine().stop_skill(&skill_id).await
+}
+
+#[tauri::command]
+async fn runtime_rpc(
+    app: tauri::AppHandle,
+    skill_id: String,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let state = runtime_state(&app)?;
+    state.engine().rpc(&skill_id, &method, params).await
+}
+
+#[tauri::command]
+async fn runtime_is_skill_enabled(app: tauri::AppHandle, skill_id: String) -> Result<bool, String> {
+    let state = runtime_state(&app)?;
+    Ok(state.engine().is_skill_enabled(&skill_id))
+}
+
+#[tauri::command]
+async fn runtime_enable_skill(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+    let state = runtime_state(&app)?;
+    state.engine().enable_skill(&skill_id).await
+}
+
+#[tauri::command]
+async fn runtime_disable_skill(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+    let state = runtime_state(&app)?;
+    state.engine().disable_skill(&skill_id).await
+}
+
+#[tauri::command]
+async fn runtime_skill_data_read(
+    app: tauri::AppHandle,
+    skill_id: String,
+    filename: String,
+) -> Result<String, String> {
+    let state = runtime_state(&app)?;
+    state.engine().data_read(&skill_id, &filename)
+}
+
+#[tauri::command]
+async fn runtime_skill_data_write(
+    app: tauri::AppHandle,
+    skill_id: String,
+    filename: String,
+    content: String,
+) -> Result<(), String> {
+    let state = runtime_state(&app)?;
+    state.engine().data_write(&skill_id, &filename, &content)
+}
+
+#[tauri::command]
+async fn runtime_skill_data_dir(app: tauri::AppHandle, skill_id: String) -> Result<String, String> {
+    let state = runtime_state(&app)?;
+    Ok(state
+        .engine()
+        .skill_data_dir(&skill_id)
+        .to_string_lossy()
+        .to_string())
+}
+
+#[tauri::command]
+async fn runtime_skill_data_stats(
+    app: tauri::AppHandle,
+    skill_id: String,
+) -> Result<RuntimeSkillDataStats, String> {
+    let state = runtime_state(&app)?;
+    let dir = state.engine().skill_data_dir(&skill_id);
+    let exists = dir.exists();
+    let (total_bytes, file_count) = if exists {
+        collect_dir_stats(&dir)?
+    } else {
+        (0, 0)
+    };
+
+    Ok(RuntimeSkillDataStats {
+        exists,
+        path: dir.to_string_lossy().to_string(),
+        total_bytes,
+        file_count,
+    })
 }
 
 fn extract_section(raw: &str, heading: &str) -> String {
@@ -535,6 +750,39 @@ pub fn run() {
                 });
             }
 
+            // Initialize the local skills runtime bridge used by runtime_* Tauri commands.
+            {
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
+                let skills_data_dir = app_data_dir.join("skills");
+                std::fs::create_dir_all(&skills_data_dir)
+                    .map_err(|e| format!("failed to create skills data dir: {e}"))?;
+
+                let runtime_engine = RuntimeEngine::new(skills_data_dir)?;
+                runtime_engine.set_app_handle(app.handle().clone());
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    runtime_engine.set_resource_dir(resource_dir);
+                }
+                if let Ok(cwd) = std::env::current_dir() {
+                    if let Some(source_dir) = resolve_dev_skills_source_dir(&cwd) {
+                        log::info!("[runtime] Using explicit dev skills source dir: {:?}", source_dir);
+                        runtime_engine.set_skills_source_dir(source_dir);
+                    }
+                }
+
+                let runtime_state = RuntimeState {
+                    engine: Arc::new(runtime_engine),
+                };
+                app.manage(runtime_state.clone());
+
+                let engine = runtime_state.engine();
+                tauri::async_runtime::spawn(async move {
+                    engine.auto_start_skills().await;
+                });
+            }
+
             if daemon_mode {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
@@ -555,6 +803,18 @@ pub fn run() {
                     ai_refresh_config,
                     core_rpc_relay,
                     core_rpc_url,
+                    runtime_list_skills,
+                    runtime_discover_skills,
+                    runtime_start_skill,
+                    runtime_stop_skill,
+                    runtime_rpc,
+                    runtime_is_skill_enabled,
+                    runtime_enable_skill,
+                    runtime_disable_skill,
+                    runtime_skill_data_read,
+                    runtime_skill_data_write,
+                    runtime_skill_data_dir,
+                    runtime_skill_data_stats,
                     show_window,
                     hide_window,
                     toggle_window,

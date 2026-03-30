@@ -49,6 +49,7 @@ urlencoding = "2.1"
 rustls = { version = "0.23", features = ["ring"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
+openhuman_core = { package = "openhuman", path = "../.." }
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

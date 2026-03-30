@@ -190,16 +190,24 @@ export default function Skills() {
     const loadSkills = async () => {
       try {
         const manifests = await runtimeDiscoverSkills();
-        const ALLOWED_SKILLS = new Set(['gmail', 'notion']);
-        const validManifests = manifests.filter(m => {
-          const id = m.id as string;
-          if (id.includes('_')) return false;
-          return ALLOWED_SKILLS.has(id);
-        });
-
-        const processed: SkillListEntry[] = validManifests
+        const processed: SkillListEntry[] = manifests
+          .filter(m => {
+            const id = m.id as string;
+            if (id.includes('_')) {
+              console.warn(
+                `Skill "${id}" contains underscore and will be skipped. Skill IDs cannot contain underscores.`
+              );
+              return false;
+            }
+            return true;
+          })
           .map(m => {
-            const setup = m.setup as Record<string, unknown> | undefined;
+            const setup = m.setup as { required?: boolean; oauth?: unknown } | undefined;
+            const hasSetup =
+              !!setup &&
+              (setup.required === true ||
+                // OAuth-only skills still need a setup/connect flow
+                !!setup.oauth);
             return {
               id: m.id as string,
               name:
@@ -208,7 +216,7 @@ export default function Skills() {
               description: (m.description as string) || '',
               icon: SKILL_ICONS[m.id as string],
               ignoreInProduction: (m.ignoreInProduction as boolean) ?? false,
-              hasSetup: !!(setup && setup.required),
+              hasSetup,
             };
           })
           .filter(s => IS_DEV || !s.ignoreInProduction);

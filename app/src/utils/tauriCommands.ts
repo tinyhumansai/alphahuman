@@ -1634,21 +1634,49 @@ export async function runtimeDiscoverSkills(): Promise<RuntimeDiscoveredSkill[]>
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_discover_skills');
+  try {
+    return await invoke('runtime_discover_skills');
+  } catch (err) {
+    // Some desktop builds no longer register runtime_* invoke handlers.
+    // Keep Skills UI usable by returning a minimal built-in catalog.
+    console.warn('[skills] runtime_discover_skills unavailable, using fallback catalog:', err);
+    return [
+      {
+        id: 'gmail',
+        name: 'Gmail',
+        description: 'Connect your Gmail account',
+        runtime: 'quickjs',
+        setup: {
+          required: true,
+          oauth: { provider: 'google', scopes: [], apiBaseUrl: '' },
+        },
+      },
+      {
+        id: 'notion',
+        name: 'Notion',
+        description: 'Connect your Notion workspace',
+        runtime: 'quickjs',
+        setup: {
+          required: true,
+          oauth: { provider: 'notion', scopes: [], apiBaseUrl: '' },
+        },
+      },
+    ];
+  }
 }
 
 export async function runtimeStartSkill(skillId: string): Promise<SkillSnapshot> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_start_skill', { skill_id: skillId });
+  return await invoke('runtime_start_skill', { skillId });
 }
 
 export async function runtimeStopSkill(skillId: string): Promise<void> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  await invoke('runtime_stop_skill', { skill_id: skillId });
+  await invoke('runtime_stop_skill', { skillId });
 }
 
 export async function runtimeRpc<T = unknown>(
@@ -1659,14 +1687,14 @@ export async function runtimeRpc<T = unknown>(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke<T>('runtime_rpc', { skill_id: skillId, method, params });
+  return await invoke<T>('runtime_rpc', { skillId, method, params });
 }
 
 export async function runtimeSkillDataRead(skillId: string, filename: string): Promise<string> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_skill_data_read', { skill_id: skillId, filename });
+  return await invoke('runtime_skill_data_read', { skillId, filename });
 }
 
 export async function runtimeSkillDataWrite(
@@ -1677,14 +1705,14 @@ export async function runtimeSkillDataWrite(
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  await invoke('runtime_skill_data_write', { skill_id: skillId, filename, content });
+  await invoke('runtime_skill_data_write', { skillId, filename, content });
 }
 
 export async function runtimeSkillDataDir(skillId: string): Promise<string> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_skill_data_dir', { skill_id: skillId });
+  return await invoke('runtime_skill_data_dir', { skillId });
 }
 
 export async function runtimeListSkillOptions(skillId: string): Promise<RuntimeSkillOption[]> {
@@ -1714,26 +1742,26 @@ export async function runtimeIsSkillEnabled(skillId: string): Promise<boolean> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_is_skill_enabled', { skill_id: skillId });
+  return await invoke('runtime_is_skill_enabled', { skillId });
 }
 
 export async function runtimeEnableSkill(skillId: string): Promise<void> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  await invoke('runtime_enable_skill', { skill_id: skillId });
+  await invoke('runtime_enable_skill', { skillId });
 }
 
 export async function runtimeDisableSkill(skillId: string): Promise<void> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  await invoke('runtime_disable_skill', { skill_id: skillId });
+  await invoke('runtime_disable_skill', { skillId });
 }
 
 export async function runtimeSkillDataStats(skillId: string): Promise<RuntimeSkillDataStats> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await invoke('runtime_skill_data_stats', { skill_id: skillId });
+  return await invoke('runtime_skill_data_stats', { skillId });
 }
