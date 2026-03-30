@@ -159,7 +159,7 @@ impl Tool for EchoTool {
     }
 }
 
-/// Mock shell tool used to validate list-files fallback paths.
+/// Mock shell tool used to validate tool-call repair paths.
 struct MockShellTool;
 
 #[async_trait]
@@ -771,10 +771,18 @@ async fn turn_handles_none_text_response() {
 }
 
 #[tokio::test]
-async fn turn_applies_list_files_fallback_for_let_me_get_phrase() {
-    let provider = Box::new(ScriptedProvider::new(vec![text_response(
-        "It seems like you want to see the files in the current directory. Let me get that information for you.",
-    )]));
+async fn turn_retries_with_tool_call_repair_when_intent_text_has_no_calls() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        text_response(
+            "It seems like you want to see the files in the current directory. Let me get that information for you.",
+        ),
+        tool_response(vec![ToolCall {
+            id: "tc1".into(),
+            name: "shell".into(),
+            arguments: r#"{"command":"ls -la"}"#.into(),
+        }]),
+        text_response("Here are the files from the current directory."),
+    ]));
     let mut agent = build_agent_with(
         provider,
         vec![Box::new(MockShellTool)],
@@ -786,8 +794,8 @@ async fn turn_applies_list_files_fallback_for_let_me_get_phrase() {
         .await
         .unwrap();
     assert!(
-        response.contains("mock-shell:ls -la"),
-        "Expected direct fallback to run shell ls -la, got: {response}"
+        response.contains("Here are the files"),
+        "Expected repaired tool-call flow to reach final response, got: {response}"
     );
 }
 

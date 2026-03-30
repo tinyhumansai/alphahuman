@@ -400,29 +400,51 @@ impl Agent {
         self.tools.iter().any(|tool| tool.name() == name)
     }
 
-    fn should_force_list_files_fallback(&self, user_message: &str, assistant_text: &str) -> bool {
-        if !self.has_tool_named("shell") {
+    fn should_retry_for_explicit_tool_call(
+        &self,
+        iteration: usize,
+        repaired_once: bool,
+        assistant_text: &str,
+    ) -> bool {
+        if iteration != 0 || repaired_once {
             return false;
         }
 
-        let user = user_message.to_ascii_lowercase();
-        let asks_for_files = (user.contains("files") || user.contains("list"))
-            && (user.contains("current dir")
-                || user.contains("current directory")
-                || user.contains("this dir")
-                || user.contains("this directory")
-                || user.contains("here"));
-        if !asks_for_files {
+        if self.tools.is_empty() {
             return false;
         }
 
+        let assistant = assistant_text.trim();
+        if assistant.is_empty() {
+            return false;
+        }
+
+        // Retry once when the model signals intent to act but does not emit
+        // parseable tool calls. This keeps tool execution protocol-driven
+        // instead of using command-specific hardcoded fallbacks.
         let assistant = assistant_text.to_ascii_lowercase();
-        assistant.contains("let's check")
+        assistant.contains("let me")
+            || assistant.contains("i'll")
             || assistant.contains("let me check")
-            || assistant.contains("let me get")
-            || assistant.contains("get that information")
             || assistant.contains("checking")
-            || assistant.contains("i'll check")
+            || assistant.contains("fetch")
+            || assistant.contains("get that")
+    }
+
+    fn tool_call_repair_message(&self) -> String {
+        if self.has_tool_named("shell") {
+            "Protocol repair: you indicated you'll run a command but emitted no tool call. \
+Emit an explicit tool call now (native tool_calls or <tool_call> tags). \
+For listing files in the current directory, call shell with {\"command\":\"ls -la\"}. \
+Do not narrate intent."
+                .to_string()
+        } else {
+            "Protocol repair: you indicated you'll take an action but emitted no tool call. \
+Emit explicit tool call(s) now (native tool_calls or <tool_call> tags), \
+or provide the final answer directly if no tools are needed. \
+Do not narrate intent."
+                .to_string()
+        }
     }
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
@@ -464,6 +486,7 @@ impl Agent {
 
         let effective_model = self.classify_model(user_message);
         log::info!("[agent_loop] model selected model={}", effective_model);
+        let mut tool_call_repair_applied = false;
 
         for iteration in 0..self.config.max_tool_iterations {
             log::info!(
@@ -516,24 +539,28 @@ impl Agent {
                 calls.len()
             );
             if calls.is_empty() {
-                if iteration == 0 && self.should_force_list_files_fallback(user_message, &text) {
+                if self.should_retry_for_explicit_tool_call(
+                    iteration,
+                    tool_call_repair_applied,
+                    &text,
+                ) {
                     log::warn!(
-                        "[agent_loop] applying list-files direct fallback i={} tool=shell command=ls -la",
+                        "[agent_loop] tool-call repair requested i={} reason=no_parseable_tool_calls",
                         iteration + 1
                     );
-                    let fallback_call = ParsedToolCall {
-                        name: "shell".to_string(),
-                        arguments: serde_json::json!({"command": "ls -la"}),
-                        tool_call_id: None,
-                    };
-                    let result = self.execute_tool_call(&fallback_call).await;
-                    let final_text = result.output;
+                    if !text.is_empty() {
+                        self.history
+                            .push(ConversationMessage::Chat(ChatMessage::assistant(
+                                text.clone(),
+                            )));
+                    }
                     self.history
-                        .push(ConversationMessage::Chat(ChatMessage::assistant(
-                            final_text.clone(),
+                        .push(ConversationMessage::Chat(ChatMessage::user(
+                            self.tool_call_repair_message(),
                         )));
+                    tool_call_repair_applied = true;
                     self.trim_history();
-                    return Ok(final_text);
+                    continue;
                 }
 
                 let final_text = if text.is_empty() {
