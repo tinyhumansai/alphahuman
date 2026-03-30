@@ -5,13 +5,16 @@ import ProgressIndicator from '../../components/ProgressIndicator';
 import { userApi } from '../../services/api/userApi';
 import { setOnboardedForUser, setOnboardingTasksForUser } from '../../store/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
-import FeaturesStep from './steps/FeaturesStep';
-import GetStartedStep from './steps/GetStartedStep';
-import PrivacyStep from './steps/PrivacyStep';
+import LocalAIStep from './steps/LocalAIStep';
+import ScreenPermissionsStep from './steps/ScreenPermissionsStep';
+import SkillsStep from './steps/SkillsStep';
+import ToolsStep from './steps/ToolsStep';
 
 interface OnboardingDraft {
-  accessibilityPermissionGranted: boolean;
   localModelConsentGiven: boolean;
+  localModelDownloadStarted: boolean;
+  accessibilityPermissionGranted: boolean;
+  enabledTools: string[];
 }
 
 const Onboarding = () => {
@@ -20,10 +23,12 @@ const Onboarding = () => {
   const user = useAppSelector(state => state.user.user);
   const [currentStep, setCurrentStep] = useState(0);
   const [draft, setDraft] = useState<OnboardingDraft>({
-    accessibilityPermissionGranted: false,
     localModelConsentGiven: false,
+    localModelDownloadStarted: false,
+    accessibilityPermissionGranted: false,
+    enabledTools: [],
   });
-  const totalSteps = 3;
+  const totalSteps = 4;
 
   const handleNext = () => {
     if (currentStep < totalSteps - 1) {
@@ -31,13 +36,25 @@ const Onboarding = () => {
     }
   };
 
+  const handleLocalAINext = (result: {
+    consentGiven: boolean;
+    downloadStarted: boolean;
+  }) => {
+    setDraft(prev => ({
+      ...prev,
+      localModelConsentGiven: result.consentGiven,
+      localModelDownloadStarted: result.downloadStarted,
+    }));
+    handleNext();
+  };
+
   const handleAccessibilityNext = (accessibilityPermissionGranted: boolean) => {
     setDraft(prev => ({ ...prev, accessibilityPermissionGranted }));
     handleNext();
   };
 
-  const handleLocalModelNext = (localModelConsentGiven: boolean) => {
-    setDraft(prev => ({ ...prev, localModelConsentGiven }));
+  const handleToolsNext = (enabledTools: string[]) => {
+    setDraft(prev => ({ ...prev, enabledTools }));
     handleNext();
   };
 
@@ -49,6 +66,8 @@ const Onboarding = () => {
           tasks: {
             accessibilityPermissionGranted: draft.accessibilityPermissionGranted,
             localModelConsentGiven: draft.localModelConsentGiven,
+            localModelDownloadStarted: draft.localModelDownloadStarted,
+            enabledTools: draft.enabledTools,
             connectedSources,
           },
         })
@@ -76,11 +95,13 @@ const Onboarding = () => {
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <PrivacyStep onNext={handleLocalModelNext} />;
+        return <ScreenPermissionsStep onNext={handleAccessibilityNext} />;
       case 2:
-        return <GetStartedStep onComplete={handleComplete} />;
+        return <ToolsStep onNext={handleToolsNext} />;
+      case 3:
+        return <SkillsStep onComplete={handleComplete} />;
       default:
-        return <FeaturesStep onNext={handleAccessibilityNext} />;
+        return <LocalAIStep onNext={handleLocalAINext} />;
     }
   };
 

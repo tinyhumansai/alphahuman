@@ -7,11 +7,11 @@ import {
 } from '../../../store/accessibilitySlice';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 
-interface FeaturesStepProps {
+interface ScreenPermissionsStepProps {
   onNext: (accessibilityPermissionGranted: boolean) => void;
 }
 
-const FeaturesStep = ({ onNext }: FeaturesStepProps) => {
+const ScreenPermissionsStep = ({ onNext }: ScreenPermissionsStepProps) => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { status, isLoading, isRequestingPermissions } = useAppSelector(
@@ -28,10 +28,10 @@ const FeaturesStep = ({ onNext }: FeaturesStepProps) => {
   return (
     <div className="glass rounded-3xl p-8 shadow-large animate-fade-up">
       <div className="text-center mb-5">
-        <h1 className="text-xl font-bold mb-2">Enable Accessibility Automation</h1>
+        <h1 className="text-xl font-bold mb-2">Screen & Accessibility Permissions</h1>
         <p className="opacity-70 text-sm">
-          Allow accessibility access so OpenHuman can assist with desktop workflows and guided
-          actions.
+          Grant screen and accessibility access so OpenHuman can observe your workflow and assist
+          with desktop actions.
         </p>
       </div>
 
@@ -55,7 +55,7 @@ const FeaturesStep = ({ onNext }: FeaturesStepProps) => {
           onClick={() => void dispatch(requestAccessibilityPermission('accessibility'))}
           disabled={isRequestingPermissions || isLoading}
           className="btn-primary w-full py-2.5 text-sm font-medium rounded-xl disabled:opacity-60">
-          {isRequestingPermissions ? 'Requesting…' : 'Request Permission'}
+          {isRequestingPermissions ? 'Requesting...' : 'Request Permission'}
         </button>
         <button
           onClick={() => navigate('/settings/accessibility')}
@@ -73,4 +73,4 @@ const FeaturesStep = ({ onNext }: FeaturesStepProps) => {
   );
 };
 
-export default FeaturesStep;
+export default ScreenPermissionsStep;

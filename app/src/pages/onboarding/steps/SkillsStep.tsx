@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import GoogleIcon from '../../../assets/icons/GoogleIcon';
 import MetamaskIcon from '../../../assets/icons/metamask.svg';
@@ -10,7 +9,7 @@ import { deriveConnectionStatus } from '../../../lib/skills/hooks';
 import type { SkillConnectionStatus } from '../../../lib/skills/types';
 import { useAppSelector } from '../../../store/hooks';
 
-interface GetStartedStepProps {
+interface SkillsStepProps {
   onComplete: (connectedSources: string[]) => void | Promise<void>;
 }
 
@@ -75,8 +74,7 @@ const SOURCE_OPTIONS: SourceOption[] = [
   },
 ];
 
-const GetStartedStep = ({ onComplete }: GetStartedStepProps) => {
-  const navigate = useNavigate();
+const SkillsStep = ({ onComplete }: SkillsStepProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
@@ -123,9 +121,9 @@ const GetStartedStep = ({ onComplete }: GetStartedStepProps) => {
   return (
     <div className="glass rounded-3xl p-8 shadow-large animate-fade-up">
       <div className="text-center mb-4">
-        <h1 className="text-xl font-bold mb-2">Connect Your Sources</h1>
+        <h1 className="text-xl font-bold mb-2">Install Skills</h1>
         <p className="opacity-70 text-sm">
-          Connect at least one source for richer context. You can also skip this and configure
+          Connect integrations to give OpenHuman richer context. You can skip this and set them up
           later.
         </p>
       </div>
@@ -161,27 +159,18 @@ const GetStartedStep = ({ onComplete }: GetStartedStepProps) => {
 
       {connectedSources.length === 0 && (
         <p className="text-xs text-amber-300 mb-3">
-          No sources connected yet. We will mark onboarding as partially incomplete so you can
-          finish later.
+          No skills connected yet. You can finish and configure later.
         </p>
       )}
 
       {error && <p className="text-coral-400 text-sm mb-3 text-center">{error}</p>}
 
-      <div className="space-y-2">
-        <button
-          onClick={handleFinish}
-          disabled={loading}
-          className="btn-primary w-full py-2.5 text-sm font-medium rounded-xl disabled:opacity-60 disabled:cursor-not-allowed">
-          {loading ? 'Finishing…' : 'Finish Onboarding'}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/settings/connections')}
-          className="w-full py-2.5 text-sm font-medium rounded-xl border border-stone-600 hover:border-stone-500 transition-colors">
-          Open Connections Settings
-        </button>
-      </div>
+      <button
+        onClick={handleFinish}
+        disabled={loading}
+        className="btn-primary w-full py-2.5 text-sm font-medium rounded-xl disabled:opacity-60 disabled:cursor-not-allowed">
+        {loading ? 'Finishing...' : 'Finish Setup'}
+      </button>
 
       {setupModalOpen && activeSkillId && (
         <SkillSetupModal
@@ -198,4 +187,4 @@ const GetStartedStep = ({ onComplete }: GetStartedStepProps) => {
   );
 };
 
-export default GetStartedStep;
+export default SkillsStep;
