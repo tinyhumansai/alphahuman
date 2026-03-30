@@ -485,24 +485,30 @@ pub fn run() {
                 }
             }
 
-            // Bridge daemon health via core RPC and ensure core background service.
+            // Bridge daemon health via core RPC; optionally ensure OS background service (release only).
             {
                 let app_handle_for_watcher = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     watch_daemon_health_rpc(app_handle_for_watcher).await;
                 });
-                tauri::async_runtime::spawn(async move {
-                    match commands::core_relay::ensure_service_managed_core_running().await {
-                        Ok(()) => {
-                            log::info!("[openhuman] Core background service ensured via core RPC");
+                if commands::core_relay::should_autostart_service_managed_core() {
+                    tauri::async_runtime::spawn(async move {
+                        match commands::core_relay::ensure_service_managed_core_running().await {
+                            Ok(()) => {
+                                log::info!("[openhuman] Core background service ensured via core RPC");
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "[openhuman] Failed to ensure core background service: {e}"
+                                );
+                            }
                         }
-                        Err(e) => {
-                            log::error!(
-                                "[openhuman] Failed to ensure core background service: {e}"
-                            );
-                        }
-                    }
-                });
+                    });
+                } else {
+                    log::info!(
+                        "[openhuman] Skipping OS background service autostart (dev build or OPENHUMAN_SKIP_SERVICE_AUTOSTART)"
+                    );
+                }
             }
 
             // Start/ensure standalone core process for business logic RPC.
@@ -592,11 +598,16 @@ pub fn run() {
                     }
                 }
 
-                // Gracefully shut down background services before process exit.
+                // Stop the core sidecar we spawned so dev/prod do not leave orphan `openhuman core run`.
                 RunEvent::Exit => {
                     log::info!("[app] Exit event received, shutting down");
 
-                    let _ = app_handle;
+                    if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
+                        let core = core.inner().clone();
+                        tauri::async_runtime::block_on(async move {
+                            core.shutdown().await;
+                        });
+                    }
                 }
 
                 _ => {

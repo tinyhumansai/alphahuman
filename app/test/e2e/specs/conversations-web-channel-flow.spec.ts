@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
-import { triggerAuthDeepLink } from '../helpers/deep-link-helpers';
+import { triggerAuthDeepLink, triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
 import {
   clickText,
   dumpAccessibilityTree,
@@ -87,7 +87,7 @@ describe('Conversations web channel flow', () => {
 
   it('sends UI message through agent loop and renders response', async () => {
     stepLog('trigger deep link');
-    await triggerAuthDeepLink('e2e-conversations-token');
+    await triggerAuthDeepLinkBypass('e2e-conversations-token');
     stepLog('wait for window');
     await waitForWindowVisible(25_000);
     stepLog('wait for webview');

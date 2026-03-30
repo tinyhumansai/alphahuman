@@ -13,6 +13,13 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+/** Set `DEBUG_E2E_DEEPLINK=0` to silence deep-link helper logs (default: verbose for debugging). */
+function deepLinkDebug(...args: unknown[]): void {
+  if (process.env.DEBUG_E2E_DEEPLINK === '0') return;
+  // eslint-disable-next-line no-console -- E2E harness diagnostics
+  console.log('[E2E][deep-link]', ...args);
+}
+
 function execCommand(command: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     exec(command, error => {
@@ -23,20 +30,56 @@ function execCommand(command: string): Promise<void> {
 }
 
 /**
+ * Appium mac2-driver only implements `browser.execute('macos: …')` — it does not support
+ * W3C Execute Script / JS in WKWebView, so `browser.execute(() => …)` always fails with
+ * "Unsupported execute method". Skip the WebView simulate path in that case.
+ */
+function supportsWebDriverScriptExecute(): boolean {
+  if (typeof browser === 'undefined') return false;
+  const caps = browser.capabilities as Record<string, unknown>;
+  const automation = String(
+    caps['appium:automationName'] ?? caps['automationName'] ?? ''
+  ).toLowerCase();
+  if (automation === 'mac2' || automation.includes('mac2')) {
+    deepLinkDebug('WebView script execute skipped (Appium Mac2 has no W3C executeScript).', {
+      automation,
+    });
+    return false;
+  }
+  const platform = String(caps.platformName ?? caps['appium:platformName'] ?? '').toLowerCase();
+  // macOS desktop E2E uses Appium Mac2 (no W3C execute in WebView); avoid failed pings when
+  // automationName is missing from the session object.
+  if (platform === 'mac' && automation === '') {
+    deepLinkDebug('WebView script execute skipped (mac platform, empty automationName).', {
+      platform,
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
  * When WebDriver can execute JS in the app WebView, dispatch the same URLs as the
  * deep-link plugin via `window.__simulateDeepLink` (see desktopDeepLinkListener).
  */
 async function trySimulateDeepLinkInWebView(url: string): Promise<boolean> {
-  if (typeof browser === 'undefined') return false;
+  if (!supportsWebDriverScriptExecute()) {
+    return false;
+  }
+
+  deepLinkDebug('trying to simulate deep link in WebView', url);
 
   try {
     const ping = await browser.execute(() => true);
+    deepLinkDebug('execute ping', ping);
     if (ping !== true) return false;
-  } catch {
+  } catch (err) {
+    deepLinkDebug('execute ping failed', err instanceof Error ? err.message : err);
     return false;
   }
 
   const deadline = Date.now() + 25_000;
+  let poll = 0;
   while (Date.now() < deadline) {
     let ready = false;
     try {
@@ -45,11 +88,17 @@ async function trySimulateDeepLinkInWebView(url: string): Promise<boolean> {
           typeof (window as Window & { __simulateDeepLink?: unknown }).__simulateDeepLink ===
           'function'
       );
-    } catch {
+      if (poll === 0 || poll % 10 === 0) {
+        deepLinkDebug('__simulateDeepLink ready?', ready, `(poll ${poll})`);
+      }
+      poll += 1;
+    } catch (err) {
+      deepLinkDebug('ready check failed', err instanceof Error ? err.message : err);
       return false;
     }
 
     if (ready) {
+      deepLinkDebug('invoking window.__simulateDeepLink');
       await browser.execute(
         async (u: string) => {
           const w = window as Window & { __simulateDeepLink?: (x: string) => Promise<void> };
@@ -60,12 +109,14 @@ async function trySimulateDeepLinkInWebView(url: string): Promise<boolean> {
         },
         url
       );
+      deepLinkDebug('simulate deep link finished OK');
       return true;
     }
 
     await browser.pause(400);
   }
 
+  deepLinkDebug('timed out waiting for __simulateDeepLink');
   return false;
 }
 
@@ -95,17 +146,21 @@ function resolveBuiltAppPath(): string | null {
  */
 export async function triggerDeepLink(url: string): Promise<void> {
   const appPath = resolveBuiltAppPath();
+  deepLinkDebug('triggerDeepLink', { url, appPath: appPath ?? '(none)' });
 
   if (typeof browser !== 'undefined') {
     try {
-      await browser.execute('macos: activateApp', {
-        bundleId: 'com.openhuman.app',
-      } as Record<string, unknown>);
-    } catch {
-      // ignore
+      await browser.execute('macos: activateApp', { bundleId: 'com.openhuman.app' } as Record<
+        string,
+        unknown
+      >);
+      deepLinkDebug('macos: activateApp OK');
+    } catch (err) {
+      deepLinkDebug('macos: activateApp failed (non-fatal)', err instanceof Error ? err.message : err);
     }
 
     if (await trySimulateDeepLinkInWebView(url)) {
+      deepLinkDebug('deep link delivered via WebView simulate');
       return;
     }
 
@@ -114,17 +169,19 @@ export async function triggerDeepLink(url: string): Promise<void> {
         bundleId: 'com.openhuman.app',
         arguments: [url],
       } as Record<string, unknown>);
-    } catch {
-      // Fall through to deepLink.
+      deepLinkDebug('macos: launchApp OK');
+    } catch (err) {
+      deepLinkDebug('macos: launchApp failed', err instanceof Error ? err.message : err);
     }
     try {
-      await browser.execute('macos: deepLink', {
-        url,
-        bundleId: 'com.openhuman.app',
-      } as Record<string, unknown>);
+      await browser.execute('macos: deepLink', { url, bundleId: 'com.openhuman.app' } as Record<
+        string,
+        unknown
+      >);
+      deepLinkDebug('macos: deepLink OK');
       return;
-    } catch {
-      // Fall through to OS-level dispatch.
+    } catch (err) {
+      deepLinkDebug('macos: deepLink failed', err instanceof Error ? err.message : err);
     }
   }
 
@@ -133,20 +190,25 @@ export async function triggerDeepLink(url: string): Promise<void> {
     try {
       await execCommand(`open -a "${appPath}"`);
       await new Promise(resolve => setTimeout(resolve, 500));
-    } catch {
-      // Best effort; continue to URL dispatch.
+      deepLinkDebug(`open -a "${appPath}" OK`);
+    } catch (err) {
+      deepLinkDebug('open -a app failed', err instanceof Error ? err.message : err);
     }
   }
 
   let openError: unknown = null;
   try {
     const command = appPath ? `open -a "${appPath}" "${url}"` : `open "${url}"`;
+    deepLinkDebug('fallback shell', command);
     await execCommand(command);
   } catch (err) {
     openError = err;
   }
 
-  if (!openError) return;
+  if (!openError) {
+    deepLinkDebug('deep link dispatched via open');
+    return;
+  }
   throw new Error(
     `Failed to trigger deep link: ${openError instanceof Error ? openError.message : openError}`
   );
@@ -160,15 +222,15 @@ export async function triggerDeepLink(url: string): Promise<void> {
  */
 export function triggerAuthDeepLink(token: string): Promise<void> {
   const envBypassToken = (process.env.OPENHUMAN_E2E_AUTH_BYPASS_TOKEN || '').trim();
+  deepLinkDebug('triggerAuthDeepLink', { token, envBypassToken: envBypassToken || '(none)' });
   if (envBypassToken) {
-    return triggerDeepLink(
-      `openhuman://auth?token=${encodeURIComponent(envBypassToken)}&key=auth`
-    );
+    return triggerDeepLink(`openhuman://auth?token=${encodeURIComponent(envBypassToken)}&key=auth`);
   }
 
   const authBypassEnabled = (process.env.OPENHUMAN_E2E_AUTH_BYPASS || '').trim() === '1';
   if (authBypassEnabled) {
     const userId = (process.env.OPENHUMAN_E2E_AUTH_BYPASS_USER_ID || 'e2e-user').trim();
+    deepLinkDebug('triggerAuthDeepLink bypass JWT path', { userId });
     return triggerAuthDeepLinkBypass(userId || 'e2e-user');
   }
 

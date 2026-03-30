@@ -163,6 +163,22 @@ impl CoreProcessHandle {
 
         Err("core process did not become ready".to_string())
     }
+
+    /// Stop the core process this handle spawned (child or in-process task). Safe to call if
+    /// nothing was spawned or core was already external.
+    pub async fn shutdown(&self) {
+        let mut child_guard = self.child.lock().await;
+        if let Some(mut child) = child_guard.take() {
+            log::info!("[core] terminating child core process on app shutdown");
+            if let Err(e) = child.kill().await {
+                log::warn!("[core] failed to kill child core process: {e}");
+            }
+        }
+        let mut task_guard = self.task.lock().await;
+        if let Some(task) = task_guard.take() {
+            task.abort();
+        }
+    }
 }
 
 fn is_current_exe_path(candidate: &std::path::Path) -> bool {

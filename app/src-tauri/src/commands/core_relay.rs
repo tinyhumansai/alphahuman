@@ -41,6 +41,23 @@ async fn invoke_core_cli_call(method: &str, params: Value) -> Result<(), String>
     Ok(())
 }
 
+/// Whether to install/start the OS background service (launchd, etc.) when core RPC is down.
+/// Disabled in debug/dev builds so `tauri dev` does not mutate system services; the shell still
+/// spawns a child `openhuman core run` via [`crate::core_process::CoreProcessHandle`].
+/// Set `OPENHUMAN_SKIP_SERVICE_AUTOSTART=1` to skip in release builds too.
+pub(crate) fn should_autostart_service_managed_core() -> bool {
+    if std::env::var("OPENHUMAN_SKIP_SERVICE_AUTOSTART")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    true
+}
+
 pub(crate) async fn ensure_service_managed_core_running() -> Result<(), String> {
     if crate::core_rpc::ping().await {
         return Ok(());

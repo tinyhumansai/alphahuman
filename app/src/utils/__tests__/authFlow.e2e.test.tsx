@@ -7,7 +7,11 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import * as tauriCommands from '../tauriCommands';
 // @ts-ignore - test-only JS module outside app/src
-import { clearRequestLog, getRequestLog } from '../../../../scripts/mock-api-core.mjs';
+import {
+  clearRequestLog,
+  getRequestLog,
+  resetMockBehavior,
+} from '../../../../scripts/mock-api-core.mjs';
 import PublicRoute from '../../components/PublicRoute';
 import UserProvider from '../../providers/UserProvider';
 import { callCoreRpc } from '../../services/coreRpcClient';
@@ -28,11 +32,11 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
   const mockGetSessionToken = tauriCommands.getSessionToken as Mock;
   const mockStoreSession = tauriCommands.storeSession as Mock;
   const mockSyncMemoryClientToken = tauriCommands.syncMemoryClientToken as Mock;
-  const mockLogout = tauriCommands.logout as Mock;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     clearRequestLog();
+    resetMockBehavior();
     await store.dispatch(clearToken());
     store.dispatch(setAuthBootstrapComplete(false));
     window.location.hash = '/';
@@ -46,7 +50,6 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
     mockGetSessionToken.mockResolvedValue(null);
     mockStoreSession.mockResolvedValue(undefined);
     mockSyncMemoryClientToken.mockResolvedValue(undefined);
-    mockLogout.mockResolvedValue(undefined);
   });
 
   it('bootstraps token from core auth state and routes public entry to /home', async () => {
@@ -80,12 +83,10 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
     expect(mockGetSessionToken).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mockStoreSession).toHaveBeenCalledWith('jwt-from-core', { id: '' }));
 
-    await waitFor(() => {
-      const requests = getRequestLog() as Array<{ method: string; url: string }>;
-      expect(requests.some(req => req.method === 'GET' && req.url.startsWith('/telegram/me'))).toBe(
-        true
-      );
-    });
+    const requests = getRequestLog() as Array<{ method: string; url: string }>;
+    expect(requests.some(req => req.method === 'GET' && req.url.startsWith('/telegram/me'))).toBe(
+      false
+    );
   });
 
   it('consumes OAuth login token from deep link and updates auth token + redirect', async () => {
@@ -111,4 +112,5 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
       expect(mockStoreSession).toHaveBeenCalledWith('jwt-from-login-token', { id: '' })
     );
   });
+
 });

@@ -176,11 +176,17 @@ async fn events_handler(
 }
 
 async fn root_handler() -> impl IntoResponse {
+    let api_server = match crate::openhuman::config::Config::load_or_init().await {
+        Ok(cfg) => crate::api::config::effective_api_url(&cfg.api_url),
+        Err(_) => crate::api::config::effective_api_url(&None),
+    };
+
     (
         StatusCode::OK,
         Json(json!({
             "name": "openhuman",
             "ok": true,
+            "api_server": api_server,
             "endpoints": {
                 "health": "/health",
                 "schema": "/schema",

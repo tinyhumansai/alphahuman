@@ -63,6 +63,8 @@ class ApiClient {
     const url = `${baseUrl}${endpoint}`;
     const headers = this.buildHeaders({ ...options, requireAuth });
 
+    console.log('request', { url, headers, body, method });
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 

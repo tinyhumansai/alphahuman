@@ -2,8 +2,6 @@ import { useEffect } from 'react';
 
 import { clearToken, setAuthBootstrapComplete, setToken } from '../store/authSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { fetchTeams } from '../store/teamSlice';
-import { fetchCurrentUser } from '../store/userSlice';
 import { getAuthState, getSessionToken, isTauri } from '../utils/tauriCommands';
 
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 5000;
@@ -22,8 +20,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 }
 
 /**
- * UserProvider automatically fetches user data when JWT token is available.
- * On fetch failure (e.g. expired token), logs out the user.
+ * UserProvider bootstraps auth token from core session state.
  */
 const UserProvider = ({ children }: { children: React.ReactNode }) => {
   const dispatch = useAppDispatch();
@@ -65,17 +62,6 @@ const UserProvider = ({ children }: { children: React.ReactNode }) => {
       mounted = false;
     };
   }, [token, dispatch, isAuthBootstrapComplete]);
-
-  useEffect(() => {
-    if (!token) return;
-    dispatch(fetchCurrentUser()).then(result => {
-      if (fetchCurrentUser.fulfilled.match(result)) {
-        dispatch(fetchTeams());
-      } else if (fetchCurrentUser.rejected.match(result)) {
-        dispatch(clearToken());
-      }
-    });
-  }, [token, dispatch]);
 
   return <>{children}</>;
 };
