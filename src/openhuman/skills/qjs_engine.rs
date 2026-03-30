@@ -4,10 +4,31 @@
 //! Uses QuickJS (via rquickjs) for JavaScript execution.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter};
+
+/// Global RuntimeEngine instance, set once during app startup.
+/// Allows RPC handlers (which are plain `fn` pointers) to access the runtime.
+static GLOBAL_ENGINE: OnceLock<Arc<RuntimeEngine>> = OnceLock::new();
+
+/// Store a reference to the RuntimeEngine so RPC handlers can access it.
+/// Call this once during app setup after creating the engine.
+pub fn set_global_engine(engine: Arc<RuntimeEngine>) {
+    let _ = GLOBAL_ENGINE.set(engine);
+}
+
+/// Get a reference to the global RuntimeEngine.
+/// Returns `None` if the engine has not been initialized yet.
+pub fn global_engine() -> Option<&'static Arc<RuntimeEngine>> {
+    GLOBAL_ENGINE.get()
+}
+
+/// Get the global RuntimeEngine or return an error string.
+pub fn require_engine() -> Result<&'static Arc<RuntimeEngine>, String> {
+    global_engine().ok_or_else(|| "skill runtime not initialized".to_string())
+}
 
 use crate::openhuman::skills::cron_scheduler::CronScheduler;
 use crate::openhuman::skills::manifest::SkillManifest;

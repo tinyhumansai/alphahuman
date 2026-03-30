@@ -15,6 +15,8 @@ use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
 use openhuman_core::core::jsonrpc::build_core_http_router;
+use openhuman_core::openhuman::skills::qjs_engine::RuntimeEngine;
+use openhuman_core::openhuman::skills::set_global_engine;
 
 struct EnvVarGuard {
     key: &'static str,

@@ -122,6 +122,7 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "migrate" => Some("Data migration utilities."),
         "screen_intelligence" => Some("Screen capture, permissions, and accessibility automation."),
         "service" => Some("Desktop service lifecycle management."),
+        "skills" => Some("Skill registry, runtime lifecycle, setup, tools, and sync."),
         "socket" => Some("Skills runtime socket bridge controls."),
         _ => None,
     }
