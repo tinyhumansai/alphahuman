@@ -1,4 +1,3 @@
-import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 import debug from 'debug';
 import { io, Socket } from 'socket.io-client';
 
@@ -75,19 +74,6 @@ function getSocketUserId(): string {
   }
 }
 
-/**
- * Check if running in Tauri (where Rust handles Socket.io).
- * When true, this service should NOT create its own socket connection
- * because the Rust-native SocketManager handles the connection and MCP.
- */
-function isRustSocketMode(): boolean {
-  try {
-    return coreIsTauri();
-  } catch {
-    return false;
-  }
-}
-
 class SocketService {
   private socket: Socket | null = null;
   private token: string | null = null;
@@ -95,9 +81,6 @@ class SocketService {
 
   /**
    * Connect to the socket server with authentication.
-   *
-   * NOTE: In Tauri mode, this is a NO-OP. The Rust-native SocketManager
-   * handles the connection. The frontend calls `connectRustSocket()` instead.
    */
   connect(token: string): void {
     void this.connectAsync(token);
@@ -105,14 +88,6 @@ class SocketService {
 
   private async connectAsync(token: string): Promise<void> {
     if (!token) return;
-
-    // In Tauri mode, Rust handles the socket connection.
-    // Don't create a duplicate frontend socket.
-    if (isRustSocketMode()) {
-      socketLog('Skipping frontend socket — Rust SocketManager handles connection');
-      this.token = token;
-      return;
-    }
 
     // Don't connect if already connected with the same token
     if (this.socket?.connected && this.token === token) return;
@@ -207,7 +182,7 @@ class SocketService {
       );
     });
 
-    // MCP handlers — only in web mode (Rust handles MCP in Tauri mode)
+    // MCP handlers (shared across web and desktop)
     this.socket.on('mcp:listTools', (data: { requestId: string }) => {
       socketLog('MCP list tools request', { requestId: data.requestId });
 

@@ -1,11 +1,7 @@
 /**
- * Chat Service — sends messages via Rust backend (Tauri) or falls back to
- * frontend-driven orchestration (web mode).
+ * Chat Service — Socket.IO-first chat transport for desktop and web.
  */
-import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-
-// ─── Event payload types (must match Rust structs exactly — snake_case) ───────
+import { socketService } from './socketService';
 
 export interface ChatToolCallEvent {
   thread_id: string;
@@ -39,8 +35,6 @@ export interface ChatErrorEvent {
   round: number | null;
 }
 
-// ─── Listener setup ───────────────────────────────────────────────────────────
-
 export interface ChatEventListeners {
   onToolCall?: (event: ChatToolCallEvent) => void;
   onToolResult?: (event: ChatToolResultEvent) => void;
@@ -48,39 +42,46 @@ export interface ChatEventListeners {
   onError?: (event: ChatErrorEvent) => void;
 }
 
-/**
- * Subscribe to chat events from the Rust backend.
- * Returns a cleanup function that removes all listeners.
- * Only works in Tauri mode.
- */
 export async function subscribeChatEvents(listeners: ChatEventListeners): Promise<() => void> {
-  const unlisteners: UnlistenFn[] = [];
+  const socket = socketService.getSocket();
+  if (!socket) return () => {};
+
+  const handlers: Array<[string, (...args: unknown[]) => void]> = [];
 
   if (listeners.onToolCall) {
-    const cb = listeners.onToolCall;
-    unlisteners.push(await listen<ChatToolCallEvent>('chat:tool_call', e => cb(e.payload)));
+    const cb = (payload: unknown) => listeners.onToolCall?.(payload as ChatToolCallEvent);
+    socket.on('chat:tool_call', cb);
+    socket.on('tool_call', cb);
+    handlers.push(['chat:tool_call', cb], ['tool_call', cb]);
   }
+
   if (listeners.onToolResult) {
-    const cb = listeners.onToolResult;
-    unlisteners.push(await listen<ChatToolResultEvent>('chat:tool_result', e => cb(e.payload)));
+    const cb = (payload: unknown) => listeners.onToolResult?.(payload as ChatToolResultEvent);
+    socket.on('chat:tool_result', cb);
+    socket.on('tool_result', cb);
+    handlers.push(['chat:tool_result', cb], ['tool_result', cb]);
   }
+
   if (listeners.onDone) {
-    const cb = listeners.onDone;
-    unlisteners.push(await listen<ChatDoneEvent>('chat:done', e => cb(e.payload)));
+    const cb = (payload: unknown) => listeners.onDone?.(payload as ChatDoneEvent);
+    socket.on('chat:done', cb);
+    socket.on('chat_done', cb);
+    handlers.push(['chat:done', cb], ['chat_done', cb]);
   }
+
   if (listeners.onError) {
-    const cb = listeners.onError;
-    unlisteners.push(await listen<ChatErrorEvent>('chat:error', e => cb(e.payload)));
+    const cb = (payload: unknown) => listeners.onError?.(payload as ChatErrorEvent);
+    socket.on('chat:error', cb);
+    socket.on('chat_error', cb);
+    handlers.push(['chat:error', cb], ['chat_error', cb]);
   }
 
   return () => {
-    for (const unlisten of unlisteners) {
-      unlisten();
+    for (const [eventName, handler] of handlers) {
+      socket.off(eventName, handler);
     }
   };
 }
-
-// ─── Send message ─────────────────────────────────────────────────────────────
 
 export interface ChatSendParams {
   threadId: string;
@@ -92,34 +93,31 @@ export interface ChatSendParams {
   notionContext?: string | null;
 }
 
-/**
- * Send a message via the Rust chat_send command.
- * Returns immediately — results arrive via events.
- * Tauri v2 converts camelCase param names to snake_case for the Rust command.
- */
 export async function chatSend(params: ChatSendParams): Promise<void> {
-  await invoke('chat_send', {
-    threadId: params.threadId,
+  if (!socketService.isConnected()) {
+    throw new Error('Socket not connected');
+  }
+
+  const payload = {
+    thread_id: params.threadId,
     message: params.message,
     model: params.model,
-    authToken: params.authToken,
-    backendUrl: params.backendUrl,
+    auth_token: params.authToken,
+    backend_url: params.backendUrl,
     messages: params.messages,
-    notionContext: params.notionContext ?? null,
-  });
+    notion_context: params.notionContext ?? null,
+  };
+
+  socketService.emit('chat:start', payload);
 }
 
-/**
- * Cancel an in-flight chat request.
- */
 export async function chatCancel(threadId: string): Promise<boolean> {
-  return await invoke<boolean>('chat_cancel', { threadId });
+  if (!socketService.isConnected()) return false;
+  socketService.emit('chat:cancel', { thread_id: threadId });
+  return true;
 }
 
-/**
- * Check if we should use the Rust backend for chat.
- * Returns true when running in Tauri on desktop.
- */
 export function useRustChat(): boolean {
-  return coreIsTauri();
+  // Legacy name kept for compatibility with existing call sites.
+  return true;
 }

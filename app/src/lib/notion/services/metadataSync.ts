@@ -6,7 +6,7 @@
  * Mirrors the Gmail metadata sync pattern: we send the primary profile plus
  * additional Notion data (pages, summaries) when available.
  */
-import { emitViaRustSocket } from '../../../utils/tauriSocket';
+import { socketService } from '../../../services/socketService';
 
 const INTEGRATION_METADATA_SYNC_EVENT = 'integration:metadata-sync';
 const PROVIDER_NOTION = 'notion';
@@ -82,5 +82,5 @@ export function syncNotionMetadataToBackend(
 
   const payload = { requestId: crypto.randomUUID(), provider: PROVIDER_NOTION, metadata };
 
-  void emitViaRustSocket(INTEGRATION_METADATA_SYNC_EVENT, payload);
+  socketService.emit(INTEGRATION_METADATA_SYNC_EVENT, payload);
 }

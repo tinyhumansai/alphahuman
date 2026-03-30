@@ -5,14 +5,12 @@
  * to the backend when a chat session is initialized, enabling AI to understand
  * available capabilities for task execution.
  */
-import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 import debug from 'debug';
 
 import type { ConnectedTool } from '../../services/intelligenceApi';
 import { socketService } from '../../services/socketService';
 import { store } from '../../store';
 import { transformMCPToConnectedTools } from '../../utils/intelligenceTransforms';
-import { emitViaRustSocket } from '../../utils/tauriSocket';
 import type { MCPTool } from '../mcp';
 import { deriveConnectionStatus } from '../skills/hooks';
 
@@ -23,17 +21,6 @@ const chatToolsWarn = debug('chat:tools:warn');
 // Enable logging in development
 if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
   debug.enable('chat:tools*');
-}
-
-/**
- * Check if running in Tauri environment
- */
-function isTauri(): boolean {
-  try {
-    return coreIsTauri();
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -177,18 +164,12 @@ export function initializeChatWithTools(
       chatToolsLog('⚠️  No active tools available - chat will have no tool capabilities');
     }
 
-    // Emit via appropriate socket method based on environment
-    if (isTauri()) {
-      chatToolsLog('Emitting chat:init via Rust socket');
-      emitViaRustSocket('chat:init', payload);
+    chatToolsLog('Emitting chat:init via Socket.IO');
+    if (socketService.isConnected()) {
+      socketService.emit('chat:init', payload);
     } else {
-      chatToolsLog('Emitting chat:init via web socket');
-      if (socketService.isConnected()) {
-        socketService.emit('chat:init', payload);
-      } else {
-        chatToolsWarn('Socket not connected - chat initialization may be delayed');
-        // Could potentially queue the initialization for when socket connects
-      }
+      chatToolsWarn('Socket not connected - chat initialization may be delayed');
+      // Could potentially queue the initialization for when socket connects
     }
 
     chatToolsLog('Chat tools initialization completed', {
@@ -196,7 +177,7 @@ export function initializeChatWithTools(
       threadId,
       toolCount: activeTools.length,
       connectedToolCount: connectedTools.length,
-      environment: isTauri() ? 'tauri' : 'web',
+      environment: 'socket-io',
     });
   } catch (error) {
     chatToolsWarn('Failed to initialize chat with tools', {
@@ -237,17 +218,11 @@ export function initializeIntelligenceChatSession(
       toolCount: finalConnectedTools.length,
     });
 
-    // Emit via appropriate socket method based on environment
-    if (isTauri()) {
-      chatToolsLog('Intelligence: Emitting chat:init via Rust socket');
-      emitViaRustSocket('chat:init', payload);
+    chatToolsLog('Intelligence: Emitting chat:init via Socket.IO');
+    if (socketService.isConnected()) {
+      socketService.emit('chat:init', payload);
     } else {
-      chatToolsLog('Intelligence: Emitting chat:init via web socket');
-      if (socketService.isConnected()) {
-        socketService.emit('chat:init', payload);
-      } else {
-        chatToolsWarn('Intelligence: Socket not connected - chat initialization may be delayed');
-      }
+      chatToolsWarn('Intelligence: Socket not connected - chat initialization may be delayed');
     }
   } catch (error) {
     chatToolsWarn('Intelligence: Failed to initialize chat session', {

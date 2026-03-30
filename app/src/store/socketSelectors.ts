@@ -4,7 +4,7 @@ const PENDING_USER = '__pending__';
 
 /**
  * Derive the socket user ID from the JWT token — must match the key used
- * by tauriSocket.ts and socketService.ts when writing to byUser[].
+ * by socketService.ts when writing to byUser[].
  */
 function selectSocketUserId(state: RootState): string {
   const token = state.auth.token;

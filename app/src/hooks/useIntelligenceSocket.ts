@@ -10,7 +10,6 @@ import {
   updateExecutionProgress,
 } from '../store/intelligenceSlice';
 import { createChatMessage } from '../utils/intelligenceTransforms';
-import { emitViaRustSocket } from '../utils/tauriSocket';
 
 /**
  * WebSocket event payloads for Intelligence system
@@ -65,17 +64,6 @@ interface ChatInitPayload {
 }
 
 /**
- * Check if running in Tauri environment for socket routing
- */
-function isTauri(): boolean {
-  try {
-    return typeof window !== 'undefined' && '__TAURI__' in window;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Hook for Intelligence WebSocket integration
  * Handles real-time communication for chat and task execution
  */
@@ -95,10 +83,7 @@ export const useIntelligenceSocket = () => {
    */
   const sendMessage = useCallback(
     async (payload: ProcessMessagePayload) => {
-      if (isTauri()) {
-        // Use Rust socket for Tauri environment
-        emitViaRustSocket('processMessageForUser', payload);
-      } else if (socket?.connected) {
+      if (socket?.connected) {
         socket.emit('processMessageForUser', payload);
       } else {
         console.warn('Cannot send message - socket not connected');
@@ -113,9 +98,7 @@ export const useIntelligenceSocket = () => {
    */
   const sendChatInit = useCallback(
     async (payload: ChatInitPayload) => {
-      if (isTauri()) {
-        emitViaRustSocket('chat:init', payload);
-      } else if (socket?.connected) {
+      if (socket?.connected) {
         socket.emit('chat:init', payload);
       } else {
         console.warn('Cannot initialize chat - socket not connected');
@@ -132,9 +115,7 @@ export const useIntelligenceSocket = () => {
     (threadId: string, isTyping: boolean) => {
       const payload = { threadId, isTyping };
 
-      if (isTauri()) {
-        emitViaRustSocket('chat:typing', payload);
-      } else if (socket?.connected) {
+      if (socket?.connected) {
         socket.emit('chat:typing', payload);
       }
     },

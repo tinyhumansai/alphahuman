@@ -16,6 +16,7 @@ import {
 } from '../services/chatService';
 import { store } from '../store';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { selectSocketStatus } from '../store/socketSelectors';
 import type { NotionPageSummary, NotionSummary, NotionUserProfile } from '../store/notionSlice';
 import {
   addInferenceResponse,
@@ -138,6 +139,7 @@ const Conversations = () => {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const socketStatus = useAppSelector(selectSocketStatus);
   const [toolTimelineByThread, setToolTimelineByThread] = useState<
     Record<string, ToolTimelineEntry[]>
   >({});
@@ -255,7 +257,7 @@ const Conversations = () => {
   }, [inputMode, isRecording]);
 
   useEffect(() => {
-    if (!rustChat) return;
+    if (!rustChat || socketStatus !== 'connected') return;
 
     let cleanup: (() => void) | null = null;
     let mounted = true;
@@ -373,15 +375,15 @@ const Conversations = () => {
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rustChat]);
+  }, [rustChat, socketStatus]);
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
     const trimmed = normalized.trim();
 
     if (!trimmed || !selectedThreadId || isSending) return;
-    if (!rustChat) {
-      setSendError('Desktop runtime required for chat in this build.');
+    if (socketStatus !== 'connected') {
+      setSendError('Realtime socket is not connected.');
       return;
     }
 
@@ -412,14 +414,6 @@ const Conversations = () => {
     setToolTimelineByThread(prev => ({ ...prev, [sendingThreadId]: [] }));
     dispatch(setActiveThread(sendingThreadId));
 
-    if (!rustChat) {
-      setSendError('Chat is only available in the Tauri runtime.');
-      setIsSending(false);
-      dispatch(setActiveThread(null));
-      return;
-    }
-
-    // ── Rust path ────────────────────────────────────────────────────────
     try {
       const chatMessages = historySnapshot.map(m => ({
         role: m.sender === 'user' ? 'user' : 'assistant',

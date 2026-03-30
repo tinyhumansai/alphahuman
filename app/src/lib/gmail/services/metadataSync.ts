@@ -3,7 +3,7 @@
  * `integration:metadata-sync` socket event so the server can merge them
  * into the user's Google OAuth integration metadata.
  */
-import { emitViaRustSocket } from '../../../utils/tauriSocket';
+import { socketService } from '../../../services/socketService';
 
 const INTEGRATION_METADATA_SYNC_EVENT = 'integration:metadata-sync';
 const PROVIDER_GOOGLE = 'google';
@@ -54,5 +54,5 @@ export function syncGmailMetadataToBackend(gmailState: GmailStateForSync | undef
 
   const payload = { requestId: crypto.randomUUID(), provider: PROVIDER_GOOGLE, metadata };
 
-  void emitViaRustSocket(INTEGRATION_METADATA_SYNC_EVENT, payload);
+  socketService.emit(INTEGRATION_METADATA_SYNC_EVENT, payload);
 }

@@ -5,11 +5,8 @@
  * so the backend always has an up-to-date picture of connected tools.
  */
 
-import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
-
 import { socketService } from '../../services/socketService';
 import { store } from '../../store';
-import { emitViaRustSocket } from '../../utils/tauriSocket';
 import { deriveConnectionStatus } from './hooks';
 import type { SkillConnectionStatus } from './types';
 
@@ -18,14 +15,6 @@ interface ToolSyncEntry {
   name: string;
   status: SkillConnectionStatus;
   tools: string[];
-}
-
-function isTauri(): boolean {
-  try {
-    return coreIsTauri();
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -56,9 +45,5 @@ export function syncToolsToBackend(): void {
 
   const payload = { tools };
 
-  if (isTauri()) {
-    emitViaRustSocket('tool:sync', payload);
-  } else {
-    socketService.emit('tool:sync', payload);
-  }
+  socketService.emit('tool:sync', payload);
 }
