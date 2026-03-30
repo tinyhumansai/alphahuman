@@ -79,10 +79,30 @@ export default function SkillSetupWizard({
           return;
         }
 
+        // If the skill has OAuth config, show OAuth login directly
+        // (no need to start the QuickJS runtime for OAuth initiation)
+        if (manifest.setup?.oauth) {
+          if (!cancelled) {
+            setState({
+              phase: "oauth",
+              oauth: {
+                provider: manifest.setup.oauth.provider,
+                scopes: manifest.setup.oauth.scopes,
+              },
+            });
+          }
+          return;
+        }
+
+        // Non-OAuth skills need the runtime running for setup steps
         if (!skillManager.isSkillRunning(skillId)) {
           console.log("[SkillSetupWizard] starting skill", skillId);
-          await skillManager.startSkill(manifest);
-          console.log("[SkillSetupWizard] skill started", skillId);
+          try {
+            await skillManager.startSkill(manifest);
+            console.log("[SkillSetupWizard] skill started", skillId);
+          } catch (startErr) {
+            console.warn("[SkillSetupWizard] runtime start failed, may not be available:", startErr);
+          }
         }
 
         if (cancelled) return;
@@ -98,27 +118,11 @@ export default function SkillSetupWizard({
           throw new Error(errMsg);
         }
 
-        // If the skill has OAuth config, show OAuth login instead of form steps
-        if (manifest.setup?.oauth) {
-          if (!cancelled) {
-            setState({
-              phase: "oauth",
-              oauth: {
-                provider: manifest.setup.oauth.provider,
-                scopes: manifest.setup.oauth.scopes,
-              },
-            });
-          }
-          return;
-        }
-
         console.log("[SkillSetupWizard] starting setup", skillId);
         const firstStep = await skillManager.startSetup(skillId);
         console.log("[SkillSetupWizard] setup started", skillId, firstStep);
         if (!cancelled) {
           if (!firstStep) {
-            // Skill doesn't implement setup steps — likely an OAuth-only skill
-            // whose manifest.setup.oauth wasn't populated yet
             setState({
               phase: "error",
               message: "This skill requires OAuth setup but no setup steps were returned. Try restarting the app.",

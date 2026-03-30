@@ -13,7 +13,8 @@ import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/
 import { skillManager } from '../lib/skills/manager';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
 import { callCoreRpc } from '../services/coreRpcClient';
-import { useAppSelector } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { addSkill } from '../store/skillsSlice';
 import { IS_DEV } from '../utils/config';
 import { runtimeDiscoverSkills } from '../utils/tauriCommands';
 import { deriveSkillSyncSummaryText, deriveSkillSyncUiState } from './skillsSyncUi';
@@ -173,6 +174,8 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
 // ─── Main Skills Page ───────────────────────────────────────────────────────
 
 export default function Skills() {
+  const dispatch = useAppDispatch();
+
   // Skills state
   const [skillsList, setSkillsList] = useState<SkillListEntry[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
@@ -186,19 +189,83 @@ export default function Skills() {
   const [activeSkillDescription, setActiveSkillDescription] = useState('');
   const [activeSkillHasSetup, setActiveSkillHasSetup] = useState(false);
 
-  // Load skills
+  // Load skills from registry (with fallback to runtime discover)
   useEffect(() => {
     const loadSkills = async () => {
       try {
-        const manifests = await runtimeDiscoverSkills();
-        const ALLOWED_SKILLS = new Set(['gmail', 'notion']);
-        const validManifests = manifests.filter(m => {
-          const id = m.id as string;
-          if (id.includes('_')) return false;
-          return ALLOWED_SKILLS.has(id);
+        // Try the registry-based list first
+        const response = await callCoreRpc<Record<string, unknown>[]>({
+          method: 'openhuman.skills_list_available',
         });
+        const entries = Array.isArray(response) ? response : [];
 
-        const processed: SkillListEntry[] = validManifests
+        if (entries.length > 0) {
+          const processed: SkillListEntry[] = entries
+            .filter(e => {
+              const id = e.id as string;
+              if (id.includes('_')) return false;
+              if (!IS_DEV && e.ignore_in_production) return false;
+              return true;
+            })
+            .map(e => {
+              const setup = e.setup as Record<string, unknown> | undefined;
+              const oauthConfig = setup?.oauth as Record<string, unknown> | undefined;
+              // Register manifest in Redux so SkillSetupWizard can find it
+              dispatch(
+                addSkill({
+                  manifest: {
+                    id: e.id as string,
+                    name: (e.name as string) || (e.id as string),
+                    version: (e.version as string) || '0.0.0',
+                    description: (e.description as string) || '',
+                    runtime: 'quickjs',
+                    entry: (e.entry as string) || 'index.js',
+                    setup: setup
+                      ? {
+                          required: (setup.required as boolean) ?? false,
+                          label: setup.label as string | undefined,
+                          oauth: oauthConfig
+                            ? {
+                                provider: (oauthConfig.provider as string) || '',
+                                scopes: (oauthConfig.scopes as string[]) || [],
+                                apiBaseUrl: (oauthConfig.apiBaseUrl as string) || '',
+                              }
+                            : undefined,
+                        }
+                      : undefined,
+                  },
+                })
+              );
+
+              return {
+                id: e.id as string,
+                name:
+                  (e.name as string) ||
+                  (e.id as string).charAt(0).toUpperCase() + (e.id as string).slice(1),
+                description: (e.description as string) || '',
+                icon: SKILL_ICONS[e.id as string],
+                ignoreInProduction: (e.ignore_in_production as boolean) ?? false,
+                hasSetup: !!(setup && setup.required),
+              };
+            });
+
+          setSkillsList(processed);
+          setSkillsLoading(false);
+          return;
+        }
+      } catch {
+        // Registry unavailable, fall through to runtime discover
+      }
+
+      // Fallback: try runtime discover (Tauri command)
+      try {
+        const manifests = await runtimeDiscoverSkills();
+        const processed: SkillListEntry[] = manifests
+          .filter(m => {
+            const id = m.id as string;
+            if (id.includes('_')) return false;
+            return true;
+          })
           .map(m => {
             const setup = m.setup as Record<string, unknown> | undefined;
             return {
@@ -222,7 +289,7 @@ export default function Skills() {
       }
     };
     loadSkills();
-  }, []);
+  }, [dispatch]);
 
   // Sort skills by connection status
   const sortedSkillsList = useMemo(() => {
@@ -245,7 +312,22 @@ export default function Skills() {
       .filter(s => IS_DEV || !s.ignoreInProduction);
   }, [skillsList, skillsState, skillStates]);
 
-  const openSkillSetup = (skill: SkillListEntry) => {
+  const [installing, setInstalling] = useState<string | null>(null);
+
+  const openSkillSetup = async (skill: SkillListEntry) => {
+    // Install skill from registry if not yet on disk
+    try {
+      setInstalling(skill.id);
+      await callCoreRpc<{ success: boolean }>({
+        method: 'openhuman.skills_install',
+        params: { skill_id: skill.id },
+      });
+    } catch (err) {
+      console.warn(`[Skills] install failed for ${skill.id}, continuing anyway:`, err);
+    } finally {
+      setInstalling(null);
+    }
+
     setActiveSkillId(skill.id);
     setActiveSkillName(skill.name);
     setActiveSkillDescription(skill.description);
@@ -269,9 +351,11 @@ export default function Skills() {
                 <h2 className="text-sm font-semibold text-white opacity-80">Active Skills</h2>
               </div>
 
-              {skillsLoading ? (
+              {skillsLoading || installing ? (
                 <div className="glass rounded-2xl p-6 text-center">
-                  <p className="text-sm text-stone-500">Loading skills...</p>
+                  <p className="text-sm text-stone-500">
+                    {installing ? `Installing ${installing}...` : 'Loading skills...'}
+                  </p>
                 </div>
               ) : sortedSkillsList.length === 0 ? (
                 <div className="glass rounded-2xl p-6 text-center">

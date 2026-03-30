@@ -27,6 +27,7 @@ pub fn run() {
         .try_init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(move |app| {
             #[cfg(any(windows, target_os = "linux"))]
