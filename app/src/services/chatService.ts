@@ -94,11 +94,7 @@ export async function chatSend(params: ChatSendParams): Promise<void> {
     throw new Error('Socket not connected');
   }
 
-  const payload = {
-    thread_id: params.threadId,
-    message: params.message,
-    model: params.model,
-  };
+  const payload = { thread_id: params.threadId, message: params.message, model: params.model };
 
   socketService.emit('chat:start', payload);
 }

@@ -26,10 +26,7 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
-import {
-  openhumanLocalAiTranscribeBytes,
-  openhumanLocalAiTts,
-} from '../utils/tauriCommands';
+import { openhumanLocalAiTranscribeBytes, openhumanLocalAiTts } from '../utils/tauriCommands';
 
 const DEFAULT_THREAD_ID = 'default-thread';
 const DEFAULT_THREAD_TITLE = 'Conversation';
@@ -357,11 +354,7 @@ const Conversations = () => {
     dispatch(setActiveThread(sendingThreadId));
 
     try {
-      await chatSend({
-        threadId: sendingThreadId,
-        message: trimmed,
-        model: selectedModel,
-      });
+      await chatSend({ threadId: sendingThreadId, message: trimmed, model: selectedModel });
 
       // setIsSending(false) and setActiveThread(null) happen in the onDone/onError event handlers
     } catch (err) {

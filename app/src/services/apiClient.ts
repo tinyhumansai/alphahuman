@@ -18,7 +18,7 @@ interface RequestOptions {
  * The store registers itself via `setStoreForApiClient` after creation,
  * so apiClient never imports store/index at module level.
  */
-var _getToken: (() => string | null) | null = null;
+let _getToken: (() => string | null) | null = null;
 
 export function setStoreForApiClient(getToken: () => string | null) {
   _getToken = getToken;

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 /** Set `DEBUG_E2E_DEEPLINK=0` to silence deep-link helper logs (default: verbose for debugging). */
 function deepLinkDebug(...args: unknown[]): void {
   if (process.env.DEBUG_E2E_DEEPLINK === '0') return;
-  // eslint-disable-next-line no-console -- E2E harness diagnostics
+
   console.log('[E2E][deep-link]', ...args);
 }
 
@@ -99,16 +99,13 @@ async function trySimulateDeepLinkInWebView(url: string): Promise<boolean> {
 
     if (ready) {
       deepLinkDebug('invoking window.__simulateDeepLink');
-      await browser.execute(
-        async (u: string) => {
-          const w = window as Window & { __simulateDeepLink?: (x: string) => Promise<void> };
-          if (!w.__simulateDeepLink) {
-            throw new Error('__simulateDeepLink is not available');
-          }
-          await w.__simulateDeepLink(u);
-        },
-        url
-      );
+      await browser.execute(async (u: string) => {
+        const w = window as Window & { __simulateDeepLink?: (x: string) => Promise<void> };
+        if (!w.__simulateDeepLink) {
+          throw new Error('__simulateDeepLink is not available');
+        }
+        await w.__simulateDeepLink(u);
+      }, url);
       deepLinkDebug('simulate deep link finished OK');
       return true;
     }
@@ -156,7 +153,10 @@ export async function triggerDeepLink(url: string): Promise<void> {
       >);
       deepLinkDebug('macos: activateApp OK');
     } catch (err) {
-      deepLinkDebug('macos: activateApp failed (non-fatal)', err instanceof Error ? err.message : err);
+      deepLinkDebug(
+        'macos: activateApp failed (non-fatal)',
+        err instanceof Error ? err.message : err
+      );
     }
 
     if (await trySimulateDeepLinkInWebView(url)) {

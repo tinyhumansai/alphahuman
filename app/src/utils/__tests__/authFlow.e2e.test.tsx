@@ -112,5 +112,4 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
       expect(mockStoreSession).toHaveBeenCalledWith('jwt-from-login-token', { id: '' })
     );
   });
-
 });

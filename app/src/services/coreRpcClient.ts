@@ -2,9 +2,9 @@ import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import debug from 'debug';
 
 import { dispatchLocalAiMethod } from '../lib/ai/localCoreAiMemory';
-import { socketService } from './socketService';
 import { CORE_RPC_URL } from '../utils/config';
 import { createSafeLogData, sanitizeError } from '../utils/sanitize';
+import { socketService } from './socketService';
 
 interface CoreRpcRelayRequest {
   method: string;

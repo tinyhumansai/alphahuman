@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
-import { triggerAuthDeepLink, triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
+import { triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
 import {
   clickText,
   dumpAccessibilityTree,
