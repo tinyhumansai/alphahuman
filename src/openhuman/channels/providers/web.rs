@@ -1,14 +1,31 @@
 use once_cell::sync::Lazy;
-use serde_json::{Map, Value};
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
+use crate::core::all::{ControllerFuture, RegisteredController};
+use crate::core::socketio::WebChannelEvent;
+use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 use crate::openhuman::agent::Agent;
 use crate::openhuman::config::rpc as config_rpc;
 use crate::openhuman::config::Config;
 use crate::openhuman::providers::ConversationMessage;
-use crate::openhuman::web_channel::events::{publish, WebChannelEvent};
+use crate::rpc::RpcOutcome;
+
+static EVENT_BUS: Lazy<broadcast::Sender<WebChannelEvent>> = Lazy::new(|| {
+    let (tx, _rx) = broadcast::channel(512);
+    tx
+});
+
+pub fn subscribe_web_channel_events() -> broadcast::Receiver<WebChannelEvent> {
+    EVENT_BUS.subscribe()
+}
+
+pub fn publish_web_channel_event(event: WebChannelEvent) {
+    let _ = EVENT_BUS.send(event);
+}
 
 struct SessionEntry {
     agent: Agent,
@@ -60,7 +77,7 @@ pub async fn start_chat(
         let mut in_flight = IN_FLIGHT.lock().await;
         if let Some(existing) = in_flight.remove(&map_key) {
             existing.handle.abort();
-            publish(WebChannelEvent {
+            publish_web_channel_event(WebChannelEvent {
                 event: "chat_error".to_string(),
                 client_id: client_id.clone(),
                 thread_id: thread_id.clone(),
@@ -96,7 +113,7 @@ pub async fn start_chat(
 
         match result {
             Ok(full_response) => {
-                publish(WebChannelEvent {
+                publish_web_channel_event(WebChannelEvent {
                     event: "chat_done".to_string(),
                     client_id: client_id_task.clone(),
                     thread_id: thread_id_task.clone(),
@@ -113,7 +130,7 @@ pub async fn start_chat(
                 });
             }
             Err(err) => {
-                publish(WebChannelEvent {
+                publish_web_channel_event(WebChannelEvent {
                     event: "chat_error".to_string(),
                     client_id: client_id_task.clone(),
                     thread_id: thread_id_task.clone(),
@@ -176,7 +193,7 @@ pub async fn cancel_chat(client_id: &str, thread_id: &str) -> Result<Option<Stri
     }
 
     if let Some(request_id) = removed_request_id.clone() {
-        publish(WebChannelEvent {
+        publish_web_channel_event(WebChannelEvent {
             event: "chat_error".to_string(),
             client_id: client_id.to_string(),
             thread_id: thread_id.to_string(),
@@ -269,7 +286,7 @@ fn publish_tool_events_from_history(
                         call.id.clone()
                     };
                     current_round_calls.push((synthetic_id, call.name.clone()));
-                    publish(WebChannelEvent {
+                    publish_web_channel_event(WebChannelEvent {
                         event: "tool_call".to_string(),
                         client_id: client_id.to_string(),
                         thread_id: thread_id.to_string(),
@@ -297,7 +314,7 @@ fn publish_tool_events_from_history(
                         .unwrap_or_else(|| "unknown".to_string());
 
                     let success = !result.content.trim_start().starts_with("Error:");
-                    publish(WebChannelEvent {
+                    publish_web_channel_event(WebChannelEvent {
                         event: "tool_result".to_string(),
                         client_id: client_id.to_string(),
                         thread_id: thread_id.to_string(),
@@ -359,6 +376,184 @@ fn build_session_agent(
     }
 
     Agent::from_config(&effective).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+struct WebChatParams {
+    client_id: String,
+    thread_id: String,
+    message: String,
+    model_override: Option<String>,
+    temperature: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WebCancelParams {
+    client_id: String,
+    thread_id: String,
+}
+
+pub async fn channel_web_chat(
+    client_id: &str,
+    thread_id: &str,
+    message: &str,
+    model_override: Option<String>,
+    temperature: Option<f64>,
+) -> Result<RpcOutcome<Value>, String> {
+    let request_id = start_chat(client_id, thread_id, message, model_override, temperature).await?;
+
+    Ok(RpcOutcome::single_log(
+        json!({
+            "accepted": true,
+            "client_id": client_id.trim(),
+            "thread_id": thread_id.trim(),
+            "request_id": request_id,
+        }),
+        "web channel request accepted",
+    ))
+}
+
+pub async fn channel_web_cancel(
+    client_id: &str,
+    thread_id: &str,
+) -> Result<RpcOutcome<Value>, String> {
+    let cancelled_request_id = cancel_chat(client_id, thread_id).await?;
+
+    Ok(RpcOutcome::single_log(
+        json!({
+            "cancelled": cancelled_request_id.is_some(),
+            "client_id": client_id.trim(),
+            "thread_id": thread_id.trim(),
+            "request_id": cancelled_request_id,
+        }),
+        "web channel cancellation processed",
+    ))
+}
+
+pub fn all_web_channel_controller_schemas() -> Vec<ControllerSchema> {
+    vec![schemas("chat"), schemas("cancel")]
+}
+
+pub fn all_web_channel_registered_controllers() -> Vec<RegisteredController> {
+    vec![
+        RegisteredController {
+            schema: schemas("chat"),
+            handler: handle_chat,
+        },
+        RegisteredController {
+            schema: schemas("cancel"),
+            handler: handle_cancel,
+        },
+    ]
+}
+
+pub fn schemas(function: &str) -> ControllerSchema {
+    match function {
+        "chat" => ControllerSchema {
+            namespace: "channel",
+            function: "web_chat",
+            description: "Send a web channel message through the agent loop.",
+            inputs: vec![
+                required_string("client_id", "Client stream identifier."),
+                required_string("thread_id", "Thread identifier."),
+                required_string("message", "User message."),
+                optional_string("model_override", "Optional model override."),
+                optional_f64("temperature", "Optional temperature override."),
+            ],
+            outputs: vec![json_output("ack", "Acceptance payload.")],
+        },
+        "cancel" => ControllerSchema {
+            namespace: "channel",
+            function: "web_cancel",
+            description: "Cancel in-flight web channel request for a thread.",
+            inputs: vec![
+                required_string("client_id", "Client stream identifier."),
+                required_string("thread_id", "Thread identifier."),
+            ],
+            outputs: vec![json_output("ack", "Cancellation payload.")],
+        },
+        _ => ControllerSchema {
+            namespace: "channel",
+            function: "unknown",
+            description: "Unknown web channel controller function.",
+            inputs: vec![],
+            outputs: vec![FieldSchema {
+                name: "error",
+                ty: TypeSchema::String,
+                comment: "Lookup error details.",
+                required: true,
+            }],
+        },
+    }
+}
+
+fn handle_chat(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let p = deserialize_params::<WebChatParams>(params)?;
+        to_json(
+            channel_web_chat(
+                &p.client_id,
+                &p.thread_id,
+                &p.message,
+                p.model_override,
+                p.temperature,
+            )
+            .await?,
+        )
+    })
+}
+
+fn handle_cancel(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let p = deserialize_params::<WebCancelParams>(params)?;
+        to_json(channel_web_cancel(&p.client_id, &p.thread_id).await?)
+    })
+}
+
+fn deserialize_params<T: serde::de::DeserializeOwned>(
+    params: Map<String, Value>,
+) -> Result<T, String> {
+    serde_json::from_value(Value::Object(params)).map_err(|e| format!("invalid params: {e}"))
+}
+
+fn required_string(name: &'static str, comment: &'static str) -> FieldSchema {
+    FieldSchema {
+        name,
+        ty: TypeSchema::String,
+        comment,
+        required: true,
+    }
+}
+
+fn optional_string(name: &'static str, comment: &'static str) -> FieldSchema {
+    FieldSchema {
+        name,
+        ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+        comment,
+        required: false,
+    }
+}
+
+fn optional_f64(name: &'static str, comment: &'static str) -> FieldSchema {
+    FieldSchema {
+        name,
+        ty: TypeSchema::Option(Box::new(TypeSchema::F64)),
+        comment,
+        required: false,
+    }
+}
+
+fn json_output(name: &'static str, comment: &'static str) -> FieldSchema {
+    FieldSchema {
+        name,
+        ty: TypeSchema::Json,
+        comment,
+        required: true,
+    }
+}
+
+fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String> {
+    outcome.into_cli_compatible_json()
 }
 
 #[cfg(test)]

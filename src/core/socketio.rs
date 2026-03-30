@@ -1,9 +1,35 @@
 use serde::Deserialize;
+use serde::Serialize;
 use serde_json::json;
 use socketioxide::extract::{Data, SocketRef};
 use socketioxide::SocketIo;
 
-use crate::openhuman::web_channel::events::WebChannelEvent;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct WebChannelEvent {
+    pub event: String,
+    pub client_id: String,
+    pub thread_id: String,
+    pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_response: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub round: Option<u32>,
+}
 
 #[derive(Debug, Deserialize)]
 struct SocketRpcRequest {
@@ -159,7 +185,7 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
 
 pub fn spawn_web_channel_bridge(io: SocketIo) {
     tokio::spawn(async move {
-        let mut rx = crate::openhuman::web_channel::subscribe_web_channel_events();
+        let mut rx = crate::openhuman::channels::providers::web::subscribe_web_channel_events();
         loop {
             let event = match rx.recv().await {
                 Ok(event) => event,
