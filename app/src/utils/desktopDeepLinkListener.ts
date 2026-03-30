@@ -6,7 +6,7 @@ import { skillManager } from '../lib/skills/manager';
 import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
-import { setSkillSetupComplete, setSkillState } from '../store/skillsSlice';
+import { setSkillSetupComplete, setSkillState, setSkillStatus } from '../store/skillsSlice';
 import {
   decryptIntegrationTokens,
   hexToBase64,
@@ -128,6 +128,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
     // Always mark the skill as connected first — the OAuth completed on the backend.
     // Token handoff is best-effort; the backend stores credentials server-side regardless.
+    store.dispatch(setSkillStatus({ skillId, status: 'ready' }));
     store.dispatch(setSkillSetupComplete({ skillId, complete: true }));
     store.dispatch(
       setSkillState({
