@@ -266,14 +266,14 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
 
 fn default_workspace_file_content(filename: &str) -> &'static str {
     match filename {
-        "AGENTS.md" => "# AGENTS\n\nWorkspace agent instructions.\n",
-        "SOUL.md" => "# SOUL\n\nWorkspace identity and behavior.\n",
-        "TOOLS.md" => "# TOOLS\n\nWorkspace tool preferences and policies.\n",
-        "IDENTITY.md" => "# IDENTITY\n\nWorkspace profile and role context.\n",
-        "USER.md" => "# USER\n\nUser preferences and collaboration notes.\n",
-        "HEARTBEAT.md" => "# HEARTBEAT\n\nOngoing goals and status notes.\n",
-        "BOOTSTRAP.md" => "# BOOTSTRAP\n\nWorkspace startup checklist and context.\n",
-        "MEMORY.md" => "# MEMORY\n\nPersistent workspace memory notes.\n",
+        "AGENTS.md" => include_str!("prompts/AGENTS.md"),
+        "SOUL.md" => include_str!("prompts/SOUL.md"),
+        "TOOLS.md" => include_str!("prompts/TOOLS.md"),
+        "IDENTITY.md" => include_str!("prompts/IDENTITY.md"),
+        "USER.md" => include_str!("prompts/USER.md"),
+        "HEARTBEAT.md" => "# Periodic Tasks\n\n# Add tasks below (one per line, starting with `- `)\n",
+        "BOOTSTRAP.md" => include_str!("prompts/BOOTSTRAP.md"),
+        "MEMORY.md" => include_str!("prompts/MEMORY.md"),
         _ => "",
     }
 }
@@ -405,6 +405,11 @@ mod tests {
                 "expected workspace file to be created: {file}"
             );
         }
+        let agents = std::fs::read_to_string(workspace.join("AGENTS.md")).unwrap();
+        assert!(
+            agents.starts_with("# OpenHuman Agents"),
+            "AGENTS.md should be seeded from src/openhuman/agent/prompts/AGENTS.md"
+        );
 
         let _ = std::fs::remove_dir_all(workspace);
     }
