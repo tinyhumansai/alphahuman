@@ -129,7 +129,7 @@ curl -s http://127.0.0.1:18473/__admin/health
 yarn test:e2e:build
 
 # Run one spec
-bash scripts/e2e-run-spec.sh test/e2e/specs/smoke.spec.ts smoke
+bash app/scripts/e2e-run-spec.sh test/e2e/specs/smoke.spec.ts smoke
 
 # Run all flow specs
 yarn test:e2e:all:flows
@@ -143,7 +143,7 @@ yarn test:e2e:all:flows
 
 ### Deterministic core-sidecar reset
 
-By default, `scripts/e2e-run-spec.sh` creates and cleans a temp `OPENHUMAN_WORKSPACE`
+By default, `app/scripts/e2e-run-spec.sh` creates and cleans a temp `OPENHUMAN_WORKSPACE`
 automatically when the variable is not provided.
 
 If you need a fixed workspace for debugging, provide one explicitly:
@@ -151,7 +151,7 @@ If you need a fixed workspace for debugging, provide one explicitly:
 ```bash
 export OPENHUMAN_WORKSPACE="$(mktemp -d)"
 yarn test:e2e:build
-bash scripts/e2e-run-spec.sh test/e2e/specs/smoke.spec.ts smoke
+bash app/scripts/e2e-run-spec.sh test/e2e/specs/smoke.spec.ts smoke
 rm -rf "$OPENHUMAN_WORKSPACE"
 ```
 
@@ -175,7 +175,7 @@ Example per-test-case pattern inside a harness script:
 ```bash
 run_case() {
   export OPENHUMAN_WORKSPACE="$(mktemp -d)"
-  bash scripts/e2e-run-spec.sh "$1" "$2"
+  bash app/scripts/e2e-run-spec.sh "$1" "$2"
   rm -rf "$OPENHUMAN_WORKSPACE"
 }
 ```
@@ -187,7 +187,7 @@ run_case() {
 - Keep new tests independent, deterministic, and debuggable from logs alone.
 - When touching core/sidecar behavior, validate both:
   - `yarn test:unit`
-  - targeted E2E spec(s) via `scripts/e2e-run-spec.sh`
+  - targeted E2E spec(s) via `app/scripts/e2e-run-spec.sh`
 
 ---
 

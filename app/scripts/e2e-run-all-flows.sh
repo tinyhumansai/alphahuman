@@ -5,11 +5,11 @@
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT/app"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_DIR"
 
 run() {
-  "$ROOT/scripts/e2e-run-spec.sh" "$1" "$2"
+  "$APP_DIR/scripts/e2e-run-spec.sh" "$1" "$2"
 }
 
 run "test/e2e/specs/login-flow.spec.ts" "login"

@@ -3,7 +3,7 @@
 # Run a single WebDriverIO E2E spec (Appium mac2 + mock server in spec).
 #
 # Usage:
-#   ./scripts/e2e-run-spec.sh test/e2e/specs/login-flow.spec.ts [log-suffix]
+#   ./app/scripts/e2e-run-spec.sh test/e2e/specs/login-flow.spec.ts [log-suffix]
 #
 set -euo pipefail
 
@@ -14,8 +14,8 @@ APPIUM_PORT="${APPIUM_PORT:-4723}"
 E2E_MOCK_PORT="${E2E_MOCK_PORT:-18473}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="$REPO_ROOT/app"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$APP_DIR/.." && pwd)"
 cd "$APP_DIR"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/e2e-resolve-node-appium.sh"
