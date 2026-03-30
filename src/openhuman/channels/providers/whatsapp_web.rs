@@ -26,7 +26,7 @@
 //! This channel is automatically selected when `session_path` is set in the config.
 //! The Cloud API channel is used when `phone_number_id` is set.
 
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use super::whatsapp_storage::RusqliteStore;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;

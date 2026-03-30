@@ -154,7 +154,10 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
             let event = match rx.recv().await {
                 Ok(event) => event,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    log::warn!("[socketio] dropped {} web_channel events due to lag", skipped);
+                    log::warn!(
+                        "[socketio] dropped {} web_channel events due to lag",
+                        skipped
+                    );
                     continue;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

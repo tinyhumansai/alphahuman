@@ -1,4 +1,4 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use crate::openhuman::config::{Config, StreamMode};
 use crate::openhuman::security::pairing::PairingGuard;
 use anyhow::Context;

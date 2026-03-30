@@ -1,26 +1,8 @@
 //! Channel implementations and runtime orchestration.
 
 pub mod cli;
-pub mod dingtalk;
-pub mod discord;
-pub mod email_channel;
-pub mod imessage;
-pub mod irc;
-pub mod lark;
-pub mod linq;
-#[cfg(feature = "channel-matrix")]
-pub mod matrix;
-pub mod mattermost;
-pub mod qq;
-pub mod signal;
-pub mod slack;
-pub mod telegram;
+pub mod providers;
 pub mod traits;
-pub mod whatsapp;
-#[cfg(feature = "whatsapp-web")]
-pub mod whatsapp_storage;
-#[cfg(feature = "whatsapp-web")]
-pub mod whatsapp_web;
 
 mod commands;
 mod context;
@@ -30,6 +12,27 @@ mod runtime;
 
 #[cfg(test)]
 mod tests;
+
+// Stable `channels::<provider>` paths (implementation lives under `providers/`).
+pub use providers::dingtalk;
+pub use providers::discord;
+pub use providers::email_channel;
+pub use providers::imessage;
+pub use providers::irc;
+pub use providers::lark;
+pub use providers::linq;
+#[cfg(feature = "channel-matrix")]
+pub use providers::matrix;
+pub use providers::mattermost;
+pub use providers::qq;
+pub use providers::signal;
+pub use providers::slack;
+pub use providers::telegram;
+pub use providers::whatsapp;
+#[cfg(feature = "whatsapp-web")]
+pub use providers::whatsapp_storage;
+#[cfg(feature = "whatsapp-web")]
+pub use providers::whatsapp_web;
 
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;

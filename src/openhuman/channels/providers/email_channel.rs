@@ -33,7 +33,7 @@ use tokio_rustls::TlsConnector;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 
 /// Email channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
