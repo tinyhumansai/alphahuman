@@ -224,6 +224,13 @@ impl PromptSection for DateTimeSection {
 
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {
     let path = workspace_dir.join(filename);
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, default_workspace_file_content(filename));
+    }
+
     match std::fs::read_to_string(&path) {
         Ok(content) => {
             let trimmed = content.trim();
@@ -254,6 +261,20 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
             // Keep prompt focused: missing optional identity/bootstrap files should not
             // add noisy placeholders that dilute tool-calling instructions.
         }
+    }
+}
+
+fn default_workspace_file_content(filename: &str) -> &'static str {
+    match filename {
+        "AGENTS.md" => "# AGENTS\n\nWorkspace agent instructions.\n",
+        "SOUL.md" => "# SOUL\n\nWorkspace identity and behavior.\n",
+        "TOOLS.md" => "# TOOLS\n\nWorkspace tool preferences and policies.\n",
+        "IDENTITY.md" => "# IDENTITY\n\nWorkspace profile and role context.\n",
+        "USER.md" => "# USER\n\nUser preferences and collaboration notes.\n",
+        "HEARTBEAT.md" => "# HEARTBEAT\n\nOngoing goals and status notes.\n",
+        "BOOTSTRAP.md" => "# BOOTSTRAP\n\nWorkspace startup checklist and context.\n",
+        "MEMORY.md" => "# MEMORY\n\nPersistent workspace memory notes.\n",
+        _ => "",
     }
 }
 
@@ -348,6 +369,44 @@ mod tests {
         assert!(prompt.contains("## Tools"));
         assert!(prompt.contains("test_tool"));
         assert!(prompt.contains("instr"));
+    }
+
+    #[test]
+    fn identity_section_creates_missing_workspace_files() {
+        let workspace =
+            std::env::temp_dir().join(format!("openhuman_prompt_create_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![];
+        let ctx = PromptContext {
+            workspace_dir: &workspace,
+            model_name: "test-model",
+            tools: &tools,
+            skills: &[],
+            identity_config: None,
+            dispatcher_instructions: "",
+        };
+
+        let section = IdentitySection;
+        let _ = section.build(&ctx).unwrap();
+
+        for file in [
+            "AGENTS.md",
+            "SOUL.md",
+            "TOOLS.md",
+            "IDENTITY.md",
+            "USER.md",
+            "HEARTBEAT.md",
+            "BOOTSTRAP.md",
+            "MEMORY.md",
+        ] {
+            assert!(
+                workspace.join(file).exists(),
+                "expected workspace file to be created: {file}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(workspace);
     }
 
     #[test]
