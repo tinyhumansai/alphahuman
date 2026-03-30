@@ -2,7 +2,7 @@
  * Global test setup for Vitest.
  *
  * - Extends expect with @testing-library/jest-dom matchers
- * - Sets up MSW server for API mocking
+ * - Starts local HTTP mock backend for API mocking
  * - Silences console output during tests (unless DEBUG_TESTS=1)
  * - Mocks Tauri-specific modules that aren't available in test env
  * - Resets rate limiter module-level state between tests
@@ -12,7 +12,13 @@ import { cleanup } from '@testing-library/react';
 import type React from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
-import { server } from './server';
+// @ts-ignore - test-only JS module outside app/src
+import {
+  clearRequestLog,
+  resetMockBehavior,
+  startMockServer,
+  stopMockServer,
+} from '../../../scripts/mock-api-core.mjs';
 
 // Mock import.meta.env defaults for tests
 vi.stubEnv('VITE_BACKEND_URL', 'http://localhost:5005');
@@ -109,16 +115,21 @@ if (!process.env.DEBUG_TESTS) {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 }
 
-// MSW server lifecycle
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
+// Shared mock API server lifecycle for unit tests (default)
+beforeAll(async () => {
+  await startMockServer(5005);
+});
 afterEach(() => {
-  server.resetHandlers();
+  clearRequestLog();
   cleanup();
 });
-afterAll(() => server.close());
+afterAll(async () => {
+  await stopMockServer();
+});
 
 // Reset rate limiter per-request counter before each test.
 beforeEach(async () => {
+  resetMockBehavior();
   try {
     const { resetRequestCallCount } = await import('../lib/mcp/rateLimiter');
     if (typeof resetRequestCallCount === 'function') {

@@ -90,8 +90,29 @@ yarn test:coverage
 
 - **Authoring rules**:
   - Prefer testing behavior over implementation details.
-  - Use existing helpers from `app/src/test/` (`test-utils.tsx`, MSW handlers/server) before adding new harness code.
+  - Use existing helpers from `app/src/test/` (`test-utils.tsx`, shared mock backend) before adding new harness code.
   - Keep tests deterministic: avoid real network calls, time-sensitive flakes, or hidden global state.
+
+### Shared mock backend (app + Rust tests)
+
+- **Core implementation**: `scripts/mock-api-core.mjs`
+- **Standalone server entrypoint**: `scripts/mock-api-server.mjs`
+- **E2E wrapper**: `app/test/e2e/mock-server.ts`
+- **Vitest unit setup**: `app/src/test/setup.ts` starts the shared mock server by default on `http://127.0.0.1:5005`.
+
+Key admin endpoints:
+
+- `GET /__admin/health`
+- `POST /__admin/reset`
+- `POST /__admin/behavior`
+- `GET /__admin/requests`
+
+Run manually:
+
+```bash
+yarn mock:api
+curl -s http://127.0.0.1:18473/__admin/health
+```
 
 ### E2E tests (WDIO + Appium mac2)
 
@@ -138,6 +159,16 @@ rm -rf "$OPENHUMAN_WORKSPACE"
 - Default reset strategy:
   - Rebuild/stage sidecar once per E2E run (`yarn test:e2e:build`).
   - Isolate state per test case with a fresh temp workspace (default behavior in `e2e-run-spec.sh`).
+
+### Rust tests with mock backend
+
+Use the shared mock backend runner so Rust unit/integration tests get deterministic API behavior:
+
+```bash
+yarn test:rust
+# or targeted
+bash scripts/test-rust-with-mock.sh --test json_rpc_e2e
+```
 
 Example per-test-case pattern inside a harness script:
 

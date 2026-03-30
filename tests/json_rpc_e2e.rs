@@ -158,8 +158,16 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
     let _home_guard = EnvVarGuard::set_to_path("HOME", home);
     let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
 
-    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
-    let mock_origin = format!("http://{}", mock_addr);
+    let external_backend = std::env::var("BACKEND_URL")
+        .ok()
+        .or_else(|| std::env::var("VITE_BACKEND_URL").ok())
+        .filter(|s| !s.trim().is_empty());
+    let (mock_origin, mock_join) = if let Some(origin) = external_backend {
+        (origin, None)
+    } else {
+        let (mock_addr, join) = serve_on_ephemeral(mock_upstream_router()).await;
+        (format!("http://{}", mock_addr), Some(join))
+    };
 
     write_min_config(&openhuman_home, &mock_origin);
 
@@ -219,6 +227,8 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
         "unexpected agent reply: {reply:?}"
     );
 
-    mock_join.abort();
+    if let Some(join) = mock_join {
+        join.abort();
+    }
     rpc_join.abort();
 }

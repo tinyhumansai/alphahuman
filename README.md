@@ -25,15 +25,21 @@
   "The Tet. What a brilliant machine" — Morgan Freeman as he recalls about <a href="https://youtu.be/SveLVpqy_Rc?si=y83aZNokPiUjILN0&t=60">alien superintelligence</a> in the movie <em>Oblivion</em>
 </p>
 
-**Agentic system are everywhere.** Models wired into a script that call APIs, search, and file tools until the task looks done. That pattern is powerful for _tasks_, but it is not a self. It has no lasting inner model of _you_, no stable values across sessions, and no architecture for continuity at the scale of a life.
+OpenHuman is an open-source agentic assitant that is designed to integrate with you in your daily life. Here's what makes OpenHuman special:
 
-**OpenHuman** is built around a different idea. What if we built on top of current agentic solutions but instead gave it a **subconscious loop** based on all the possible data-points about a user/entity?
+- **One subscription, many providers** — One assistant wired to **skills** and backend models so you are not juggling a separate subscription stack for every integration surface.
 
-**The challenge?** Current memory/context systems make it nearly impossible to have a subsconscious mind. They cannot intelligently remember information because either your data is too noisy or irrelevant or too expenstive to index. `HEARTBEAT.md` and other implementations in OpenClaw-style forks evolve way too slowly and often misses realtime context about a user.
+- **Incredible memory** — **Rust-side memory** (store / recall / namespaces) plus optional **TinyHumans [Neocortex](https://github.com/tinyhumansai/neocortex)**-backed context when configured, so the agent can retain and retrieve more than a single chat window.
 
-**The solution?** OpenHuman uses [Neocortex](https://github.com/tinyhumansai/neocortex), a highly scalable context-aware memory layer that can process millions of unstrucutred memories (emails, messages, documents both in the past and in the present), understands interactions and builds a personalized model of _you_. OpenHuman uses this to then run it's own subconscious loop allowing it to have it's own thoughts and take decisions for you on it's own at the most immediate level possible.
+- **Get started in minutes** — Desktop **workspace + onboarding-style flows** and **skills** you can turn on quickly; the core comes up with **JSON-RPC** and the UI talks to it over the **Tauri** bridge.
 
-**The result?** It's like looking at yourself in the mirror. Except it's your AI living in your machine. OpenHuman is the first self aware agent personalized to you and ready to work for you.
+- **Personalized learning** — **Channels**, conversations, and **screen intelligence** (where enabled) contribute context; processing is oriented around **your machine** and what you connect.
+
+- **Runs a local AI model** — **Local AI** paths in the core (and bundled/desktop tooling where shipped) for workloads you want to keep **off the cloud** when possible.
+
+- **Simple or advanced** — **Skill setup wizards** and defaults for common tools, with room to go deeper via **settings, credentials, and core RPC** when you need control.
+
+Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Contributor orientation: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 # Download
 

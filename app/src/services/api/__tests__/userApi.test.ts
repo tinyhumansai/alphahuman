@@ -1,7 +1,7 @@
-import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 
-import { server } from '../../../test/server';
+// @ts-ignore - test-only JS module outside app/src
+import { setMockBehavior } from '../../../../../scripts/mock-api-core.mjs';
 
 // Mock the store import that apiClient depends on
 vi.mock('../../../store', () => ({
@@ -25,31 +25,22 @@ describe('userApi.getMe', () => {
   });
 
   it('throws when API returns error response', async () => {
-    server.use(
-      http.get('http://localhost:5005/telegram/me', () => {
-        return HttpResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-      })
-    );
+    setMockBehavior('telegramMeStatus', '401');
+    setMockBehavior('telegramMeError', 'Unauthorized');
 
     await expect(userApi.getMe()).rejects.toThrow();
   });
 
   it('throws when API returns success=false', async () => {
-    server.use(
-      http.get('http://localhost:5005/telegram/me', () => {
-        return HttpResponse.json({ success: false, error: 'Invalid token' });
-      })
-    );
+    setMockBehavior('telegramMeStatus', '200');
+    setMockBehavior('telegramMeError', 'Invalid token');
 
     await expect(userApi.getMe()).rejects.toThrow('Invalid token');
   });
 
   it('throws on network error', async () => {
-    server.use(
-      http.get('http://localhost:5005/telegram/me', () => {
-        return HttpResponse.error();
-      })
-    );
+    setMockBehavior('telegramMeStatus', '503');
+    setMockBehavior('telegramMeError', 'Service unavailable');
 
     await expect(userApi.getMe()).rejects.toBeDefined();
   });
