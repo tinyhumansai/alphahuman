@@ -122,8 +122,6 @@ jobs:
 
       - name: Build Tauri app
         working-directory: app
-        run: |
-          TAURI_CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":"never"},"plugins":{"updater":{"active":false}}}'
-          yarn tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles none -- -- --bin OpenHuman
+        run: yarn tauri build -c '{"bundle":{"createUpdaterArtifacts":"never"},"plugins":{"updater":{"active":false}}}' --bundles none -- -- --bin OpenHuman
         env:
           NODE_ENV: production
