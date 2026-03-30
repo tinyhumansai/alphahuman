@@ -329,6 +329,8 @@ struct ResponseMessage {
     reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<ToolCall>>,
+    #[serde(default)]
+    function_call: Option<Function>,
 }
 
 impl ResponseMessage {
@@ -379,7 +381,7 @@ struct ToolCall {
 #[derive(Debug, Deserialize, Serialize)]
 struct Function {
     name: Option<String>,
-    arguments: Option<String>,
+    arguments: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -680,6 +682,81 @@ fn parse_chat_response_body(provider_name: &str, body: &str) -> anyhow::Result<A
     })
 }
 
+fn normalize_function_arguments(arguments: Option<serde_json::Value>) -> String {
+    match arguments {
+        Some(serde_json::Value::String(raw)) => {
+            if raw.trim().is_empty() {
+                "{}".to_string()
+            } else {
+                raw
+            }
+        }
+        Some(serde_json::Value::Null) | None => "{}".to_string(),
+        Some(other) => serde_json::to_string(&other).unwrap_or_else(|_| "{}".to_string()),
+    }
+}
+
+fn parse_provider_tool_call_from_value(value: &serde_json::Value) -> Option<ProviderToolCall> {
+    if let Ok(call) = serde_json::from_value::<ProviderToolCall>(value.clone()) {
+        if !call.name.trim().is_empty() {
+            return Some(ProviderToolCall {
+                id: if call.id.trim().is_empty() {
+                    uuid::Uuid::new_v4().to_string()
+                } else {
+                    call.id
+                },
+                name: call.name,
+                arguments: if call.arguments.trim().is_empty() {
+                    "{}".to_string()
+                } else {
+                    call.arguments
+                },
+            });
+        }
+    }
+
+    let function = value.get("function")?;
+    let name = function.get("name").and_then(serde_json::Value::as_str)?;
+    if name.trim().is_empty() {
+        return None;
+    }
+
+    let id = value
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    Some(ProviderToolCall {
+        id,
+        name: name.to_string(),
+        arguments: normalize_function_arguments(function.get("arguments").cloned()),
+    })
+}
+
+fn parse_tool_calls_from_content_json(
+    content: &str,
+) -> Option<(Option<String>, Vec<ProviderToolCall>)> {
+    let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
+    let tool_calls_value = value.get("tool_calls")?.as_array()?;
+    let tool_calls: Vec<ProviderToolCall> = tool_calls_value
+        .iter()
+        .filter_map(parse_provider_tool_call_from_value)
+        .collect();
+    if tool_calls.is_empty() {
+        return None;
+    }
+
+    let text = value
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+
+    Some((text, tool_calls))
+}
+
 fn parse_responses_response_body(
     provider_name: &str,
     body: &str,
@@ -785,7 +862,7 @@ impl OpenAiCompatibleProvider {
                                         kind: Some("function".to_string()),
                                         function: Some(Function {
                                             name: Some(tc.name),
-                                            arguments: Some(tc.arguments),
+                                            arguments: Some(serde_json::Value::String(tc.arguments)),
                                         }),
                                     })
                                     .collect::<Vec<_>>();
@@ -865,14 +942,15 @@ impl OpenAiCompatibleProvider {
     }
 
     fn parse_native_response(message: ResponseMessage) -> ProviderChatResponse {
-        let tool_calls = message
+        let mut text = message.effective_content_optional();
+        let mut tool_calls = message
             .tool_calls
             .unwrap_or_default()
             .into_iter()
             .filter_map(|tc| {
                 let function = tc.function?;
                 let name = function.name?;
-                let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                let arguments = normalize_function_arguments(function.arguments);
                 Some(ProviderToolCall {
                     id: tc.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                     name,
@@ -881,8 +959,31 @@ impl OpenAiCompatibleProvider {
             })
             .collect::<Vec<_>>();
 
+        if tool_calls.is_empty() {
+            if let Some(function) = message.function_call.as_ref() {
+                if let Some(name) = function.name.as_ref().filter(|name| !name.trim().is_empty()) {
+                    tool_calls.push(ProviderToolCall {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: name.clone(),
+                        arguments: normalize_function_arguments(function.arguments.clone()),
+                    });
+                }
+            }
+        }
+
+        // Some providers return OpenAI-style tool_calls encoded as a JSON string
+        // inside message.content. Recover those here so native tool-calling still works.
+        if let Some(content) = message.content.as_deref() {
+            if let Some((json_text, json_tool_calls)) = parse_tool_calls_from_content_json(content) {
+                if !json_tool_calls.is_empty() {
+                    tool_calls = json_tool_calls;
+                    text = json_text.or(text);
+                }
+            }
+        }
+
         ProviderChatResponse {
-            text: message.content,
+            text,
             tool_calls,
         }
     }
@@ -1242,9 +1343,9 @@ impl Provider for OpenAiCompatibleProvider {
             .filter_map(|tc| {
                 let function = tc.function?;
                 let name = function.name?;
-                let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                let arguments = normalize_function_arguments(function.arguments);
                 Some(ProviderToolCall {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: tc.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                     name,
                     arguments,
                 })
@@ -1918,9 +2019,10 @@ mod tests {
                 kind: Some("function".to_string()),
                 function: Some(Function {
                     name: Some("shell".to_string()),
-                    arguments: Some(r#"{"command":"pwd"}"#.to_string()),
+                    arguments: Some(serde_json::Value::String(r#"{"command":"pwd"}"#.to_string())),
                 }),
             }]),
+            function_call: None,
             reasoning_content: None,
         };
 
@@ -2125,9 +2227,94 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .arguments
-                .as_deref(),
-            Some("{\"location\":\"London\"}")
+                .as_ref(),
+            Some(&serde_json::Value::String(
+                "{\"location\":\"London\"}".to_string()
+            ))
         );
+    }
+
+    #[test]
+    fn response_with_tool_call_object_arguments_deserializes() {
+        let json = r#"{
+            "choices": [{
+                "message": {
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_456",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {"location":"London","unit":"c"}
+                        }
+                    }]
+                }
+            }]
+        }"#;
+
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        let tool_calls = msg.tool_calls.as_ref().unwrap();
+        assert_eq!(
+            tool_calls[0].function.as_ref().unwrap().arguments.as_ref(),
+            Some(&serde_json::json!({"location":"London","unit":"c"}))
+        );
+
+        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+            content: None,
+            reasoning_content: None,
+            tool_calls: Some(vec![ToolCall {
+                id: Some("call_456".to_string()),
+                kind: Some("function".to_string()),
+                function: Some(Function {
+                    name: Some("get_weather".to_string()),
+                    arguments: Some(serde_json::json!({"location":"London","unit":"c"})),
+                }),
+            }]),
+            function_call: None,
+        });
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].id, "call_456");
+        assert_eq!(
+            parsed.tool_calls[0].arguments,
+            r#"{"location":"London","unit":"c"}"#
+        );
+    }
+
+    #[test]
+    fn parse_native_response_recovers_tool_calls_from_json_content() {
+        let content = r#"{"content":"Checking files...","tool_calls":[{"id":"call_json_1","function":{"name":"shell","arguments":"{\"command\":\"ls -la\"}"}}]}"#;
+        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+            content: Some(content.to_string()),
+            reasoning_content: None,
+            tool_calls: None,
+            function_call: None,
+        });
+
+        assert_eq!(parsed.text.as_deref(), Some("Checking files..."));
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].id, "call_json_1");
+        assert_eq!(parsed.tool_calls[0].name, "shell");
+        assert_eq!(parsed.tool_calls[0].arguments, r#"{"command":"ls -la"}"#);
+    }
+
+    #[test]
+    fn parse_native_response_supports_legacy_function_call() {
+        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+            content: Some("Let me check".to_string()),
+            reasoning_content: None,
+            tool_calls: None,
+            function_call: Some(Function {
+                name: Some("shell".to_string()),
+                arguments: Some(serde_json::Value::String(
+                    r#"{"command":"pwd"}"#.to_string(),
+                )),
+            }),
+        });
+
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].name, "shell");
+        assert_eq!(parsed.tool_calls[0].arguments, r#"{"command":"pwd"}"#);
     }
 
     #[test]
