@@ -7,10 +7,13 @@ import {
   deriveAesKeyFromMnemonic,
   deriveEvmAddressFromMnemonic,
   generateMnemonicPhrase,
+  MNEMONIC_GENERATE_WORD_COUNT,
   validateMnemonicPhrase,
 } from '../../../utils/cryptoKeys';
 
-const WORD_COUNT = 24;
+const BIP39_IMPORT_LENGTHS = [12, 15, 18, 21, 24] as const;
+
+const IMPORT_SLOTS_INITIAL = MNEMONIC_GENERATE_WORD_COUNT;
 
 interface MnemonicStepProps {
   onComplete: () => void | Promise<void>;
@@ -28,7 +31,7 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
   const mnemonic = useMemo(() => generateMnemonicPhrase(), []);
   const words = useMemo(() => mnemonic.split(' '), [mnemonic]);
 
-  const [importWords, setImportWords] = useState<string[]>(Array(WORD_COUNT).fill(''));
+  const [importWords, setImportWords] = useState<string[]>(Array(IMPORT_SLOTS_INITIAL).fill(''));
   const [importValid, setImportValid] = useState<boolean | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -43,6 +46,7 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
     setConfirmed(false);
     setError(null);
     setImportValid(null);
+    setImportWords(Array(IMPORT_SLOTS_INITIAL).fill(''));
   }, [mode]);
 
   const handleCopy = useCallback(async () => {
@@ -64,16 +68,24 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
 
   const handleImportWordChange = useCallback(
     (index: number, value: string) => {
-      const pastedWords = value.trim().split(/\s+/);
+      const pastedWords = value.trim().split(/\s+/).filter(Boolean);
       if (pastedWords.length > 1) {
+        const fullPhraseLen = pastedWords.length;
+        if (BIP39_IMPORT_LENGTHS.includes(fullPhraseLen as (typeof BIP39_IMPORT_LENGTHS)[number])) {
+          setImportWords(pastedWords.map(w => w.toLowerCase()));
+          setImportValid(null);
+          inputRefs.current[fullPhraseLen - 1]?.focus();
+          return;
+        }
         const newWords = [...importWords];
-        for (let i = 0; i < Math.min(pastedWords.length, WORD_COUNT - index); i++) {
+        const slotCount = newWords.length;
+        for (let i = 0; i < Math.min(pastedWords.length, slotCount - index); i++) {
           newWords[index + i] = pastedWords[i].toLowerCase();
         }
         setImportWords(newWords);
         setImportValid(null);
         const nextEmpty = newWords.findIndex(w => !w);
-        const focusIndex = nextEmpty === -1 ? WORD_COUNT - 1 : nextEmpty;
+        const focusIndex = nextEmpty === -1 ? slotCount - 1 : nextEmpty;
         inputRefs.current[focusIndex]?.focus();
         return;
       }
@@ -83,7 +95,7 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
       setImportWords(newWords);
       setImportValid(null);
 
-      if (value.trim() && index < WORD_COUNT - 1) {
+      if (value.trim() && index < newWords.length - 1) {
         inputRefs.current[index + 1]?.focus();
       }
     },
@@ -102,9 +114,12 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
   const handleValidateImport = useCallback(() => {
     const phrase = importWords.join(' ').trim();
     const filledWords = importWords.filter(w => w.trim());
+    const n = filledWords.length;
 
-    if (filledWords.length !== WORD_COUNT) {
-      setError(`Please enter all ${WORD_COUNT} words.`);
+    if (!BIP39_IMPORT_LENGTHS.includes(n as (typeof BIP39_IMPORT_LENGTHS)[number])) {
+      setError(
+        `Recovery phrase must be ${BIP39_IMPORT_LENGTHS.join(', ')} words (you have ${n}).`
+      );
       setImportValid(false);
       return false;
     }
@@ -159,7 +174,10 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
     }
   };
 
-  const isImportComplete = importWords.every(w => w.trim());
+  const importWordCount = importWords.filter(w => w.trim()).length;
+  const isImportComplete =
+    importWords.every(w => w.trim()) &&
+    BIP39_IMPORT_LENGTHS.includes(importWordCount as (typeof BIP39_IMPORT_LENGTHS)[number]);
   const canContinue = mode === 'generate' ? confirmed : isImportComplete;
 
   return (
@@ -169,8 +187,8 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
           <div className="text-center mb-4">
             <h1 className="text-xl font-bold mb-2">Your Recovery Phrase</h1>
             <p className="opacity-70 text-sm">
-              Write down these 24 words in order and store them somewhere safe. This phrase encrypts
-              your data and can never be recovered if lost.
+              Write down these {MNEMONIC_GENERATE_WORD_COUNT} words in order and store them somewhere
+              safe. This phrase encrypts your data and can never be recovered if lost.
             </p>
           </div>
 
@@ -246,8 +264,8 @@ const MnemonicStep = ({ onComplete }: MnemonicStepProps) => {
           <div className="text-center mb-4">
             <h1 className="text-xl font-bold mb-2">Import Recovery Phrase</h1>
             <p className="opacity-70 text-sm">
-              Enter your existing 24-word recovery phrase below. You can also paste the full phrase
-              into the first field.
+              Enter your recovery phrase below, or paste the full phrase into any field (12 words for
+              new backups; 24-word phrases from older versions still work).
             </p>
           </div>
 
