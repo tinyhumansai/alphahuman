@@ -20,7 +20,12 @@ describe('ProtectedRoute', () => {
       </Routes>,
       {
         preloadedState: {
-          auth: { token: 'valid-jwt', isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: 'valid-jwt',
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );
@@ -44,7 +49,12 @@ describe('ProtectedRoute', () => {
       {
         initialEntries: ['/dashboard'],
         preloadedState: {
-          auth: { token: null, isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: null,
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );
@@ -69,7 +79,12 @@ describe('ProtectedRoute', () => {
       {
         initialEntries: ['/dashboard'],
         preloadedState: {
-          auth: { token: null, isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: null,
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );
@@ -93,7 +108,12 @@ describe('ProtectedRoute', () => {
       {
         initialEntries: ['/home'],
         preloadedState: {
-          auth: { token: 'valid-jwt', isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: 'valid-jwt',
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
           user: { user: { _id: 'u1' }, isLoading: false, error: null },
         },
       }

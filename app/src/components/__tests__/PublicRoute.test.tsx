@@ -20,7 +20,12 @@ describe('PublicRoute', () => {
       </Routes>,
       {
         preloadedState: {
-          auth: { token: null, isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: null,
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );
@@ -43,7 +48,12 @@ describe('PublicRoute', () => {
       </Routes>,
       {
         preloadedState: {
-          auth: { token: 'jwt-token', isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: 'jwt-token',
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );
@@ -67,7 +77,12 @@ describe('PublicRoute', () => {
       </Routes>,
       {
         preloadedState: {
-          auth: { token: 'jwt-token', isOnboardedByUser: {}, isAnalyticsEnabledByUser: {} },
+          auth: {
+            token: 'jwt-token',
+            isAuthBootstrapComplete: true,
+            isOnboardedByUser: {},
+            isAnalyticsEnabledByUser: {},
+          },
         },
       }
     );

@@ -25,19 +25,21 @@
   "The Tet. What a brilliant machine" — Morgan Freeman as he recalls about <a href="https://youtu.be/SveLVpqy_Rc?si=y83aZNokPiUjILN0&t=60">alien superintelligence</a> in the movie <em>Oblivion</em>
 </p>
 
-OpenHuman is an open-source agentic assitant that is designed to integrate with you in your daily life. Here's what makes OpenHuman special:
+OpenHuman is an open-source agentic assistant that is designed to integrate with you in your daily life. Here's what makes OpenHuman special:
 
 - **One subscription, many providers** — One assistant wired to **skills** and backend models so you are not juggling a separate subscription stack for every integration surface.
 
-- **Incredible memory** — **Rust-side memory** (store / recall / namespaces) plus optional **TinyHumans [Neocortex](https://github.com/tinyhumansai/neocortex)**-backed context when configured, so the agent can retain and retrieve more than a single chat window.
+- **Incredible memory** — **Rust-side memory** (store / recall / namespaces) plus optional **TinyHumans [Neocortex](https://github.com/tinyhumansai/neocortex)**-backed context when configured, so the agent can retain and retrieve more than a single chat window. **Channels** and ongoing **conversations** feed the same loop so day-to-day context does not reset every session.
 
-- **Get started in minutes** — Desktop **workspace + onboarding-style flows** and **skills** you can turn on quickly; the core comes up with **JSON-RPC** and the UI talks to it over the **Tauri** bridge.
+- **Screen intelligence** — Regular **screen capture** (on a cadence or when triggered) feeds an on-device pipeline that **understands what is on screen**, distills it into **memory** (facts, UI state, workflows), and can propose **actions** the agent executes for you. OS permissions and capture APIs vary by platform; the goal is **your machine first**, not shipping raw frames to the cloud by default.
 
-- **Personalized learning** — **Channels**, conversations, and **screen intelligence** (where enabled) contribute context; processing is oriented around **your machine** and what you connect.
+- **Voice & meetings** — A **Local-model** speech stack (listen / **TTS**) let the assistant **talk back** and **capture or work with meeting audio** with a privacy-first default when you route inference locally. Transcripts and summaries land in the same **memory + agent** loop so OpenHuman can **follow up**: tasks, drafts, calendar nudges, or skill-backed workflows—without treating a meeting as a one-off chat.
 
-- **Runs a local AI model** — **Local AI** paths in the core (and bundled/desktop tooling where shipped) for workloads you want to keep **off the cloud** when possible.
+- **Memory-aware autocomplete** — **Keyboard autocomplete** is built for **right-context** suggestions: it consults **memory namespaces** and recent context so completions stay aligned with **you**, your workspace, and prior sessions—not a blank model every keystroke.
 
-- **Simple or advanced** — **Skill setup wizards** and defaults for common tools, with room to go deeper via **settings, credentials, and core RPC** when you need control.
+- **Runs a local AI model** — The **Rust core** exposes **local AI** paths (and the desktop bundle can ship **local/bundled runners** where applicable) for the workloads above—vision snippets, speech helpers, summarization, tooling—so sensitive steps can stay **off the cloud** when you choose.
+
+- **Simple or advanced** — **Skill setup wizards** and defaults for common tools, with room to go deeper via **settings, credentials, and core RPC** when you need control and privacy.
 
 Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Contributor orientation: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 

@@ -38,9 +38,12 @@ vi.mock('@tauri-apps/plugin-os', () => ({ platform: vi.fn().mockResolvedValue('m
 
 // Mock tauriCommands to prevent Tauri API calls in tests
 vi.mock('../utils/tauriCommands', () => ({
-  isTauri: () => false,
+  isTauri: vi.fn(() => false),
   storeSession: vi.fn().mockResolvedValue(undefined),
+  getSessionToken: vi.fn().mockResolvedValue(null),
   getAuthState: vi.fn().mockResolvedValue({ is_authenticated: false }),
+  logout: vi.fn().mockResolvedValue(undefined),
+  syncMemoryClientToken: vi.fn().mockResolvedValue(undefined),
   exchangeToken: vi.fn(),
   invoke: vi.fn(),
 }));
