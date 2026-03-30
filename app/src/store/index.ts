@@ -152,7 +152,7 @@ export const store = configureStore({
   },
 });
 
-// Wire up the apiClient so it can read the token without a circular import
+// Wire apiClient to auth token once the store exists (keeps `apiClient` free of `store/` imports).
 setStoreForApiClient(() => store.getState().auth.token);
 
 export const persistor = persistStore(store, null, () => {
