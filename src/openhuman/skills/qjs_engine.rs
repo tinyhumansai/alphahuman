@@ -39,6 +39,8 @@ pub struct RuntimeEngine {
     app_handle: RwLock<Option<AppHandle>>,
     /// Socket manager for emitting tool:sync events.
     socket_manager: RwLock<Option<Arc<SocketManager>>>,
+    /// Workspace directory for user-installed skills from registry.
+    workspace_dir: RwLock<Option<PathBuf>>,
 }
 
 impl RuntimeEngine {
@@ -63,6 +65,7 @@ impl RuntimeEngine {
             resource_dir: RwLock::new(None),
             app_handle: RwLock::new(None),
             socket_manager: RwLock::new(None),
+            workspace_dir: RwLock::new(None),
         })
     }
 
@@ -102,6 +105,12 @@ impl RuntimeEngine {
     /// Set the socket manager for emitting `tool:sync` events.
     pub fn set_socket_manager(&self, mgr: Arc<SocketManager>) {
         *self.socket_manager.write() = Some(mgr);
+    }
+
+    /// Set the workspace directory for user-installed skills from the registry.
+    pub fn set_workspace_dir(&self, dir: PathBuf) {
+        log::info!("[runtime] Workspace directory set to: {:?}", dir);
+        *self.workspace_dir.write() = Some(dir);
     }
 
     /// Notify the backend of the current tool state via `tool:sync`.
@@ -180,17 +189,44 @@ impl RuntimeEngine {
         self.get_skills_source_dir()
     }
 
-    /// Discover all JavaScript skills from the skills directory.
+    /// Discover all JavaScript skills from the skills source directory and workspace.
     pub async fn discover_skills(&self) -> Result<Vec<SkillManifest>, String> {
+        let mut manifests = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        // 1. Scan bundled/dev skills source directory
         let skills_dir = self.get_skills_source_dir()?;
-        if !skills_dir.exists() {
-            return Ok(Vec::new());
+        if skills_dir.exists() {
+            self.scan_skills_dir(&skills_dir, &mut manifests, &mut seen_ids)
+                .await?;
         }
 
-        let mut manifests = Vec::new();
-        let mut entries = tokio::fs::read_dir(&skills_dir)
+        // 2. Scan workspace skills directory (user-installed from registry)
+        if let Some(workspace_dir) = self.workspace_dir.read().as_ref() {
+            let workspace_skills = workspace_dir.join("skills");
+            if workspace_skills.exists() {
+                log::info!(
+                    "[runtime] Also scanning workspace skills dir: {:?}",
+                    workspace_skills
+                );
+                self.scan_skills_dir(&workspace_skills, &mut manifests, &mut seen_ids)
+                    .await?;
+            }
+        }
+
+        Ok(manifests)
+    }
+
+    /// Scan a single directory for skill manifests, skipping already-seen IDs.
+    async fn scan_skills_dir(
+        &self,
+        dir: &std::path::Path,
+        manifests: &mut Vec<SkillManifest>,
+        seen_ids: &mut std::collections::HashSet<String>,
+    ) -> Result<(), String> {
+        let mut entries = tokio::fs::read_dir(dir)
             .await
-            .map_err(|e| format!("Failed to read skills dir: {e}"))?;
+            .map_err(|e| format!("Failed to read skills dir {:?}: {e}", dir))?;
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
@@ -201,11 +237,20 @@ impl RuntimeEngine {
                         Ok(manifest)
                             if manifest.is_javascript() && manifest.supports_current_platform() =>
                         {
+                            if seen_ids.contains(&manifest.id) {
+                                log::debug!(
+                                    "[runtime] Skipping duplicate skill '{}' from {:?}",
+                                    manifest.id,
+                                    dir
+                                );
+                                continue;
+                            }
                             log::info!(
                                 "[runtime] Discovered skill '{}': {}",
                                 manifest.id,
                                 manifest.name
                             );
+                            seen_ids.insert(manifest.id.clone());
                             manifests.push(manifest);
                         }
                         Ok(manifest) if manifest.is_javascript() => {
@@ -228,7 +273,7 @@ impl RuntimeEngine {
             }
         }
 
-        Ok(manifests)
+        Ok(())
     }
 
     /// Start a specific skill by its ID.
@@ -243,9 +288,23 @@ impl RuntimeEngine {
             }
         }
 
+        // Look in bundled/dev source dir first, then workspace
         let skills_dir = self.get_skills_source_dir()?;
-        let skill_dir = skills_dir.join(skill_id);
-        let manifest_path = skill_dir.join("manifest.json");
+        let mut skill_dir = skills_dir.join(skill_id);
+        let mut manifest_path = skill_dir.join("manifest.json");
+
+        if !manifest_path.exists() {
+            // Try workspace skills directory
+            if let Some(workspace_dir) = self.workspace_dir.read().as_ref() {
+                let ws_skill_dir = workspace_dir.join("skills").join(skill_id);
+                let ws_manifest = ws_skill_dir.join("manifest.json");
+                if ws_manifest.exists() {
+                    log::info!("[runtime] Found skill '{}' in workspace dir", skill_id);
+                    skill_dir = ws_skill_dir;
+                    manifest_path = ws_manifest;
+                }
+            }
+        }
 
         if !manifest_path.exists() {
             return Err(format!("Skill '{}' not found (no manifest.json)", skill_id));

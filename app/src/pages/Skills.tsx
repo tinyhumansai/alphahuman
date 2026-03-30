@@ -12,6 +12,7 @@ import SkillSetupModal from '../components/skills/SkillSetupModal';
 import { deriveConnectionStatus, useSkillConnectionStatus } from '../lib/skills/hooks';
 import { skillManager } from '../lib/skills/manager';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
+import { callCoreRpc } from '../services/coreRpcClient';
 import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
 import { runtimeDiscoverSkills } from '../utils/tauriCommands';

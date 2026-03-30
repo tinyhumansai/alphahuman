@@ -8,6 +8,8 @@ pub mod preferences;
 pub mod qjs_engine;
 pub mod qjs_skill_instance;
 pub mod quickjs_libs;
+pub mod registry_ops;
+pub mod registry_types;
 mod schemas;
 pub mod skill_registry;
 pub mod socket_manager;

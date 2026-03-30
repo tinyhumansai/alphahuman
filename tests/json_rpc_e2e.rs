@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 
 use openhuman_core::core::jsonrpc::build_core_http_router;
@@ -319,5 +320,258 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
     if let Some(join) = mock_join {
         join.abort();
     }
+    rpc_join.abort();
+}
+
+// ---------------------------------------------------------------------------
+// Skills registry E2E: fetch, search, install, list, uninstall
+// ---------------------------------------------------------------------------
+
+fn mock_skills_registry_router() -> Router {
+    let manifest_json = json!({
+        "id": "test-skill",
+        "name": "Test Skill",
+        "version": "1.0.0",
+        "description": "A test skill for E2E",
+        "runtime": "quickjs",
+        "entry": "index.js"
+    });
+    let js_content = "function init() { console.log('test-skill'); }";
+
+    // Compute checksum for the JS content
+    let mut hasher = Sha256::new();
+    hasher.update(js_content.as_bytes());
+    let checksum = format!("{:x}", hasher.finalize());
+
+    let registry = json!({
+        "version": 1,
+        "generated_at": "2026-03-30T12:00:00Z",
+        "skills": {
+            "core": [{
+                "id": "test-skill",
+                "name": "Test Skill",
+                "version": "1.0.0",
+                "description": "A test skill for E2E",
+                "runtime": "quickjs",
+                "entry": "index.js",
+                "auto_start": false,
+                "download_url": "__BASE__/skills/test-skill/index.js",
+                "manifest_url": "__BASE__/skills/test-skill/manifest.json",
+                "checksum_sha256": checksum
+            }, {
+                "id": "another-skill",
+                "name": "Another Skill",
+                "version": "2.0.0",
+                "description": "Another skill for search testing",
+                "runtime": "quickjs",
+                "entry": "index.js",
+                "download_url": "__BASE__/skills/another-skill/index.js",
+                "manifest_url": "__BASE__/skills/another-skill/manifest.json"
+            }],
+            "third_party": []
+        }
+    });
+
+    Router::new()
+        .route(
+            "/registry.json",
+            get(move || {
+                let r = registry.clone();
+                async move { Json(r) }
+            }),
+        )
+        .route(
+            "/skills/test-skill/manifest.json",
+            get(move || {
+                let m = manifest_json.clone();
+                async move { Json(m) }
+            }),
+        )
+        .route(
+            "/skills/test-skill/index.js",
+            get(move || async move { js_content }),
+        )
+}
+
+#[tokio::test]
+async fn json_rpc_skills_registry_install_uninstall() {
+    // 1. Setup: temp workspace, mock skills server, RPC server
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+    let workspace = openhuman_home.join("workspace");
+    std::fs::create_dir_all(workspace.join("skills")).expect("create skills dir");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", &workspace);
+
+    // Start mock skills server
+    let (skills_addr, skills_join) = serve_on_ephemeral(mock_skills_registry_router()).await;
+    let skills_base = format!("http://{}", skills_addr);
+
+    // Point registry URL at mock server and fix the __BASE__ placeholder
+    let registry_url = format!("{}/registry.json", skills_base);
+    let _registry_url_guard =
+        EnvVarGuard::set_to_path("SKILLS_REGISTRY_URL", Path::new(&registry_url));
+
+    // Also need a mock upstream for config loading
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    // Start core RPC server
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Sanity check
+    let ping = post_json_rpc(&rpc_base, 1, "core.ping", json!({})).await;
+    assert_no_jsonrpc_error(&ping, "core.ping");
+
+    // Pre-populate the registry cache with correct URLs pointing at mock server.
+    let cache_dir = workspace.join("skills");
+    let now_rfc3339 = chrono::Utc::now().to_rfc3339();
+    let js_content_bytes = b"function init() { console.log('test-skill'); }";
+    let mut h = Sha256::new();
+    h.update(js_content_bytes);
+    let js_checksum = format!("{:x}", h.finalize());
+    let dl_url = format!("{}/skills/test-skill/index.js", skills_base);
+    let mf_url = format!("{}/skills/test-skill/manifest.json", skills_base);
+    let dl_url2 = format!("{}/skills/another-skill/index.js", skills_base);
+    let mf_url2 = format!("{}/skills/another-skill/manifest.json", skills_base);
+
+    let registry_with_urls = json!({
+        "fetched_at": now_rfc3339,
+        "registry": {
+            "version": 1,
+            "generated_at": "2026-03-30T12:00:00Z",
+            "skills": {
+                "core": [{
+                    "id": "test-skill",
+                    "name": "Test Skill",
+                    "version": "1.0.0",
+                    "description": "A test skill for E2E",
+                    "runtime": "quickjs",
+                    "entry": "index.js",
+                    "auto_start": false,
+                    "download_url": dl_url,
+                    "manifest_url": mf_url,
+                    "checksum_sha256": js_checksum
+                }, {
+                    "id": "another-skill",
+                    "name": "Another Skill",
+                    "version": "2.0.0",
+                    "description": "Another skill for search testing",
+                    "runtime": "quickjs",
+                    "entry": "index.js",
+                    "download_url": dl_url2,
+                    "manifest_url": mf_url2
+                }],
+                "third_party": []
+            }
+        }
+    });
+    std::fs::write(
+        cache_dir.join(".registry-cache.json"),
+        serde_json::to_string_pretty(&registry_with_urls).unwrap(),
+    )
+    .expect("write cache");
+
+    // 2. skills_list_installed — should be empty initially
+    let list = post_json_rpc(&rpc_base, 10, "openhuman.skills_list_installed", json!({})).await;
+    let list_result = assert_no_jsonrpc_error(&list, "list_installed");
+    assert!(
+        list_result.as_array().unwrap().is_empty(),
+        "expected empty installed list"
+    );
+
+    // 3. skills_search — find "test-skill"
+    let search = post_json_rpc(
+        &rpc_base,
+        11,
+        "openhuman.skills_search",
+        json!({"query": "test"}),
+    )
+    .await;
+    let search_result = assert_no_jsonrpc_error(&search, "search");
+    let search_arr = search_result.as_array().expect("search result is array");
+    assert!(
+        search_arr.iter().any(|e| e["id"] == "test-skill"),
+        "expected test-skill in search results: {search_result}"
+    );
+
+    // 4. skills_install — install test-skill
+    let install = post_json_rpc(
+        &rpc_base,
+        12,
+        "openhuman.skills_install",
+        json!({"skill_id": "test-skill"}),
+    )
+    .await;
+    let install_result = assert_no_jsonrpc_error(&install, "install");
+    assert_eq!(install_result["success"], true);
+    assert_eq!(install_result["skill_id"], "test-skill");
+
+    // 5. Verify files exist on disk
+    let installed_manifest = workspace.join("skills/test-skill/manifest.json");
+    let installed_js = workspace.join("skills/test-skill/index.js");
+    assert!(
+        installed_manifest.exists(),
+        "manifest.json should exist after install"
+    );
+    assert!(installed_js.exists(), "index.js should exist after install");
+
+    // 6. skills_list_installed — should now show test-skill
+    let list2 = post_json_rpc(&rpc_base, 13, "openhuman.skills_list_installed", json!({})).await;
+    let list2_result = assert_no_jsonrpc_error(&list2, "list_installed_after");
+    let list2_arr = list2_result.as_array().expect("list result is array");
+    assert_eq!(list2_arr.len(), 1);
+    assert_eq!(list2_arr[0]["id"], "test-skill");
+
+    // 7. skills_list_available — test-skill should show installed=true
+    let available =
+        post_json_rpc(&rpc_base, 14, "openhuman.skills_list_available", json!({})).await;
+    let available_result = assert_no_jsonrpc_error(&available, "list_available");
+    let available_arr = available_result
+        .as_array()
+        .expect("available result is array");
+    let test_entry = available_arr
+        .iter()
+        .find(|e| e["id"] == "test-skill")
+        .expect("test-skill should be in available list");
+    assert_eq!(test_entry["installed"], true);
+    assert_eq!(test_entry["update_available"], false);
+
+    // 8. skills_uninstall — remove test-skill
+    let uninstall = post_json_rpc(
+        &rpc_base,
+        15,
+        "openhuman.skills_uninstall",
+        json!({"skill_id": "test-skill"}),
+    )
+    .await;
+    let uninstall_result = assert_no_jsonrpc_error(&uninstall, "uninstall");
+    assert_eq!(uninstall_result["success"], true);
+
+    // 9. Verify directory removed
+    assert!(
+        !installed_manifest.exists(),
+        "manifest should be gone after uninstall"
+    );
+    assert!(
+        !installed_js.exists(),
+        "index.js should be gone after uninstall"
+    );
+
+    // 10. skills_list_installed — should be empty again
+    let list3 = post_json_rpc(&rpc_base, 16, "openhuman.skills_list_installed", json!({})).await;
+    let list3_result = assert_no_jsonrpc_error(&list3, "list_installed_final");
+    assert!(
+        list3_result.as_array().unwrap().is_empty(),
+        "should be empty after uninstall"
+    );
+
+    skills_join.abort();
+    mock_join.abort();
     rpc_join.abort();
 }
