@@ -419,6 +419,8 @@ impl Agent {
         let assistant = assistant_text.to_ascii_lowercase();
         assistant.contains("let's check")
             || assistant.contains("let me check")
+            || assistant.contains("let me get")
+            || assistant.contains("get that information")
             || assistant.contains("checking")
             || assistant.contains("i'll check")
     }
