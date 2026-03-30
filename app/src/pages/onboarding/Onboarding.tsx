@@ -1,25 +1,30 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import ProgressIndicator from '../../components/ProgressIndicator';
 import { userApi } from '../../services/api/userApi';
 import { setOnboardedForUser, setOnboardingTasksForUser } from '../../store/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { openhumanWorkspaceOnboardingFlagSet } from '../../utils/tauriCommands';
 import LocalAIStep from './steps/LocalAIStep';
+import MnemonicStep from './steps/MnemonicStep';
 import ScreenPermissionsStep from './steps/ScreenPermissionsStep';
-import WelcomeStep from './steps/WelcomeStep';
 import SkillsStep from './steps/SkillsStep';
 import ToolsStep from './steps/ToolsStep';
+import WelcomeStep from './steps/WelcomeStep';
+
+interface OnboardingProps {
+  onComplete?: () => void;
+}
 
 interface OnboardingDraft {
   localModelConsentGiven: boolean;
   localModelDownloadStarted: boolean;
   accessibilityPermissionGranted: boolean;
   enabledTools: string[];
+  connectedSources: string[];
 }
 
-const Onboarding = () => {
-  const navigate = useNavigate();
+const Onboarding = ({ onComplete }: OnboardingProps) => {
   const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.user.user);
   const [currentStep, setCurrentStep] = useState(0);
@@ -28,8 +33,9 @@ const Onboarding = () => {
     localModelDownloadStarted: false,
     accessibilityPermissionGranted: false,
     enabledTools: [],
+    connectedSources: [],
   });
-  const totalSteps = 5;
+  const totalSteps = 7;
 
   const handleNext = () => {
     if (currentStep < totalSteps - 1) {
@@ -37,10 +43,7 @@ const Onboarding = () => {
     }
   };
 
-  const handleLocalAINext = (result: {
-    consentGiven: boolean;
-    downloadStarted: boolean;
-  }) => {
+  const handleLocalAINext = (result: { consentGiven: boolean; downloadStarted: boolean }) => {
     setDraft(prev => ({
       ...prev,
       localModelConsentGiven: result.consentGiven,
@@ -59,7 +62,10 @@ const Onboarding = () => {
     handleNext();
   };
 
-  const handleComplete = async (connectedSources: string[]) => {
+  const handleSkillsNext = async (connectedSources: string[]) => {
+    setDraft(prev => ({ ...prev, connectedSources }));
+
+    // Persist onboarding tasks
     if (user?._id) {
       dispatch(
         setOnboardingTasksForUser({
@@ -75,6 +81,7 @@ const Onboarding = () => {
       );
     }
 
+    // Notify backend
     try {
       await userApi.onboardingComplete();
     } catch (e) {
@@ -87,10 +94,25 @@ const Onboarding = () => {
           : 'Failed to complete onboarding. Please try again.';
       throw new Error(msg);
     }
+
+    // Advance to mnemonic step
+    handleNext();
+  };
+
+  const handleMnemonicComplete = async () => {
+    // Mark onboarded in Redux
     if (user?._id) {
       dispatch(setOnboardedForUser({ userId: user._id, value: true }));
     }
-    navigate('/mnemonic');
+
+    // Write workspace flag so the overlay won't show again
+    try {
+      await openhumanWorkspaceOnboardingFlagSet(true);
+    } catch {
+      // Non-critical — Redux state is the primary gate
+    }
+
+    onComplete?.();
   };
 
   const renderStep = () => {
@@ -104,7 +126,9 @@ const Onboarding = () => {
       case 3:
         return <ToolsStep onNext={handleToolsNext} />;
       case 4:
-        return <SkillsStep onComplete={handleComplete} />;
+        return <SkillsStep onComplete={handleSkillsNext} />;
+      case 5:
+        return <MnemonicStep onComplete={handleMnemonicComplete} />;
       default:
         return null;
     }

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 
 import {
-  type ToolCategory,
-  TOOL_CATEGORIES,
   getDefaultEnabledTools,
   getToolsByCategory,
+  TOOL_CATEGORIES,
+  type ToolCategory,
 } from '../../../utils/toolDefinitions';
 
 interface ToolsStepProps {
@@ -46,8 +46,7 @@ const ToolsStep = ({ onNext }: ToolsStepProps) => {
       <div className="text-center mb-5">
         <h1 className="text-xl font-bold mb-2">Enable Tools</h1>
         <p className="opacity-70 text-sm">
-          Choose which capabilities OpenHuman can use on your behalf. You can change these later in
-          Settings.
+          Choose which capabilities OpenHuman can use on your behalf.
         </p>
       </div>
 

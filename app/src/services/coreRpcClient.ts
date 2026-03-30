@@ -43,6 +43,7 @@ const LEGACY_METHOD_ALIASES: Record<string, string> = {
     'openhuman.config_update_screen_intelligence_settings',
   'openhuman.update_tunnel_settings': 'openhuman.config_update_tunnel_settings',
   'openhuman.workspace_onboarding_flag_exists': 'openhuman.config_workspace_onboarding_flag_exists',
+  'openhuman.workspace_onboarding_flag_set': 'openhuman.config_workspace_onboarding_flag_set',
 };
 
 let nextJsonRpcId = 1;

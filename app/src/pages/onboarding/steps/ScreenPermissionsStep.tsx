@@ -31,8 +31,7 @@ const ScreenPermissionsStep = ({ onNext }: ScreenPermissionsStepProps) => {
         <h1 className="text-xl font-bold mb-2">Screen & Accessibility Permissions</h1>
         <p className="opacity-70 text-sm">
           OpenHuman uses information from your screen to constantly build context about your
-          workflow and assist you with desktop actions. You can always change this later in
-          Settings.
+          workflow and assist you with desktop actions.
         </p>
       </div>
 
@@ -80,7 +79,7 @@ const ScreenPermissionsStep = ({ onNext }: ScreenPermissionsStepProps) => {
           type="button"
           onClick={() => navigate('/settings/accessibility')}
           className="w-full py-2.5 text-sm font-medium rounded-xl border border-stone-600 hover:border-stone-500 transition-colors">
-          Open Accessibility Settings
+          Open Accessibility
         </button>
       </div>
 

@@ -245,26 +245,6 @@ const Mnemonic = () => {
                 I already have a recovery phrase
               </button>
 
-              {/* Warning */}
-              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
-                <svg
-                  className="w-5 h-5 text-amber-500 shrink-0 mt-0.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-                  />
-                </svg>
-                <p className="text-xs text-amber-800">
-                  Never share your recovery phrase with anyone. Anyone with these words can access
-                  your encrypted data. OpenHuman will never ask for your recovery phrase.
-                </p>
-              </div>
-
               {/* Confirmation Checkbox */}
               <label className="flex items-start gap-3 cursor-pointer mb-4">
                 <input

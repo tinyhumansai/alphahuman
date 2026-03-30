@@ -1021,6 +1021,19 @@ export async function openhumanWorkspaceOnboardingFlagExists(
   });
 }
 
+export async function openhumanWorkspaceOnboardingFlagSet(
+  value: boolean,
+  flagName = DEFAULT_WORKSPACE_ONBOARDING_FLAG
+): Promise<boolean> {
+  if (!isTauri()) {
+    return false;
+  }
+  return await callCoreRpc<boolean>({
+    method: 'openhuman.workspace_onboarding_flag_set',
+    params: { flag_name: flagName, value },
+  });
+}
+
 export async function openhumanSetBrowserAllowAll(
   enabled: boolean
 ): Promise<CommandResponse<RuntimeFlags>> {
