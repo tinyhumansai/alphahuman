@@ -4,10 +4,9 @@ import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { skillManager } from '../lib/skills/manager';
 import { consumeLoginToken, fetchIntegrationTokens } from '../services/api/authApi';
-import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
-import { setSkillState } from '../store/skillsSlice';
+import { setSkillSetupComplete, setSkillState } from '../store/skillsSlice';
 import {
   decryptIntegrationTokens,
   hexToBase64,
@@ -127,122 +126,85 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
     console.log(`[DeepLink] OAuth success for skill=${skillId} integration=${integrationId}`);
 
+    // Always mark the skill as connected first — the OAuth completed on the backend.
+    // Token handoff is best-effort; the backend stores credentials server-side regardless.
+    store.dispatch(setSkillSetupComplete({ skillId, complete: true }));
+    store.dispatch(
+      setSkillState({
+        skillId,
+        state: {
+          ...(store.getState().skills.skillStates[skillId] ?? {}),
+          connection_status: 'connected',
+          integrationId,
+        },
+      })
+    );
+
+    // Best-effort: try to fetch and store encrypted tokens locally
     try {
-      const state = store.getState();
       const userId = getCurrentUserId();
-      if (!userId) {
-        console.warn('[DeepLink] Cannot fetch integration tokens: no current user id');
-        return;
-      }
+      const state = store.getState();
+      const encryptionKeyHex = userId
+        ? state.auth.encryptionKeyByUser[userId]
+        : undefined;
 
-      const encryptionKeyHex = state.auth.encryptionKeyByUser[userId];
-      if (!encryptionKeyHex || typeof encryptionKeyHex !== 'string') {
-        console.warn(
-          '[DeepLink] Cannot fetch integration tokens: no encryption key found for user',
-          userId
-        );
-        return;
-      }
+      if (userId && encryptionKeyHex && typeof encryptionKeyHex === 'string') {
+        const trimmedHex = encryptionKeyHex.trim().replace(/^0x/i, '');
+        if (trimmedHex && trimmedHex.length % 2 === 0 && /^[0-9a-fA-F]*$/.test(trimmedHex)) {
+          const keyForBackend = hexToBase64(trimmedHex);
+          if (keyForBackend) {
+            const response = await fetchIntegrationTokens(integrationId, keyForBackend);
+            if (response.success && response.data?.encrypted) {
+              store.dispatch(
+                setSkillState({
+                  skillId,
+                  state: {
+                    ...(store.getState().skills.skillStates[skillId] ?? {}),
+                    oauthTokens: {
+                      ...(store.getState().skills.skillStates[skillId]?.oauthTokens as
+                        | Record<string, { encrypted: string }>
+                        | undefined),
+                      [integrationId]: { encrypted: response.data.encrypted },
+                    },
+                  },
+                })
+              );
 
-      const trimmedHex = encryptionKeyHex.trim().replace(/^0x/i, '');
-      if (!trimmedHex || trimmedHex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(trimmedHex)) {
-        const msg =
-          '[DeepLink] Cannot fetch integration tokens: encryption key must be non-empty hex (even length, [0-9a-fA-F])';
-        console.error(msg, { userId, encryptionKeyHex });
-        enqueueError({
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-          source: 'manual',
-          title: 'Deep link integration tokens: invalid encryption key',
-          message: msg,
-          sentryEvent: buildManualSentryEvent(
-            { type: 'DeepLinkIntegrationTokensInvalidKey', value: msg },
-            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
-          ),
-        });
-        return;
-      }
+              // Pass decrypted access token to skill runtime if running
+              let extraCredential: { accessToken?: string } | undefined;
+              try {
+                const decryptedJson = await decryptIntegrationTokens(
+                  response.data.encrypted,
+                  trimmedHex
+                );
+                const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
+                if (payload.accessToken) {
+                  extraCredential = { accessToken: payload.accessToken };
+                }
+              } catch (e) {
+                console.warn('[DeepLink] Could not decrypt integration token:', e);
+              }
 
-      let keyForBackend: string;
-      try {
-        keyForBackend = hexToBase64(trimmedHex);
-      } catch (e) {
-        const msg = '[DeepLink] Cannot fetch integration tokens: encryption key conversion failed';
-        console.error(msg, { userId, encryptionKeyHex, error: e });
-        const err = e instanceof Error ? e : new Error(String(e));
-        enqueueError({
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-          source: 'manual',
-          title: 'Deep link integration tokens: encryption key conversion failed',
-          message: err.message,
-          sentryEvent: buildManualSentryEvent(
-            { type: 'DeepLinkIntegrationTokensHexToBase64Error', value: err.message },
-            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
-          ),
-          originalError: err,
-        });
-        return;
-      }
-      if (!keyForBackend) {
-        const msg =
-          '[DeepLink] Cannot fetch integration tokens: encryption key produced empty base64';
-        console.error(msg, { userId, encryptionKeyHex });
-        enqueueError({
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-          source: 'manual',
-          title: 'Deep link integration tokens: empty key for backend',
-          message: msg,
-          sentryEvent: buildManualSentryEvent(
-            { type: 'DeepLinkIntegrationTokensEmptyKey', value: msg },
-            { component: 'desktopDeepLinkListener', userId, encryptionKeyHex }
-          ),
-        });
-        return;
-      }
-
-      const response = await fetchIntegrationTokens(integrationId, keyForBackend);
-      if (!response.success || !response.data?.encrypted) {
-        console.warn(
-          '[DeepLink] Integration tokens response missing encrypted payload for integration',
-          integrationId
-        );
-        return;
-      }
-
-      const existingState = state.skills.skillStates[skillId] ?? {};
-      store.dispatch(
-        setSkillState({
-          skillId,
-          state: {
-            ...existingState,
-            oauthTokens: {
-              ...(existingState.oauthTokens as Record<string, { encrypted: string }> | undefined),
-              [integrationId]: { encrypted: response.data.encrypted },
-            },
-          },
-        })
-      );
-
-      // For OAuth-capable skills (e.g. Gmail, Notion), pass decrypted access token so the
-      // skill can use it directly when supported instead of always going through the proxy.
-      let extraCredential: { accessToken?: string } | undefined;
-
-      try {
-        const decryptedJson = await decryptIntegrationTokens(response.data.encrypted, trimmedHex);
-        const payload = JSON.parse(decryptedJson) as IntegrationTokensPayload;
-        if (payload.accessToken) {
-          extraCredential = { accessToken: payload.accessToken };
+              try {
+                await skillManager.notifyOAuthComplete(
+                  skillId,
+                  integrationId,
+                  undefined,
+                  extraCredential
+                );
+                await skillManager.triggerSync(skillId);
+              } catch (runtimeErr) {
+                console.warn('[DeepLink] Runtime notify skipped (skill not running):', runtimeErr);
+              }
+            }
+          }
         }
-      } catch (e) {
-        console.warn('[DeepLink] Could not decrypt integration token for skill:', e);
+      } else {
+        console.warn('[DeepLink] Skipping token handoff: no encryption key available');
       }
-
-      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, extraCredential);
-      await skillManager.triggerSync(skillId);
     } catch (err) {
-      console.error('[DeepLink] Failed to notify OAuth complete:', err);
+      // Token handoff failed but skill is already marked connected above
+      console.warn('[DeepLink] Token handoff failed (skill still connected):', err);
     }
   } else if (path === 'error') {
     const error = parsed.searchParams.get('error') ?? 'Unknown error';
@@ -317,7 +279,7 @@ export const setupDesktopDeepLinkListener = async () => {
 
     if (typeof window !== 'undefined') {
       // window.__simulateDeepLink('openhuman://auth?token=1234567890')
-      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=6989ef9c8e8bf1b6d991a08c&skillId=notion')
+      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69c34e6a103bd070232d2710&skillId=notion')
       const win = window as Window & { __simulateDeepLink?: (url: string) => Promise<void> };
       win.__simulateDeepLink = (url: string) => handleDeepLinkUrls([url]);
     }
