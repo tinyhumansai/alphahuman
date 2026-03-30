@@ -8,11 +8,10 @@ import {
   STATUS_DISPLAY,
 } from '../components/skills/shared';
 import SkillSetupModal from '../components/skills/SkillSetupModal';
-import { useAvailableSkills, useSkillConnectionStatus } from '../lib/skills/hooks';
+import { useAvailableSkills, useSkillConnectionStatus, useSkillState } from '../lib/skills/hooks';
 import { skillManager } from '../lib/skills/manager';
 import { installSkill } from '../lib/skills/skillsApi';
 import type { SkillConnectionStatus, SkillHostConnectionState } from '../lib/skills/types';
-import { useAppSelector } from '../store/hooks';
 import { IS_DEV } from '../utils/config';
 import { deriveSkillSyncSummaryText, deriveSkillSyncUiState } from './skillsSyncUi';
 
@@ -40,10 +39,8 @@ interface SkillCardProps {
 function SkillCard({ skill, onSetup }: SkillCardProps) {
   const connectionStatus = useSkillConnectionStatus(skill.id);
   const statusDisplay = STATUS_DISPLAY[connectionStatus] || STATUS_DISPLAY.offline;
-  const skillState = useAppSelector(state => state.skills.skillStates[skill.id]) as
-    | (SkillHostConnectionState & Record<string, unknown>)
-    | undefined;
-  const syncStats = useAppSelector(state => state.skills.syncStatsBySkill[skill.id]);
+  const skillState = useSkillState<SkillHostConnectionState & Record<string, unknown>>(skill.id);
+  const syncStats = undefined; // TODO: sync stats will come from RPC in future
   const [manualSyncing, setManualSyncing] = useState(false);
   const syncUi = useMemo(
     () => deriveSkillSyncUiState(skill.id, skillState),
