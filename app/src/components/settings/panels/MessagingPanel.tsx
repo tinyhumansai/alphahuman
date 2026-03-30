@@ -41,6 +41,82 @@ const AUTH_MODE_LABELS: Record<string, string> = {
   api_key: 'API Key',
 };
 
+/** Fallback definitions used when the core sidecar is unreachable. */
+const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
+  {
+    id: 'telegram',
+    display_name: 'Telegram',
+    description: 'Send and receive messages via Telegram.',
+    icon: 'telegram',
+    auth_modes: [
+      {
+        mode: 'bot_token',
+        description: 'Provide your own Telegram Bot token from @BotFather.',
+        fields: [
+          {
+            key: 'bot_token',
+            label: 'Bot Token',
+            field_type: 'secret',
+            required: true,
+            placeholder: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
+          },
+          {
+            key: 'allowed_users',
+            label: 'Allowed Users',
+            field_type: 'string',
+            required: false,
+            placeholder: 'Comma-separated Telegram usernames',
+          },
+        ],
+        auth_action: undefined,
+      },
+      {
+        mode: 'managed_dm',
+        description: 'Message the OpenHuman Telegram bot directly.',
+        fields: [],
+        auth_action: 'telegram_managed_dm',
+      },
+    ],
+    capabilities: ['send_text', 'receive_text', 'typing', 'draft_updates'],
+  },
+  {
+    id: 'discord',
+    display_name: 'Discord',
+    description: 'Send and receive messages via Discord.',
+    icon: 'discord',
+    auth_modes: [
+      {
+        mode: 'bot_token',
+        description: 'Provide your own Discord bot token.',
+        fields: [
+          {
+            key: 'bot_token',
+            label: 'Bot Token',
+            field_type: 'secret',
+            required: true,
+            placeholder: 'Your Discord bot token',
+          },
+          {
+            key: 'guild_id',
+            label: 'Server (Guild) ID',
+            field_type: 'string',
+            required: false,
+            placeholder: 'Optional: restrict to a specific server',
+          },
+        ],
+        auth_action: undefined,
+      },
+      {
+        mode: 'oauth',
+        description: 'Install the OpenHuman bot to your Discord server via OAuth.',
+        fields: [],
+        auth_action: 'discord_oauth',
+      },
+    ],
+    capabilities: ['send_text', 'receive_text', 'typing', 'threaded_replies'],
+  },
+];
+
 const MessagingPanel = () => {
   const { navigateBack } = useSettingsNavigation();
   const dispatch = useAppDispatch();
@@ -65,31 +141,37 @@ const MessagingPanel = () => {
     const load = async () => {
       try {
         const [defs, statusEntries] = await Promise.all([
-          channelConnectionsApi.listDefinitions(),
-          channelConnectionsApi.listStatus(),
+          channelConnectionsApi.listDefinitions().catch(() => null),
+          channelConnectionsApi.listStatus().catch(() => null),
         ]);
         if (cancelled) return;
 
-        setDefinitions(defs);
+        // Use backend definitions if available, otherwise fall back.
+        const resolvedDefs =
+          defs && Array.isArray(defs) && defs.length > 0 ? defs : FALLBACK_DEFINITIONS;
+        setDefinitions(resolvedDefs);
 
-        // Sync status into Redux.
-        for (const entry of statusEntries) {
-          const channel = entry.channel_id as ChannelType;
-          const authMode = entry.auth_mode as ChannelAuthMode;
-          if (entry.connected) {
-            dispatch(
-              upsertChannelConnection({
-                channel,
-                authMode,
-                patch: { status: 'connected', capabilities: ['read', 'write'] },
-              })
-            );
+        // Sync status into Redux when available.
+        if (statusEntries && Array.isArray(statusEntries)) {
+          for (const entry of statusEntries) {
+            const channel = entry.channel_id as ChannelType;
+            const authMode = entry.auth_mode as ChannelAuthMode;
+            if (entry.connected) {
+              dispatch(
+                upsertChannelConnection({
+                  channel,
+                  authMode,
+                  patch: { status: 'connected', capabilities: ['read', 'write'] },
+                })
+              );
+            }
           }
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (!cancelled) {
-          setError(`Could not load channel definitions: ${msg}`);
+          setDefinitions(FALLBACK_DEFINITIONS);
+          setError(`Could not load from backend: ${msg}`);
         }
       } finally {
         if (!cancelled) setLoading(false);
