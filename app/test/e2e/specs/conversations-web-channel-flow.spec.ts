@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
-import { triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
+import { triggerAuthDeepLink } from '../helpers/deep-link-helpers';
 import {
   clickText,
   dumpAccessibilityTree,
@@ -10,6 +10,15 @@ import {
   waitForWindowVisible,
 } from '../helpers/element-helpers';
 import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
+
+function stepLog(message: string, context?: unknown) {
+  const stamp = new Date().toISOString();
+  if (context === undefined) {
+    console.log(`[ConversationsE2E][${stamp}] ${message}`);
+    return;
+  }
+  console.log(`[ConversationsE2E][${stamp}] ${message}`, JSON.stringify(context, null, 2));
+}
 
 async function waitForRequest(method, urlFragment, timeout = 20_000) {
   const deadline = Date.now() + timeout;
@@ -63,26 +72,41 @@ async function completeOnboardingIfVisible() {
 
 describe('Conversations web channel flow', () => {
   before(async () => {
+    stepLog('starting mock server');
     await startMockServer();
+    stepLog('waiting for app');
     await waitForApp();
+    stepLog('clearing request log');
     clearRequestLog();
   });
 
   after(async () => {
+    stepLog('stopping mock server');
     await stopMockServer();
   });
 
   it('sends UI message through agent loop and renders response', async () => {
-    await triggerAuthDeepLinkBypass('e2e-conversations-user');
+    stepLog('trigger deep link');
+    await triggerAuthDeepLink('e2e-conversations-token');
+    stepLog('wait for window');
     await waitForWindowVisible(25_000);
+    stepLog('wait for webview');
     await waitForWebView(15_000);
+    stepLog('wait for app ready');
     await waitForAppReady(15_000);
 
+    stepLog('wait for consume token request');
+    const consume = await waitForRequest('POST', '/telegram/login-tokens/');
+    expect(consume).toBeDefined();
+
+    stepLog('complete onboarding');
     await completeOnboardingIfVisible();
 
+    stepLog('open conversations from home');
     await waitForText('Message OpenHuman', 20_000);
     await clickText('Message OpenHuman', 10_000);
 
+    stepLog('send message');
     await waitForText('Type a message...', 20_000);
     await clickText('Type a message...', 10_000);
     await browser.keys('hello from e2e web channel');
@@ -91,6 +115,7 @@ describe('Conversations web channel flow', () => {
     await waitForText('hello from e2e web channel', 20_000);
     await waitForText('Hello from e2e mock agent', 30_000);
 
+    stepLog('validate backend request');
     const chatReq = await waitForRequest('POST', '/openai/v1/chat/completions', 30_000);
     if (!chatReq) {
       const tree = await dumpAccessibilityTree();

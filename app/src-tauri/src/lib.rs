@@ -20,7 +20,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tokio::time::{interval, Duration};
 
-#[cfg(desktop)]
+// register_all() is only for Windows/Linux; macOS uses Info.plist (see docs).
+#[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Demo command - can be removed in production
@@ -461,8 +462,8 @@ pub fn run() {
     builder
         // Setup
         .setup(move |app| {
-            // Register deep link handlers on desktop platforms.
-            #[cfg(desktop)]
+            // Register schemes at runtime (Windows/Linux only). macOS uses bundle Info.plist.
+            #[cfg(any(windows, target_os = "linux"))]
             {
                 app.deep_link().register_all()?;
             }

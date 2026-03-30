@@ -95,8 +95,9 @@ describe('Auth flow e2e (binary + OAuth callback)', () => {
     await setupDesktopDeepLinkListener();
     expect(mockOnOpenUrl).toHaveBeenCalledTimes(1);
 
-    const openUrlHandler = mockOnOpenUrl.mock.calls[0][0] as (urls: string[]) => void;
-    openUrlHandler(['openhuman://auth?token=oauth-login-token-123']);
+    const win = window as Window & { __simulateDeepLink?: (url: string) => Promise<void> };
+    expect(win.__simulateDeepLink).toBeTypeOf('function');
+    await win.__simulateDeepLink!('openhuman://auth?token=oauth-login-token-123');
 
     await waitFor(() =>
       expect(mockCallCoreRpc).toHaveBeenCalledWith({

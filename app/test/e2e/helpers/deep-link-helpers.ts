@@ -1,8 +1,12 @@
 /**
  * Deep-link trigger utilities for E2E tests.
  *
- * Uses macOS `open` command to fire the custom `openhuman://` URL scheme,
- * which the built .app bundle picks up via its registered CFBundleURLSchemes.
+ * Preferred path: run `window.__simulateDeepLink(url)` inside the Tauri WKWebView
+ * (same handler as `onOpenUrl` in desktopDeepLinkListener). This matches real auth
+ * routing without relying on OS URL-handler registration.
+ *
+ * Fallback: Appium `macos: deepLink` / macOS `open` when JS execution in the WebView
+ * is unavailable.
  */
 import { exec } from 'child_process';
 import fs from 'fs';
@@ -16,6 +20,53 @@ function execCommand(command: string): Promise<void> {
       else resolve();
     });
   });
+}
+
+/**
+ * When WebDriver can execute JS in the app WebView, dispatch the same URLs as the
+ * deep-link plugin via `window.__simulateDeepLink` (see desktopDeepLinkListener).
+ */
+async function trySimulateDeepLinkInWebView(url: string): Promise<boolean> {
+  if (typeof browser === 'undefined') return false;
+
+  try {
+    const ping = await browser.execute(() => true);
+    if (ping !== true) return false;
+  } catch {
+    return false;
+  }
+
+  const deadline = Date.now() + 25_000;
+  while (Date.now() < deadline) {
+    let ready = false;
+    try {
+      ready = await browser.execute(
+        () =>
+          typeof (window as Window & { __simulateDeepLink?: unknown }).__simulateDeepLink ===
+          'function'
+      );
+    } catch {
+      return false;
+    }
+
+    if (ready) {
+      await browser.execute(
+        async (u: string) => {
+          const w = window as Window & { __simulateDeepLink?: (x: string) => Promise<void> };
+          if (!w.__simulateDeepLink) {
+            throw new Error('__simulateDeepLink is not available');
+          }
+          await w.__simulateDeepLink(u);
+        },
+        url
+      );
+      return true;
+    }
+
+    await browser.pause(400);
+  }
+
+  return false;
 }
 
 function resolveBuiltAppPath(): string | null {
@@ -45,8 +96,6 @@ function resolveBuiltAppPath(): string | null {
 export async function triggerDeepLink(url: string): Promise<void> {
   const appPath = resolveBuiltAppPath();
 
-  // Primary path in E2E: ask Appium/mac2 to deep-link directly into this app.
-  // This avoids relying on global OS URL-handler registration.
   if (typeof browser !== 'undefined') {
     try {
       await browser.execute('macos: activateApp', {
@@ -55,6 +104,11 @@ export async function triggerDeepLink(url: string): Promise<void> {
     } catch {
       // ignore
     }
+
+    if (await trySimulateDeepLinkInWebView(url)) {
+      return;
+    }
+
     try {
       await browser.execute('macos: launchApp', {
         bundleId: 'com.openhuman.app',
