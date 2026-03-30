@@ -15,17 +15,19 @@ import {
  * when the user has not completed onboarding.
  *
  * Checks both Redux `isOnboarded` and the workspace flag file.
+ * Waits for the user profile to load before making a decision.
  */
 const OnboardingOverlay = () => {
   const token = useAppSelector(state => state.auth.token);
   const isAuthBootstrapComplete = useAppSelector(state => state.auth.isAuthBootstrapComplete);
+  const user = useAppSelector(state => state.user.user);
   const isOnboarded = useAppSelector(selectIsOnboarded);
   const [hasWorkspaceFlag, setHasWorkspaceFlag] = useState<boolean | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
-  // Check workspace flag on mount and when onboarding state changes
+  // Check workspace flag once user is loaded
   useEffect(() => {
-    if (!token || !isAuthBootstrapComplete) return;
+    if (!token || !isAuthBootstrapComplete || !user?._id) return;
 
     let mounted = true;
     const check = async () => {
@@ -42,14 +44,14 @@ const OnboardingOverlay = () => {
     return () => {
       mounted = false;
     };
-  }, [token, isAuthBootstrapComplete, isOnboarded]);
+  }, [token, isAuthBootstrapComplete, user?._id, isOnboarded]);
 
   const handleComplete = useCallback(() => {
     setDismissed(true);
   }, []);
 
-  // Don't show if not logged in or bootstrap not complete
-  if (!token || !isAuthBootstrapComplete) return null;
+  // Don't show if not logged in, bootstrap not complete, or user not loaded
+  if (!token || !isAuthBootstrapComplete || !user?._id) return null;
 
   // Still loading workspace flag
   if (hasWorkspaceFlag === null) return null;
