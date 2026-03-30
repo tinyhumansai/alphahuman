@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::routing::{get, post};
@@ -44,6 +45,18 @@ impl Drop for EnvVarGuard {
             None => std::env::remove_var(self.key),
         }
     }
+}
+
+/// Serializes tests in this binary: `HOME` / `OPENHUMAN_WORKSPACE` / backend URL overrides are
+/// process-global, so parallel tests would clobber each other and hit the wrong `config.toml` or
+/// inherited `VITE_BACKEND_URL`.
+static JSON_RPC_E2E_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn json_rpc_e2e_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    JSON_RPC_E2E_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("json_rpc_e2e env lock poisoned")
 }
 
 fn mock_upstream_router() -> Router {
@@ -198,6 +211,7 @@ encrypt = false
 
 #[tokio::test]
 async fn json_rpc_protocol_auth_and_agent_hello() {
+    let _env_lock = json_rpc_e2e_env_lock();
     let tmp = tempdir().expect("tempdir");
     let home = tmp.path();
     let openhuman_home = home.join(".openhuman");
@@ -241,7 +255,7 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
         "unexpected auth state shape: {state_body}"
     );
 
-    // --- auth: store session (validates JWT against mock GET /auth/integrations) ---
+    // --- auth: store session (validates JWT via mock GET /settings) ---
     let store = post_json_rpc(
         &rpc_base,
         4,
@@ -392,6 +406,7 @@ fn mock_skills_registry_router() -> Router {
 
 #[tokio::test]
 async fn json_rpc_skills_registry_install_uninstall() {
+    let _env_lock = json_rpc_e2e_env_lock();
     // 1. Setup: temp workspace, mock skills server, RPC server
     let tmp = tempdir().expect("tempdir");
     let home = tmp.path();
@@ -632,6 +647,7 @@ fn write_test_skill(workspace: &Path, skill_id: &str) {
 
 #[tokio::test]
 async fn json_rpc_skills_runtime_start_tools_call_stop() {
+    let _env_lock = json_rpc_e2e_env_lock();
     let tmp = tempdir().expect("tempdir");
     let home = tmp.path();
     let openhuman_home = home.join(".openhuman");

@@ -23,9 +23,9 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         skills_schema("uninstall"),
         skills_schema("list_installed"),
         skills_schema("list_available"),
-        // Runtime controllers
         skills_schema("start"),
         skills_schema("stop"),
+        // Runtime controllers
         skills_schema("status"),
         skills_schema("setup_start"),
         skills_schema("list_tools"),
@@ -78,7 +78,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
             schema: skills_schema("list_available"),
             handler: handle_skills_list_available,
         },
-        // Runtime controllers
         RegisteredController {
             schema: skills_schema("start"),
             handler: handle_skills_start,
@@ -87,6 +86,7 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
             schema: skills_schema("stop"),
             handler: handle_skills_stop,
         },
+        // Runtime controllers
         RegisteredController {
             schema: skills_schema("status"),
             handler: handle_skills_status,
