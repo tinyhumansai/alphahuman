@@ -961,7 +961,11 @@ impl OpenAiCompatibleProvider {
 
         if tool_calls.is_empty() {
             if let Some(function) = message.function_call.as_ref() {
-                if let Some(name) = function.name.as_ref().filter(|name| !name.trim().is_empty()) {
+                if let Some(name) = function
+                    .name
+                    .as_ref()
+                    .filter(|name| !name.trim().is_empty())
+                {
                     tool_calls.push(ProviderToolCall {
                         id: uuid::Uuid::new_v4().to_string(),
                         name: name.clone(),
@@ -974,7 +978,8 @@ impl OpenAiCompatibleProvider {
         // Some providers return OpenAI-style tool_calls encoded as a JSON string
         // inside message.content. Recover those here so native tool-calling still works.
         if let Some(content) = message.content.as_deref() {
-            if let Some((json_text, json_tool_calls)) = parse_tool_calls_from_content_json(content) {
+            if let Some((json_text, json_tool_calls)) = parse_tool_calls_from_content_json(content)
+            {
                 if !json_tool_calls.is_empty() {
                     tool_calls = json_tool_calls;
                     text = json_text.or(text);
@@ -982,10 +987,7 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        ProviderChatResponse {
-            text,
-            tool_calls,
-        }
+        ProviderChatResponse { text, tool_calls }
     }
 
     fn is_native_tool_schema_unsupported(status: reqwest::StatusCode, error: &str) -> bool {
@@ -2019,7 +2021,9 @@ mod tests {
                 kind: Some("function".to_string()),
                 function: Some(Function {
                     name: Some("shell".to_string()),
-                    arguments: Some(serde_json::Value::String(r#"{"command":"pwd"}"#.to_string())),
+                    arguments: Some(serde_json::Value::String(
+                        r#"{"command":"pwd"}"#.to_string(),
+                    )),
                 }),
             }]),
             function_call: None,
@@ -2222,12 +2226,7 @@ mod tests {
             Some("get_weather")
         );
         assert_eq!(
-            tool_calls[0]
-                .function
-                .as_ref()
-                .unwrap()
-                .arguments
-                .as_ref(),
+            tool_calls[0].function.as_ref().unwrap().arguments.as_ref(),
             Some(&serde_json::Value::String(
                 "{\"location\":\"London\"}".to_string()
             ))
