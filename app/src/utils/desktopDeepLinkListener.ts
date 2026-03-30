@@ -144,9 +144,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     try {
       const userId = getCurrentUserId();
       const state = store.getState();
-      const encryptionKeyHex = userId
-        ? state.auth.encryptionKeyByUser[userId]
-        : undefined;
+      const encryptionKeyHex = userId ? state.auth.encryptionKeyByUser[userId] : undefined;
 
       if (userId && encryptionKeyHex && typeof encryptionKeyHex === 'string') {
         const trimmedHex = encryptionKeyHex.trim().replace(/^0x/i, '');

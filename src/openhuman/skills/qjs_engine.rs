@@ -30,6 +30,7 @@ pub fn require_engine() -> Result<Arc<RuntimeEngine>, String> {
     global_engine().ok_or_else(|| "skill runtime not initialized".to_string())
 }
 
+use crate::openhuman::memory::{MemoryClient, MemoryClientRef};
 use crate::openhuman::skills::cron_scheduler::CronScheduler;
 use crate::openhuman::skills::manifest::SkillManifest;
 use crate::openhuman::skills::ping_scheduler::PingScheduler;
@@ -37,7 +38,6 @@ use crate::openhuman::skills::preferences::PreferencesStore;
 use crate::openhuman::skills::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
 use crate::openhuman::skills::skill_registry::SkillRegistry;
 use crate::openhuman::skills::socket_manager::SocketManager;
-use crate::openhuman::memory::{MemoryClient, MemoryClientRef};
 use crate::openhuman::skills::types::{SkillSnapshot, SkillStatus, ToolResult};
 // IdbStorage removed during runtime cleanup
 

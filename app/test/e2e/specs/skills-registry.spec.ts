@@ -4,7 +4,6 @@
  * Tests the end-to-end flow for browsing, installing, and uninstalling
  * skills from the remote registry through the UI.
  */
-
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
 import { triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
 import {
@@ -12,16 +11,10 @@ import {
   clickText,
   dumpAccessibilityTree,
   textExists,
-  waitForText,
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
-import {
-  clearRequestLog,
-  getRequestLog,
-  startMockServer,
-  stopMockServer,
-} from '../mock-server';
+import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 function stepLog(message: string, context?: unknown): void {
   const stamp = new Date().toISOString();
@@ -41,27 +34,18 @@ interface RequestLogEntry {
 async function waitForRequest(
   method: string,
   urlFragment: string,
-  timeoutMs = 15_000,
+  timeoutMs = 15_000
 ): Promise<RequestLogEntry | undefined> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const log = getRequestLog() as RequestLogEntry[];
     const match = log.find(
-      (r: RequestLogEntry) => r.method === method && r.url.includes(urlFragment),
+      (r: RequestLogEntry) => r.method === method && r.url.includes(urlFragment)
     );
     if (match) return match;
     await browser.pause(500);
   }
   return undefined;
-}
-
-async function waitForTextToDisappear(text: string, timeoutMs = 10_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!(await textExists(text))) return true;
-    await browser.pause(500);
-  }
-  return false;
 }
 
 describe('Skills registry flow', () => {

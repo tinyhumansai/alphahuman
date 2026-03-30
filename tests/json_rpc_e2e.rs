@@ -657,9 +657,8 @@ async fn json_rpc_skills_runtime_start_tools_call_stop() {
     // Initialize and set the global RuntimeEngine
     let skills_data_dir = workspace.join("skills_data");
     std::fs::create_dir_all(&skills_data_dir).expect("create skills_data dir");
-    let engine = std::sync::Arc::new(
-        RuntimeEngine::new(skills_data_dir).expect("create RuntimeEngine"),
-    );
+    let engine =
+        std::sync::Arc::new(RuntimeEngine::new(skills_data_dir).expect("create RuntimeEngine"));
     engine.set_workspace_dir(workspace.clone());
     set_global_engine(engine);
 
@@ -686,7 +685,10 @@ async fn json_rpc_skills_runtime_start_tools_call_stop() {
         Some("e2e-runtime"),
         "start should return correct skill_id: {start_result}"
     );
-    let status_str = start_result.get("status").and_then(Value::as_str).unwrap_or("");
+    let status_str = start_result
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     assert!(
         status_str == "running" || status_str == "initializing",
         "skill should be running or initializing after start, got: {status_str}"

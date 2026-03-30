@@ -42,7 +42,7 @@ const ToolsStep = ({ onNext }: ToolsStepProps) => {
     .map(([k]) => k);
 
   return (
-    <div className="glass rounded-3xl p-8 shadow-large animate-fade-up">
+    <div className="rounded-3xl border border-stone-700 bg-black/30 p-8 shadow-large animate-fade-up">
       <div className="text-center mb-5">
         <h1 className="text-xl font-bold mb-2">Enable Tools</h1>
         <p className="opacity-70 text-sm">

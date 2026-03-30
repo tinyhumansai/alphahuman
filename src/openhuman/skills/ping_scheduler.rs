@@ -138,10 +138,7 @@ impl PingScheduler {
     }
 
     /// Ping a single skill and handle the result.
-    async fn ping_skill(
-        skill_id: &str,
-        registry: &Arc<SkillRegistry>,
-    ) {
+    async fn ping_skill(skill_id: &str, registry: &Arc<SkillRegistry>) {
         log::debug!("[ping] Pinging skill '{}'", skill_id);
 
         // Send the RPC message

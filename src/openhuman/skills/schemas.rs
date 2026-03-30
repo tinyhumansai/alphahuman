@@ -299,12 +299,14 @@ fn skills_schema(function: &str) -> ControllerSchema {
         "setup_start" => ControllerSchema {
             namespace: "skills",
             function: "setup_start",
-            description: "Trigger the setup flow for a running skill, returning the first setup step.",
+            description:
+                "Trigger the setup flow for a running skill, returning the first setup step.",
             inputs: vec![skill_id_input("The skill ID to set up.")],
             outputs: vec![FieldSchema {
                 name: "step",
                 ty: TypeSchema::Json,
-                comment: "First setup step definition (fields, labels, etc.) or null if no setup needed.",
+                comment:
+                    "First setup step definition (fields, labels, etc.) or null if no setup needed.",
                 required: true,
             }],
         },
@@ -516,7 +518,9 @@ fn handle_skills_setup_start(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
-        engine.rpc(&p.skill_id, "setup/start", serde_json::json!({})).await
+        engine
+            .rpc(&p.skill_id, "setup/start", serde_json::json!({}))
+            .await
     })
 }
 
@@ -525,7 +529,9 @@ fn handle_skills_list_tools(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
-        engine.rpc(&p.skill_id, "tools/list", serde_json::json!({})).await
+        engine
+            .rpc(&p.skill_id, "tools/list", serde_json::json!({}))
+            .await
     })
 }
 
@@ -534,7 +540,9 @@ fn handle_skills_sync(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
-        engine.rpc(&p.skill_id, "skill/tick", serde_json::json!({})).await
+        engine
+            .rpc(&p.skill_id, "skill/tick", serde_json::json!({}))
+            .await
     })
 }
 
@@ -544,7 +552,11 @@ fn handle_skills_call_tool(params: Map<String, Value>) -> ControllerFuture {
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
         let result = engine
-            .call_tool(&p.skill_id, &p.tool_name, p.arguments.unwrap_or(serde_json::json!({})))
+            .call_tool(
+                &p.skill_id,
+                &p.tool_name,
+                p.arguments.unwrap_or(serde_json::json!({})),
+            )
             .await?;
         serde_json::to_value(&result).map_err(|e| e.to_string())
     })
@@ -609,7 +621,11 @@ mod tests {
         assert!(required.contains(&"skill_id"));
         assert!(required.contains(&"tool_name"));
         // arguments is optional
-        let args = schema.inputs.iter().find(|f| f.name == "arguments").unwrap();
+        let args = schema
+            .inputs
+            .iter()
+            .find(|f| f.name == "arguments")
+            .unwrap();
         assert!(!args.required);
     }
 

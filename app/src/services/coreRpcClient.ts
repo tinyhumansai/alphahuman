@@ -157,7 +157,11 @@ export async function callCoreRpc<T>({
     const json = (await response.json()) as JsonRpcResponse<T>;
 
     if (json.error) {
-      coreRpcError('HTTP error response', { id: payload.id, method: payload.method, error: json.error });
+      coreRpcError('HTTP error response', {
+        id: payload.id,
+        method: payload.method,
+        error: json.error,
+      });
       throw new Error(json.error.message || 'Core RPC returned an error');
     }
     if (!Object.prototype.hasOwnProperty.call(json, 'result')) {
