@@ -13,6 +13,7 @@ import {
   subscribeChatEvents,
   useRustChat,
 } from '../services/chatService';
+import { getBackendUrl } from '../services/backendUrl';
 import { store } from '../store';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import type { NotionPageSummary, NotionSummary, NotionUserProfile } from '../store/notionSlice';
@@ -26,7 +27,6 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
-import { API_BASE_URL } from '../utils/config';
 import {
   openhumanAgentChat,
   openhumanLocalAiTranscribeBytes,
@@ -446,7 +446,7 @@ const Conversations = () => {
         message: trimmed,
         model: selectedModel,
         authToken,
-        backendUrl: API_BASE_URL,
+        backendUrl: await getBackendUrl(),
         messages: chatMessages,
         notionContext: notionCtx,
       });

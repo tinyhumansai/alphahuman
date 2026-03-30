@@ -320,6 +320,15 @@ pub async fn load_and_apply_browser_settings(
     apply_browser_settings(&mut config, update).await
 }
 
+pub async fn load_and_resolve_api_url() -> Result<RpcOutcome<serde_json::Value>, String> {
+    let config = load_config_with_timeout().await?;
+    let resolved = crate::api::config::effective_api_url(&config.api_url);
+    Ok(RpcOutcome::new(
+        json!({ "api_url": resolved }),
+        Vec::new(),
+    ))
+}
+
 /// Resolves workspace (load config or fallback), validates flag name, returns whether the flag file exists.
 pub async fn workspace_onboarding_flag_resolve(
     flag_name: Option<String>,

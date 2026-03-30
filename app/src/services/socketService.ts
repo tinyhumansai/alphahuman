@@ -4,11 +4,12 @@ import { io, Socket } from 'socket.io-client';
 
 import { MCPTool, MCPToolCall, SocketIOMCPTransportImpl } from '../lib/mcp';
 import { skillManager, syncToolsToBackend } from '../lib/skills';
+import { getBackendUrl } from '../services/backendUrl';
 import { store } from '../store';
 import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { resetForUser, setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
-import { API_BASE_URL, IS_DEV } from '../utils/config';
+import { IS_DEV } from '../utils/config';
 import { createSafeLogData, sanitizeError } from '../utils/sanitize';
 
 // Socket service logger using debug package
@@ -99,6 +100,10 @@ class SocketService {
    * handles the connection. The frontend calls `connectRustSocket()` instead.
    */
   connect(token: string): void {
+    void this.connectAsync(token);
+  }
+
+  private async connectAsync(token: string): Promise<void> {
     if (!token) return;
 
     // In Tauri mode, Rust handles the socket connection.
@@ -126,12 +131,10 @@ class SocketService {
 
     this.token = token;
     const uid = getSocketUserId();
-
-    socketLog('Connecting', { userId: uid, backendUrl: API_BASE_URL });
-
     store.dispatch(setStatusForUser({ userId: uid, status: 'connecting' }));
 
-    const backendUrl = API_BASE_URL;
+    const backendUrl = await getBackendUrl();
+    socketLog('Connecting', { userId: uid, backendUrl });
 
     // Ensure we're not connecting to the wrong URL
     if (backendUrl.includes('localhost:1420') || backendUrl.includes(':1420')) {

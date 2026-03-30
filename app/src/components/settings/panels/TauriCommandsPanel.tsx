@@ -10,7 +10,6 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { formatRelativeTime, useDaemonHealth } from '../../../hooks/useDaemonHealth';
-import { API_BASE_URL } from '../../../utils/config';
 import {
   isTauri,
   openhumanAgentChat,
@@ -640,7 +639,7 @@ const TauriCommandsPanel = () => {
                   onChange={setApiUrl}
                   error={fieldErrors.apiUrl}
                   type="url"
-                  placeholder={API_BASE_URL}
+                  placeholder="Resolved by core binary"
                   helpText="REST API origin for your OpenHuman backend (chat at /openai/v1/chat/completions)."
                   validation={
                     !apiUrl

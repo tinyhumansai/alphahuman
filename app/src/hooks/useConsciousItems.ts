@@ -17,13 +17,13 @@ import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { getBackendUrl } from '../services/backendUrl';
 import type { RootState } from '../store';
 import type {
   ActionableItem,
   ActionableItemPriority,
   ActionableItemSource,
 } from '../types/intelligence';
-import { API_BASE_URL } from '../utils/config';
 import { consciousLoopRun, isTauri, memoryQueryNamespace } from '../utils/tauriCommands';
 
 // ─── Types from conscious_loop.rs (mirrored) ────────────────────────────────
@@ -178,7 +178,7 @@ export function useConsciousItems(): UseConsciousItemsResult {
   const triggerAnalysis = useCallback(async () => {
     if (!isTauri() || !authToken || isRunning) return;
     try {
-      await consciousLoopRun(authToken, API_BASE_URL);
+      await consciousLoopRun(authToken, await getBackendUrl());
     } catch (err) {
       console.warn('[conscious] Failed to trigger analysis:', err);
     }

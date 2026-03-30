@@ -18,13 +18,11 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use commands::*;
 use rand::TryRngCore;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
-use tokio::{
-    fs,
-    time::{interval, Duration},
-};
+use tokio::time::{interval, Duration};
 
 #[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -314,66 +312,45 @@ fn is_daemon_mode() -> bool {
     std::env::args().any(|arg| arg == "daemon" || arg == "--daemon")
 }
 
-/// Watch daemon health file and bridge changes to frontend Tauri events
-async fn watch_daemon_health_file(app_handle: AppHandle, data_dir: PathBuf) {
-    let state_file = data_dir.join("daemon_state.json");
+/// Poll core RPC health and bridge updates to frontend Tauri events.
+async fn watch_daemon_health_rpc(app_handle: AppHandle) {
     let mut interval = interval(Duration::from_secs(2));
-    let mut last_modified: Option<std::time::SystemTime> = None;
+    let mut last_snapshot: Option<serde_json::Value> = None;
+    let mut had_error = false;
 
-    log::info!(
-        "[openhuman] Watching daemon health file: {}",
-        state_file.display()
-    );
+    log::info!("[openhuman] Watching daemon health via core RPC (openhuman.health_snapshot)");
 
     loop {
         interval.tick().await;
 
-        // Check if file exists and was modified
-        if let Ok(metadata) = fs::metadata(&state_file).await {
-            if let Ok(modified) = metadata.modified() {
-                if last_modified.map_or(true, |last| modified > last) {
-                    last_modified = Some(modified);
+        match crate::core_rpc::call::<serde_json::Value>("openhuman.health_snapshot", json!({})).await
+        {
+            Ok(raw_payload) => {
+                // RpcOutcome may be wrapped as {"result": {...}, "logs": [...]}; normalize to snapshot.
+                let snapshot = raw_payload
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(raw_payload);
 
-                    // Read and parse health data
-                    if let Ok(content) = fs::read_to_string(&state_file).await {
-                        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&content)
-                        {
-                            log::debug!(
-                                "[openhuman] Broadcasting health event from file: {:?}",
-                                json_value
-                            );
-
-                            // Emit Tauri event to frontend (same as internal daemon)
-                            if let Err(e) = app_handle.emit("openhuman:health", &json_value) {
-                                log::error!(
-                                    "[openhuman] Failed to emit health event from file: {}",
-                                    e
-                                );
-                            } else {
-                                log::debug!(
-                                    "[openhuman] Health event emitted successfully from file"
-                                );
-                            }
-                        } else {
-                            log::debug!(
-                                "[openhuman] Failed to parse health file as JSON: {}",
-                                state_file.display()
-                            );
-                        }
+                if last_snapshot.as_ref() != Some(&snapshot) {
+                    if let Err(e) = app_handle.emit("openhuman:health", &snapshot) {
+                        log::error!("[openhuman] Failed to emit health event from RPC: {e}");
                     } else {
-                        log::debug!(
-                            "[openhuman] Failed to read health file: {}",
-                            state_file.display()
-                        );
+                        last_snapshot = Some(snapshot);
                     }
                 }
+
+                if had_error {
+                    had_error = false;
+                    log::info!("[openhuman] Health RPC polling recovered");
+                }
             }
-        } else {
-            // File doesn't exist yet - external daemon may not be writing yet
-            log::debug!(
-                "[openhuman] Health file not found yet: {}",
-                state_file.display()
-            );
+            Err(e) => {
+                if !had_error {
+                    had_error = true;
+                    log::debug!("[openhuman] Health RPC not ready yet: {e}");
+                }
+            }
         }
     }
 }
@@ -524,17 +501,11 @@ pub fn run() {
                 }
             }
 
-            // Bridge external daemon health file and ensure core background service.
+            // Bridge daemon health via core RPC and ensure core background service.
             {
-                let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
-                    dirs::home_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .join(".openhuman")
-                });
                 let app_handle_for_watcher = app.handle().clone();
-                let data_dir_clone = data_dir.clone();
                 tauri::async_runtime::spawn(async move {
-                    watch_daemon_health_file(app_handle_for_watcher, data_dir_clone).await;
+                    watch_daemon_health_rpc(app_handle_for_watcher).await;
                 });
                 tauri::async_runtime::spawn(async move {
                     match commands::core_relay::ensure_service_managed_core_running().await {

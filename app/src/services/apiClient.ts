@@ -1,5 +1,5 @@
 import type { ApiError } from '../types/api';
-import { API_BASE_URL } from '../utils/config';
+import { getBackendUrl } from './backendUrl';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -29,12 +29,6 @@ export function setStoreForApiClient(getToken: () => string | null) {
  * Handles authentication, error handling, and response typing
  */
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-  }
-
   private getToken(): string | null {
     return _getToken ? _getToken() : null;
   }
@@ -65,7 +59,8 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, requireAuth = true, timeout = 120_000 } = options;
 
-    const url = `${this.baseUrl}${endpoint}`;
+    const baseUrl = await getBackendUrl();
+    const url = `${baseUrl}${endpoint}`;
     const headers = this.buildHeaders({ ...options, requireAuth });
 
     const controller = new AbortController();
@@ -170,6 +165,4 @@ class ApiClient {
 }
 
 // Export singleton instance
-export const apiClient = new ApiClient(API_BASE_URL);
-
-console.log('[ApiClient] Backend URL', API_BASE_URL);
+export const apiClient = new ApiClient();

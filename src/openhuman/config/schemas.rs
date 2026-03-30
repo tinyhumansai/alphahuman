@@ -69,6 +69,7 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("update_tunnel_settings"),
         schemas("update_runtime_settings"),
         schemas("update_browser_settings"),
+        schemas("resolve_api_url"),
         schemas("get_runtime_flags"),
         schemas("set_browser_allow_all"),
         schemas("workspace_onboarding_flag_exists"),
@@ -105,6 +106,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("update_browser_settings"),
             handler: handle_update_browser_settings,
+        },
+        RegisteredController {
+            schema: schemas("resolve_api_url"),
+            handler: handle_resolve_api_url,
         },
         RegisteredController {
             schema: schemas("get_runtime_flags"),
@@ -264,6 +269,18 @@ pub fn schemas(function: &str) -> ControllerSchema {
             inputs: vec![optional_bool("enabled", "Enable browser integration.")],
             outputs: vec![json_output("snapshot", "Updated config snapshot.")],
         },
+        "resolve_api_url" => ControllerSchema {
+            namespace: "config",
+            function: "resolve_api_url",
+            description: "Resolve effective API base URL using config/env/default from core.",
+            inputs: vec![],
+            outputs: vec![FieldSchema {
+                name: "api_url",
+                ty: TypeSchema::String,
+                comment: "Resolved backend API URL.",
+                required: true,
+            }],
+        },
         "get_runtime_flags" => ControllerSchema {
             namespace: "config",
             function: "get_runtime_flags",
@@ -410,6 +427,10 @@ fn handle_update_browser_settings(params: Map<String, Value>) -> ControllerFutur
 
 fn handle_get_runtime_flags(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async { to_json(config_rpc::get_runtime_flags()) })
+}
+
+fn handle_resolve_api_url(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async { to_json(config_rpc::load_and_resolve_api_url().await?) })
 }
 
 fn handle_set_browser_allow_all(params: Map<String, Value>) -> ControllerFuture {

@@ -8,8 +8,9 @@ vi.mock('../../../store', () => ({
   store: { getState: () => ({ auth: { token: 'test-jwt-token' } }) },
 }));
 
-// Mock the config to use test backend URL
-vi.mock('../../../utils/config', () => ({ API_BASE_URL: 'http://localhost:5005', IS_DEV: true }));
+vi.mock('../../../services/backendUrl', () => ({
+  getBackendUrl: vi.fn().mockResolvedValue('http://localhost:5005'),
+}));
 
 // Import after mocks
 const { userApi } = await import('../userApi');

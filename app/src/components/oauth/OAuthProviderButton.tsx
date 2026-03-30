@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { getBackendUrl } from '../../services/backendUrl';
 import type { OAuthProviderConfig } from '../../types/oauth';
 import { IS_DEV } from '../../utils/config';
 import { openUrl } from '../../utils/openUrl';
@@ -23,23 +24,26 @@ const OAuthProviderButton = ({
 
     console.log(`Starting ${provider.name} OAuth login`, isTauri());
 
-    if (IS_DEV) {
-      console.log(`[dev] OAuth debug mode enabled. OAuth URL: ${provider.loginUrl}`);
-      console.log('[dev] In debug mode, OAuth will return JSON response instead of redirect.');
-      console.log(
-        '[dev] After OAuth completion, copy the loginToken and use: window.__simulateDeepLink("openhuman://auth?token=YOUR_TOKEN")'
-      );
-    }
-
     setIsLoading(true);
 
     try {
+      const backendUrl = await getBackendUrl();
+      const loginUrl = `${backendUrl}/auth/${provider.id}/login${IS_DEV ? '?responseType=json' : ''}`;
+
+      if (IS_DEV) {
+        console.log(`[dev] OAuth debug mode enabled. OAuth URL: ${loginUrl}`);
+        console.log('[dev] In debug mode, OAuth will return JSON response instead of redirect.');
+        console.log(
+          '[dev] After OAuth completion, copy the loginToken and use: window.__simulateDeepLink("openhuman://auth?token=YOUR_TOKEN")'
+        );
+      }
+
       // Desktop (Tauri): use system browser → backend OAuth → deep link back to app
       if (isTauri()) {
-        await openUrl(provider.loginUrl);
+        await openUrl(loginUrl);
       } else {
         // Web fallback: direct OAuth flow in current window
-        window.location.href = provider.loginUrl;
+        window.location.href = loginUrl;
       }
     } catch (error) {
       console.error(`Failed to initiate ${provider.name} OAuth login:`, error);

@@ -17,13 +17,13 @@ import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
 import { syncToolsToBackend } from '../lib/skills/sync';
+import { getBackendUrl } from '../services/backendUrl';
 import { callCoreRpc } from '../services/coreRpcClient';
 import { daemonHealthService } from '../services/daemonHealthService';
 import { store } from '../store';
 import { upsertChannelConnection } from '../store/channelConnectionsSlice';
 import { setSocketIdForUser, setStatusForUser } from '../store/socketSlice';
 import type { ChannelAuthMode, ChannelConnectionStatus, ChannelType } from '../types/channels';
-import { API_BASE_URL } from './config';
 
 let runtimeSocketCommandsAvailable = true;
 
@@ -78,8 +78,9 @@ export async function connectRustSocket(token: string): Promise<void> {
   if (!runtimeSocketCommandsAvailable) return;
 
   try {
-    console.log('[TauriSocket] Connecting Rust socket to', API_BASE_URL);
-    await invoke('runtime_socket_connect', { token, url: API_BASE_URL });
+    const backendUrl = await getBackendUrl();
+    console.log('[TauriSocket] Connecting Rust socket to', backendUrl);
+    await invoke('runtime_socket_connect', { token, url: backendUrl });
     console.log('[TauriSocket] Rust socket connect call succeeded');
   } catch (error) {
     handleRuntimeSocketInvokeError('connect Rust socket', error);
