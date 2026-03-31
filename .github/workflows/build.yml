@@ -77,7 +77,7 @@ jobs:
         working-directory: app
         run: |
           TAURI_CONFIG_OVERRIDE='{"plugins":{"updater":{"active":false}}}'
-          yarn tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles none
+          yarn tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles deb
         env:
           NODE_ENV: production
           CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
