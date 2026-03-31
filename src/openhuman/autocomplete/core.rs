@@ -418,7 +418,7 @@ impl AutocompleteEngine {
         show_overflow_badge("accepted", Some(&cleaned), None, None, None);
 
         // Persist acceptance for personalisation (fire-and-forget).
-        // Triple-write: KV (UI list), local docs (semantic search), cloud (Neocortex graph).
+        // Dual-write: KV (UI list) + local docs (semantic search).
         {
             let (ctx, app) = {
                 let s = self.inner.lock().await;
@@ -433,12 +433,6 @@ impl AutocompleteEngine {
                 )
                 .await;
                 crate::openhuman::autocomplete::history::save_completion_to_local_docs(
-                    &ctx,
-                    &sug,
-                    app.as_deref(),
-                )
-                .await;
-                crate::openhuman::autocomplete::history::save_completion_to_cloud(
                     &ctx,
                     &sug,
                     app.as_deref(),
@@ -727,7 +721,7 @@ impl AutocompleteEngine {
                 show_overflow_badge("accepted", Some(&cleaned), None, None, None);
 
                 // Persist acceptance for personalisation (fire-and-forget).
-                // Triple-write: KV (UI list), local docs (semantic search), cloud (Neocortex graph).
+                // Dual-write: KV (UI list) + local docs (semantic search).
                 {
                     let (ctx, app) = {
                         let s = self.inner.lock().await;
@@ -742,12 +736,6 @@ impl AutocompleteEngine {
                         )
                         .await;
                         crate::openhuman::autocomplete::history::save_completion_to_local_docs(
-                            &ctx,
-                            &sug,
-                            app.as_deref(),
-                        )
-                        .await;
-                        crate::openhuman::autocomplete::history::save_completion_to_cloud(
                             &ctx,
                             &sug,
                             app.as_deref(),
