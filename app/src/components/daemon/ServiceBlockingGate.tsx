@@ -124,7 +124,10 @@ const ServiceBlockingGate = ({ children }: ServiceBlockingGateProps) => {
     };
   }, [refreshStatus]);
 
-  const installed = useMemo(() => serviceStateText !== 'NotInstalled', [serviceStateText]);
+  const installed = useMemo(
+    () => serviceStateText !== 'NotInstalled' && !serviceStateText.startsWith('Unknown'),
+    [serviceStateText]
+  );
   const serviceRunning = useMemo(() => serviceStateText === 'Running', [serviceStateText]);
 
   const runOperation = useCallback(
