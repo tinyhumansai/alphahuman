@@ -8,7 +8,6 @@ use crate::openhuman::memory::store::types::{
     NamespaceDocumentInput, NamespaceMemoryHit, NamespaceRetrievalContext,
 };
 use crate::openhuman::memory::store::unified::UnifiedMemory;
-
 pub type MemoryClientRef = Arc<MemoryClient>;
 
 pub struct MemoryState(pub std::sync::Mutex<Option<MemoryClientRef>>);
