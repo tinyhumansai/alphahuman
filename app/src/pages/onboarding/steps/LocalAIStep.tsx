@@ -32,11 +32,12 @@ const LocalAIStep = ({ onNext }: LocalAIStepProps) => {
   if (consent === null) {
     return (
       <div className="rounded-3xl border border-stone-700 bg-stone-900 p-8 shadow-large animate-fade-up">
-        <div className="text-center mb-5">
-          <h1 className="text-xl font-bold mb-2">Download Local AI Models</h1>
-          <p className="opacity-70 text-sm">
-            OpenHuman uses local AI models directly on your device for faster, more private
-            assistance. You can always change this later in Settings.
+        <div className="flex flex-col items-center mb-5">
+          <img src="/ollama.svg" alt="Ollama" className="w-16 h-16 mb-3" />
+          <h1 className="text-xl font-bold mb-2">Install Ollama to Run AI Models Locally</h1>
+          <p className="opacity-70 text-sm text-center">
+            OpenHuman will automatically install Ollama for you so that you can run AI models
+            locally on your device.
           </p>
         </div>
 
@@ -44,20 +45,21 @@ const LocalAIStep = ({ onNext }: LocalAIStepProps) => {
           <div className="rounded-2xl border border-sage-500/30 bg-sage-500/10 p-3">
             <p className="text-sm font-medium mb-1">Complete Privacy</p>
             <p className="text-xs opacity-80">
-              All your private & sensitive data gets processed locally by your local AI model. No
-              data is sent to any third party.
+              All your data stays on your device. Ollama runs models locally. Nothing is sent to any
+              third party.
             </p>
           </div>
           <div className="rounded-2xl border border-sage-500/30 bg-sage-500/10 p-3">
             <p className="text-sm font-medium mb-1">Absolutely Free</p>
             <p className="text-xs opacity-80">
-              Running local AI models is free and does not require any subscription or payment.
+              Ollama and the AI models are open-source and free. No subscription or payment needed.
             </p>
           </div>
           <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
             <p className="text-sm font-medium mb-1">Resource impact</p>
             <p className="text-xs opacity-80">
-              Typical setup needs 1-3 GB disk for model files and can use 1-2 GB RAM while running.
+              Running local AI models on your device will use some resources such as disk space and
+              RAM. We will optimize this for you.
             </p>
           </div>
         </div>
@@ -71,7 +73,7 @@ const LocalAIStep = ({ onNext }: LocalAIStepProps) => {
           <button
             onClick={handleConsent}
             className="py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
-            Download Local Models
+            Download & Install Ollama
           </button>
         </div>
       </div>
@@ -82,10 +84,11 @@ const LocalAIStep = ({ onNext }: LocalAIStepProps) => {
   if (consent === false) {
     return (
       <div className="rounded-3xl border border-stone-700 bg-stone-900 p-8 shadow-large animate-fade-up">
-        <div className="text-center mb-5">
-          <h1 className="text-xl font-bold mb-2">Local AI Models</h1>
-          <p className="opacity-70 text-sm">
-            No worries — you can always enable local models later in Settings.
+        <div className="flex flex-col items-center mb-5">
+          <img src="/ollama.svg" alt="Ollama" className="w-12 h-12 mb-3 opacity-50" />
+          <h1 className="text-xl font-bold mb-2">Ollama Skipped</h1>
+          <p className="opacity-70 text-sm text-center">
+            No worries — you can download Ollama and set up local models anytime in Settings.
           </p>
         </div>
         <button
