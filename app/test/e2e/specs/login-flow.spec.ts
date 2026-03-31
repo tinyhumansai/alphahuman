@@ -1,4 +1,3 @@
-/* eslint-disable */
 // @ts-nocheck
 /**
  * E2E test: Complete login → onboarding → home flow via deep link.

@@ -285,7 +285,7 @@ export async function clickNativeButton(text: string, timeout: number = 15_000):
  * - Mac2: XCUIElementTypeSwitch / XCUIElementTypeCheckBox
  * - tauri-driver: [role="switch"] / input[type="checkbox"]
  */
-export async function clickToggle(timeout: number = 15_000): Promise<void> {
+export async function clickToggle(_timeout: number = 15_000): Promise<void> {
   if (isTauriDriver()) {
     const selectors = ['[role="switch"]', 'input[type="checkbox"]', 'button[aria-checked]'];
     for (const sel of selectors) {
