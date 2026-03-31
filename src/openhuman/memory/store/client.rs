@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::openhuman::memory::embeddings::{self, EmbeddingProvider};
+use crate::openhuman::memory::ingestion::{MemoryIngestionRequest, MemoryIngestionResult};
 use crate::openhuman::memory::store::types::{
     NamespaceDocumentInput, NamespaceMemoryHit, NamespaceRetrievalContext,
 };
 use crate::openhuman::memory::store::unified::UnifiedMemory;
-
 pub type MemoryClientRef = Arc<MemoryClient>;
 
 pub struct MemoryState(pub std::sync::Mutex<Option<MemoryClientRef>>);
@@ -43,6 +43,13 @@ impl MemoryClient {
 
     pub async fn put_doc(&self, input: NamespaceDocumentInput) -> Result<String, String> {
         self.inner.upsert_document(input).await
+    }
+
+    pub async fn ingest_doc(
+        &self,
+        request: MemoryIngestionRequest,
+    ) -> Result<MemoryIngestionResult, String> {
+        self.inner.ingest_document(request).await
     }
 
     #[allow(clippy::too_many_arguments)]

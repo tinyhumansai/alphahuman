@@ -221,10 +221,10 @@ jobs:
             args: --target x86_64-unknown-linux-gnu
             target: x86_64-unknown-linux-gnu
             artifact_suffix: ubuntu
-          # - platform: windows-latest
-          #   args: --target x86_64-pc-windows-msvc
-          #   target: x86_64-pc-windows-msvc
-          #   artifact_suffix: windows
+          - platform: windows-latest
+            args: --target x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-msvc
+            artifact_suffix: windows
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -691,6 +691,35 @@ jobs:
     needs: [create-release, build-artifacts]
     if: needs.build-artifacts.result == 'success'
     steps:
+      - name: Validate required installer assets exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releaseId = Number('${{ needs.create-release.outputs.release_id }}');
+            const { owner, repo } = context.repo;
+            const { data: assets } = await github.rest.repos.listReleaseAssets({
+              owner,
+              repo,
+              release_id: releaseId,
+              per_page: 100,
+            });
+
+            const names = assets.map((a) => a.name);
+            const requiredPatterns = [
+              /OpenHuman_.*_aarch64\.dmg$/,
+              /OpenHuman_.*_x64\.dmg$/,
+              /OpenHuman_.*_amd64\.AppImage$/,
+              /OpenHuman_.*_amd64\.deb$/,
+              /(OpenHuman_.*_x64-setup\.exe$|OpenHuman_.*_x64.*\.msi$)/,
+            ];
+
+            const missing = requiredPatterns.filter((pattern) => !names.some((name) => pattern.test(name)));
+            if (missing.length > 0) {
+              core.setFailed(`Missing required installer assets. Got: ${names.join(', ')}`);
+              return;
+            }
+            core.info('All required installer assets are present.');
+
       - name: Publish release
         uses: actions/github-script@v7
         with:

@@ -94,6 +94,7 @@ pub fn all_tools_with_runtime(
             security.clone(),
             workspace_dir.to_path_buf(),
         )),
+        Box::new(SkillsCallTool::new()),
     ];
 
     if browser_config.enabled {
@@ -252,6 +253,7 @@ mod tests {
         assert!(names.contains(&"schedule"));
         assert!(names.contains(&"pushover"));
         assert!(names.contains(&"proxy_config"));
+        assert!(names.contains(&"skills_call"));
     }
 
     #[test]
@@ -291,6 +293,7 @@ mod tests {
         assert!(names.contains(&"browser_open"));
         assert!(names.contains(&"pushover"));
         assert!(names.contains(&"proxy_config"));
+        assert!(names.contains(&"skills_call"));
     }
 
     #[test]

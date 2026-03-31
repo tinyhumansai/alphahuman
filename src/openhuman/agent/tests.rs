@@ -159,6 +159,54 @@ impl Tool for EchoTool {
     }
 }
 
+/// A generic skills bridge test-double tool.
+struct SkillsCallEchoTool;
+
+#[async_trait]
+impl Tool for SkillsCallEchoTool {
+    fn name(&self) -> &str {
+        "skills_call"
+    }
+
+    fn description(&self) -> &str {
+        "Calls a skill tool"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string"},
+                "tool_name": {"type": "string"},
+                "arguments": {"type": "object"}
+            },
+            "required": ["skill_id", "tool_name"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
+        let skill_id = args
+            .get("skill_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let tool_name = args
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let message = args
+            .get("arguments")
+            .and_then(|v| v.get("message"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("empty");
+
+        Ok(ToolResult {
+            success: true,
+            output: format!("{skill_id}:{tool_name}:{message}"),
+            error: None,
+        })
+    }
+}
+
 /// A tool that always fails execution.
 struct FailingTool;
 
@@ -832,6 +880,59 @@ async fn turn_handles_multiple_tools_in_one_response() {
     );
 }
 
+#[tokio::test]
+async fn e2e_native_loop_executes_text_fallback_tool_calls_and_persists_history() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        ChatResponse {
+            text: Some(
+                "I'll inspect now.\n<invoke>{\"name\":\"echo\",\"arguments\":{\"message\":\"from-fallback\"}}</invoke>"
+                    .into(),
+            ),
+            tool_calls: vec![],
+        },
+        text_response("Completed via tool"),
+    ]));
+
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(EchoTool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let response = agent.turn("please use a tool").await.unwrap();
+    assert_eq!(response, "Completed via tool");
+
+    let mut assistant_tool_calls: Option<Vec<ToolCall>> = None;
+    let mut tool_results: Option<Vec<ToolResultMessage>> = None;
+
+    for msg in agent.history() {
+        match msg {
+            ConversationMessage::AssistantToolCalls { tool_calls, .. } => {
+                assistant_tool_calls = Some(tool_calls.clone());
+            }
+            ConversationMessage::ToolResults(results) => {
+                tool_results = Some(results.clone());
+            }
+            _ => {}
+        }
+    }
+
+    let calls = assistant_tool_calls.expect("assistant tool calls should be persisted");
+    let results = tool_results.expect("tool results should be persisted");
+    assert_eq!(calls.len(), 1, "expected one parsed/persisted tool call");
+    assert_eq!(results.len(), 1, "expected one tool result");
+    assert_eq!(calls[0].name, "echo");
+    assert!(
+        calls[0].arguments.contains("from-fallback"),
+        "persisted tool-call arguments should include fallback payload"
+    );
+    assert_eq!(
+        calls[0].id, results[0].tool_call_id,
+        "tool result must map to persisted assistant tool-call id"
+    );
+    assert_eq!(results[0].content, "from-fallback");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 14. System prompt generation & tool instructions
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1056,8 +1157,9 @@ fn xml_dispatcher_handles_unclosed_tool_call() {
 
     let dispatcher = XmlToolDispatcher;
     let (text, calls) = dispatcher.parse_response(&response);
-    // Should not panic — just treat as text
-    assert!(calls.is_empty());
+    // Should not panic; robust parser recovers the JSON tool call.
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].name, "shell");
     assert!(text.contains("Before"));
 }
 
@@ -1233,6 +1335,54 @@ fn native_dispatcher_converts_tool_results_to_tool_messages() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].role, "tool");
     assert_eq!(messages[1].role, "tool");
+}
+
+#[tokio::test]
+async fn native_dispatcher_executes_generic_skills_call_tool() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        tool_response(vec![ToolCall {
+            id: "tc-skills-1".into(),
+            name: "skills_call".into(),
+            arguments: serde_json::json!({
+                "skill_id": "e2e-runtime",
+                "tool_name": "echo",
+                "arguments": { "message": "hello from agent test" }
+            })
+            .to_string(),
+        }]),
+        text_response("skills call done"),
+    ]));
+
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(SkillsCallEchoTool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let response = agent.turn("Use skills_call").await.unwrap();
+    assert_eq!(response, "skills call done");
+
+    let result_payloads: Vec<String> = agent
+        .history()
+        .iter()
+        .filter_map(|msg| match msg {
+            ConversationMessage::ToolResults(results) => Some(
+                results
+                    .iter()
+                    .map(|r| r.content.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        result_payloads
+            .iter()
+            .any(|payload| payload.contains("e2e-runtime:echo:hello from agent test")),
+        "expected skills_call output in tool results, got: {result_payloads:?}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
