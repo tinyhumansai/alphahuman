@@ -418,6 +418,7 @@ impl AutocompleteEngine {
         show_overflow_badge("accepted", Some(&cleaned), None, None, None);
 
         // Persist acceptance for personalisation (fire-and-forget).
+        // Triple-write: KV (UI list), local docs (semantic search), cloud (Neocortex graph).
         {
             let (ctx, app) = {
                 let s = self.inner.lock().await;
@@ -426,6 +427,18 @@ impl AutocompleteEngine {
             let sug = cleaned.clone();
             tokio::spawn(async move {
                 crate::openhuman::autocomplete::history::save_accepted_completion(
+                    &ctx,
+                    &sug,
+                    app.as_deref(),
+                )
+                .await;
+                crate::openhuman::autocomplete::history::save_completion_to_local_docs(
+                    &ctx,
+                    &sug,
+                    app.as_deref(),
+                )
+                .await;
+                crate::openhuman::autocomplete::history::save_completion_to_cloud(
                     &ctx,
                     &sug,
                     app.as_deref(),
@@ -695,6 +708,7 @@ impl AutocompleteEngine {
                 show_overflow_badge("accepted", Some(&cleaned), None, None, None);
 
                 // Persist acceptance for personalisation (fire-and-forget).
+                // Triple-write: KV (UI list), local docs (semantic search), cloud (Neocortex graph).
                 {
                     let (ctx, app) = {
                         let s = self.inner.lock().await;
@@ -703,6 +717,18 @@ impl AutocompleteEngine {
                     let sug = cleaned.clone();
                     tokio::spawn(async move {
                         crate::openhuman::autocomplete::history::save_accepted_completion(
+                            &ctx,
+                            &sug,
+                            app.as_deref(),
+                        )
+                        .await;
+                        crate::openhuman::autocomplete::history::save_completion_to_local_docs(
+                            &ctx,
+                            &sug,
+                            app.as_deref(),
+                        )
+                        .await;
+                        crate::openhuman::autocomplete::history::save_completion_to_cloud(
                             &ctx,
                             &sug,
                             app.as_deref(),
