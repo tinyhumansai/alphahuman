@@ -210,6 +210,57 @@ pub async fn save_completion_to_cloud(context: &str, suggestion: &str, app_name:
     }
 }
 
+/// Query the local document store for accepted completions semantically
+/// relevant to the current typing `context`.
+///
+/// Uses `query_namespace` (keyword + optional vector ranking) against the
+/// `"autocomplete-memory"` namespace. Returns up to `n` formatted style
+/// example strings ready for injection into the inference prompt.
+pub async fn query_relevant_examples(context: &str, n: usize) -> Vec<String> {
+    let client = match MemoryClient::new_local() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[autocomplete:history] query_relevant — client init failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    // Use the tail of the current context as the search query.
+    let tail: String = context
+        .chars()
+        .rev()
+        .take(80)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+
+    let result = match client
+        .query_namespace(AUTOCOMPLETE_DOC_NAMESPACE, &tail, n as u32)
+        .await
+    {
+        Ok(r) if !r.is_empty() => r,
+        Ok(_) => return Vec::new(),
+        Err(e) => {
+            log::warn!("[autocomplete:history] query_namespace failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    // query_namespace_context returns "key: content" entries joined by "\n\n".
+    // The content is already in "[app] ...tail → suggestion" format.
+    result
+        .split("\n\n")
+        .filter(|s| !s.is_empty())
+        .filter_map(|entry| {
+            // Strip the "completion:XXXXXXXXXXXXXXXXXX: " key prefix.
+            let bracket_pos = entry.find('[')?;
+            Some(entry[bracket_pos..].to_string())
+        })
+        .take(n)
+        .collect()
+}
+
 /// Load the `n` most recent accepted completions as formatted style example strings.
 ///
 /// Each string has the form: `"[AppName] ...{tail} → suggestion"`
