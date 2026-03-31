@@ -460,6 +460,41 @@ jobs:
           owner: tinyhumansai
           repo: openhuman
 
+      - name: Locate macOS .app bundle
+        if: matrix.settings.platform == 'macos-latest'
+        id: locate-app
+        shell: bash
+        run: |
+          set -euo pipefail
+          # tauri-action with projectPath: app may output to either location
+          # depending on workspace config — search both
+          APP_PATH=""
+          for candidate in \
+            "app/src-tauri/target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app" \
+            "target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"; do
+            if [ -d "$candidate" ]; then
+              APP_PATH="$candidate"
+              break
+            fi
+          done
+
+          # Fallback: search for it
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH="$(find . -path '*/release/bundle/macos/OpenHuman.app' -type d 2>/dev/null | head -1)"
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: Could not find OpenHuman.app bundle anywhere"
+            find . -name 'OpenHuman.app' -type d 2>/dev/null || true
+            exit 1
+          fi
+
+          BUNDLE_DIR="$(dirname "$(dirname "$APP_PATH")")"
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+          echo "Found .app at: $APP_PATH"
+          echo "Bundle dir:    $BUNDLE_DIR"
+
       - name: Re-sign sidecar with hardened runtime and notarize
         if: matrix.settings.platform == 'macos-latest'
         shell: bash
@@ -472,13 +507,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
+          APP_PATH="${{ steps.locate-app.outputs.app_path }}"
           ENTITLEMENTS="app/src-tauri/entitlements.sidecar.plist"
-
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: .app bundle not found at $APP_PATH"
-            exit 1
-          fi
 
           echo "=== Re-signing binaries inside $APP_PATH with hardened runtime ==="
 
@@ -559,10 +589,10 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
-          DMG_DIR="target/${{ matrix.settings.target }}/release/bundle/dmg"
+          APP_PATH="${{ steps.locate-app.outputs.app_path }}"
+          BUNDLE_DIR="${{ steps.locate-app.outputs.bundle_dir }}"
 
-          DMG_PATH="$(find "$DMG_DIR" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
+          DMG_PATH="$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
           if [ -z "$DMG_PATH" ]; then
             echo "No DMG found — skipping DMG re-package"
             exit 0
@@ -591,7 +621,8 @@ jobs:
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         run: |
           set -euo pipefail
-          BUNDLE_DIR="target/${{ matrix.settings.target }}/release/bundle"
+          BUNDLE_DIR="${{ steps.locate-app.outputs.bundle_dir }}"
+          APP_PATH="${{ steps.locate-app.outputs.app_path }}"
           VERSION="${{ needs.prepare-release.outputs.version }}"
           ARCH="${{ matrix.settings.target }}"
 
@@ -610,7 +641,6 @@ jobs:
           fi
 
           # Re-upload the .app as a zip if tauri-action uploaded one
-          APP_PATH="$(find "$BUNDLE_DIR/macos" -name '*.app' -maxdepth 1 2>/dev/null | head -1)"
           if [ -n "$APP_PATH" ]; then
             APP_ZIP="/tmp/OpenHuman_${VERSION}_${ARCH}.app.tar.gz"
             tar -czf "$APP_ZIP" -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")"
@@ -622,7 +652,7 @@ jobs:
         if: matrix.settings.platform == 'macos-latest'
         shell: bash
         run: |
-          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
+          APP_PATH="${{ steps.locate-app.outputs.app_path }}"
           echo "Inspecting bundle at: $APP_PATH"
           ls -la "$APP_PATH/Contents/MacOS"
           ls -la "$APP_PATH/Contents/Resources" | grep openhuman || true
