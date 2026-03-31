@@ -109,14 +109,42 @@ pub(crate) async fn run_event_loop(
                 .await;
 
             if done {
-                // Read the resolved value and send it back
+                log::info!("[skill:{}] Pending async tool call completed", skill_id);
                 let result = read_pending_tool_result(ctx).await;
                 if let Some(ptc) = pending_tool.take() {
+                    log::info!(
+                        "[skill:{}] Sending tool result (is_err={})",
+                        skill_id,
+                        result.is_err()
+                    );
                     let _ = ptc.reply.send(result);
                 }
             } else if let Some(ref ptc) = pending_tool {
+                let remaining = ptc.deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.as_secs() % 10 == 0 && remaining.as_millis() % 10000 < 100 {
+                    log::debug!(
+                        "[skill:{}] Still waiting for async tool result ({:.0}s remaining)",
+                        skill_id,
+                        remaining.as_secs_f32()
+                    );
+                }
                 if tokio::time::Instant::now() >= ptc.deadline {
-                    log::error!("[skill:{}] Async tool call timed out", skill_id);
+                    log::error!("[skill:{}] Async tool call timed out after 120s", skill_id);
+                    // Dump JS error state for debugging
+                    let error_info = ctx
+                        .with(|js_ctx| {
+                            js_ctx
+                                .eval::<String, _>(
+                                    b"JSON.stringify({ done: globalThis.__pendingToolDone, result: typeof globalThis.__pendingToolResult, error: globalThis.__pendingToolError ? String(globalThis.__pendingToolError) : null })",
+                                )
+                                .unwrap_or_else(|_| "eval failed".to_string())
+                        })
+                        .await;
+                    log::error!(
+                        "[skill:{}] Tool timeout debug state: {}",
+                        skill_id,
+                        error_info
+                    );
                     if let Some(ptc) = pending_tool.take() {
                         let _ = ptc
                             .reply
