@@ -34,5 +34,5 @@ jobs:
           file: .github/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/ci-runner:latest
-            ghcr.io/${{ github.repository }}/ci-runner:rust-1.93.0
+            ghcr.io/tinyhumansai/openhuman_ci:latest
+            ghcr.io/tinyhumansai/openhuman_ci:rust-1.93.0

@@ -60,7 +60,7 @@ jobs:
     name: Rust Tests + Quality
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/tinyhumansai/openhuman/ci-runner:rust-1.93.0
+      image: ghcr.io/tinyhumansai/openhuman_ci:rust-1.93.0
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
