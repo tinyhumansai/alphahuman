@@ -4,13 +4,15 @@
 //! "autocomplete" namespace and fed back as dynamic style examples on the
 //! next inference cycle, giving the model in-context personalisation.
 
-use crate::openhuman::memory::{MemoryClient, NamespaceDocumentInput};
+use crate::openhuman::memory::{InsertMemoryParams, MemoryClient, NamespaceDocumentInput};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tinyhumansai::{Priority, SourceType};
 
 const AUTOCOMPLETE_KV_NAMESPACE: &str = "autocomplete";
 const AUTOCOMPLETE_DOC_NAMESPACE: &str = "autocomplete-memory";
+const AUTOCOMPLETE_CLOUD_NAMESPACE: &str = "autocomplete";
 const MAX_HISTORY_ENTRIES: usize = 50;
 const MAX_DOC_ENTRIES: usize = 200;
 const CONTEXT_TAIL_CHARS: usize = 40;
@@ -156,6 +158,55 @@ pub async fn save_completion_to_local_docs(context: &str, suggestion: &str, app_
                 }
             }
         }
+    }
+}
+
+/// Persist an accepted completion to the Neocortex cloud memory graph (fire-and-forget safe).
+///
+/// No-op when the user is not authenticated (no JWT_TOKEN env var).
+/// Neocortex manages its own retention so no client-side trimming is needed.
+pub async fn save_completion_to_cloud(context: &str, suggestion: &str, app_name: Option<&str>) {
+    let client = match MemoryClient::new_local() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[autocomplete:history] cloud — client init failed: {e}");
+            return;
+        }
+    };
+
+    let ts_ms = Utc::now().timestamp_millis();
+    let app = app_name.unwrap_or("unknown");
+
+    let tail: String = context
+        .chars()
+        .rev()
+        .take(CONTEXT_TAIL_CHARS)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+
+    let params = InsertMemoryParams {
+        title: format!("Autocomplete acceptance — {app}"),
+        content: format!("Context: ...{tail}\nAccepted: {suggestion}\nApp: {app}"),
+        namespace: AUTOCOMPLETE_CLOUD_NAMESPACE.to_string(),
+        document_id: format!("ac-{ts_ms}"),
+        source_type: Some(SourceType::Doc),
+        priority: Some(Priority::Low),
+        metadata: Some(json!({
+            "context": context,
+            "suggestion": suggestion,
+            "app_name": app_name,
+            "timestamp_ms": ts_ms,
+        })),
+        created_at: None,
+        updated_at: None,
+    };
+
+    if let Err(e) = client.insert_to_cloud(params).await {
+        log::warn!("[autocomplete:history] cloud insert_memory failed: {e}");
+    } else {
+        log::debug!("[autocomplete:history] saved cloud completion ts={ts_ms}");
     }
 }
 
