@@ -752,6 +752,150 @@ const LocalModelPanel = () => {
             </section>
 
             <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Ollama Diagnostics</h3>
+                <button
+                  onClick={async () => {
+                    setIsDiagnosticsLoading(true);
+                    setDiagnosticsError('');
+                    try {
+                      const result = await openhumanLocalAiDiagnostics();
+                      setDiagnostics(result);
+                    } catch (err) {
+                      setDiagnosticsError(
+                        err instanceof Error ? err.message : 'Diagnostics failed'
+                      );
+                    } finally {
+                      setIsDiagnosticsLoading(false);
+                    }
+                  }}
+                  disabled={isDiagnosticsLoading}
+                  className="px-3 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white">
+                  {isDiagnosticsLoading ? 'Checking...' : 'Run Diagnostics'}
+                </button>
+              </div>
+              <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 space-y-3">
+                {!diagnostics && !diagnosticsError && (
+                  <p className="text-xs text-stone-400">
+                    Click &ldquo;Run Diagnostics&rdquo; to verify Ollama is running and models are
+                    installed.
+                  </p>
+                )}
+                {isDiagnosticsLoading && (
+                  <div className="flex items-center gap-2 text-xs text-blue-300">
+                    <div className="h-3 w-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                    Checking Ollama server and models...
+                  </div>
+                )}
+                {diagnosticsError && (
+                  <div className="rounded-md bg-red-950/50 border border-red-800/50 p-3 text-xs text-red-300">
+                    {diagnosticsError}
+                  </div>
+                )}
+                {diagnostics && (
+                  <>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${diagnostics.ok ? 'bg-green-400' : 'bg-red-400'}`}
+                      />
+                      <span className={diagnostics.ok ? 'text-green-300' : 'text-red-300'}>
+                        {diagnostics.ok ? 'All checks passed' : `${diagnostics.issues.length} issue(s) found`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md border border-gray-700 p-2">
+                        <div className="text-stone-400 uppercase tracking-wide text-[10px]">
+                          Server
+                        </div>
+                        <div
+                          className={`mt-1 font-medium ${diagnostics.ollama_running ? 'text-green-300' : 'text-red-300'}`}>
+                          {diagnostics.ollama_running ? 'Running' : 'Not running'}
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-gray-700 p-2">
+                        <div className="text-stone-400 uppercase tracking-wide text-[10px]">
+                          Binary
+                        </div>
+                        <div className="mt-1 text-stone-200 truncate" title={diagnostics.ollama_binary_path ?? 'Not found'}>
+                          {diagnostics.ollama_binary_path ?? 'Not found'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {diagnostics.installed_models.length > 0 && (
+                      <div>
+                        <div className="text-stone-400 uppercase tracking-wide text-[10px] mb-1">
+                          Installed Models ({diagnostics.installed_models.length})
+                        </div>
+                        <div className="space-y-1">
+                          {diagnostics.installed_models.map((m) => (
+                            <div
+                              key={m.name}
+                              className="flex items-center justify-between rounded border border-gray-700 px-2 py-1.5 text-xs">
+                              <span className="text-stone-100 font-medium">{m.name}</span>
+                              <span className="text-stone-400">
+                                {typeof m.size === 'number' ? formatBytes(m.size) : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="text-stone-400 uppercase tracking-wide text-[10px] mb-1">
+                        Expected Models
+                      </div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={diagnostics.expected.chat_found ? 'text-green-300' : 'text-red-300'}>
+                            {diagnostics.expected.chat_found ? '\u2713' : '\u2717'}
+                          </span>
+                          <span className="text-stone-200">
+                            Chat: {diagnostics.expected.chat_model}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={diagnostics.expected.embedding_found ? 'text-green-300' : 'text-red-300'}>
+                            {diagnostics.expected.embedding_found ? '\u2713' : '\u2717'}
+                          </span>
+                          <span className="text-stone-200">
+                            Embedding: {diagnostics.expected.embedding_model}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={diagnostics.expected.vision_found ? 'text-green-300' : 'text-amber-300'}>
+                            {diagnostics.expected.vision_found ? '\u2713' : '\u2013'}
+                          </span>
+                          <span className="text-stone-200">
+                            Vision: {diagnostics.expected.vision_model}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {diagnostics.issues.length > 0 && (
+                      <div>
+                        <div className="text-red-400 uppercase tracking-wide text-[10px] mb-1">
+                          Issues
+                        </div>
+                        <ul className="space-y-1 text-xs text-red-300">
+                          {diagnostics.issues.map((issue, i) => (
+                            <li key={i} className="flex gap-1.5">
+                              <span className="shrink-0">&bull;</span>
+                              <span>{issue}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-3">
               <h3 className="text-lg font-semibold text-white">Capability Assets</h3>
               <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 space-y-3">
                 <div className="text-xs text-stone-400">
