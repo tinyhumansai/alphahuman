@@ -11,7 +11,6 @@
  * DOM via W3C WebDriver.  Readiness is detected by checking document state
  * and the presence of the React root element.
  */
-
 import { isTauriDriver } from './platform';
 
 /**

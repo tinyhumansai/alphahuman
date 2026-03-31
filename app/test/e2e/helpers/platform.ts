@@ -30,9 +30,7 @@ export function isTauriDriver(): boolean {
   // Appium Mac2 always sets automationName to 'mac2'
   if (automation === 'mac2' || automation.includes('mac2')) return false;
 
-  const platform = String(
-    caps.platformName ?? caps['appium:platformName'] ?? ''
-  ).toLowerCase();
+  const platform = String(caps.platformName ?? caps['appium:platformName'] ?? '').toLowerCase();
 
   // If platformName is 'mac' it's Appium on macOS even without automationName
   if (platform === 'mac') return false;

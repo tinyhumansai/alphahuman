@@ -90,7 +90,11 @@ async function navigateToHome() {
   await browser.pause(2_000);
   const homeText = await waitForHomePage(15_000);
   if (!homeText) {
-    try { await clickNativeButton('Home', 5_000); } catch { /* ignore */ }
+    try {
+      await clickNativeButton('Home', 5_000);
+    } catch {
+      /* ignore */
+    }
     await browser.pause(2_000);
     await waitForHomePage(10_000);
   }
@@ -108,12 +112,14 @@ async function navigateToBilling() {
   // Wait for Settings page content.
   // Note: "Billing & Usage" contains "&" which breaks XPath — use "Billing" only.
   const settingsLoaded =
-    (await textExists('Billing')) ||
-    (await textExists('Profile')) ||
-    (await textExists('Privacy'));
+    (await textExists('Billing')) || (await textExists('Profile')) || (await textExists('Privacy'));
   if (!settingsLoaded) {
     console.log('[AuthAccess] Settings page not loaded, retrying click...');
-    try { await clickNativeButton('Settings', 5_000); } catch { /* ignore */ }
+    try {
+      await clickNativeButton('Settings', 5_000);
+    } catch {
+      /* ignore */
+    }
     await browser.pause(3_000);
   }
 
@@ -165,21 +171,32 @@ async function performFullLogin(token = 'e2e-test-token') {
     await browser.pause(2_000);
 
     for (const text of ['Looks Amazing', 'Bring It On']) {
-      if (await textExists(text)) { await clickText(text, 5_000); break; }
+      if (await textExists(text)) {
+        await clickText(text, 5_000);
+        break;
+      }
     }
     await browser.pause(2_000);
 
     for (const text of ['Got it', 'Continue']) {
-      if (await textExists(text)) { await clickText(text, 5_000); break; }
+      if (await textExists(text)) {
+        await clickText(text, 5_000);
+        break;
+      }
     }
     await browser.pause(2_000);
 
     for (const text of ["Let's Go", "I'm Ready"]) {
-      if (await textExists(text)) { await clickText(text, 5_000); break; }
+      if (await textExists(text)) {
+        await clickText(text, 5_000);
+        break;
+      }
     }
     await browser.pause(3_000);
   } else {
-    console.log('[AuthAccess] Onboarding overlay not visible — skipping (WKWebView portal limitation)');
+    console.log(
+      '[AuthAccess] Onboarding overlay not visible — skipping (WKWebView portal limitation)'
+    );
     await browser.pause(3_000);
   }
 
@@ -223,7 +240,11 @@ describe('Auth & Access Control', () => {
 
     const homeText = await waitForHomePage(15_000);
     if (!homeText) {
-      try { await clickNativeButton('Home', 5_000); } catch { /* ignore */ }
+      try {
+        await clickNativeButton('Home', 5_000);
+      } catch {
+        /* ignore */
+      }
       await browser.pause(2_000);
     }
     const finalHome = homeText || (await waitForHomePage(10_000));
@@ -238,7 +259,11 @@ describe('Auth & Access Control', () => {
 
     const homeText = await waitForHomePage(15_000);
     if (!homeText) {
-      try { await clickNativeButton('Home', 5_000); } catch { /* ignore */ }
+      try {
+        await clickNativeButton('Home', 5_000);
+      } catch {
+        /* ignore */
+      }
       await browser.pause(2_000);
     }
     const finalHome = homeText || (await waitForHomePage(10_000));
@@ -259,8 +284,7 @@ describe('Auth & Access Control', () => {
     await navigateToBilling();
 
     // BillingPanel heading: "Current Plan — FREE"
-    const hasPlan =
-      (await textExists('Current Plan')) || (await textExists('FREE'));
+    const hasPlan = (await textExists('Current Plan')) || (await textExists('FREE'));
     if (!hasPlan) {
       const tree = await dumpAccessibilityTree();
       console.log('[AuthAccess] Billing page tree:\n', tree.slice(0, 6000));
@@ -295,8 +319,7 @@ describe('Auth & Access Control', () => {
     }
 
     // Verify purchasing state appears
-    const hasWaiting =
-      (await textExists('Waiting')) || (await textExists('Waiting for payment'));
+    const hasWaiting = (await textExists('Waiting')) || (await textExists('Waiting for payment'));
     console.log(`[AuthAccess] Purchasing state visible: ${hasWaiting}`);
 
     // Switch mock to BASIC plan so polling clears the waiting state
@@ -334,7 +357,9 @@ describe('Auth & Access Control', () => {
 
     // Check that plan info is displayed (Current Plan heading or tier name)
     const hasPlanInfo =
-      (await textExists('Current Plan')) || (await textExists('BASIC')) || (await textExists('Basic'));
+      (await textExists('Current Plan')) ||
+      (await textExists('BASIC')) ||
+      (await textExists('Basic'));
     expect(hasPlanInfo).toBe(true);
 
     // "Manage" button appears when hasActiveSubscription is true in currentPlan response.
@@ -352,7 +377,9 @@ describe('Auth & Access Control', () => {
     // If "Manage" is visible, click it and verify portal API call.
     const hasManage = await textExists('Manage');
     if (!hasManage) {
-      console.log('[AuthAccess] 3.3.3 — Manage button not visible (team subscription stale). Skipping portal click.');
+      console.log(
+        '[AuthAccess] 3.3.3 — Manage button not visible (team subscription stale). Skipping portal click.'
+      );
       // Verify the portal endpoint works by calling it programmatically
       // (the mock server handles POST /payments/stripe/portal)
       resetMockBehavior();
@@ -388,7 +415,11 @@ describe('Auth & Access Control', () => {
 
     const homeCheck = await waitForHomePage(10_000);
     if (!homeCheck) {
-      try { await clickNativeButton('Home', 5_000); } catch { /* ignore */ }
+      try {
+        await clickNativeButton('Home', 5_000);
+      } catch {
+        /* ignore */
+      }
       await browser.pause(2_000);
     }
 

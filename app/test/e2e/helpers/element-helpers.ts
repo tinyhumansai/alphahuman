@@ -218,7 +218,9 @@ export async function waitForWindowVisible(
  * - Mac2: Wait for XCUIElementTypeWebView in accessibility tree
  * - tauri-driver: Wait for document.readyState === 'complete'
  */
-export async function waitForWebView(timeout: number = 20_000): Promise<ChainablePromiseElement | null> {
+export async function waitForWebView(
+  timeout: number = 20_000
+): Promise<ChainablePromiseElement | null> {
   if (isTauriDriver()) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
@@ -272,10 +274,7 @@ export async function clickButton(
  * - Mac2: XCUIElementTypeButton XPath + W3C pointer click
  * - tauri-driver: CSS button selector + standard click
  */
-export async function clickNativeButton(
-  text: string,
-  timeout: number = 15_000
-): Promise<void> {
+export async function clickNativeButton(text: string, timeout: number = 15_000): Promise<void> {
   const el = await waitForButton(text, timeout);
   await clickAtElement(el);
 }

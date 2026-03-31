@@ -37,7 +37,13 @@ const LOG_PREFIX = '[CryptoPayment]';
 // ---------------------------------------------------------------------------
 
 async function waitForHomePage(timeout = 15_000) {
-  const candidates = ['Test', 'Good morning', 'Good afternoon', 'Good evening', 'Message OpenHuman'];
+  const candidates = [
+    'Test',
+    'Good morning',
+    'Good afternoon',
+    'Good evening',
+    'Message OpenHuman',
+  ];
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     for (const text of candidates) {
@@ -69,11 +75,19 @@ async function waitForRequest(method, urlFragment, timeout = 15_000) {
 }
 
 async function navigateToHome() {
-  try { await clickNativeButton('Home', 10_000); } catch { /* ignore */ }
+  try {
+    await clickNativeButton('Home', 10_000);
+  } catch {
+    /* ignore */
+  }
   await browser.pause(2_000);
   let homeText = await waitForHomePage(15_000);
   if (!homeText) {
-    try { await clickNativeButton('Home', 5_000); } catch { /* ignore */ }
+    try {
+      await clickNativeButton('Home', 5_000);
+    } catch {
+      /* ignore */
+    }
     await browser.pause(2_000);
     homeText = await waitForHomePage(10_000);
   }
@@ -85,7 +99,11 @@ async function navigateToBilling() {
   await browser.pause(3_000);
 
   if (!(await textExists('Billing'))) {
-    try { await clickNativeButton('Settings', 5_000); } catch { /* ignore */ }
+    try {
+      await clickNativeButton('Settings', 5_000);
+    } catch {
+      /* ignore */
+    }
     await browser.pause(3_000);
   }
 
@@ -109,15 +127,24 @@ async function performFullLogin(token = 'e2e-crypto-token') {
     await clickText('Skip for now', 10_000);
     await browser.pause(2_000);
     for (const t of ['Looks Amazing', 'Bring It On']) {
-      if (await textExists(t)) { await clickText(t, 5_000); break; }
+      if (await textExists(t)) {
+        await clickText(t, 5_000);
+        break;
+      }
     }
     await browser.pause(2_000);
     for (const t of ['Got it', 'Continue']) {
-      if (await textExists(t)) { await clickText(t, 5_000); break; }
+      if (await textExists(t)) {
+        await clickText(t, 5_000);
+        break;
+      }
     }
     await browser.pause(2_000);
     for (const t of ["Let's Go", "I'm Ready"]) {
-      if (await textExists(t)) { await clickText(t, 5_000); break; }
+      if (await textExists(t)) {
+        await clickText(t, 5_000);
+        break;
+      }
     }
     await browser.pause(3_000);
   } else {
@@ -191,7 +218,9 @@ describe('Crypto Payment Flow', () => {
     // Toggle crypto on
     const hasCrypto = await textExists('Pay with Crypto');
     if (hasCrypto) {
-      try { await clickToggle(10_000); } catch {
+      try {
+        await clickToggle(10_000);
+      } catch {
         await clickText('Pay with Crypto', 10_000);
       }
       await browser.pause(2_000);
@@ -224,7 +253,9 @@ describe('Crypto Payment Flow', () => {
     expect(planCall).toBeDefined();
 
     const hasPlanInfo =
-      (await textExists('Current Plan')) || (await textExists('BASIC')) || (await textExists('Basic'));
+      (await textExists('Current Plan')) ||
+      (await textExists('BASIC')) ||
+      (await textExists('Basic'));
     expect(hasPlanInfo).toBe(true);
 
     console.log(`${LOG_PREFIX} 6.2.1 — Crypto payment confirmed, plan active`);
@@ -254,7 +285,9 @@ describe('Crypto Payment Flow', () => {
 
     // Billing page should load without crashing even without active subscription
     const hasBillingContent =
-      (await textExists('Current Plan')) || (await textExists('FREE')) || (await textExists('Upgrade'));
+      (await textExists('Current Plan')) ||
+      (await textExists('FREE')) ||
+      (await textExists('Upgrade'));
     expect(hasBillingContent).toBe(true);
 
     console.log(`${LOG_PREFIX} 6.3.2 — Billing loads gracefully with default state`);

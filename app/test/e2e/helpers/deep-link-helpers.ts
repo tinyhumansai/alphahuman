@@ -133,7 +133,11 @@ function resolveBuiltAppPath(): string | null {
  */
 export async function triggerDeepLink(url: string): Promise<void> {
   const appPath = resolveBuiltAppPath();
-  deepLinkDebug('triggerDeepLink', { url, appPath: appPath ?? '(none)', platform: process.platform });
+  deepLinkDebug('triggerDeepLink', {
+    url,
+    appPath: appPath ?? '(none)',
+    platform: process.platform,
+  });
 
   if (typeof browser !== 'undefined') {
     // Strategy 1: WebView simulate (works on tauri-driver, skipped on Mac2)
@@ -180,9 +184,7 @@ export async function triggerDeepLink(url: string): Promise<void> {
       return;
     } catch (err) {
       deepLinkDebug('xdg-open failed', err instanceof Error ? err.message : err);
-      throw new Error(
-        `Failed to trigger deep link: ${err instanceof Error ? err.message : err}`
-      );
+      throw new Error(`Failed to trigger deep link: ${err instanceof Error ? err.message : err}`);
     }
   }
 

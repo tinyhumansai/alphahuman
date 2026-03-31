@@ -178,7 +178,9 @@ async function performFullLogin(token = 'e2e-test-token') {
     const startResult = await clickFirstCandidate(["Let's Go", "I'm Ready"], 'GetStartedStep');
     if (startResult) await browser.pause(3_000);
   } else {
-    console.log(`${LOG_PREFIX} Onboarding overlay not visible — skipping (WKWebView portal limitation)`);
+    console.log(
+      `${LOG_PREFIX} Onboarding overlay not visible — skipping (WKWebView portal limitation)`
+    );
     await browser.pause(3_000);
   }
 
