@@ -893,7 +893,7 @@ async fn e2e_native_loop_executes_text_fallback_tool_calls_and_persists_history(
         text_response("Completed via tool"),
     ]));
 
-    let mut agent = build_agent_with(
+    let (mut agent, _tmp) = build_agent_with(
         provider,
         vec![Box::new(EchoTool)],
         Box::new(NativeToolDispatcher),
@@ -1353,7 +1353,7 @@ async fn native_dispatcher_executes_generic_skills_call_tool() {
         text_response("skills call done"),
     ]));
 
-    let mut agent = build_agent_with(
+    let (mut agent, _tmp) = build_agent_with(
         provider,
         vec![Box::new(SkillsCallEchoTool)],
         Box::new(NativeToolDispatcher),
