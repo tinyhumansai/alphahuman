@@ -2,6 +2,7 @@ name: Type Check
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -75,26 +76,23 @@ jobs:
       - name: Install Tauri build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf mold clang
 
-      - name: Cargo.lock fingerprint (deps only)
-        id: cargo-lock-fingerprint
-        shell: bash
-        run: |
-          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
 
-      - name: Cache Cargo registry and git sources
-        uses: actions/cache@v4
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ steps.cargo-lock-fingerprint.outputs.hash }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
+          workspaces: |
+            . -> target
+          cache-on-failure: true
 
       - name: Check formatting (cargo fmt)
         run: cargo fmt --all -- --check
 
       - name: Run clippy (core crate)
         run: cargo clippy -p openhuman
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
