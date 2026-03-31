@@ -8,7 +8,6 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
@@ -19,10 +18,7 @@ jobs:
     name: Build Tauri App
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/tinyhumansai/openhuman/ci-runner:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/tinyhumansai/openhuman/ci-runner@sha256:f424edf66964f80e98a6445dffcc895e919c60a4d33aa0e15fdc7fb3a486b921
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
