@@ -62,6 +62,7 @@ function getMockUser() {
     },
     usage: {
       cycleBudgetUsd: 10,
+      remainingUsd: 10,
       spentThisCycleUsd: 0,
       spentTodayUsd: 0,
       cycleStartDate: new Date().toISOString(),
@@ -250,8 +251,136 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (method === "GET" && /^\/teams\/me\/usage\/?(\?.*)?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: {
+        cycleBudgetUsd: 10,
+        remainingUsd: 10,
+        dailyUsage: 0,
+        totalInputTokensThisCycle: 0,
+        totalOutputTokensThisCycle: 0,
+        spentThisCycleUsd: 0,
+        spentTodayUsd: 0,
+        cycleStartDate: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
   if (method === "GET" && /^\/auth\/integrations\/?(\?.*)?$/.test(url)) {
     json(res, 200, { success: true, data: [] });
+    return;
+  }
+
+  // --- Payments / Credits / Billing ---
+
+  if (method === "GET" && /^\/payments\/credits\/balance\/?(\?.*)?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: { balanceUsd: 10, topUpBalanceUsd: 0, topUpBaselineUsd: 0 },
+    });
+    return;
+  }
+
+  if (
+    method === "GET" &&
+    (/^\/payments\/plan\/?(\?.*)?$/.test(url) ||
+      /^\/payments\/stripe\/currentPlan\/?(\?.*)?$/.test(url))
+  ) {
+    const plan = mockBehavior.plan || "FREE";
+    const isActive = mockBehavior.planActive === "true";
+    const periodEnd = new Date(Date.now() + 30 * 86400000).toISOString();
+    json(res, 200, {
+      success: true,
+      data: {
+        plan,
+        hasActiveSubscription: isActive,
+        planExpiry: isActive ? periodEnd : null,
+        subscription: isActive
+          ? { id: "sub_mock_1", status: "active", currentPeriodEnd: periodEnd }
+          : null,
+      },
+    });
+    return;
+  }
+
+  if (
+    method === "POST" &&
+    (/^\/payments\/stripe\/checkout\/?$/.test(url) ||
+      /^\/payments\/stripe\/purchasePlan\/?$/.test(url))
+  ) {
+    json(res, 200, {
+      success: true,
+      data: {
+        sessionId: "cs_mock_" + Date.now(),
+        // Return null checkoutUrl so the app doesn't navigate the WebView away.
+        // The test verifies the API call was made, not the redirect.
+        checkoutUrl: null,
+      },
+    });
+    return;
+  }
+
+  if (method === "POST" && /^\/payments\/stripe\/portal\/?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: { portalUrl: "https://billing.stripe.com/mock-portal" },
+    });
+    return;
+  }
+
+  if (method === "POST" && /^\/payments\/coinbase\/charge\/?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: {
+        chargeId: "charge_mock_" + Date.now(),
+        hostedUrl: "https://commerce.coinbase.com/mock-charge",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      },
+    });
+    return;
+  }
+
+  if (method === "POST" && /^\/payments\/purchase\/?$/.test(url)) {
+    const plan = parsedBody?.plan || mockBehavior.plan || "BASIC";
+    json(res, 200, {
+      success: true,
+      data: {
+        sessionId: "cs_mock_" + Date.now(),
+        url: "https://checkout.stripe.com/mock-purchase",
+        plan,
+      },
+    });
+    return;
+  }
+
+  if (method === "GET" && /^\/payments\/credits\/auto-recharge\/?(\?.*)?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: {
+        enabled: false,
+        thresholdUsd: 5,
+        rechargeAmountUsd: 10,
+        weeklyLimitUsd: 50,
+        spentThisWeekUsd: 0,
+        weekStartDate: new Date().toISOString(),
+        inFlight: false,
+        hasSavedPaymentMethod: false,
+        lastTriggeredAt: null,
+        lastRechargeAt: null,
+      },
+    });
+    return;
+  }
+
+  if (method === "GET" && /^\/payments\/cards\/?(\?.*)?$/.test(url)) {
+    json(res, 200, { success: true, data: { cards: [], defaultCardId: null } });
+    return;
+  }
+
+  if (method === "GET" && /^\/payments\/credits\/auto-recharge\/cards\/?(\?.*)?$/.test(url)) {
+    json(res, 200, { success: true, data: { cards: [], defaultCardId: null } });
     return;
   }
 
@@ -522,7 +651,9 @@ async function handleRequest(req, res) {
     return;
   }
 
-  json(res, 200, { success: true, data: {} });
+  // Catch-all: log unhandled requests for debugging and return a safe default.
+  console.log(`[MockServer] UNHANDLED ${method} ${url}`);
+  json(res, 200, { success: true, data: null });
 }
 
 function handleSocketIOMessage(socket, text, sid) {
