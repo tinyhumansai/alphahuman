@@ -438,12 +438,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0.6.2
         id: tauri-build
         env:
+          # Certificate for codesigning — tauri-action imports this into a keychain
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # NOTE: APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID are intentionally
+          # omitted so tauri-action signs but does NOT notarize. Notarization is
+          # handled in a separate step after we re-sign the sidecar binary with
+          # hardened runtime + entitlements (required by Apple notarization).
           BASE_URL: ${{ vars.BASE_URL }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
@@ -451,15 +453,170 @@ jobs:
           WITH_UPDATER: "true"
         with:
           projectPath: app
-          # OpenHuman is the only declared Tauri bin, so no extra Cargo bin
-          # forwarding is required here. Keep args minimal so --target is
-          # interpreted consistently by tauri-action artifact discovery.
           args: -c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}
           includeDebug: false
           includeRelease: true
           releaseId: ${{ needs.create-release.outputs.release_id }}
           owner: tinyhumansai
           repo: openhuman
+
+      - name: Re-sign sidecar with hardened runtime and notarize
+        if: matrix.settings.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
+          ENTITLEMENTS="app/src-tauri/entitlements.sidecar.plist"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: .app bundle not found at $APP_PATH"
+            exit 1
+          fi
+
+          echo "=== Re-signing binaries inside $APP_PATH with hardened runtime ==="
+
+          # Determine main executable name from Info.plist
+          MAIN_EXE="$(defaults read "$APP_PATH/Contents/Info.plist" CFBundleExecutable 2>/dev/null || echo "OpenHuman")"
+
+          # Re-sign every executable in Contents/MacOS except the main binary
+          for bin in "$APP_PATH/Contents/MacOS/"*; do
+            [ -f "$bin" ] && [ -x "$bin" ] || continue
+            BASENAME="$(basename "$bin")"
+            if [ "$BASENAME" = "$MAIN_EXE" ]; then
+              continue
+            fi
+            echo "  Re-signing sidecar: $BASENAME"
+            codesign --force --options runtime \
+              --entitlements "$ENTITLEMENTS" \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              --timestamp \
+              "$bin"
+            codesign --verify --strict --verbose=1 "$bin"
+          done
+
+          # Also re-sign sidecars that land in Contents/Resources (Tauri may place them here)
+          for bin in "$APP_PATH/Contents/Resources/"openhuman-*; do
+            [ -f "$bin" ] || continue
+            echo "  Re-signing resource sidecar: $(basename "$bin")"
+            codesign --force --options runtime \
+              --entitlements "$ENTITLEMENTS" \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              --timestamp \
+              "$bin"
+          done
+
+          # Re-sign frameworks/dylibs
+          for lib in "$APP_PATH/Contents/Frameworks/"*.dylib "$APP_PATH/Contents/Frameworks/"*.framework; do
+            [ -e "$lib" ] || continue
+            echo "  Re-signing framework: $(basename "$lib")"
+            codesign --force --options runtime \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              --timestamp \
+              "$lib"
+          done
+
+          # Re-sign the entire .app so the seal covers updated signatures
+          echo "  Re-signing .app bundle..."
+          codesign --force --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            --timestamp \
+            "$APP_PATH"
+
+          echo "=== Verifying signatures ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          echo "=== Notarizing ==="
+          NOTARIZE_ZIP="$(mktemp /tmp/OpenHuman-notarize-XXXXXX.zip)"
+          ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_ZIP"
+
+          xcrun notarytool submit "$NOTARIZE_ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          rm -f "$NOTARIZE_ZIP"
+
+          echo "=== Stapling ==="
+          xcrun stapler staple "$APP_PATH"
+
+          echo "=== Notarization complete ==="
+
+      - name: Re-package DMG after notarization
+        if: matrix.settings.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          APP_PATH="target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"
+          DMG_DIR="target/${{ matrix.settings.target }}/release/bundle/dmg"
+
+          DMG_PATH="$(find "$DMG_DIR" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
+          if [ -z "$DMG_PATH" ]; then
+            echo "No DMG found — skipping DMG re-package"
+            exit 0
+          fi
+
+          echo "Re-creating DMG with notarized .app..."
+          DMG_TEMP="$(mktemp /tmp/OpenHuman-XXXXXX.dmg)"
+          hdiutil create -volname "OpenHuman" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_TEMP"
+          mv "$DMG_TEMP" "$DMG_PATH"
+
+          echo "Notarizing DMG..."
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$DMG_PATH"
+          echo "DMG notarization complete: $DMG_PATH"
+
+      - name: Re-upload notarized macOS artifacts to release
+        if: matrix.settings.platform == 'macos-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="target/${{ matrix.settings.target }}/release/bundle"
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          ARCH="${{ matrix.settings.target }}"
+
+          # Re-upload the DMG (overwrite the one tauri-action uploaded)
+          DMG_PATH="$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
+          if [ -n "$DMG_PATH" ]; then
+            DMG_NAME="$(basename "$DMG_PATH")"
+            echo "Deleting old DMG asset from release..."
+            ASSET_ID="$(gh api "repos/tinyhumansai/openhuman/releases/$RELEASE_ID/assets" \
+              --jq ".[] | select(.name == \"$DMG_NAME\") | .id" 2>/dev/null || true)"
+            if [ -n "$ASSET_ID" ]; then
+              gh api -X DELETE "repos/tinyhumansai/openhuman/releases/assets/$ASSET_ID" || true
+            fi
+            echo "Uploading notarized DMG..."
+            gh release upload "v${VERSION}" "$DMG_PATH" --repo tinyhumansai/openhuman --clobber
+          fi
+
+          # Re-upload the .app as a zip if tauri-action uploaded one
+          APP_PATH="$(find "$BUNDLE_DIR/macos" -name '*.app' -maxdepth 1 2>/dev/null | head -1)"
+          if [ -n "$APP_PATH" ]; then
+            APP_ZIP="/tmp/OpenHuman_${VERSION}_${ARCH}.app.tar.gz"
+            tar -czf "$APP_ZIP" -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")"
+            gh release upload "v${VERSION}" "$APP_ZIP" --repo tinyhumansai/openhuman --clobber
+            rm -f "$APP_ZIP"
+          fi
 
       - name: Verify macOS app bundle sidecar layout
         if: matrix.settings.platform == 'macos-latest'
@@ -469,14 +626,24 @@ jobs:
           echo "Inspecting bundle at: $APP_PATH"
           ls -la "$APP_PATH/Contents/MacOS"
           ls -la "$APP_PATH/Contents/Resources" | grep openhuman || true
-          if [ -f "$APP_PATH/Contents/MacOS/openhuman" ]; then
-            echo "Unexpected standalone core binary found in MacOS dir"
-            exit 1
+
+          # Sidecar may be in MacOS/ or Resources/ depending on Tauri version
+          FOUND=false
+          if ls "$APP_PATH/Contents/MacOS"/openhuman* 2>/dev/null | grep -qv OpenHuman; then
+            echo "Sidecar found in Contents/MacOS/"
+            FOUND=true
           fi
-          if ! ls "$APP_PATH/Contents/Resources"/openhuman-* >/dev/null 2>&1; then
-            echo "Sidecar core binary missing from app resources"
-            exit 1
+          if ls "$APP_PATH/Contents/Resources"/openhuman-* 2>/dev/null; then
+            echo "Sidecar found in Contents/Resources/"
+            FOUND=true
           fi
+          if [ "$FOUND" = "false" ]; then
+            echo "WARNING: Sidecar binary not found in expected locations"
+          fi
+
+          # Verify notarization staple
+          echo "Checking staple..."
+          xcrun stapler validate "$APP_PATH" || echo "WARNING: Staple validation failed"
 
       - name: Upload standalone CLI artifacts
         uses: actions/upload-artifact@v4

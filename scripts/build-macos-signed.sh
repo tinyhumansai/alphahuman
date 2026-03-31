@@ -105,30 +105,10 @@ echo "Verifying signing identity..."
 security find-identity -v -p codesigning "$KEYCHAIN_NAME" | head -5
 echo
 
-# ── Pre-sign sidecar binaries ─────────────────────────────────────────
-# Tauri signs external binaries during bundling, but Apple notarization
-# requires the hardened runtime flag + entitlements on ALL executables.
-# Tauri may not apply entitlements to sidecars, so we pre-sign them here.
-ENTITLEMENTS="app/src-tauri/entitlements.sidecar.plist"
-SIDECAR_DIR="app/src-tauri/binaries"
-
-if [[ -d "$SIDECAR_DIR" ]]; then
-  echo "Pre-signing sidecar binaries with hardened runtime..."
-  for bin in "$SIDECAR_DIR"/*; do
-    [[ -f "$bin" && -x "$bin" ]] || continue
-    echo "  Signing: $(basename "$bin")"
-    codesign --force --options runtime \
-      --entitlements "$ENTITLEMENTS" \
-      --sign "$APPLE_SIGNING_IDENTITY" \
-      --timestamp \
-      "$bin"
-    codesign --verify --strict --verbose=1 "$bin"
-  done
-  echo "Sidecar pre-signing complete."
-  echo
-fi
-
-# ── Build ─────────────────────────────────────────────────────────────
+# ── Build (signing only, no notarization) ─────────────────────────────
+# We hide APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID from Tauri so it signs
+# but does NOT attempt notarization. We'll fix the sidecar signature
+# and notarize ourselves afterwards.
 echo "Building Tauri app (mode=$BUILD_MODE, bundles=$BUNDLE_TARGETS)..."
 
 BUILD_ARGS=(--bundles "$BUNDLE_TARGETS")
@@ -139,13 +119,24 @@ fi
 # Tauri picks up signing identity from env
 export APPLE_SIGNING_IDENTITY
 
-env | grep -E 'APPLE|TAURI|VITE'
+# Save and unset notarization vars so Tauri doesn't try to notarize
+_SAVED_APPLE_ID="${APPLE_ID:-}"
+_SAVED_APPLE_PASSWORD="${APPLE_PASSWORD:-}"
+_SAVED_APPLE_TEAM_ID="${APPLE_TEAM_ID:-}"
+unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+
+env | grep -E 'APPLE|TAURI|VITE' || true
 
 cd app
 echo "Building now... ${BUILD_ARGS[@]}"
 npx tauri build "${BUILD_ARGS[@]}"
 echo "Done building"
 cd ..
+
+# Restore notarization vars
+export APPLE_ID="$_SAVED_APPLE_ID"
+export APPLE_PASSWORD="$_SAVED_APPLE_PASSWORD"
+export APPLE_TEAM_ID="$_SAVED_APPLE_TEAM_ID"
 
 # ── Locate artifacts ─────────────────────────────────────────────────
 if [[ "$BUILD_MODE" == "debug" ]]; then
@@ -155,7 +146,6 @@ else
 fi
 
 APP_PATH="$(find "$BUNDLE_DIR/macos" -name '*.app' -maxdepth 1 | head -1)"
-DMG_PATH="$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
 
 if [[ -z "$APP_PATH" ]]; then
   echo "ERROR: No .app bundle found in $BUNDLE_DIR/macos/" >&2
@@ -164,20 +154,60 @@ fi
 
 echo
 echo "App bundle: $APP_PATH"
-[[ -n "$DMG_PATH" ]] && echo "DMG:        $DMG_PATH"
 
-# ── Verify codesigning ──────────────────────────────────────────────
+# ── Re-sign sidecar binaries inside the .app with hardened runtime ───
+# Tauri signs sidecars during bundling but may not apply --options runtime
+# or entitlements, which Apple notarization requires on ALL executables.
+ENTITLEMENTS="app/src-tauri/entitlements.sidecar.plist"
+
+echo
+echo "Re-signing binaries inside the .app with hardened runtime..."
+# Sign all executables in Contents/MacOS except the main app binary
+MAIN_EXECUTABLE="$(defaults read "$APP_PATH/Contents/Info.plist" CFBundleExecutable 2>/dev/null || echo "OpenHuman")"
+
+for bin in "$APP_PATH/Contents/MacOS/"*; do
+  [[ -f "$bin" && -x "$bin" ]] || continue
+  BASENAME="$(basename "$bin")"
+  if [[ "$BASENAME" == "$MAIN_EXECUTABLE" ]]; then
+    continue  # main binary — will be re-signed with the whole .app
+  fi
+  echo "  Re-signing sidecar: $BASENAME"
+  codesign --force --options runtime \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$APPLE_SIGNING_IDENTITY" \
+    --timestamp \
+    "$bin"
+  codesign --verify --strict --verbose=1 "$bin"
+done
+
+# Also sign any frameworks/dylibs inside the bundle
+for lib in "$APP_PATH/Contents/Frameworks/"*.dylib "$APP_PATH/Contents/Frameworks/"*.framework; do
+  [[ -e "$lib" ]] || continue
+  echo "  Re-signing framework: $(basename "$lib")"
+  codesign --force --options runtime \
+    --sign "$APPLE_SIGNING_IDENTITY" \
+    --timestamp \
+    "$lib"
+done
+
+# Re-sign the entire .app so the seal covers the updated sidecar signatures
+echo "  Re-signing .app bundle..."
+codesign --force --options runtime \
+  --entitlements "$ENTITLEMENTS" \
+  --sign "$APPLE_SIGNING_IDENTITY" \
+  --timestamp \
+  "$APP_PATH"
+
 echo
 echo "Verifying code signature..."
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 echo "Signature OK."
 
-# Also verify the sidecar binary if present
-SIDECAR="$(find "$APP_PATH/Contents/MacOS" -name 'openhuman*' ! -name 'OpenHuman' 2>/dev/null | head -1)"
+# Verify sidecar specifically
+SIDECAR="$(find "$APP_PATH/Contents/MacOS" -name 'openhuman*' ! -name "$MAIN_EXECUTABLE" 2>/dev/null | head -1)"
 if [[ -n "$SIDECAR" ]]; then
-  echo "Verifying sidecar signature..."
-  codesign --verify --strict --verbose=2 "$SIDECAR"
-  echo "Sidecar signature OK."
+  echo "Verifying sidecar hardened runtime..."
+  codesign -d --verbose=4 "$SIDECAR" 2>&1 | grep -E 'flags|runtime' || true
 fi
 
 # ── Notarize ──────────────────────────────────────────────────────────
@@ -185,16 +215,11 @@ if $SKIP_NOTARIZE; then
   echo
   echo "Skipping notarization (--skip-notarize)."
 else
-  # Notarize the DMG if available, otherwise zip the .app
-  if [[ -n "$DMG_PATH" ]]; then
-    NOTARIZE_FILE="$DMG_PATH"
-  else
-    NOTARIZE_FILE="$(mktemp /tmp/OpenHuman-XXXXXX.zip)"
-    echo "Creating zip for notarization..."
-    ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_FILE"
-  fi
-
+  NOTARIZE_FILE="$(mktemp /tmp/OpenHuman-XXXXXX.zip)"
   echo
+  echo "Creating zip for notarization..."
+  ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_FILE"
+
   echo "Submitting for notarization..."
   xcrun notarytool submit "$NOTARIZE_FILE" \
     --apple-id "$APPLE_ID" \
@@ -202,12 +227,21 @@ else
     --team-id "$APPLE_TEAM_ID" \
     --wait
 
+  rm -f "$NOTARIZE_FILE"
+
   echo
   echo "Stapling notarization ticket..."
+  xcrun stapler staple "$APP_PATH"
+
+  # Re-create DMG after stapling if dmg was in bundle targets
+  DMG_PATH="$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
   if [[ -n "$DMG_PATH" ]]; then
+    echo "Re-creating DMG with stapled .app..."
+    DMG_TEMP="$(mktemp /tmp/OpenHuman-XXXXXX.dmg)"
+    hdiutil create -volname "OpenHuman" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_TEMP"
+    mv "$DMG_TEMP" "$DMG_PATH"
     xcrun stapler staple "$DMG_PATH"
   fi
-  xcrun stapler staple "$APP_PATH"
 
   echo "Notarization complete."
 fi
