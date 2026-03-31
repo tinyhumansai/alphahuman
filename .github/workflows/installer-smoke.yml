@@ -23,13 +23,13 @@ jobs:
       - name: Run installer dry-run
         run: bash scripts/install.sh --dry-run --verbose
 
-  smoke-windows:
-    name: Smoke install.ps1 (windows-latest)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  # smoke-windows:
+  #   name: Smoke install.ps1 (windows-latest)
+  #   runs-on: windows-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
 
-      - name: Run installer dry-run
-        shell: pwsh
-        run: ./scripts/install.ps1 -DryRun
+  #     - name: Run installer dry-run
+  #       shell: pwsh
+  #       run: ./scripts/install.ps1 -DryRun

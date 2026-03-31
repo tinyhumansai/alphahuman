@@ -267,6 +267,52 @@ export async function memoryRecallNamespace(
   });
 }
 
+export interface GraphRelation {
+  namespace: string | null;
+  subject: string;
+  predicate: string;
+  object: string;
+  attrs: Record<string, unknown>;
+  updatedAt: number;
+  evidenceCount: number;
+  orderIndex: number | null;
+  documentIds: string[];
+  chunkIds: string[];
+}
+
+export async function memoryGraphQuery(
+  namespace?: string,
+  subject?: string,
+  predicate?: string
+): Promise<GraphRelation[]> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<GraphRelation[]>({
+    method: 'memory.graph.query',
+    params: { namespace, subject, predicate },
+  });
+}
+
+export async function memoryDocIngest(params: {
+  namespace: string;
+  key: string;
+  title: string;
+  content: string;
+  source_type?: string;
+  priority?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  category?: string;
+  session_id?: string;
+  document_id?: string;
+}): Promise<unknown> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<unknown>({ method: 'memory.doc.ingest', params });
+}
+
 export async function aiListMemoryFiles(relativeDir = 'memory'): Promise<string[]> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
@@ -1016,6 +1062,29 @@ export async function openhumanUpdateScreenIntelligenceSettings(
   return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
     method: 'openhuman.update_screen_intelligence_settings',
     params: update,
+  });
+}
+
+export async function openhumanUpdateAnalyticsSettings(update: {
+  enabled?: boolean;
+}): Promise<CommandResponse<ConfigSnapshot>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
+    method: 'openhuman.update_analytics_settings',
+    params: update,
+  });
+}
+
+export async function openhumanGetAnalyticsSettings(): Promise<
+  CommandResponse<{ enabled: boolean }>
+> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<{ enabled: boolean }>>({
+    method: 'openhuman.get_analytics_settings',
   });
 }
 
