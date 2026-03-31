@@ -1,10 +1,13 @@
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::env;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
 pub const DEFAULT_FASTEMBED_MODEL: &str = "BGESmallENV15";
 pub const DEFAULT_FASTEMBED_DIMENSIONS: usize = 384;
+const DEFAULT_MANAGED_RELEX_DIR: &str = ".openhuman/models/gliner-relex-large-v0.5-onnx";
 
 /// Trait for embedding providers — convert text to vectors
 #[async_trait]
@@ -81,10 +84,89 @@ impl FastembedEmbedding {
     }
 
     fn init_model(&self) -> anyhow::Result<fastembed::TextEmbedding> {
+        ensure_fastembed_ort_dylib_path();
         fastembed::TextEmbedding::try_new(
             fastembed::InitOptions::new(self.resolve_model()).with_show_download_progress(false),
         )
         .map_err(|e| anyhow::anyhow!("fastembed init failed for {}: {e}", self.model))
+    }
+}
+
+fn ensure_fastembed_ort_dylib_path() {
+    if env::var_os("ORT_DYLIB_PATH").is_some() {
+        return;
+    }
+
+    if let Some(lib_path) = env::var_os("ORT_LIB_LOCATION") {
+        let candidate = PathBuf::from(lib_path);
+        if candidate.is_file() {
+            env::set_var("ORT_DYLIB_PATH", candidate);
+            return;
+        }
+
+        #[cfg(target_os = "windows")]
+        let runtime_lib = candidate.join("onnxruntime.dll");
+        #[cfg(target_os = "macos")]
+        let runtime_lib = candidate.join("libonnxruntime.dylib");
+        #[cfg(target_os = "linux")]
+        let runtime_lib = candidate.join("libonnxruntime.so");
+
+        if runtime_lib.exists() {
+            env::set_var("ORT_DYLIB_PATH", runtime_lib);
+            return;
+        }
+    }
+
+    if let Ok(path) = env::var("OPENHUMAN_GLINER_RELEX_CACHE_DIR") {
+        #[cfg(target_os = "windows")]
+        let bundled = PathBuf::from(path).join("onnxruntime.dll");
+        #[cfg(target_os = "macos")]
+        let bundled = PathBuf::from(path).join("libonnxruntime.dylib");
+        #[cfg(target_os = "linux")]
+        let bundled = PathBuf::from(path).join("libonnxruntime.so");
+
+        if bundled.exists() {
+            env::set_var("ORT_DYLIB_PATH", bundled);
+            return;
+        }
+    }
+
+    if let Some(user_dirs) = directories::UserDirs::new() {
+        #[cfg(target_os = "windows")]
+        let bundled = user_dirs
+            .home_dir()
+            .join(DEFAULT_MANAGED_RELEX_DIR)
+            .join("onnxruntime.dll");
+        #[cfg(target_os = "macos")]
+        let bundled = user_dirs
+            .home_dir()
+            .join(DEFAULT_MANAGED_RELEX_DIR)
+            .join("libonnxruntime.dylib");
+        #[cfg(target_os = "linux")]
+        let bundled = user_dirs
+            .home_dir()
+            .join(DEFAULT_MANAGED_RELEX_DIR)
+            .join("libonnxruntime.so");
+
+        if bundled.exists() {
+            env::set_var("ORT_DYLIB_PATH", bundled);
+            return;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        for candidate in [
+            "/usr/lib/x86_64-linux-gnu/libonnxruntime.so",
+            "/usr/local/lib/libonnxruntime.so",
+            "/usr/lib/libonnxruntime.so",
+        ] {
+            let candidate = PathBuf::from(candidate);
+            if candidate.exists() {
+                env::set_var("ORT_DYLIB_PATH", candidate);
+                return;
+            }
+        }
     }
 }
 
@@ -110,6 +192,7 @@ impl EmbeddingProvider for FastembedEmbedding {
         let state = Arc::clone(&self.state);
         let provider = self.model.clone();
         let join_result = tokio::task::spawn_blocking(move || {
+            ensure_fastembed_ort_dylib_path();
             let mut guard = state.lock();
             if matches!(*guard, FastembedState::Uninitialized) {
                 match fastembed::TextEmbedding::try_new(
