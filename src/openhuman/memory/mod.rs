@@ -11,3 +11,6 @@ pub use store::{
     MemoryClientRef, MemoryState, NamespaceDocumentInput, NamespaceQueryResult, UnifiedMemory,
 };
 pub use traits::{Memory, MemoryCategory, MemoryEntry};
+
+// Re-export tinyhumansai types used by other domains.
+pub use tinyhumansai::InsertMemoryParams;

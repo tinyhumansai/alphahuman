@@ -48,6 +48,7 @@ toml = "1.0"
 shellexpand = "3.1"
 schemars = "1.2"
 tracing = { version = "0.1", default-features = false }
+tinyhumansai = { path = "../neocortex/packages/sdk-rust" }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
 prometheus = { version = "0.14", default-features = false }

@@ -3970,6 +3970,7 @@ dependencies = [
  "socketioxide",
  "tempfile",
  "thiserror 2.0.18",
+ "tinyhumansai",
  "tokio",
  "tokio-rustls",
  "tokio-serial",
@@ -6167,6 +6168,18 @@ checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tinyhumansai"
+version = "0.1.6"
+dependencies = [
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

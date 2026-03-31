@@ -4,6 +4,9 @@ use std::sync::Arc;
 use crate::openhuman::memory::embeddings::{self, EmbeddingProvider};
 use crate::openhuman::memory::store::types::NamespaceDocumentInput;
 use crate::openhuman::memory::store::unified::UnifiedMemory;
+use tinyhumansai::{
+    DeleteMemoryParams, InsertMemoryParams, TinyHumanConfig, TinyHumansMemoryClient,
+};
 
 pub type MemoryClientRef = Arc<MemoryClient>;
 
@@ -204,5 +207,50 @@ impl MemoryClient {
             }
             None => self.inner.graph_query_global(subject, predicate).await,
         }
+    }
+
+    // ── Cloud memory (tinyhumansai SDK) ──────────────────────────────
+
+    /// Try to build a cloud memory client from the JWT_TOKEN env var.
+    /// Returns `None` when no token is set (unauthenticated / offline).
+    fn cloud_client() -> Option<TinyHumansMemoryClient> {
+        let token = std::env::var("JWT_TOKEN").ok().filter(|t| !t.is_empty())?;
+        TinyHumansMemoryClient::new(TinyHumanConfig::new(token)).ok()
+    }
+
+    /// Insert a document into the cloud Neocortex memory graph.
+    /// No-op when the user is not authenticated (no JWT_TOKEN).
+    pub async fn insert_to_cloud(&self, params: InsertMemoryParams) -> Result<(), String> {
+        let cloud = match Self::cloud_client() {
+            Some(c) => c,
+            None => {
+                log::debug!("[memory:cloud] skipping insert — no JWT_TOKEN");
+                return Ok(());
+            }
+        };
+        cloud
+            .insert_memory(params)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("cloud insert_memory: {e}"))
+    }
+
+    /// Delete all cloud memory entries in a namespace.
+    /// No-op when the user is not authenticated (no JWT_TOKEN).
+    pub async fn delete_cloud_namespace(&self, namespace: &str) -> Result<(), String> {
+        let cloud = match Self::cloud_client() {
+            Some(c) => c,
+            None => {
+                log::debug!("[memory:cloud] skipping delete — no JWT_TOKEN");
+                return Ok(());
+            }
+        };
+        cloud
+            .delete_memory(DeleteMemoryParams {
+                namespace: Some(namespace.to_string()),
+            })
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("cloud delete_memory: {e}"))
     }
 }
