@@ -49,7 +49,12 @@ pub fn register<'js>(
                     .or_else(|| opts["timeout"].as_f64().map(|f| f as u64))
                     .unwrap_or(30);
 
-                log::debug!("[net.fetch] {} {} (timeout={}s)", method, &url, timeout_secs);
+                log::debug!(
+                    "[net.fetch] {} {} (timeout={}s)",
+                    method,
+                    &url,
+                    timeout_secs
+                );
 
                 let client = get_http_client();
                 let mut req = match method {

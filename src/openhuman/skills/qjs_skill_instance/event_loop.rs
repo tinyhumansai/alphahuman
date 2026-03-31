@@ -120,7 +120,9 @@ pub(crate) async fn run_event_loop(
                     let _ = ptc.reply.send(result);
                 }
             } else if let Some(ref ptc) = pending_tool {
-                let remaining = ptc.deadline.saturating_duration_since(tokio::time::Instant::now());
+                let remaining = ptc
+                    .deadline
+                    .saturating_duration_since(tokio::time::Instant::now());
                 if remaining.as_secs() % 10 == 0 && remaining.as_millis() % 10000 < 100 {
                     log::debug!(
                         "[skill:{}] Still waiting for async tool result ({:.0}s remaining)",

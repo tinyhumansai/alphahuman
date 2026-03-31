@@ -73,7 +73,7 @@ export default function SkillDebugModal({ skillId, skillName, onClose }: SkillDe
 
         setToolResult({
           toolName,
-          result: result,
+          result,
           isError: result.is_error ?? false,
           durationMs: Date.now() - start,
         });

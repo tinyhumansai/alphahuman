@@ -120,7 +120,11 @@ pub(crate) async fn start_async_tool_call(
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> Result<Option<ToolResult>, String> {
-    log::info!("[tool_call] start_async_tool_call: tool='{}' args={}", tool_name, arguments);
+    log::info!(
+        "[tool_call] start_async_tool_call: tool='{}' args={}",
+        tool_name,
+        arguments
+    );
 
     let args_str =
         serde_json::to_string(&arguments).map_err(|e| format!("Failed to serialize args: {e}"))?;
@@ -169,9 +173,16 @@ pub(crate) async fn start_async_tool_call(
 
             match js_ctx.eval::<String, _>(code.as_bytes()) {
                 Ok(s) => {
-                    log::debug!("[tool_call] JS eval succeeded: result_type={}", if s == "__PROMISE__" { "promise" } else { "sync" });
+                    log::debug!(
+                        "[tool_call] JS eval succeeded: result_type={}",
+                        if s == "__PROMISE__" {
+                            "promise"
+                        } else {
+                            "sync"
+                        }
+                    );
                     Ok(s)
-                },
+                }
                 Err(e) => {
                     let detail = format_js_exception(&js_ctx, &e);
                     log::error!("[tool_call] JS eval failed: {}", detail);
@@ -182,10 +193,17 @@ pub(crate) async fn start_async_tool_call(
         .await?;
 
     if eval_result == "__PROMISE__" {
-        log::info!("[tool_call] tool '{}' returned Promise — async mode", tool_name);
+        log::info!(
+            "[tool_call] tool '{}' returned Promise — async mode",
+            tool_name
+        );
         Ok(None)
     } else {
-        log::info!("[tool_call] tool '{}' returned sync result (len={})", tool_name, eval_result.len());
+        log::info!(
+            "[tool_call] tool '{}' returned sync result (len={})",
+            tool_name,
+            eval_result.len()
+        );
         Ok(Some(ToolResult {
             content: vec![ToolContent::Text { text: eval_result }],
             is_error: false,
