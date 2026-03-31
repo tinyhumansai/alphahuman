@@ -183,12 +183,12 @@ const Home = () => {
                   )}
                   {speedText && <span className="text-blue-300">{speedText}</span>}
                   {etaText && <span className="text-cyan-300">ETA {etaText}</span>}
-                  {localAiStatus?.warning && (
-                    <span className="max-w-[72%] truncate text-amber-300">
-                      {localAiStatus.warning}
-                    </span>
-                  )}
                 </div>
+                {localAiStatus?.warning && (
+                  <div className="mt-1 text-[11px] text-stone-400 truncate" title={localAiStatus.warning}>
+                    {localAiStatus.warning}
+                  </div>
+                )}
 
                 {isInstallError && localAiStatus?.error_detail && (
                   <div className="mt-2">

@@ -85,7 +85,10 @@ const LocalAIDownloadSnackbar = () => {
   const eta = downloads?.eta_seconds;
   const downloaded = downloads?.downloaded_bytes;
   const total = downloads?.total_bytes;
-  const label = statusLabel(downloads?.state ?? status?.state ?? 'downloading');
+  const currentState = downloads?.state ?? status?.state ?? 'downloading';
+  const label = statusLabel(currentState);
+  const isInstallingPhase = currentState === 'installing';
+  const phaseDetail = downloads?.warning ?? status?.warning;
 
   // Collapsed: small pill
   if (collapsed) {
@@ -147,12 +150,23 @@ const LocalAIDownloadSnackbar = () => {
           </div>
         </div>
 
+        {/* Phase detail */}
+        {phaseDetail && (
+          <div className="px-4 pb-1">
+            <span className="text-[11px] text-stone-400 truncate block">{phaseDetail}</span>
+          </div>
+        )}
+
         {/* Progress bar */}
         <div className="px-4 py-2">
           <div className="h-1.5 w-full rounded-full bg-stone-800 overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-500"
-              style={{ width: `${percent ?? 0}%` }}
+              className={`h-full rounded-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-500 ${
+                isInstallingPhase ? 'animate-pulse' : ''
+              }`}
+              style={{
+                width: isInstallingPhase ? '100%' : `${percent ?? 0}%`,
+              }}
             />
           </div>
         </div>
@@ -160,11 +174,13 @@ const LocalAIDownloadSnackbar = () => {
         {/* Details */}
         <div className="flex items-center justify-between px-4 pb-3 text-xs text-stone-400">
           <span>
-            {downloaded != null && total != null
-              ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
-              : percent != null
-                ? `${percent}%`
-                : 'Preparing...'}
+            {isInstallingPhase
+              ? 'Installing...'
+              : downloaded != null && total != null
+                ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
+                : percent != null
+                  ? `${percent}%`
+                  : 'Preparing...'}
           </span>
           <span>
             {speed != null && speed > 0 ? `${formatBytes(speed)}/s` : ''}

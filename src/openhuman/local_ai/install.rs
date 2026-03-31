@@ -9,73 +9,57 @@ pub(crate) struct InstallResult {
     pub stderr: String,
 }
 
+/// Run the platform-specific Ollama install and capture stdout/stderr.
 pub(crate) async fn run_ollama_install_script() -> Result<InstallResult, String> {
+    let mut cmd = build_install_command()?;
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("failed to execute Ollama installer: {e}"))?;
+
+    log::debug!(
+        "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    Ok(InstallResult {
+        exit_status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+fn build_install_command() -> Result<tokio::process::Command, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = tokio::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                "irm https://ollama.com/install.ps1 | iex",
-            ])
-            .output()
-            .await
-            .map_err(|e| format!("failed to execute Ollama PowerShell installer: {e}"))?;
-        log::debug!(
-            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
-        return Ok(InstallResult {
-            exit_status: output.status,
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        });
+        let mut cmd = tokio::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "irm https://ollama.com/install.ps1 | iex",
+        ]);
+        return Ok(cmd);
     }
 
     #[cfg(target_os = "macos")]
     {
-        let output = tokio::process::Command::new("sh")
-            .arg("-lc")
-            .arg("curl -fsSL https://ollama.com/install.sh | sh -mac")
-            .output()
-            .await
-            .map_err(|e| format!("failed to execute Ollama macOS installer: {e}"))?;
-        log::debug!(
-            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
-        return Ok(InstallResult {
-            exit_status: output.status,
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        });
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-lc")
+            .arg("curl -fsSL https://ollama.com/install.sh | sh");
+        return Ok(cmd);
     }
 
     #[cfg(target_os = "linux")]
     {
-        let output = tokio::process::Command::new("sh")
-            .arg("-lc")
-            .arg("curl -fsSL https://ollama.com/install.sh | sh")
-            .output()
-            .await
-            .map_err(|e| format!("failed to execute Ollama Linux installer: {e}"))?;
-        log::debug!(
-            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
-        return Ok(InstallResult {
-            exit_status: output.status,
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        });
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-lc")
+            .arg("curl -fsSL https://ollama.com/install.sh | sh");
+        return Ok(cmd);
     }
 
     #[allow(unreachable_code)]
