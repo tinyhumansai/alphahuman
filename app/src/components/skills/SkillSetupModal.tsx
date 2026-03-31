@@ -31,20 +31,13 @@ export default function SkillSetupModal({
   const modalRef = useRef<HTMLDivElement>(null);
   const snap = useSkillSnapshot(skillId);
   const setupComplete = snap?.setup_complete ?? false;
-  // Skills without setup hooks always go straight to manage mode.
-  const [mode, setMode] = useState<"manage" | "setup">(
-    !hasSetup || setupComplete ? "manage" : "setup",
-  );
-
-  // Sync mode when snapshot loads asynchronously — e.g. after page refresh
-  // or when the initial snapshot was null and arrives showing setup_complete.
-  const prevSetupComplete = useRef(setupComplete);
-  useEffect(() => {
-    if (setupComplete && !prevSetupComplete.current) {
-      setMode("manage");
-    }
-    prevSetupComplete.current = setupComplete;
-  }, [setupComplete]);
+  // Track whether the user has explicitly chosen to reconfigure (setup mode)
+  // even though setup is already complete.
+  const [forceSetup, setForceSetup] = useState(false);
+  // Derive mode: show manage if setup is complete (or no setup needed),
+  // unless the user explicitly chose to reconfigure.
+  const mode = forceSetup ? "setup" : (!hasSetup || setupComplete ? "manage" : "setup");
+  const setMode = (m: "manage" | "setup") => setForceSetup(m === "setup");
 
   // Handle escape key
   useEffect(() => {
