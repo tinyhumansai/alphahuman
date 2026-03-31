@@ -100,8 +100,15 @@ impl PreferencesStore {
     }
 
     /// Set the setup completion flag for a skill. Persists immediately.
+    /// When marking setup as complete, also sets `enabled = true` so the skill
+    /// auto-starts on subsequent app launches.
     pub fn set_setup_complete(&self, skill_id: &str, complete: bool) {
-        self.update(skill_id, |p| p.setup_complete = complete);
+        self.update(skill_id, |p| {
+            p.setup_complete = complete;
+            if complete {
+                p.enabled = true;
+            }
+        });
         log::info!(
             "[preferences] setup_complete for '{}' set to {}",
             skill_id,
