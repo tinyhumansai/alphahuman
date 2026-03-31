@@ -53,6 +53,23 @@ impl LocalAiService {
     }
 
     async fn resolve_or_install_ollama_binary(&self, config: &Config) -> Result<PathBuf, String> {
+        // 1. Check user-configured ollama_binary_path from Settings.
+        if let Some(ref custom_path) = config.local_ai.ollama_binary_path {
+            let path = PathBuf::from(custom_path);
+            if path.is_file() {
+                log::debug!(
+                    "[local_ai] using configured ollama_binary_path: {}",
+                    path.display()
+                );
+                return Ok(path);
+            }
+            log::warn!(
+                "[local_ai] configured ollama_binary_path does not exist: {}, falling through",
+                path.display()
+            );
+        }
+
+        // 2. OLLAMA_BIN env var.
         if let Some(from_env) = std::env::var("OLLAMA_BIN")
             .ok()
             .filter(|v| !v.trim().is_empty())
@@ -100,19 +117,56 @@ impl LocalAiService {
 
         {
             let mut status = self.status.lock();
-            status.state = "downloading".to_string();
+            status.state = "installing".to_string();
             status.warning = Some("Installing Ollama runtime (first run)".to_string());
             status.download_progress = None;
             status.downloaded_bytes = None;
             status.total_bytes = None;
             status.download_speed_bps = None;
             status.eta_seconds = None;
+            status.error_detail = None;
+            status.error_category = None;
         }
 
-        let install_status = run_ollama_install_script().await?;
-        if !install_status.success() {
-            return Err("Ollama install script failed".to_string());
+        let result = run_ollama_install_script().await?;
+        if !result.exit_status.success() {
+            let stderr_tail: String = result
+                .stderr
+                .lines()
+                .rev()
+                .take(20)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n");
+            log::warn!(
+                "[local_ai] Ollama install script failed (exit={})\nstdout: {}\nstderr: {}",
+                result.exit_status,
+                result.stdout,
+                result.stderr,
+            );
+            {
+                let mut status = self.status.lock();
+                status.error_detail = Some(if stderr_tail.is_empty() {
+                    result.stdout.lines().rev().take(20).collect::<Vec<_>>()
+                        .into_iter().rev().collect::<Vec<_>>().join("\n")
+                } else {
+                    stderr_tail
+                });
+                status.error_category = Some("install".to_string());
+            }
+            return Err(format!(
+                "Ollama install script failed (exit code {}). \
+                 Install Ollama manually from https://ollama.com or set its path in Settings > Local Model.",
+                result.exit_status.code().unwrap_or(-1)
+            ));
         }
+
+        log::debug!(
+            "[local_ai] Ollama install script succeeded, stdout: {}",
+            result.stdout.chars().take(500).collect::<String>(),
+        );
 
         let installed = find_system_ollama_binary()
             .ok_or_else(|| "Ollama installer finished but binary was not found".to_string())?;

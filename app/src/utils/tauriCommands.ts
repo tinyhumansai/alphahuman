@@ -828,6 +828,8 @@ export interface LocalAiStatus {
   download_speed_bps?: number | null;
   eta_seconds?: number | null;
   warning?: string | null;
+  error_detail?: string | null;
+  error_category?: string | null;
   model_path?: string | null;
   active_backend: string;
   backend_reason?: string | null;
@@ -1417,6 +1419,15 @@ export async function openhumanLocalAiApplyPreset(tier: string): Promise<ApplyPr
   return await callCoreRpc<ApplyPresetResult>({
     method: 'openhuman.local_ai_apply_preset',
     params: { tier },
+  });
+}
+
+export async function openhumanLocalAiSetOllamaPath(
+  path: string
+): Promise<{ ollama_binary_path: string | null; status: LocalAiStatus }> {
+  return await callCoreRpc<{ ollama_binary_path: string | null; status: LocalAiStatus }>({
+    method: 'openhuman.local_ai_set_ollama_path',
+    params: { path },
   });
 }
 

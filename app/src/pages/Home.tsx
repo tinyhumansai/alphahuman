@@ -22,6 +22,8 @@ const progressFromStatus = (status: LocalAiStatus | null): number => {
       return 0.92;
     case 'downloading':
       return 0.25;
+    case 'installing':
+      return 0.1;
     case 'idle':
       return 0;
     default:
@@ -92,8 +94,13 @@ const Home = () => {
   }, []);
 
   const modelProgress = useMemo(() => progressFromStatus(localAiStatus), [localAiStatus]);
+  const isInstalling = localAiStatus?.state === 'installing';
   const indeterminateDownload =
-    localAiStatus?.state === 'downloading' && typeof localAiStatus.download_progress !== 'number';
+    isInstalling ||
+    (localAiStatus?.state === 'downloading' && typeof localAiStatus.download_progress !== 'number');
+  const isInstallError =
+    localAiStatus?.state === 'degraded' && localAiStatus?.error_category === 'install';
+  const [showErrorDetail, setShowErrorDetail] = useState(false);
   const downloadedText =
     typeof localAiStatus?.downloaded_bytes === 'number'
       ? `${formatBytes(localAiStatus.downloaded_bytes)}${typeof localAiStatus?.total_bytes === 'number' ? ` / ${formatBytes(localAiStatus.total_bytes)}` : ''}`
@@ -163,9 +170,11 @@ const Home = () => {
 
                 <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-stone-400">
                   <span>
-                    {indeterminateDownload
-                      ? 'Downloading...'
-                      : `${Math.round(modelProgress * 100)}%`}
+                    {isInstalling
+                      ? 'Installing Ollama runtime...'
+                      : indeterminateDownload
+                        ? 'Downloading...'
+                        : `${Math.round(modelProgress * 100)}%`}
                   </span>
                   {downloadedText && (
                     <span className="truncate text-stone-300" title={downloadedText}>
@@ -180,6 +189,38 @@ const Home = () => {
                     </span>
                   )}
                 </div>
+
+                {isInstallError && localAiStatus?.error_detail && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setShowErrorDetail((v) => !v)}
+                      className="text-[11px] text-red-400 hover:text-red-300 underline">
+                      {showErrorDetail ? 'Hide error details' : 'Show error details'}
+                    </button>
+                    {showErrorDetail && (
+                      <pre className="mt-1 max-h-32 overflow-auto rounded bg-stone-900/80 p-2 text-[10px] text-red-300 leading-tight whitespace-pre-wrap break-words">
+                        {localAiStatus.error_detail}
+                      </pre>
+                    )}
+                    <p className="mt-1 text-[11px] text-stone-400">
+                      Install Ollama manually from{' '}
+                      <a
+                        href="https://ollama.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-300 hover:text-cyan-200 underline">
+                        ollama.com
+                      </a>{' '}
+                      then set its path in{' '}
+                      <button
+                        onClick={() => navigate('/settings/local-model')}
+                        className="text-cyan-300 hover:text-cyan-200 underline">
+                        Settings
+                      </button>
+                      .
+                    </p>
+                  </div>
+                )}
 
                 <div className="mt-2 flex items-center gap-2">
                   <button

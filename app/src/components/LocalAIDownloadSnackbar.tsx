@@ -62,6 +62,7 @@ const LocalAIDownloadSnackbar = () => {
 
   const isDownloading =
     status?.state === 'downloading' ||
+    status?.state === 'installing' ||
     downloads?.state === 'downloading' ||
     (downloads?.progress != null && downloads.progress > 0 && downloads.progress < 1);
 

@@ -10,6 +10,7 @@ import {
   type LocalAiSuggestion,
   type LocalAiTtsResult,
   openhumanLocalAiApplyPreset,
+  openhumanLocalAiSetOllamaPath,
   openhumanLocalAiAssetsStatus,
   openhumanLocalAiDownload,
   openhumanLocalAiDownloadAllAssets,
@@ -35,6 +36,8 @@ const statusLabel = (state: string): string => {
       return 'Ready';
     case 'downloading':
       return 'Downloading';
+    case 'installing':
+      return 'Installing Runtime';
     case 'loading':
       return 'Loading';
     case 'degraded':
@@ -53,6 +56,7 @@ const statusTone = (state: string): string => {
     case 'ready':
       return 'text-green-300';
     case 'downloading':
+    case 'installing':
     case 'loading':
       return 'text-blue-300';
     case 'degraded':
@@ -76,6 +80,8 @@ const progressFromStatus = (status: LocalAiStatus | null): number => {
       return 0.92;
     case 'downloading':
       return 0.25;
+    case 'installing':
+      return 0.1;
     case 'idle':
       return 0;
     default:
@@ -164,10 +170,18 @@ const LocalModelPanel = () => {
     if (downloadProgress != null) return downloadProgress;
     return progressFromStatus(status);
   }, [downloads, status]);
+  const currentState = downloads?.state ?? status?.state;
+  const isInstalling = currentState === 'installing';
   const isIndeterminateDownload =
-    (downloads?.state ?? status?.state) === 'downloading' &&
-    typeof downloads?.progress !== 'number' &&
-    typeof status?.download_progress !== 'number';
+    isInstalling ||
+    (currentState === 'downloading' &&
+      typeof downloads?.progress !== 'number' &&
+      typeof status?.download_progress !== 'number');
+  const isInstallError =
+    status?.state === 'degraded' && status?.error_category === 'install';
+  const [showErrorDetail, setShowErrorDetail] = useState(false);
+  const [ollamaPathInput, setOllamaPathInput] = useState('');
+  const [isSettingPath, setIsSettingPath] = useState(false);
   const downloadedBytes = downloads?.downloaded_bytes ?? status?.downloaded_bytes;
   const totalBytes = downloads?.total_bytes ?? status?.total_bytes;
   const speedBps = downloads?.speed_bps ?? status?.download_speed_bps;
@@ -570,9 +584,11 @@ const LocalModelPanel = () => {
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-400">
                   <span>
                     Progress:{' '}
-                    {isIndeterminateDownload
-                      ? 'Downloading (size unknown)'
-                      : `${Math.round(progress * 100)}%`}
+                    {isInstalling
+                      ? 'Installing Ollama runtime...'
+                      : isIndeterminateDownload
+                        ? 'Downloading (size unknown)'
+                        : `${Math.round(progress * 100)}%`}
                   </span>
                   {downloadedText && <span className="text-stone-300">{downloadedText}</span>}
                   {speedText && <span className="text-blue-300">{speedText}</span>}
@@ -628,6 +644,87 @@ const LocalModelPanel = () => {
                 )}
                 {status?.warning && <div className="text-xs text-amber-300">{status.warning}</div>}
                 {statusError && <div className="text-xs text-red-300">{statusError}</div>}
+
+                {isInstallError && status?.error_detail && (
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => setShowErrorDetail((v) => !v)}
+                      className="text-xs text-red-400 hover:text-red-300 underline">
+                      {showErrorDetail ? 'Hide error details' : 'Show error details'}
+                    </button>
+                    {showErrorDetail && (
+                      <pre className="max-h-40 overflow-auto rounded bg-black/60 p-2 text-[10px] text-red-300 leading-tight whitespace-pre-wrap break-words">
+                        {status.error_detail}
+                      </pre>
+                    )}
+                    <p className="text-xs text-stone-400">
+                      Install Ollama manually from{' '}
+                      <a
+                        href="https://ollama.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-300 hover:text-cyan-200 underline">
+                        ollama.com
+                      </a>{' '}
+                      then set its path below.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="text-stone-400 text-xs uppercase tracking-wide">
+                    Ollama Binary Path (optional)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={ollamaPathInput}
+                      onChange={(e) => setOllamaPathInput(e.target.value)}
+                      placeholder="/usr/local/bin/ollama"
+                      className="flex-1 rounded-md border border-gray-600 bg-gray-800 px-2 py-1.5 text-xs text-stone-100 placeholder:text-stone-500 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={async () => {
+                        setIsSettingPath(true);
+                        setStatusError('');
+                        try {
+                          await openhumanLocalAiSetOllamaPath(ollamaPathInput);
+                          await loadStatus();
+                        } catch (err) {
+                          setStatusError(
+                            err instanceof Error ? err.message : 'Failed to set Ollama path'
+                          );
+                        } finally {
+                          setIsSettingPath(false);
+                        }
+                      }}
+                      disabled={isSettingPath}
+                      className="px-2 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white whitespace-nowrap">
+                      {isSettingPath ? 'Setting...' : 'Set Path'}
+                    </button>
+                    {ollamaPathInput && (
+                      <button
+                        onClick={async () => {
+                          setOllamaPathInput('');
+                          setIsSettingPath(true);
+                          try {
+                            await openhumanLocalAiSetOllamaPath('');
+                            await loadStatus();
+                          } catch (err) {
+                            setStatusError(
+                              err instanceof Error ? err.message : 'Failed to clear Ollama path'
+                            );
+                          } finally {
+                            setIsSettingPath(false);
+                          }
+                        }}
+                        disabled={isSettingPath}
+                        className="px-2 py-1.5 text-xs rounded-md border border-gray-600 hover:border-gray-500 disabled:opacity-60 text-stone-300 whitespace-nowrap">
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
 
                 <div className="flex items-center gap-2 pt-1">
                   <button

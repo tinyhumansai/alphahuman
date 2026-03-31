@@ -2,10 +2,17 @@
 
 use std::path::PathBuf;
 
-pub(crate) async fn run_ollama_install_script() -> Result<std::process::ExitStatus, String> {
+/// Captured output from the Ollama install script.
+pub(crate) struct InstallResult {
+    pub exit_status: std::process::ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+pub(crate) async fn run_ollama_install_script() -> Result<InstallResult, String> {
     #[cfg(target_os = "windows")]
     {
-        return tokio::process::Command::new("powershell")
+        let output = tokio::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-ExecutionPolicy",
@@ -13,29 +20,62 @@ pub(crate) async fn run_ollama_install_script() -> Result<std::process::ExitStat
                 "-Command",
                 "irm https://ollama.com/install.ps1 | iex",
             ])
-            .status()
+            .output()
             .await
-            .map_err(|e| format!("failed to execute Ollama PowerShell installer: {e}"));
+            .map_err(|e| format!("failed to execute Ollama PowerShell installer: {e}"))?;
+        log::debug!(
+            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return Ok(InstallResult {
+            exit_status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
     }
 
     #[cfg(target_os = "macos")]
     {
-        return tokio::process::Command::new("sh")
+        let output = tokio::process::Command::new("sh")
             .arg("-lc")
             .arg("curl -fsSL https://ollama.com/install.sh | sh -mac")
-            .status()
+            .output()
             .await
-            .map_err(|e| format!("failed to execute Ollama macOS installer: {e}"));
+            .map_err(|e| format!("failed to execute Ollama macOS installer: {e}"))?;
+        log::debug!(
+            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return Ok(InstallResult {
+            exit_status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
     }
 
     #[cfg(target_os = "linux")]
     {
-        return tokio::process::Command::new("sh")
+        let output = tokio::process::Command::new("sh")
             .arg("-lc")
             .arg("curl -fsSL https://ollama.com/install.sh | sh")
-            .status()
+            .output()
             .await
-            .map_err(|e| format!("failed to execute Ollama Linux installer: {e}"));
+            .map_err(|e| format!("failed to execute Ollama Linux installer: {e}"))?;
+        log::debug!(
+            "[local_ai] Ollama install script finished (exit={}) stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return Ok(InstallResult {
+            exit_status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
     }
 
     #[allow(unreachable_code)]
