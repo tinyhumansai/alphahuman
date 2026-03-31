@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSkillSnapshot } from "../../lib/skills/hooks.ts";
 import { skillManager } from "../../lib/skills/manager.ts";
-import { setSetupComplete } from "../../lib/skills/skillsApi.ts";
+import { listAvailable, setSetupComplete, startSkill } from "../../lib/skills/skillsApi.ts";
 import { apiClient } from "../../services/apiClient.ts";
 import { openUrl } from "../../utils/openUrl.ts";
 import type { SetupStep, SetupFieldError } from "../../lib/skills/types.ts";
@@ -66,7 +66,6 @@ export default function SkillSetupWizard({
         console.log("[SkillSetupWizard] initSetup", skillId);
 
         // Find the available skill entry from the registry for OAuth config
-        const { listAvailable } = await import("../../lib/skills/skillsApi.ts");
         const available = await listAvailable();
         const entry = available.find(e => e.id === skillId);
 
@@ -98,7 +97,6 @@ export default function SkillSetupWizard({
 
         // Non-OAuth skills need the runtime running for setup steps
         try {
-          const { startSkill } = await import("../../lib/skills/skillsApi.ts");
           await startSkill(skillId);
           console.log("[SkillSetupWizard] skill started via RPC", skillId);
         } catch (startErr) {

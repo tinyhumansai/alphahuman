@@ -4,7 +4,7 @@ import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { skillManager } from '../lib/skills/manager';
 import { emitSkillStateChange } from '../lib/skills/skillEvents';
-import { setSetupComplete as rpcSetSetupComplete } from '../lib/skills/skillsApi';
+import { setSetupComplete as rpcSetSetupComplete, startSkill } from '../lib/skills/skillsApi';
 import { consumeLoginToken } from '../services/api/authApi';
 import { store } from '../store';
 import { setToken } from '../store/authSlice';
@@ -108,7 +108,6 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
     // 2. Start the skill in the core QuickJS runtime (if not already running)
     try {
-      const { startSkill } = await import('../lib/skills/skillsApi');
       await startSkill(skillId);
       console.log(`[DeepLink] Skill '${skillId}' started in core runtime`);
     } catch (startErr) {
