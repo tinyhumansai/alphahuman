@@ -89,24 +89,17 @@ jobs:
 
       - name: Check formatting (cargo fmt)
         run: cargo fmt --all -- --check
+        env:
+          RUSTC_WRAPPER: ""
 
       - name: Run clippy (core crate)
         run: cargo clippy -p openhuman
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
 
       - name: Test core crate (openhuman)
         run: cargo test -p openhuman
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
 
       - name: Build sidecar core binary
         run: cargo build --profile ci --target x86_64-unknown-linux-gnu --bin openhuman-core
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
 
       - name: Stage sidecar for Tauri shell tests
         run: |
@@ -116,9 +109,6 @@ jobs:
 
       - name: Test Tauri shell (OpenHuman)
         run: cargo test --manifest-path app/src-tauri/Cargo.toml
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
 
   # e2e-macos:
   #   name: E2E (macOS / Appium)

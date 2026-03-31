@@ -90,9 +90,8 @@ jobs:
 
       - name: Check formatting (cargo fmt)
         run: cargo fmt --all -- --check
+        env:
+          RUSTC_WRAPPER: ""
 
       - name: Run clippy (core crate)
         run: cargo clippy -p openhuman
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
