@@ -1065,9 +1065,9 @@ export async function openhumanUpdateScreenIntelligenceSettings(
   });
 }
 
-export async function openhumanUpdateAnalyticsSettings(
-  update: { enabled?: boolean }
-): Promise<CommandResponse<ConfigSnapshot>> {
+export async function openhumanUpdateAnalyticsSettings(update: {
+  enabled?: boolean;
+}): Promise<CommandResponse<ConfigSnapshot>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }

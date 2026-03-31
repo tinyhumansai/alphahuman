@@ -393,14 +393,12 @@ pub fn schemas(function: &str) -> ControllerSchema {
             function: "get_analytics_settings",
             description: "Read current analytics settings.",
             inputs: vec![],
-            outputs: vec![
-                FieldSchema {
-                    name: "enabled",
-                    ty: TypeSchema::Bool,
-                    comment: "Whether anonymized analytics is enabled.",
-                    required: true,
-                },
-            ],
+            outputs: vec![FieldSchema {
+                name: "enabled",
+                ty: TypeSchema::Bool,
+                comment: "Whether anonymized analytics is enabled.",
+                required: true,
+            }],
         },
         "agent_server_status" => ControllerSchema {
             namespace: "config",
@@ -558,7 +556,10 @@ fn handle_get_analytics_settings(_params: Map<String, Value>) -> ControllerFutur
         let result = serde_json::json!({
             "enabled": config.observability.analytics_enabled,
         });
-        to_json(RpcOutcome::new(result, vec!["analytics settings read".to_string()]))
+        to_json(RpcOutcome::new(
+            result,
+            vec!["analytics settings read".to_string()],
+        ))
     })
 }
 
