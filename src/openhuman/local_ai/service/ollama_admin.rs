@@ -18,38 +18,18 @@ impl LocalAiService {
         config: &Config,
     ) -> Result<(), String> {
         if self.ollama_healthy().await {
-            return Ok(());
+            // Server is running — verify it can actually execute models by checking
+            // if the runner works. A stale server with a missing binary will 500.
+            if self.ollama_runner_ok().await {
+                return Ok(());
+            }
+            // Runner is broken (e.g. binary moved). Kill stale server and restart.
+            log::warn!("[local_ai] Ollama server responds but runner is broken, restarting");
+            self.kill_ollama_server().await;
         }
 
         let ollama_cmd = self.resolve_or_install_ollama_binary(config).await?;
-
-        if let Err(err) = tokio::process::Command::new(&ollama_cmd)
-            .arg("--version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await
-        {
-            return Err(format!(
-                "Ollama binary not available ({}; error: {err}).",
-                ollama_cmd.display()
-            ));
-        }
-
-        let _ = tokio::process::Command::new(&ollama_cmd)
-            .arg("serve")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-
-        for _ in 0..20 {
-            if self.ollama_healthy().await {
-                return Ok(());
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        }
-
-        Err("Ollama runtime is not reachable at http://127.0.0.1:11434. Start `ollama serve` and retry.".to_string())
+        self.start_and_wait_for_server(&ollama_cmd).await
     }
 
     /// Like `ensure_ollama_server`, but forces a fresh install of the Ollama binary
@@ -512,6 +492,70 @@ impl LocalAiService {
         }
         crate::openhuman::local_ai::install::find_system_ollama_binary()
             .map(|p| p.display().to_string())
+    }
+
+    /// Quick check that the Ollama runner can actually exec models.
+    /// Sends a tiny generate request and checks for a 500 "fork/exec" error.
+    async fn ollama_runner_ok(&self) -> bool {
+        let resp = self
+            .http
+            .post(format!("{OLLAMA_BASE_URL}/api/tags"))
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await;
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                // Tags endpoint works — but the runner error only shows up on model exec.
+                // Do a lightweight pull-status check (won't download, just checks).
+                let check = self
+                    .http
+                    .post(format!("{OLLAMA_BASE_URL}/api/show"))
+                    .json(&serde_json::json!({"name": "___nonexistent_probe___"}))
+                    .timeout(std::time::Duration::from_secs(3))
+                    .send()
+                    .await;
+                match check {
+                    Ok(r) => {
+                        let status = r.status().as_u16();
+                        let body = r.text().await.unwrap_or_default();
+                        // 404 = model not found — runner is fine. 500 with fork/exec = broken.
+                        if status == 500 && body.contains("fork/exec") {
+                            log::warn!("[local_ai] ollama runner broken: {body}");
+                            return false;
+                        }
+                        true
+                    }
+                    Err(_) => true, // network error, assume ok
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Kill any running Ollama server process so we can restart with the correct binary.
+    async fn kill_ollama_server(&self) {
+        #[cfg(unix)]
+        {
+            let _ = tokio::process::Command::new("pkill")
+                .arg("-f")
+                .arg("ollama serve")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await;
+            // Give it a moment to die.
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        #[cfg(windows)]
+        {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/F", "/IM", "ollama.exe"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
     }
 
     pub(in crate::openhuman::local_ai::service) async fn has_model(
