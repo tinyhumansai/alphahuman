@@ -84,10 +84,7 @@ const Home = () => {
         if (mounted) {
           setLocalAiStatus(status.result);
           // Auto-retry bootstrap once if Ollama is degraded (install/server issue).
-          if (
-            status.result?.state === 'degraded' &&
-            !autoRetryDoneRef.current
-          ) {
+          if (status.result?.state === 'degraded' && !autoRetryDoneRef.current) {
             autoRetryDoneRef.current = true;
             void openhumanLocalAiDownload(true).catch(() => {});
           }
@@ -196,7 +193,9 @@ const Home = () => {
                   {etaText && <span className="text-cyan-300">ETA {etaText}</span>}
                 </div>
                 {localAiStatus?.warning && (
-                  <div className="mt-1 text-[11px] text-stone-400 truncate" title={localAiStatus.warning}>
+                  <div
+                    className="mt-1 text-[11px] text-stone-400 truncate"
+                    title={localAiStatus.warning}>
                     {localAiStatus.warning}
                   </div>
                 )}
@@ -204,7 +203,7 @@ const Home = () => {
                 {isInstallError && localAiStatus?.error_detail && (
                   <div className="mt-2">
                     <button
-                      onClick={() => setShowErrorDetail((v) => !v)}
+                      onClick={() => setShowErrorDetail(v => !v)}
                       className="text-[11px] text-red-400 hover:text-red-300 underline">
                       {showErrorDetail ? 'Hide error details' : 'Show error details'}
                     </button>

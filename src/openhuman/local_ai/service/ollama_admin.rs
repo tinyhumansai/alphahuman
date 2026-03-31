@@ -184,8 +184,16 @@ impl LocalAiService {
             {
                 let mut status = self.status.lock();
                 status.error_detail = Some(if stderr_tail.is_empty() {
-                    result.stdout.lines().rev().take(20).collect::<Vec<_>>()
-                        .into_iter().rev().collect::<Vec<_>>().join("\n")
+                    result
+                        .stdout
+                        .lines()
+                        .rev()
+                        .take(20)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 } else {
                     stderr_tail
                 });
@@ -387,10 +395,7 @@ impl LocalAiService {
 
     /// Run full diagnostics: check Ollama server health, list installed models,
     /// and verify expected models are present. Returns a JSON-serializable report.
-    pub async fn diagnostics(
-        &self,
-        config: &Config,
-    ) -> Result<serde_json::Value, String> {
+    pub async fn diagnostics(&self, config: &Config) -> Result<serde_json::Value, String> {
         let healthy = self.ollama_healthy().await;
 
         let (models, tags_error) = if healthy {
@@ -409,7 +414,9 @@ impl LocalAiService {
         let model_names: Vec<String> = models.iter().map(|m| m.name.to_ascii_lowercase()).collect();
         let has = |target: &str| -> bool {
             let t = target.to_ascii_lowercase();
-            model_names.iter().any(|n| *n == t || n.starts_with(&(t.clone() + ":")))
+            model_names
+                .iter()
+                .any(|n| *n == t || n.starts_with(&(t.clone() + ":")))
         };
 
         let chat_found = has(&expected_chat);
@@ -420,16 +427,25 @@ impl LocalAiService {
 
         let mut issues: Vec<String> = Vec::new();
         if !healthy {
-            issues.push("Ollama server is not running or not reachable at http://127.0.0.1:11434".to_string());
+            issues.push(
+                "Ollama server is not running or not reachable at http://127.0.0.1:11434"
+                    .to_string(),
+            );
         }
         if healthy && !chat_found {
             issues.push(format!("Chat model `{}` is not installed", expected_chat));
         }
         if healthy && config.local_ai.preload_embedding_model && !embedding_found {
-            issues.push(format!("Embedding model `{}` is not installed", expected_embedding));
+            issues.push(format!(
+                "Embedding model `{}` is not installed",
+                expected_embedding
+            ));
         }
         if healthy && config.local_ai.preload_vision_model && !vision_found {
-            issues.push(format!("Vision model `{}` is not installed", expected_vision));
+            issues.push(format!(
+                "Vision model `{}` is not installed",
+                expected_vision
+            ));
         }
         if let Some(ref e) = tags_error {
             issues.push(format!("Failed to list models: {e}"));
@@ -470,7 +486,11 @@ impl LocalAiService {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(format!("ollama tags failed with status {}: {}", status, body.trim()));
+            return Err(format!(
+                "ollama tags failed with status {}: {}",
+                status,
+                body.trim()
+            ));
         }
         let payload: OllamaTagsResponse = response
             .json()

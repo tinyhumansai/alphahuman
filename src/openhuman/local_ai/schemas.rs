@@ -811,8 +811,8 @@ fn handle_local_ai_set_ollama_path(params: Map<String, Value>) -> ControllerFutu
             service_clone.bootstrap(&config_clone).await;
         });
 
-        let current_status = serde_json::to_value(&service.status())
-            .map_err(|e| format!("serialize: {e}"))?;
+        let current_status =
+            serde_json::to_value(&service.status()).map_err(|e| format!("serialize: {e}"))?;
         Ok(serde_json::json!({
             "ollama_binary_path": new_value,
             "status": current_status,

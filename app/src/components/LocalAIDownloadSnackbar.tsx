@@ -164,9 +164,7 @@ const LocalAIDownloadSnackbar = () => {
               className={`h-full rounded-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-500 ${
                 isInstallingPhase ? 'animate-pulse' : ''
               }`}
-              style={{
-                width: isInstallingPhase ? '100%' : `${percent ?? 0}%`,
-              }}
+              style={{ width: isInstallingPhase ? '100%' : `${percent ?? 0}%` }}
             />
           </div>
         </div>

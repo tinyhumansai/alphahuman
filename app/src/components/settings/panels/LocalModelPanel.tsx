@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type ApplyPresetResult,
   type LocalAiAssetsStatus,
+  type LocalAiDiagnostics,
   type LocalAiDownloadsProgress,
   type LocalAiEmbeddingResult,
   type LocalAiSpeechResult,
@@ -10,10 +11,8 @@ import {
   type LocalAiSuggestion,
   type LocalAiTtsResult,
   openhumanLocalAiApplyPreset,
-  type LocalAiDiagnostics,
-  openhumanLocalAiDiagnostics,
-  openhumanLocalAiSetOllamaPath,
   openhumanLocalAiAssetsStatus,
+  openhumanLocalAiDiagnostics,
   openhumanLocalAiDownload,
   openhumanLocalAiDownloadAllAssets,
   openhumanLocalAiDownloadAsset,
@@ -21,6 +20,7 @@ import {
   openhumanLocalAiEmbed,
   openhumanLocalAiPresets,
   openhumanLocalAiPrompt,
+  openhumanLocalAiSetOllamaPath,
   openhumanLocalAiStatus,
   openhumanLocalAiSuggestQuestions,
   openhumanLocalAiSummarize,
@@ -183,8 +183,7 @@ const LocalModelPanel = () => {
     (currentState === 'downloading' &&
       typeof downloads?.progress !== 'number' &&
       typeof status?.download_progress !== 'number');
-  const isInstallError =
-    status?.state === 'degraded' && status?.error_category === 'install';
+  const isInstallError = status?.state === 'degraded' && status?.error_category === 'install';
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [ollamaPathInput, setOllamaPathInput] = useState('');
   const [isSettingPath, setIsSettingPath] = useState(false);
@@ -656,7 +655,7 @@ const LocalModelPanel = () => {
                 {isInstallError && status?.error_detail && (
                   <div className="space-y-1">
                     <button
-                      onClick={() => setShowErrorDetail((v) => !v)}
+                      onClick={() => setShowErrorDetail(v => !v)}
                       className="text-xs text-red-400 hover:text-red-300 underline">
                       {showErrorDetail ? 'Hide error details' : 'Show error details'}
                     </button>
@@ -687,7 +686,7 @@ const LocalModelPanel = () => {
                     <input
                       type="text"
                       value={ollamaPathInput}
-                      onChange={(e) => setOllamaPathInput(e.target.value)}
+                      onChange={e => setOllamaPathInput(e.target.value)}
                       placeholder="/usr/local/bin/ollama"
                       className="flex-1 rounded-md border border-gray-600 bg-gray-800 px-2 py-1.5 text-xs text-stone-100 placeholder:text-stone-500 focus:border-blue-500 focus:outline-none"
                     />
@@ -799,7 +798,9 @@ const LocalModelPanel = () => {
                         className={`inline-block h-2.5 w-2.5 rounded-full ${diagnostics.ok ? 'bg-green-400' : 'bg-red-400'}`}
                       />
                       <span className={diagnostics.ok ? 'text-green-300' : 'text-red-300'}>
-                        {diagnostics.ok ? 'All checks passed' : `${diagnostics.issues.length} issue(s) found`}
+                        {diagnostics.ok
+                          ? 'All checks passed'
+                          : `${diagnostics.issues.length} issue(s) found`}
                       </span>
                     </div>
 
@@ -817,7 +818,9 @@ const LocalModelPanel = () => {
                         <div className="text-stone-400 uppercase tracking-wide text-[10px]">
                           Binary
                         </div>
-                        <div className="mt-1 text-stone-200 truncate" title={diagnostics.ollama_binary_path ?? 'Not found'}>
+                        <div
+                          className="mt-1 text-stone-200 truncate"
+                          title={diagnostics.ollama_binary_path ?? 'Not found'}>
                           {diagnostics.ollama_binary_path ?? 'Not found'}
                         </div>
                       </div>
@@ -829,7 +832,7 @@ const LocalModelPanel = () => {
                           Installed Models ({diagnostics.installed_models.length})
                         </div>
                         <div className="space-y-1">
-                          {diagnostics.installed_models.map((m) => (
+                          {diagnostics.installed_models.map(m => (
                             <div
                               key={m.name}
                               className="flex items-center justify-between rounded border border-gray-700 px-2 py-1.5 text-xs">
@@ -849,7 +852,10 @@ const LocalModelPanel = () => {
                       </div>
                       <div className="space-y-1 text-xs">
                         <div className="flex items-center gap-2">
-                          <span className={diagnostics.expected.chat_found ? 'text-green-300' : 'text-red-300'}>
+                          <span
+                            className={
+                              diagnostics.expected.chat_found ? 'text-green-300' : 'text-red-300'
+                            }>
                             {diagnostics.expected.chat_found ? '\u2713' : '\u2717'}
                           </span>
                           <span className="text-stone-200">
@@ -857,7 +863,12 @@ const LocalModelPanel = () => {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={diagnostics.expected.embedding_found ? 'text-green-300' : 'text-red-300'}>
+                          <span
+                            className={
+                              diagnostics.expected.embedding_found
+                                ? 'text-green-300'
+                                : 'text-red-300'
+                            }>
                             {diagnostics.expected.embedding_found ? '\u2713' : '\u2717'}
                           </span>
                           <span className="text-stone-200">
@@ -865,7 +876,12 @@ const LocalModelPanel = () => {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={diagnostics.expected.vision_found ? 'text-green-300' : 'text-amber-300'}>
+                          <span
+                            className={
+                              diagnostics.expected.vision_found
+                                ? 'text-green-300'
+                                : 'text-amber-300'
+                            }>
                             {diagnostics.expected.vision_found ? '\u2713' : '\u2013'}
                           </span>
                           <span className="text-stone-200">
