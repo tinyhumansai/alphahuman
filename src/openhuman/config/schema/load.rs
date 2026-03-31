@@ -351,6 +351,11 @@ impl Config {
             )?;
             decrypt_optional_secret(
                 &store,
+                &mut config.web_search.parallel_api_key,
+                "config.web_search.parallel_api_key",
+            )?;
+            decrypt_optional_secret(
+                &store,
                 &mut config.storage.provider.config.db_url,
                 "config.storage.provider.config.db_url",
             )?;
@@ -451,6 +456,15 @@ impl Config {
             let api_key = api_key.trim();
             if !api_key.is_empty() {
                 self.web_search.brave_api_key = Some(api_key.to_string());
+            }
+        }
+
+        if let Ok(api_key) = std::env::var("OPENHUMAN_PARALLEL_API_KEY")
+            .or_else(|_| std::env::var("PARALLEL_API_KEY"))
+        {
+            let api_key = api_key.trim();
+            if !api_key.is_empty() {
+                self.web_search.parallel_api_key = Some(api_key.to_string());
             }
         }
 
@@ -587,6 +601,11 @@ impl Config {
             &store,
             &mut config_to_save.web_search.brave_api_key,
             "config.web_search.brave_api_key",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.web_search.parallel_api_key,
+            "config.web_search.parallel_api_key",
         )?;
         encrypt_optional_secret(
             &store,
