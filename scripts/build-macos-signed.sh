@@ -210,13 +210,21 @@ else
   echo "Stapling notarization ticket..."
   xcrun stapler staple "$APP_PATH"
 
-  # Re-create DMG after stapling if dmg was in bundle targets
+  # Re-create DMG with stapled .app, notarize the DMG, then staple it
   DMG_PATH="$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -maxdepth 1 2>/dev/null | head -1)"
   if [[ -n "$DMG_PATH" ]]; then
     echo "Re-creating DMG with stapled .app..."
     DMG_TEMP="$(mktemp /tmp/OpenHuman-XXXXXX.dmg)"
     hdiutil create -volname "OpenHuman" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_TEMP"
     mv "$DMG_TEMP" "$DMG_PATH"
+
+    echo "Notarizing DMG..."
+    xcrun notarytool submit "$DMG_PATH" \
+      --apple-id "$APPLE_ID" \
+      --password "$APPLE_PASSWORD" \
+      --team-id "$APPLE_TEAM_ID" \
+      --wait
+
     xcrun stapler staple "$DMG_PATH"
   fi
 
