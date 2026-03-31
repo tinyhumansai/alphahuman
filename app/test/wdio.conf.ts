@@ -60,9 +60,7 @@ function getPlatformCapabilities(): WebdriverIO.Capabilities[] {
     return [
       {
         // @ts-expect-error -- tauri:options is a custom capability
-        'tauri:options': {
-          application: getAppPath(),
-        },
+        'tauri:options': { application: getAppPath() },
       },
     ];
   }
