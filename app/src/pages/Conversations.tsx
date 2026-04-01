@@ -73,8 +73,8 @@ function getInlineCompletionSuffix(input: string, suggestion: string): string {
     const suffix = suggestion.slice(input.length);
     return suffix || '';
   }
-  // Backend's inline_complete returns continuation suffix directly — use as-is.
-  return suggestion;
+  // Suggestion doesn't start with current input — it's stale; discard it.
+  return '';
 }
 
 const Conversations = () => {

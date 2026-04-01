@@ -589,10 +589,7 @@ impl AutocompleteEngine {
         } else {
             let focused = focused_text_context_verbose()?;
             if let Some(err) = focused.raw_error.as_deref() {
-                if is_no_text_candidate_error(err)
-                    || err.contains("ERROR:-1728")
-                    || err.contains("AXFocusedUIElement")
-                {
+                if is_no_text_candidate_error(err) || err.contains("ERROR:-1728") {
                     let mut state = self.inner.lock().await;
                     state.app_name = focused.app_name;
                     state.context = String::new();
@@ -657,13 +654,19 @@ impl AutocompleteEngine {
             return Ok(());
         }
 
-        // Short-circuit: if context unchanged and we already have a suggestion, skip inference.
+        // Short-circuit: if context AND frontmost app unchanged and we already have a suggestion, skip inference.
         {
-            let state = self.inner.lock().await;
-            if state.context == context && state.suggestion.is_some() {
+            let mut state = self.inner.lock().await;
+            if state.context == context
+                && state.app_name == focused.app_name
+                && state.suggestion.is_some()
+            {
                 log::debug!("[autocomplete] context unchanged, returning cached suggestion");
                 return Ok(());
             }
+            // Refresh metadata so try_accept_via_tab() sees current values
+            state.app_name = focused.app_name.clone();
+            state.updated_at_ms = Some(Utc::now().timestamp_millis());
         }
 
         {
