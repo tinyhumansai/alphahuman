@@ -418,6 +418,9 @@ fn core_port() -> u16 {
 
 pub async fn run_server(port: Option<u16>, socketio_enabled: bool) -> anyhow::Result<()> {
     let _ = all::all_registered_controllers();
+    tokio::spawn(async {
+        crate::openhuman::update::rpc::maybe_background_check().await;
+    });
     let port = port.unwrap_or_else(core_port);
     let bind_addr = format!("127.0.0.1:{port}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

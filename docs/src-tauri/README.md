@@ -22,6 +22,12 @@ This folder is the **desktop host** for OpenHuman: Tauri v2 + WebView, IPC comma
 
 `app/package.json` **`core:stage`** runs `scripts/stage-core-sidecar.mjs`, which `cargo build --bin openhuman` at the repo root and copies the binary into `app/src-tauri/binaries/` for Tauri `externalBin`.
 
+## Updater boundaries
+
+- **Tauri updater** (release `latest.json` + desktop bundle artifacts) updates the **desktop app bundle**.
+- **Core self-update** (`openhuman.update_*` JSON-RPC controllers in the Rust core) updates only the **`openhuman-core` sidecar binary**.
+- On app startup, the Tauri host attempts a **preflight sidecar swap** when a staged `*.next` core binary exists, then starts the child sidecar process.
+
 ## Related
 
 - Full stack narrative: [`../ARCHITECTURE.md`](../ARCHITECTURE.md)

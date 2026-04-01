@@ -34,6 +34,7 @@ pub mod security;
 pub mod service;
 pub mod skills;
 pub mod tools;
+pub mod update;
 pub mod util;
 pub mod webhooks;
 pub mod workspace;

@@ -22,8 +22,9 @@ pub use schema::{
     PeripheralsConfig, ProxyConfig, ProxyScope, QueryClassificationConfig, ReflectionSource,
     ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig,
     SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig, SecurityConfig, SlackConfig,
-    StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode, TelegramConfig,
-    WebSearchConfig, WebhookConfig,
+    StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
+    TelegramConfig, UpdateConfig, UpdateMode, WebSearchConfig,
+    WebhookConfig,
 };
 pub use schemas::{
     all_controller_schemas as all_config_controller_schemas,
