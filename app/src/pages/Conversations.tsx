@@ -616,7 +616,15 @@ const Conversations = () => {
       const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
       const audioBytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
       const extension = getAudioExtension(mimeType || blob.type);
-      const result = await openhumanVoiceTranscribeBytes(audioBytes, extension);
+
+      // Build conversation context from recent messages for LLM cleanup.
+      const recentMessages = messages.slice(-10);
+      const context =
+        recentMessages.length > 0
+          ? recentMessages.map(m => `${m.sender}: ${m.content}`).join('\n')
+          : undefined;
+
+      const result = await openhumanVoiceTranscribeBytes(audioBytes, extension, context);
       const transcript = result.result.text.trim();
 
       if (!transcript) {

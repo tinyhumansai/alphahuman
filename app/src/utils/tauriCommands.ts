@@ -2066,7 +2066,10 @@ export async function runtimeSkillDataStats(skillId: string): Promise<RuntimeSki
 // ---------------------------------------------------------------------------
 
 export interface VoiceSpeechResult {
+  /** Final text — cleaned by LLM post-processing when available. */
   text: string;
+  /** Raw whisper output before LLM cleanup. */
+  raw_text: string;
   model_id: string;
 }
 
@@ -2084,6 +2087,10 @@ export interface VoiceStatus {
   piper_binary: string | null;
   stt_model_path: string | null;
   tts_voice_path: string | null;
+  /** Whether the whisper model is loaded in-process (low-latency mode). */
+  whisper_in_process: boolean;
+  /** Whether LLM post-processing is enabled for transcription cleanup. */
+  llm_cleanup_enabled: boolean;
 }
 
 export async function openhumanVoiceStatus(): Promise<CommandResponse<VoiceStatus>> {
@@ -2094,21 +2101,25 @@ export async function openhumanVoiceStatus(): Promise<CommandResponse<VoiceStatu
 }
 
 export async function openhumanVoiceTranscribe(
-  audioPath: string
+  audioPath: string,
+  context?: string,
+  skipCleanup?: boolean
 ): Promise<CommandResponse<VoiceSpeechResult>> {
   return await callCoreRpc<CommandResponse<VoiceSpeechResult>>({
     method: 'openhuman.voice_transcribe',
-    params: { audio_path: audioPath },
+    params: { audio_path: audioPath, context, skip_cleanup: skipCleanup },
   });
 }
 
 export async function openhumanVoiceTranscribeBytes(
   audioBytes: number[],
-  extension?: string
+  extension?: string,
+  context?: string,
+  skipCleanup?: boolean
 ): Promise<CommandResponse<VoiceSpeechResult>> {
   return await callCoreRpc<CommandResponse<VoiceSpeechResult>>({
     method: 'openhuman.voice_transcribe_bytes',
-    params: { audio_bytes: audioBytes, extension },
+    params: { audio_bytes: audioBytes, extension, context, skip_cleanup: skipCleanup },
   });
 }
 

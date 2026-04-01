@@ -12,8 +12,10 @@ use crate::openhuman::local_ai::model_ids;
 use crate::openhuman::local_ai::paths::{
     resolve_piper_binary, resolve_stt_model_path, resolve_tts_voice_path, resolve_whisper_binary,
 };
+use crate::openhuman::local_ai::whisper_engine;
 use crate::rpc::RpcOutcome;
 
+use super::postprocess;
 use super::types::{VoiceSpeechResult, VoiceStatus, VoiceTtsResult};
 
 const LOG_PREFIX: &str = "[voice]";
@@ -27,11 +29,15 @@ pub async fn voice_status(config: &Config) -> Result<RpcOutcome<VoiceStatus>, St
     let stt_model = resolve_stt_model_path(config).ok();
     let tts_voice = resolve_tts_voice_path(config).ok();
 
-    let stt_available = whisper_bin.is_some() && stt_model.is_some();
+    let service = local_ai::global(config);
+    let whisper_in_process = whisper_engine::is_loaded(&service.whisper);
+
+    let stt_available = whisper_in_process || (whisper_bin.is_some() && stt_model.is_some());
     let tts_available = piper_bin.is_some() && tts_voice.is_some();
 
     debug!(
         "{LOG_PREFIX} stt_available={stt_available} tts_available={tts_available} \
+         whisper_in_process={whisper_in_process} \
          whisper_bin={:?} piper_bin={:?} stt_model={:?} tts_voice={:?}",
         whisper_bin, piper_bin, stt_model, tts_voice
     );
@@ -45,15 +51,22 @@ pub async fn voice_status(config: &Config) -> Result<RpcOutcome<VoiceStatus>, St
         piper_binary: piper_bin.map(|p| p.display().to_string()),
         stt_model_path: stt_model,
         tts_voice_path: tts_voice,
+        whisper_in_process,
+        llm_cleanup_enabled: config.local_ai.voice_llm_cleanup_enabled,
     };
 
     Ok(RpcOutcome::single_log(status, "voice status checked"))
 }
 
 /// Transcribe audio from a file path using whisper.cpp.
+///
+/// If `context` is provided, the raw transcription is post-processed through
+/// a local LLM to fix grammar and disambiguate words using conversation history.
 pub async fn voice_transcribe(
     config: &Config,
     audio_path: &str,
+    context: Option<&str>,
+    skip_cleanup: bool,
 ) -> Result<RpcOutcome<VoiceSpeechResult>, String> {
     debug!("{LOG_PREFIX} transcribing audio_path={audio_path}");
 
@@ -63,22 +76,38 @@ pub async fn voice_transcribe(
         .await
         .map_err(|e| e.to_string())?;
 
+    let raw_text = output.text.clone();
     debug!(
         "{LOG_PREFIX} transcription completed, text length={}",
-        output.text.len()
+        raw_text.len()
     );
 
+    let text = if skip_cleanup {
+        raw_text.clone()
+    } else {
+        postprocess::cleanup_transcription(config, &raw_text, context).await
+    };
+
     Ok(RpcOutcome::single_log(
-        VoiceSpeechResult::from(output),
+        VoiceSpeechResult {
+            text,
+            raw_text,
+            model_id: output.model_id,
+        },
         "voice transcription completed",
     ))
 }
 
 /// Transcribe audio from raw bytes. Writes to a temp file, transcribes, cleans up.
+///
+/// If `context` is provided, the raw transcription is post-processed through
+/// a local LLM.
 pub async fn voice_transcribe_bytes(
     config: &Config,
     audio_bytes: &[u8],
     extension: Option<String>,
+    context: Option<&str>,
+    skip_cleanup: bool,
 ) -> Result<RpcOutcome<VoiceSpeechResult>, String> {
     let ext = normalize_extension(extension)?;
     debug!(
@@ -110,14 +139,25 @@ pub async fn voice_transcribe_bytes(
     let _ = tokio::fs::remove_file(&file_path).await;
 
     let output = output.map_err(|e| e.to_string())?;
+    let raw_text = output.text.clone();
 
     debug!(
         "{LOG_PREFIX} transcribe_bytes completed, text length={}",
-        output.text.len()
+        raw_text.len()
     );
 
+    let text = if skip_cleanup {
+        raw_text.clone()
+    } else {
+        postprocess::cleanup_transcription(config, &raw_text, context).await
+    };
+
     Ok(RpcOutcome::single_log(
-        VoiceSpeechResult::from(output),
+        VoiceSpeechResult {
+            text,
+            raw_text,
+            model_id: output.model_id,
+        },
         "voice transcription completed",
     ))
 }
@@ -217,8 +257,6 @@ mod tests {
         let result = voice_status(&config).await;
         assert!(result.is_ok());
         let status = result.unwrap().value;
-        // Without binaries installed, both should be false
-        // but the function itself should not error
         assert!(!status.stt_model_id.is_empty());
         assert!(!status.tts_voice_id.is_empty());
     }
@@ -227,7 +265,6 @@ mod tests {
     async fn voice_status_detects_stub_binaries() {
         let tmp = tempfile::tempdir().expect("tempdir");
 
-        // Create a stub whisper-cli binary
         let whisper_stub = tmp.path().join("whisper-cli");
         std::fs::write(&whisper_stub, b"#!/bin/sh\n").expect("write stub");
         #[cfg(unix)]
@@ -237,7 +274,6 @@ mod tests {
                 .expect("chmod");
         }
 
-        // Set WHISPER_BIN to point at the stub
         std::env::set_var("WHISPER_BIN", whisper_stub.display().to_string());
 
         let mut config = Config::default();
@@ -247,7 +283,6 @@ mod tests {
         let result = voice_status(&config).await.unwrap();
         assert!(result.value.whisper_binary.is_some());
 
-        // Clean up env
         std::env::remove_var("WHISPER_BIN");
     }
 }

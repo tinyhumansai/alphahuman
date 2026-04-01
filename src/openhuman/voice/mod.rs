@@ -4,6 +4,7 @@
 //! transcription, synthesis, and proactive availability checking.
 
 mod ops;
+mod postprocess;
 mod schemas;
 mod types;
 

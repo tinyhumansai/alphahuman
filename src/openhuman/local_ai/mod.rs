@@ -24,6 +24,7 @@ pub use schemas::{
     all_registered_controllers as all_local_ai_registered_controllers,
 };
 pub use service::LocalAiService;
+pub(crate) use service::whisper_engine;
 pub use types::{
     LocalAiAssetStatus, LocalAiAssetsStatus, LocalAiDownloadProgressItem, LocalAiDownloadsProgress,
     LocalAiEmbeddingResult, LocalAiSpeechResult, LocalAiStatus, LocalAiTtsResult, Suggestion,

@@ -16,6 +16,12 @@ use crate::rpc::RpcOutcome;
 #[derive(Debug, Deserialize)]
 struct TranscribeParams {
     audio_path: String,
+    /// Optional conversation context for LLM post-processing.
+    #[serde(default)]
+    context: Option<String>,
+    /// Skip LLM cleanup and return raw whisper output.
+    #[serde(default)]
+    skip_cleanup: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +29,12 @@ struct TranscribeBytesParams {
     audio_bytes: Vec<u8>,
     #[serde(default)]
     extension: Option<String>,
+    /// Optional conversation context for LLM post-processing.
+    #[serde(default)]
+    context: Option<String>,
+    /// Skip LLM cleanup and return raw whisper output.
+    #[serde(default)]
+    skip_cleanup: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,14 +90,18 @@ pub fn voice_schemas(function: &str) -> ControllerSchema {
         "voice_transcribe" => ControllerSchema {
             namespace: "voice",
             function: "transcribe",
-            description: "Transcribe audio from a file path using whisper.cpp.",
-            inputs: vec![required_string("audio_path", "Path to the audio file.")],
-            outputs: vec![json_output("speech", "Transcription result.")],
+            description: "Transcribe audio from a file path using whisper.cpp, with optional LLM cleanup.",
+            inputs: vec![
+                required_string("audio_path", "Path to the audio file."),
+                optional_string("context", "Conversation context for LLM post-processing."),
+                optional_bool("skip_cleanup", "Skip LLM cleanup, return raw whisper output."),
+            ],
+            outputs: vec![json_output("speech", "Transcription result with text and raw_text.")],
         },
         "voice_transcribe_bytes" => ControllerSchema {
             namespace: "voice",
             function: "transcribe_bytes",
-            description: "Transcribe audio from raw bytes using whisper.cpp.",
+            description: "Transcribe audio from raw bytes using whisper.cpp, with optional LLM cleanup.",
             inputs: vec![
                 FieldSchema {
                     name: "audio_bytes",
@@ -94,8 +110,10 @@ pub fn voice_schemas(function: &str) -> ControllerSchema {
                     required: true,
                 },
                 optional_string("extension", "Audio file extension (default: webm)."),
+                optional_string("context", "Conversation context for LLM post-processing."),
+                optional_bool("skip_cleanup", "Skip LLM cleanup, return raw whisper output."),
             ],
-            outputs: vec![json_output("speech", "Transcription result.")],
+            outputs: vec![json_output("speech", "Transcription result with text and raw_text.")],
         },
         "voice_tts" => ControllerSchema {
             namespace: "voice",
@@ -137,7 +155,15 @@ fn handle_voice_transcribe(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let config = config_rpc::load_config_with_timeout().await?;
         let p = deserialize_params::<TranscribeParams>(params)?;
-        to_json(crate::openhuman::voice::voice_transcribe(&config, &p.audio_path).await?)
+        to_json(
+            crate::openhuman::voice::voice_transcribe(
+                &config,
+                &p.audio_path,
+                p.context.as_deref(),
+                p.skip_cleanup,
+            )
+            .await?,
+        )
     })
 }
 
@@ -146,8 +172,14 @@ fn handle_voice_transcribe_bytes(params: Map<String, Value>) -> ControllerFuture
         let config = config_rpc::load_config_with_timeout().await?;
         let p = deserialize_params::<TranscribeBytesParams>(params)?;
         to_json(
-            crate::openhuman::voice::voice_transcribe_bytes(&config, &p.audio_bytes, p.extension)
-                .await?,
+            crate::openhuman::voice::voice_transcribe_bytes(
+                &config,
+                &p.audio_bytes,
+                p.extension,
+                p.context.as_deref(),
+                p.skip_cleanup,
+            )
+            .await?,
         )
     })
 }
@@ -189,6 +221,15 @@ fn optional_string(name: &'static str, comment: &'static str) -> FieldSchema {
     FieldSchema {
         name,
         ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+        comment,
+        required: false,
+    }
+}
+
+fn optional_bool(name: &'static str, comment: &'static str) -> FieldSchema {
+    FieldSchema {
+        name,
+        ty: TypeSchema::Option(Box::new(TypeSchema::Bool)),
         comment,
         required: false,
     }

@@ -7,7 +7,11 @@ use crate::openhuman::local_ai::{LocalAiSpeechResult, LocalAiTtsResult};
 /// Result of a speech-to-text transcription.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceSpeechResult {
+    /// Final text — cleaned by LLM post-processing when available,
+    /// otherwise identical to `raw_text`.
     pub text: String,
+    /// Raw whisper output before LLM cleanup.
+    pub raw_text: String,
     pub model_id: String,
 }
 
@@ -29,12 +33,17 @@ pub struct VoiceStatus {
     pub piper_binary: Option<String>,
     pub stt_model_path: Option<String>,
     pub tts_voice_path: Option<String>,
+    /// Whether the whisper model is loaded in-process (low-latency mode).
+    pub whisper_in_process: bool,
+    /// Whether LLM post-processing is enabled for transcription cleanup.
+    pub llm_cleanup_enabled: bool,
 }
 
 impl From<LocalAiSpeechResult> for VoiceSpeechResult {
     fn from(r: LocalAiSpeechResult) -> Self {
         Self {
-            text: r.text,
+            text: r.text.clone(),
+            raw_text: r.text,
             model_id: r.model_id,
         }
     }
@@ -57,10 +66,12 @@ mod tests {
     fn voice_speech_result_serializes_correctly() {
         let r = VoiceSpeechResult {
             text: "hello world".into(),
+            raw_text: "hello world um".into(),
             model_id: "ggml-tiny-q5_1.bin".into(),
         };
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["text"], "hello world");
+        assert_eq!(v["raw_text"], "hello world um");
         assert_eq!(v["model_id"], "ggml-tiny-q5_1.bin");
     }
 
@@ -86,11 +97,15 @@ mod tests {
             piper_binary: None,
             stt_model_path: Some("/models/stt/tiny.bin".into()),
             tts_voice_path: None,
+            whisper_in_process: true,
+            llm_cleanup_enabled: true,
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["stt_available"], true);
         assert_eq!(v["tts_available"], false);
         assert!(v["piper_binary"].is_null());
+        assert_eq!(v["whisper_in_process"], true);
+        assert_eq!(v["llm_cleanup_enabled"], true);
     }
 
     #[test]
@@ -101,6 +116,7 @@ mod tests {
         };
         let voice: VoiceSpeechResult = local.into();
         assert_eq!(voice.text, "test");
+        assert_eq!(voice.raw_text, "test");
         assert_eq!(voice.model_id, "tiny");
     }
 
@@ -119,11 +135,13 @@ mod tests {
     fn serde_round_trip_speech_result() {
         let original = VoiceSpeechResult {
             text: "round trip".into(),
+            raw_text: "round trip uh".into(),
             model_id: "model".into(),
         };
         let json = serde_json::to_string(&original).unwrap();
         let decoded: VoiceSpeechResult = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.text, original.text);
+        assert_eq!(decoded.raw_text, original.raw_text);
         assert_eq!(decoded.model_id, original.model_id);
     }
 }
