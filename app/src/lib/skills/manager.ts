@@ -8,7 +8,7 @@
 import { callCoreRpc } from "../../services/coreRpcClient";
 import { SkillRuntime } from "./runtime";
 import { emitSkillStateChange } from "./skillEvents";
-import { setSetupComplete as rpcSetSetupComplete } from "./skillsApi";
+import { setSetupComplete as rpcSetSetupComplete, revokeOAuth as rpcRevokeOAuth } from "./skillsApi";
 import { syncToolsToBackend } from "./sync";
 import type {
   SkillManifest,
@@ -340,9 +340,14 @@ class SkillManager {
   }
 
   /**
-   * Disconnect a skill — stop it and reset setup state.
+   * Disconnect a skill — revoke OAuth credentials, stop it, and reset setup state.
    */
   async disconnectSkill(skillId: string): Promise<void> {
+    // Revoke OAuth credential before stopping so the running skill can clean up
+    // its in-memory state and the event loop deletes oauth_credential.json.
+    await rpcRevokeOAuth(skillId).catch((err) => {
+      console.debug("[SkillManager] oauth/revoked skipped (non-OAuth or already stopped):", err);
+    });
     await this.stopSkill(skillId);
     await rpcSetSetupComplete(skillId, false).catch(() => {});
     emitSkillStateChange(skillId);
