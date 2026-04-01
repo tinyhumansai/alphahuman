@@ -204,7 +204,9 @@ impl AgentBuilder {
                 .memory_loader
                 .unwrap_or_else(|| Box::new(DefaultMemoryLoader::default())),
             config: self.config.unwrap_or_default(),
-            model_name: self.model_name.unwrap_or_else(|| "neocortex-mk1".into()),
+            model_name: self
+                .model_name
+                .unwrap_or_else(|| crate::openhuman::config::DEFAULT_MODEL.into()),
             temperature: self.temperature.unwrap_or(0.7),
             workspace_dir: self
                 .workspace_dir
@@ -314,7 +316,7 @@ impl Agent {
         let model_name = config
             .default_model
             .as_deref()
-            .unwrap_or("neocortex-mk1")
+            .unwrap_or(crate::openhuman::config::DEFAULT_MODEL)
             .to_string();
 
         let provider: Box<dyn Provider> = providers::create_routed_provider(
@@ -405,10 +407,10 @@ impl Agent {
             .tools(tools)
             .memory(memory)
             .tool_dispatcher(tool_dispatcher)
-            .memory_loader(Box::new(DefaultMemoryLoader::new(
-                5,
-                config.memory.min_relevance_score,
-            )))
+            .memory_loader(Box::new(
+                DefaultMemoryLoader::new(5, config.memory.min_relevance_score)
+                    .with_max_chars(config.agent.max_memory_context_chars),
+            ))
             .prompt_builder(prompt_builder)
             .config(config.agent.clone())
             .model_name(model_name)
@@ -709,6 +711,7 @@ impl Agent {
                         } else {
                             None
                         },
+                        system_prompt_cache_boundary: None,
                     },
                     &effective_model,
                     self.temperature,
@@ -951,6 +954,7 @@ mod tests {
                 return Ok(crate::openhuman::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    usage: None,
                 });
             }
             Ok(guard.remove(0))
@@ -994,6 +998,7 @@ mod tests {
             responses: Mutex::new(vec![crate::openhuman::providers::ChatResponse {
                 text: Some("hello".into()),
                 tool_calls: vec![],
+                usage: None,
             }]),
         });
 
@@ -1032,10 +1037,12 @@ mod tests {
                         name: "echo".into(),
                         arguments: "{}".into(),
                     }],
+                    usage: None,
                 },
                 crate::openhuman::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    usage: None,
                 },
             ]),
         });
@@ -1078,10 +1085,12 @@ mod tests {
                             .into(),
                     ),
                     tool_calls: vec![],
+                    usage: None,
                 },
                 crate::openhuman::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    usage: None,
                 },
             ]),
         });
