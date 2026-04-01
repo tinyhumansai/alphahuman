@@ -14,12 +14,38 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Job dependency graph
+#
+#   prepare-release
+#        │
+#        ├─── create-release
+#        │         │
+#        │    ┌────┴────────────┐
+#        │    │                 │
+#        │  build-desktop    build-docker
+#        │  (matrix: macOS,  (GHCR image)
+#        │   linux, windows)
+#        │    │                 │
+#        │    └────┬────────────┘
+#        │         │
+#        │    publish-release
+#        │         │
+#        │    notify-discord
+#        │
+#        └─── cleanup-failed-release (on failure)
+# ---------------------------------------------------------------------------
+
 jobs:
+  # =========================================================================
+  # Phase 1: Version bump, commit, tag
+  # =========================================================================
   prepare-release:
     name: Prepare release commit and tag
     runs-on: ubuntu-latest
@@ -156,6 +182,9 @@ jobs:
 
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  # =========================================================================
+  # Phase 2: Create draft GitHub release
+  # =========================================================================
   create-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
@@ -200,8 +229,11 @@ jobs:
             core.setOutput('release_id', String(release.data.id));
             core.setOutput('upload_url', release.data.upload_url);
 
-  build-artifacts:
-    name: Build and upload artifacts
+  # =========================================================================
+  # Phase 3a: Build desktop artifacts (parallel matrix)
+  # =========================================================================
+  build-desktop:
+    name: "Desktop: ${{ matrix.settings.artifact_suffix }}"
     needs: [prepare-release, create-release]
     runs-on: ${{ matrix.settings.platform }}
     environment: Production
@@ -685,12 +717,84 @@ jobs:
           path: |
             ${{ steps.cli-paths.outputs.cli_path }}
 
+  # =========================================================================
+  # Phase 3b: Build & push Docker image (runs parallel with build-desktop)
+  # =========================================================================
+  build-docker:
+    name: "Docker: build and push"
+    needs: [prepare-release, create-release]
+    runs-on: ubuntu-latest
+    environment: Production
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: tinyhumansai/openhuman-core
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-release.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=openhuman-core
+            org.opencontainers.image.description=OpenHuman core JSON-RPC server
+            org.opencontainers.image.version=${{ needs.prepare-release.outputs.version }}
+            org.opencontainers.image.source=https://github.com/tinyhumansai/openhuman
+            org.opencontainers.image.revision=${{ needs.prepare-release.outputs.sha }}
+
+      - name: Upload Docker digest to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          DIGEST_FILE="$(mktemp)"
+          cat > "$DIGEST_FILE" <<EOF
+          Docker image: ghcr.io/${{ env.IMAGE_NAME }}:${TAG}
+          Also tagged:  ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+          Pull:
+            docker pull ghcr.io/${{ env.IMAGE_NAME }}:${TAG}
+
+          Run:
+            docker run -p 7788:7788 --env-file .env ghcr.io/${{ env.IMAGE_NAME }}:${TAG}
+          EOF
+          # Append docker info to release body
+          gh release view "${TAG}" --repo tinyhumansai/openhuman --json body -q .body > /tmp/body.md
+          printf '\n---\n\n### Docker\n\n```\ndocker pull ghcr.io/%s:%s\ndocker run -p 7788:7788 --env-file .env ghcr.io/%s:%s\n```\n' \
+            "${{ env.IMAGE_NAME }}" "${TAG}" "${{ env.IMAGE_NAME }}" "${TAG}" >> /tmp/body.md
+          gh release edit "${TAG}" --repo tinyhumansai/openhuman --notes-file /tmp/body.md
+
+  # =========================================================================
+  # Phase 4: Publish the draft release (waits for ALL build phases)
+  # =========================================================================
   publish-release:
     name: Publish draft release
     runs-on: ubuntu-latest
     environment: Production
-    needs: [create-release, build-artifacts]
-    if: needs.build-artifacts.result == 'success'
+    needs: [prepare-release, create-release, build-desktop, build-docker]
+    if: needs.build-desktop.result == 'success' && needs.build-docker.result == 'success'
     steps:
       - name: Validate required installer assets exist
         uses: actions/github-script@v7
@@ -734,153 +838,19 @@ jobs:
             });
             core.info(`Published release ${releaseId}`);
 
-  notify-discord:
-    name: Notify Discord about release
-    runs-on: ubuntu-latest
-    environment: Production
-    needs: [prepare-release, create-release, build-artifacts, publish-release]
-    if: needs.publish-release.result == 'success' && needs.build-artifacts.result == 'success'
-    steps:
-      - name: Post release notification to Discord
-        continue-on-error: true
-        uses: actions/github-script@v7
-        env:
-          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
-          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-        with:
-          script: |
-            const webhookUrl = process.env.DISCORD_RELEASE_WEBHOOK_URL;
-            const releaseId = Number(process.env.RELEASE_ID);
-            const releaseTag = process.env.RELEASE_TAG;
-
-            if (!webhookUrl) {
-              core.warning('DISCORD_RELEASE_WEBHOOK_URL is not configured; skipping Discord release notification.');
-              return;
-            }
-
-            if (!Number.isFinite(releaseId) || releaseId <= 0) {
-              core.warning(`Invalid release id "${process.env.RELEASE_ID}"; skipping Discord release notification.`);
-              return;
-            }
-
-            const { owner, repo } = context.repo;
-            const maxDescriptionLength = 3500;
-            const maxAssetLines = 8;
-
-            function truncate(text, maxLength) {
-              if (!text) return '';
-              if (text.length <= maxLength) return text;
-              return `${text.slice(0, maxLength - 3)}...`;
-            }
-
-            function stripMarkdownHeadings(text) {
-              return text
-                .replace(/^#{1,6}\s+/gm, '')
-                .replace(/\r/g, '')
-                .trim();
-            }
-
-            const { data: release } = await github.rest.repos.getRelease({
-              owner,
-              repo,
-              release_id: releaseId,
-            });
-
-            const releases = await github.paginate(github.rest.repos.listReleases, {
-              owner,
-              repo,
-              per_page: 100,
-            });
-            const sortedPublished = releases
-              .filter((item) => !item.draft)
-              .sort((a, b) => new Date(b.published_at || b.created_at || 0) - new Date(a.published_at || a.created_at || 0));
-            const currentIndex = sortedPublished.findIndex((item) => item.id === release.id);
-            const previousRelease = currentIndex >= 0 ? sortedPublished[currentIndex + 1] : null;
-            const compareUrl = previousRelease
-              ? `https://github.com/${owner}/${repo}/compare/${previousRelease.tag_name}...${release.tag_name}`
-              : null;
-
-            const releaseTitle = release.name || release.tag_name || releaseTag;
-            const bodyText = stripMarkdownHeadings(release.body || '');
-            const summary = bodyText
-              ? truncate(bodyText, maxDescriptionLength)
-              : 'GitHub release published. See the release page for full notes.';
-
-            const assetLines = (release.assets || [])
-              .slice(0, maxAssetLines)
-              .map((asset) => `- [${asset.name}](${asset.browser_download_url})`);
-            const extraAssetCount = Math.max((release.assets || []).length - maxAssetLines, 0);
-            if (extraAssetCount > 0) {
-              assetLines.push(`- ${extraAssetCount} more asset(s) available on the release page`);
-            }
-
-            const fields = [
-              {
-                name: 'Version',
-                value: `\`${release.tag_name || releaseTag}\``,
-                inline: true,
-              },
-              {
-                name: 'Release',
-                value: `[Open on GitHub](${release.html_url})`,
-                inline: true,
-              },
-            ];
-
-            if (compareUrl) {
-              fields.push({
-                name: 'Compare',
-                value: `[${previousRelease.tag_name}...${release.tag_name}](${compareUrl})`,
-                inline: true,
-              });
-            }
-
-            if (assetLines.length > 0) {
-              fields.push({
-                name: 'Artifacts',
-                value: assetLines.join('\n'),
-                inline: false,
-              });
-            }
-
-            const payload = {
-              content: `New GitHub release published for \`${owner}/${repo}\`: **${releaseTitle}**`,
-              embeds: [
-                {
-                  title: releaseTitle,
-                  url: release.html_url,
-                  description: summary,
-                  color: release.prerelease ? 0xf0ad4e : 0x2ecc71,
-                  fields,
-                  footer: {
-                    text: release.prerelease ? 'Pre-release' : 'Published release',
-                  },
-                  timestamp: release.published_at || new Date().toISOString(),
-                },
-              ],
-            };
-
-            const response = await fetch(webhookUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-
-            if (!response.ok) {
-              const body = await response.text();
-              core.warning(`Discord notification failed: HTTP ${response.status} ${body.slice(0, 300)}`);
-              return;
-            }
-
-            core.info(`Posted Discord release notification for ${release.tag_name || releaseTag}.`);
-
+  # =========================================================================
+  # Cleanup: remove draft release + tag if ANY build phase failed
+  # =========================================================================
   cleanup-failed-release:
     name: Remove release and tag if build failed
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-release, create-release, build-artifacts]
-    if: always() && needs.create-release.result == 'success' && (needs.build-artifacts.result == 'failure' || needs.build-artifacts.result == 'cancelled')
+    needs: [prepare-release, create-release, build-desktop, build-docker]
+    if: >-
+      always()
+      && needs.create-release.result == 'success'
+      && (needs.build-desktop.result == 'failure' || needs.build-desktop.result == 'cancelled'
+          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled')
     steps:
       - name: Delete GitHub release
         uses: actions/github-script@v7
