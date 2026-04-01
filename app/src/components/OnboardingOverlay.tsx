@@ -4,7 +4,10 @@ import { createPortal } from 'react-dom';
 import Onboarding from '../pages/onboarding/Onboarding';
 import { useAppSelector } from '../store/hooks';
 import { DEV_FORCE_ONBOARDING } from '../utils/config';
-import { getOnboardingCompleted, setOnboardingCompleted as persistOnboardingCompleted } from '../utils/tauriCommands';
+import {
+  getOnboardingCompleted,
+  setOnboardingCompleted as persistOnboardingCompleted,
+} from '../utils/tauriCommands';
 
 /**
  * Full-screen overlay that renders the onboarding flow on top of any page

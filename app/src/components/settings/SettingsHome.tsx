@@ -4,10 +4,7 @@ import { skillManager } from '../../lib/skills/manager';
 import { persistor } from '../../store';
 import { clearToken } from '../../store/authSlice';
 import { useAppDispatch } from '../../store/hooks';
-import {
-  setOnboardingCompleted,
-  logout as tauriLogout,
-} from '../../utils/tauriCommands';
+import { setOnboardingCompleted, logout as tauriLogout } from '../../utils/tauriCommands';
 import SettingsHeader from './components/SettingsHeader';
 import SettingsMenuItem from './components/SettingsMenuItem';
 import { useSettingsNavigation } from './hooks/useSettingsNavigation';

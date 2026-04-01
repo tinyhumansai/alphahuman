@@ -1130,7 +1130,6 @@ export async function openhumanGetRuntimeFlags(): Promise<CommandResponse<Runtim
   });
 }
 
-
 export async function openhumanSetBrowserAllowAll(
   enabled: boolean
 ): Promise<CommandResponse<RuntimeFlags>> {

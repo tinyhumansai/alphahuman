@@ -20,7 +20,7 @@ interface MnemonicStepProps {
   onBack?: () => void;
 }
 
-const MnemonicStep = ({ onComplete, onBack }: MnemonicStepProps) => {
+const MnemonicStep = ({ onComplete, onBack: _onBack }: MnemonicStepProps) => {
   const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.user.user);
   const [mode, setMode] = useState<'generate' | 'import'>('generate');

@@ -17,4 +17,3 @@ export const selectHasIncompleteOnboarding = (state: RootState): boolean => {
   if (!userId) return false;
   return state.auth.hasIncompleteOnboardingByUser[userId] ?? false;
 };
-

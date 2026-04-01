@@ -12,7 +12,7 @@ interface ScreenPermissionsStepProps {
   onBack?: () => void;
 }
 
-const ScreenPermissionsStep = ({ onNext, onBack }: ScreenPermissionsStepProps) => {
+const ScreenPermissionsStep = ({ onNext, onBack: _onBack }: ScreenPermissionsStepProps) => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { status, isLoading, isRequestingPermissions } = useAppSelector(

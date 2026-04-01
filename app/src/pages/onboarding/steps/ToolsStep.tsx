@@ -21,7 +21,7 @@ const CATEGORY_DESCRIPTIONS: Record<ToolCategory, string> = {
   Automation: 'Cron jobs and scheduled tasks',
 };
 
-const ToolsStep = ({ onNext, onBack }: ToolsStepProps) => {
+const ToolsStep = ({ onNext, onBack: _onBack }: ToolsStepProps) => {
   const toolsByCategory = getToolsByCategory();
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {};

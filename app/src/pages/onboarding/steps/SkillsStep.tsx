@@ -60,7 +60,7 @@ function SkillRow({ skill, onSetup }: { skill: SkillListEntry; onSetup: () => vo
   );
 }
 
-const SkillsStep = ({ onComplete, onBack }: SkillsStepProps) => {
+const SkillsStep = ({ onComplete, onBack: _onBack }: SkillsStepProps) => {
   const { skills: availableSkills, loading: skillsLoading } = useAvailableSkills();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

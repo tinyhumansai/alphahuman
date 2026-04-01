@@ -12,7 +12,7 @@ interface LocalAIStepProps {
   onBack?: () => void;
 }
 
-const LocalAIStep = ({ onNext, onBack }: LocalAIStepProps) => {
+const LocalAIStep = ({ onNext, onBack: _onBack }: LocalAIStepProps) => {
   const downloadStartedRef = useRef(false);
 
   const handleConsent = useCallback(() => {
@@ -27,7 +27,7 @@ const LocalAIStep = ({ onNext, onBack }: LocalAIStepProps) => {
     onNext({ consentGiven: true, downloadStarted: true });
   }, [onNext]);
 
-  const handleSkip = useCallback(() => {
+  const _handleSkip = useCallback(() => {
     onNext({ consentGiven: false, downloadStarted: false });
   }, [onNext]);
 
