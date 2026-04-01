@@ -41,6 +41,7 @@ async fn download_asset(url: &str) -> Result<Vec<u8>, String> {
     let response = client
         .get(url)
         .header("User-Agent", "openhuman-core-updater")
+        .header("Accept", "application/octet-stream")
         .send()
         .await
         .map_err(|e| format!("failed to download update asset: {e}"))?;
@@ -122,9 +123,44 @@ async fn check_for_update(config: &mut Config) -> Result<Option<UpdateAsset>, St
     config.update.last_error = None;
 
     if resolved.not_modified {
-        log::debug!("[update] release not modified (ETag match)");
-        config.update.last_result = Some("not_modified".to_string());
-        return Ok(None);
+        log::debug!("[update] release not modified (ETag match), checking cached asset");
+        // Reuse persisted asset metadata when ETag 304 confirms release unchanged
+        let cached = config
+            .update
+            .last_seen_version
+            .as_deref()
+            .and_then(|v| compare_versions(v, current_version).ok())
+            .map(|o| o.is_gt())
+            .unwrap_or(false)
+            .then(|| {
+                let url = config
+                    .update
+                    .last_seen_download_url
+                    .clone()
+                    .unwrap_or_default();
+                UpdateAsset {
+                    version: config.update.last_seen_version.clone().unwrap_or_default(),
+                    tag: config.update.last_seen_tag.clone().unwrap_or_default(),
+                    name: config
+                        .update
+                        .last_seen_asset_name
+                        .clone()
+                        .unwrap_or_default(),
+                    download_url: url,
+                    digest_sha256: config.update.last_seen_digest_sha256.clone(),
+                    release_url: config
+                        .update
+                        .last_seen_release_url
+                        .clone()
+                        .unwrap_or_default(),
+                }
+            });
+        if cached.is_some() {
+            config.update.last_result = Some("update_available".to_string());
+        } else {
+            config.update.last_result = Some("not_modified".to_string());
+        }
+        return Ok(cached);
     }
 
     if let Some(etag) = resolved.etag {
@@ -267,44 +303,7 @@ pub async fn update_apply() -> Result<RpcOutcome<UpdateApplyStatus>, String> {
     let _guard = UPDATE_CONFIG_MUTEX.lock().await;
     let mut config = Config::load_or_init().await.map_err(|e| e.to_string())?;
     let latest = check_for_update(&mut config).await?;
-    let asset = match latest {
-        Some(a) => a,
-        None => {
-            // ETag 304 or already up-to-date: try cached asset metadata
-            let current_version = env!("CARGO_PKG_VERSION");
-            let cached_version = config.update.last_seen_version.clone();
-            let is_newer = cached_version
-                .as_deref()
-                .and_then(|v| compare_versions(v, current_version).ok())
-                .map(|o| o.is_gt())
-                .unwrap_or(false);
-            if !is_newer {
-                return Err("no newer update is available".to_string());
-            }
-            let url = config
-                .update
-                .last_seen_download_url
-                .clone()
-                .ok_or_else(|| "cached asset missing download URL".to_string())?;
-            log::debug!("[update] reusing cached asset metadata for apply");
-            UpdateAsset {
-                version: cached_version.unwrap_or_default(),
-                tag: config.update.last_seen_tag.clone().unwrap_or_default(),
-                name: config
-                    .update
-                    .last_seen_asset_name
-                    .clone()
-                    .unwrap_or_default(),
-                download_url: url,
-                digest_sha256: config.update.last_seen_digest_sha256.clone(),
-                release_url: config
-                    .update
-                    .last_seen_release_url
-                    .clone()
-                    .unwrap_or_default(),
-            }
-        }
-    };
+    let asset = latest.ok_or_else(|| "no newer update is available".to_string())?;
 
     let staged_path = download_and_stage(&asset).await?;
 
