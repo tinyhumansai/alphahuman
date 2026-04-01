@@ -335,27 +335,27 @@ async fn resolve_memory_root() -> Result<PathBuf, String> {
 
 async fn resolve_existing_memory_path(relative_path: &str) -> Result<PathBuf, String> {
     validate_memory_relative_path(relative_path)?;
-    let memory_root = resolve_memory_root().await?;
-    let workspace_root = memory_root
-        .parent()
-        .ok_or_else(|| "memory root is missing a parent workspace".to_string())?;
-    let full_path = workspace_root.join(relative_path);
+    let workspace_dir = current_workspace_dir().await?;
+    let canonical_workspace = workspace_dir
+        .canonicalize()
+        .map_err(|e| format!("resolve workspace dir {}: {e}", workspace_dir.display()))?;
+    let full_path = workspace_dir.join(relative_path);
     let resolved = full_path
         .canonicalize()
         .map_err(|e| format!("resolve memory path {}: {e}", full_path.display()))?;
-    if !resolved.starts_with(&memory_root) {
-        return Err("memory path escapes the memory directory".to_string());
+    if !resolved.starts_with(&canonical_workspace) {
+        return Err("memory path escapes the workspace directory".to_string());
     }
     Ok(resolved)
 }
 
 async fn resolve_writable_memory_path(relative_path: &str) -> Result<PathBuf, String> {
     validate_memory_relative_path(relative_path)?;
-    let memory_root = resolve_memory_root().await?;
-    let workspace_root = memory_root
-        .parent()
-        .ok_or_else(|| "memory root is missing a parent workspace".to_string())?;
-    let full_path = workspace_root.join(relative_path);
+    let workspace_dir = current_workspace_dir().await?;
+    let canonical_workspace = workspace_dir
+        .canonicalize()
+        .map_err(|e| format!("resolve workspace dir {}: {e}", workspace_dir.display()))?;
+    let full_path = workspace_dir.join(relative_path);
     let parent = full_path
         .parent()
         .ok_or_else(|| "memory path must include a file name".to_string())?;
@@ -364,8 +364,8 @@ async fn resolve_writable_memory_path(relative_path: &str) -> Result<PathBuf, St
     let resolved_parent = parent
         .canonicalize()
         .map_err(|e| format!("resolve memory parent {}: {e}", parent.display()))?;
-    if !resolved_parent.starts_with(&memory_root) {
-        return Err("memory path escapes the memory directory".to_string());
+    if !resolved_parent.starts_with(&canonical_workspace) {
+        return Err("memory path escapes the workspace directory".to_string());
     }
     let file_name = full_path
         .file_name()

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 
+import { useLocalModelStatus } from '../hooks/useLocalModelStatus';
 import { creditsApi, type TeamUsage } from '../services/api/creditsApi';
 import { inferenceApi, type ModelInfo } from '../services/api/inferenceApi';
 import {
@@ -19,6 +20,7 @@ import { selectSocketStatus } from '../store/socketSelectors';
 import {
   addInferenceResponse,
   addMessageLocal,
+  addReaction,
   createThreadLocal,
   fetchSuggestedQuestions,
   setActiveThread,
@@ -26,10 +28,13 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
+import { getSegmentDelay, segmentMessage } from '../utils/messageSegmentation';
 import {
   isTauri,
+  type LocalAiChatMessage,
   openhumanAutocompleteAccept,
   openhumanAutocompleteCurrent,
+  openhumanLocalAiChat,
   openhumanLocalAiTranscribeBytes,
   openhumanLocalAiTts,
 } from '../utils/tauriCommands';
@@ -114,11 +119,20 @@ const Conversations = () => {
     Record<string, ToolTimelineEntry[]>
   >({});
   const rustChat = useRustChat();
+  const isLocalModelActive = useLocalModelStatus();
+  const isLocalModelActiveRef = useRef(isLocalModelActive);
+  const [isDelivering, setIsDelivering] = useState(false);
+  const deliveryActiveRef = useRef(false);
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
 
   const selectedThreadIdRef = useRef(selectedThreadId);
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
+
+  useEffect(() => {
+    isLocalModelActiveRef.current = isLocalModelActive;
+  }, [isLocalModelActive]);
 
   const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
   const [isLoadingBudget, setIsLoadingBudget] = useState(false);
@@ -254,6 +268,7 @@ const Conversations = () => {
 
   useEffect(() => {
     return () => {
+      deliveryActiveRef.current = false;
       mediaRecorderRef.current?.stop();
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
       replyAudioRef.current?.pause();
@@ -270,10 +285,7 @@ const Conversations = () => {
   useEffect(() => {
     if (!rustChat || socketStatus !== 'connected') return;
 
-    let cleanup: (() => void) | null = null;
-    let mounted = true;
-
-    subscribeChatEvents({
+    const cleanup = subscribeChatEvents({
       onToolCall: (event: ChatToolCallEvent) => {
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
@@ -325,7 +337,7 @@ const Conversations = () => {
           return;
         }
 
-        dispatch(addInferenceResponse({ content: event.full_response, threadId: event.thread_id }));
+        // Update tool timeline
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
           if (existing.length === 0) return prev;
@@ -336,8 +348,52 @@ const Conversations = () => {
             ),
           };
         });
-        setIsSending(false);
-        dispatch(setActiveThread(null));
+
+        // Multi-bubble delivery gate: only when local model is active
+        if (!isLocalModelActiveRef.current) {
+          dispatch(
+            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
+          );
+          setIsSending(false);
+          dispatch(setActiveThread(null));
+          return;
+        }
+
+        const segments = segmentMessage(event.full_response);
+
+        if (segments.length <= 1) {
+          dispatch(
+            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
+          );
+          setIsSending(false);
+          dispatch(setActiveThread(null));
+          return;
+        }
+
+        // Async delivery: show each segment as a separate bubble with a typing pause
+        setIsDelivering(true);
+        deliveryActiveRef.current = true;
+
+        void (async () => {
+          for (let i = 0; i < segments.length; i++) {
+            if (!deliveryActiveRef.current) break;
+
+            if (i > 0) {
+              await new Promise<void>(resolve =>
+                setTimeout(resolve, getSegmentDelay(segments[i - 1]))
+              );
+            }
+
+            if (!deliveryActiveRef.current) break;
+
+            dispatch(addInferenceResponse({ content: segments[i], threadId: event.thread_id }));
+          }
+
+          deliveryActiveRef.current = false;
+          setIsDelivering(false);
+          setIsSending(false);
+          // activeThreadId was already cleared by the first addInferenceResponse dispatch
+        })();
       },
       onError: event => {
         if (event.thread_id !== selectedThreadIdRef.current) return;
@@ -377,23 +433,50 @@ const Conversations = () => {
           dispatch(setActiveThread(null));
         }
       },
-    }).then(fn => {
-      if (mounted) cleanup = fn;
     });
 
-    return () => {
-      mounted = false;
-      cleanup?.();
-    };
+    return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rustChat, socketStatus]);
+
+  /**
+   * Segment a complete response string and dispatch each segment as a
+   * separate message bubble with a typing pause between them.
+   * Local-model-only path — no cloud API calls.
+   */
+  const deliverLocalResponse = async (fullResponse: string, threadId: string) => {
+    const segments = segmentMessage(fullResponse);
+
+    if (segments.length <= 1) {
+      dispatch(addInferenceResponse({ content: fullResponse, threadId }));
+      return;
+    }
+
+    setIsDelivering(true);
+    deliveryActiveRef.current = true;
+
+    for (let i = 0; i < segments.length; i++) {
+      if (!deliveryActiveRef.current) break;
+
+      if (i > 0) {
+        await new Promise<void>(resolve => setTimeout(resolve, getSegmentDelay(segments[i - 1])));
+      }
+
+      if (!deliveryActiveRef.current) break;
+
+      dispatch(addInferenceResponse({ content: segments[i], threadId }));
+    }
+
+    deliveryActiveRef.current = false;
+    setIsDelivering(false);
+  };
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
     const trimmed = normalized.trim();
 
     if (!trimmed || !selectedThreadId || isSending) return;
-    if (socketStatus !== 'connected') {
+    if (!isLocalModelActiveRef.current && socketStatus !== 'connected') {
       setSendError('Realtime socket is not connected.');
       return;
     }
@@ -421,6 +504,58 @@ const Conversations = () => {
     setToolTimelineByThread(prev => ({ ...prev, [sendingThreadId]: [] }));
     dispatch(setActiveThread(sendingThreadId));
 
+    // ── Local Ollama path ────────────────────────────────────────────────────
+    // When a local model is ready, bypass the cloud socket entirely.
+    // Zero cloud tokens consumed on this path.
+    if (isLocalModelActiveRef.current) {
+      try {
+        // Build message history: convert stored messages + the new user turn
+        const storedMessages =
+          (
+            store.getState() as {
+              thread: {
+                messagesByThreadId: Record<string, import('../types/thread').ThreadMessage[]>;
+              };
+            }
+          ).thread.messagesByThreadId[sendingThreadId] ?? [];
+
+        const history: LocalAiChatMessage[] = storedMessages
+          .filter(m => m.sender === 'user' || m.sender === 'agent')
+          .map(m => ({
+            role: m.sender === 'user' ? ('user' as const) : ('assistant' as const),
+            content: m.content,
+          }));
+
+        console.debug('[conversations:local] sending to local model', {
+          historyLength: history.length,
+          threadId: sendingThreadId,
+        });
+
+        const response = await openhumanLocalAiChat(history);
+        const reply = response.result?.trim() ?? '';
+
+        if (!reply) {
+          throw new Error('Local model returned an empty response.');
+        }
+
+        await deliverLocalResponse(reply, sendingThreadId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setSendError(msg);
+        dispatch(
+          addInferenceResponse({
+            content: 'Local model error — please try again.',
+            threadId: sendingThreadId,
+          })
+        );
+      } finally {
+        setIsSending(false);
+        dispatch(setActiveThread(null));
+      }
+      return;
+    }
+
+    // ── Cloud socket path (unchanged) ────────────────────────────────────────
     try {
       await chatSend({ threadId: sendingThreadId, message: trimmed, model: selectedModel });
 
@@ -729,10 +864,72 @@ const Conversations = () => {
                         </svg>
                       )}
                     </button>
+                    {msg.sender === 'agent' && (
+                      <div className="mt-1 flex items-center gap-1 flex-wrap min-h-[20px]">
+                        {(() => {
+                          const myReactions =
+                            (msg.extraMetadata?.myReactions as string[] | undefined) ?? [];
+                          return myReactions.map(emoji => (
+                            <button
+                              key={emoji}
+                              onClick={() =>
+                                selectedThreadId &&
+                                dispatch(
+                                  addReaction({
+                                    threadId: selectedThreadId,
+                                    messageId: msg.id,
+                                    emoji,
+                                  })
+                                )
+                              }
+                              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary-600/20 border border-primary-500/30 text-xs transition-colors hover:bg-primary-600/30"
+                              title={`Remove ${emoji}`}>
+                              {emoji}
+                            </button>
+                          ));
+                        })()}
+                        {reactionPickerMsgId === msg.id ? (
+                          <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-white/10">
+                            {['👍', '❤️', '😂', '🔥', '👀', '🎯'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => {
+                                  if (selectedThreadId) {
+                                    dispatch(
+                                      addReaction({
+                                        threadId: selectedThreadId,
+                                        messageId: msg.id,
+                                        emoji,
+                                      })
+                                    );
+                                  }
+                                  setReactionPickerMsgId(null);
+                                }}
+                                className="px-0.5 rounded text-sm hover:scale-125 transition-transform"
+                                title={emoji}>
+                                {emoji}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => setReactionPickerMsgId(null)}
+                              className="ml-0.5 text-stone-600 hover:text-stone-400 text-xs px-0.5">
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setReactionPickerMsgId(msg.id)}
+                            className="opacity-0 group-hover/msg:opacity-100 flex items-center px-1.5 py-0.5 rounded-full bg-white/5 hover:bg-white/15 text-stone-500 hover:text-stone-300 text-xs transition-all"
+                            title="Add reaction">
+                            +
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
-              {activeThreadId === selectedThreadId && isSending && (
+              {((activeThreadId === selectedThreadId && isSending) || isDelivering) && (
                 <div className="flex justify-start">
                   <div className="bg-white/5 rounded-2xl rounded-bl-md px-4 py-3">
                     <div className="flex items-center gap-1">

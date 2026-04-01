@@ -437,3 +437,45 @@ pub async fn local_ai_download_asset(
         "local ai asset download triggered",
     ))
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct LocalAiChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+pub async fn local_ai_chat(
+    config: &Config,
+    messages: Vec<LocalAiChatMessage>,
+    max_tokens: Option<u32>,
+) -> Result<RpcOutcome<String>, String> {
+    tracing::debug!(
+        message_count = messages.len(),
+        "[local_ai:chat] local_ai_chat op: validating"
+    );
+
+    if messages.is_empty() {
+        return Err("messages must not be empty".to_string());
+    }
+
+    let ollama_messages: Vec<crate::openhuman::local_ai::ollama_api::OllamaChatMessage> = messages
+        .into_iter()
+        .map(
+            |m| crate::openhuman::local_ai::ollama_api::OllamaChatMessage {
+                role: m.role,
+                content: m.content,
+            },
+        )
+        .collect();
+
+    let service = local_ai::global(config);
+    let reply = service
+        .chat_with_history(config, ollama_messages, max_tokens)
+        .await?;
+
+    tracing::debug!(
+        reply_len = reply.len(),
+        "[local_ai:chat] local_ai_chat op: done"
+    );
+    Ok(RpcOutcome::single_log(reply, "local ai chat completed"))
+}

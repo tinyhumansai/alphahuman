@@ -217,17 +217,30 @@ export async function memoryListDocuments(namespace?: string): Promise<unknown> 
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<unknown>({
+  const resp = await callCoreRpc<unknown>({
     method: 'openhuman.memory_list_documents',
     params: { namespace },
   });
+  // Unwrap envelope: registry returns { data: { documents: [...] }, meta: {...} }
+  if (resp && typeof resp === 'object' && !Array.isArray(resp) && 'data' in resp) {
+    return (resp as Record<string, unknown>).data;
+  }
+  return resp;
 }
 
 export async function memoryListNamespaces(): Promise<string[]> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<string[]>({ method: 'openhuman.memory_list_namespaces' });
+  const resp = await callCoreRpc<{ data?: { namespaces?: string[] }; namespaces?: string[] }>({
+    method: 'openhuman.memory_list_namespaces',
+  });
+  if (resp && typeof resp === 'object') {
+    if (Array.isArray(resp)) return resp;
+    const ns = resp.data?.namespaces ?? resp.namespaces;
+    if (Array.isArray(ns)) return ns;
+  }
+  return [];
 }
 
 export async function memoryDeleteDocument(
@@ -325,20 +338,32 @@ export async function aiListMemoryFiles(relativeDir = 'memory'): Promise<string[
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<string[]>({
+  const resp = await callCoreRpc<{ data?: { files?: string[] }; files?: string[] }>({
     method: 'openhuman.memory_list_files',
     params: { relative_dir: relativeDir },
   });
+  // Unwrap envelope: registry returns { data: { files: [...] } }
+  if (resp && typeof resp === 'object') {
+    if (Array.isArray(resp)) return resp;
+    const files = resp.data?.files ?? resp.files;
+    if (Array.isArray(files)) return files;
+  }
+  return [];
 }
 
 export async function aiReadMemoryFile(relativePath: string): Promise<string> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<string>({
+  const resp = await callCoreRpc<{ data?: { content?: string }; content?: string } | string>({
     method: 'openhuman.memory_read_file',
     params: { relative_path: relativePath },
   });
+  if (typeof resp === 'string') return resp;
+  if (resp && typeof resp === 'object') {
+    return resp.data?.content ?? resp.content ?? '';
+  }
+  return '';
 }
 
 export async function aiWriteMemoryFile(relativePath: string, content: string): Promise<void> {
@@ -1321,6 +1346,33 @@ export async function openhumanLocalAiTts(
   return await callCoreRpc<CommandResponse<LocalAiTtsResult>>({
     method: 'openhuman.local_ai_tts',
     params: { text, output_path: outputPath },
+  });
+}
+
+export interface LocalAiChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface LocalAiChatResult {
+  result: string;
+}
+
+/**
+ * Multi-turn chat completion via the local Ollama model.
+ * Only callable when local AI is in "ready" state.
+ * Does NOT hit the cloud API — zero billed token cost.
+ *
+ * @param messages  Full conversation history including the latest user turn.
+ * @param maxTokens Optional cap on output tokens (defaults to model max).
+ */
+export async function openhumanLocalAiChat(
+  messages: LocalAiChatMessage[],
+  maxTokens?: number
+): Promise<CommandResponse<string>> {
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.local_ai_chat',
+    params: { messages, max_tokens: maxTokens },
   });
 }
 
