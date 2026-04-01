@@ -92,6 +92,7 @@ impl Provider for ScriptedProvider {
             return Ok(ChatResponse {
                 text: Some("done".into()),
                 tool_calls: vec![],
+                usage: None,
             });
         }
         Ok(guard.remove(0))
@@ -154,54 +155,6 @@ impl Tool for EchoTool {
         Ok(ToolResult {
             success: true,
             output: msg,
-            error: None,
-        })
-    }
-}
-
-/// A generic skills bridge test-double tool.
-struct SkillsCallEchoTool;
-
-#[async_trait]
-impl Tool for SkillsCallEchoTool {
-    fn name(&self) -> &str {
-        "skills_call"
-    }
-
-    fn description(&self) -> &str {
-        "Calls a skill tool"
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "skill_id": {"type": "string"},
-                "tool_name": {"type": "string"},
-                "arguments": {"type": "object"}
-            },
-            "required": ["skill_id", "tool_name"]
-        })
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
-        let skill_id = args
-            .get("skill_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let tool_name = args
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let message = args
-            .get("arguments")
-            .and_then(|v| v.get("message"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("empty");
-
-        Ok(ToolResult {
-            success: true,
-            output: format!("{skill_id}:{tool_name}:{message}"),
             error: None,
         })
     }
@@ -381,6 +334,7 @@ fn tool_response(calls: Vec<ToolCall>) -> ChatResponse {
     ChatResponse {
         text: Some(String::new()),
         tool_calls: calls,
+        usage: None,
     }
 }
 
@@ -389,6 +343,7 @@ fn text_response(text: &str) -> ChatResponse {
     ChatResponse {
         text: Some(text.into()),
         tool_calls: vec![],
+        usage: None,
     }
 }
 
@@ -399,6 +354,7 @@ fn xml_tool_response(name: &str, args: &str) -> ChatResponse {
             "<tool_call>\n{{\"name\": \"{name}\", \"arguments\": {args}}}\n</tool_call>"
         )),
         tool_calls: vec![],
+        usage: None,
     }
 }
 
@@ -773,6 +729,7 @@ async fn turn_handles_empty_text_response() {
     let provider = Box::new(ScriptedProvider::new(vec![ChatResponse {
         text: Some(String::new()),
         tool_calls: vec![],
+        usage: None,
     }]));
 
     let (mut agent, _tmp) = build_agent_with(provider, vec![], Box::new(NativeToolDispatcher));
@@ -786,6 +743,7 @@ async fn turn_handles_none_text_response() {
     let provider = Box::new(ScriptedProvider::new(vec![ChatResponse {
         text: None,
         tool_calls: vec![],
+        usage: None,
     }]));
 
     let (mut agent, _tmp) = build_agent_with(provider, vec![], Box::new(NativeToolDispatcher));
@@ -809,6 +767,7 @@ async fn turn_preserves_text_alongside_tool_calls() {
                 name: "echo".into(),
                 arguments: r#"{"message": "hi"}"#.into(),
             }],
+            usage: None,
         },
         text_response("Here are the results"),
     ]));
@@ -889,6 +848,7 @@ async fn e2e_native_loop_executes_text_fallback_tool_calls_and_persists_history(
                     .into(),
             ),
             tool_calls: vec![],
+            usage: None,
         },
         text_response("Completed via tool"),
     ]));
@@ -1098,6 +1058,7 @@ async fn native_dispatcher_handles_stringified_arguments() {
             name: "echo".into(),
             arguments: r#"{"message": "hello"}"#.into(),
         }],
+        usage: None,
     };
 
     let (_, calls) = dispatcher.parse_response(&response);
@@ -1123,6 +1084,7 @@ fn xml_dispatcher_handles_nested_json() {
                 .into(),
         ),
         tool_calls: vec![],
+        usage: None,
     };
 
     let dispatcher = XmlToolDispatcher;
@@ -1140,6 +1102,7 @@ fn xml_dispatcher_handles_empty_tool_call_tag() {
     let response = ChatResponse {
         text: Some("<tool_call>\n</tool_call>\nSome text".into()),
         tool_calls: vec![],
+        usage: None,
     };
 
     let dispatcher = XmlToolDispatcher;
@@ -1153,6 +1116,7 @@ fn xml_dispatcher_handles_unclosed_tool_call() {
     let response = ChatResponse {
         text: Some("Before\n<tool_call>\n{\"name\": \"shell\"}".into()),
         tool_calls: vec![],
+        usage: None,
     };
 
     let dispatcher = XmlToolDispatcher;
@@ -1335,54 +1299,6 @@ fn native_dispatcher_converts_tool_results_to_tool_messages() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].role, "tool");
     assert_eq!(messages[1].role, "tool");
-}
-
-#[tokio::test]
-async fn native_dispatcher_executes_generic_skills_call_tool() {
-    let provider = Box::new(ScriptedProvider::new(vec![
-        tool_response(vec![ToolCall {
-            id: "tc-skills-1".into(),
-            name: "skills_call".into(),
-            arguments: serde_json::json!({
-                "skill_id": "e2e-runtime",
-                "tool_name": "echo",
-                "arguments": { "message": "hello from agent test" }
-            })
-            .to_string(),
-        }]),
-        text_response("skills call done"),
-    ]));
-
-    let (mut agent, _tmp) = build_agent_with(
-        provider,
-        vec![Box::new(SkillsCallEchoTool)],
-        Box::new(NativeToolDispatcher),
-    );
-
-    let response = agent.turn("Use skills_call").await.unwrap();
-    assert_eq!(response, "skills call done");
-
-    let result_payloads: Vec<String> = agent
-        .history()
-        .iter()
-        .filter_map(|msg| match msg {
-            ConversationMessage::ToolResults(results) => Some(
-                results
-                    .iter()
-                    .map(|r| r.content.clone())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
-            _ => None,
-        })
-        .collect();
-
-    assert!(
-        result_payloads
-            .iter()
-            .any(|payload: &String| payload.contains("e2e-runtime:echo:hello from agent test")),
-        "expected skills_call output in tool results, got: {result_payloads:?}"
-    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

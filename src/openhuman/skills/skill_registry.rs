@@ -8,7 +8,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::openhuman::skills::qjs_skill_instance::SkillState;
 use crate::openhuman::skills::types::{
-    SkillConfig, SkillMessage, SkillSnapshot, SkillStatus, ToolDefinition, ToolResult,
+    SkillConfig, SkillMessage, SkillSnapshot, SkillStatus, ToolCallOrigin, ToolDefinition,
+    ToolResult,
 };
 
 /// Entry in the registry for a single skill.
@@ -112,13 +113,37 @@ impl SkillRegistry {
             .map(|e| e.state.read().status)
     }
 
-    /// Call a tool on a specific skill. Returns a oneshot receiver for the result.
+    /// Call a tool on a specific skill from external host surfaces.
     pub async fn call_tool(
         &self,
         skill_id: &str,
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> Result<ToolResult, String> {
+        self.call_tool_scoped(ToolCallOrigin::External, skill_id, tool_name, arguments)
+            .await
+    }
+
+    /// Call a tool with an explicit origin so runtime policy can enforce boundaries.
+    pub async fn call_tool_scoped(
+        &self,
+        origin: ToolCallOrigin,
+        skill_id: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<ToolResult, String> {
+        if let ToolCallOrigin::SkillSelf {
+            skill_id: caller_skill_id,
+        } = &origin
+        {
+            if caller_skill_id != skill_id {
+                return Err(format!(
+                    "Cross-skill tool calls are forbidden: '{}' cannot call '{}.{}'",
+                    caller_skill_id, skill_id, tool_name
+                ));
+            }
+        }
+
         log::info!(
             "[skill:{}] call_tool '{}' — dispatching to event loop",
             skill_id,
@@ -316,10 +341,168 @@ impl SkillRegistry {
             }
         }
     }
+
+    /// Send an incoming webhook request to a specific skill and wait for the response.
+    ///
+    /// Returns the skill's response (status code, headers, body) or an error.
+    /// Times out after 25 seconds (under the backend's 30-second timeout).
+    pub async fn send_webhook_request(
+        &self,
+        skill_id: &str,
+        correlation_id: String,
+        method: String,
+        path: String,
+        headers: std::collections::HashMap<String, serde_json::Value>,
+        query: std::collections::HashMap<String, String>,
+        body: String,
+        tunnel_id: String,
+        tunnel_name: String,
+    ) -> Result<crate::openhuman::webhooks::WebhookResponseData, String> {
+        let sender = {
+            let skills = self.skills.read();
+            let entry = skills
+                .get(skill_id)
+                .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+            let status = entry.state.read().status;
+            if status != SkillStatus::Running {
+                return Err(format!(
+                    "Skill '{}' is not running (status: {:?})",
+                    skill_id, status
+                ));
+            }
+            entry.sender.clone()
+        };
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        sender
+            .send(SkillMessage::WebhookRequest {
+                correlation_id,
+                method,
+                path,
+                headers,
+                query,
+                body,
+                tunnel_id,
+                tunnel_name,
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| format!("Skill '{}' message channel closed", skill_id))?;
+
+        match tokio::time::timeout(std::time::Duration::from_secs(25), reply_rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(format!(
+                "Skill '{}' webhook reply channel dropped",
+                skill_id
+            )),
+            Err(_) => Err(format!(
+                "Skill '{}' webhook handler timed out (25s)",
+                skill_id
+            )),
+        }
+    }
 }
 
 impl Default for SkillRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openhuman::skills::types::{SkillConfig, SkillStatus, ToolCallOrigin};
+
+    fn register_running_skill(registry: &SkillRegistry, skill_id: &str) {
+        let (tx, mut rx) = mpsc::channel(8);
+        let state = Arc::new(RwLock::new(SkillState {
+            status: SkillStatus::Running,
+            tools: vec![],
+            error: None,
+            published_state: HashMap::new(),
+        }));
+        let task = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let SkillMessage::CallTool { reply, .. } = msg {
+                    let _ = reply.send(Ok(ToolResult {
+                        content: vec![],
+                        is_error: false,
+                    }));
+                }
+            }
+        });
+
+        registry.register(
+            skill_id,
+            SkillConfig {
+                skill_id: skill_id.to_string(),
+                name: skill_id.to_string(),
+                entry_point: "index.js".to_string(),
+                memory_limit: 1024,
+                auto_start: false,
+            },
+            tx,
+            state,
+            task,
+        );
+    }
+
+    #[tokio::test]
+    async fn external_origin_can_call_any_skill_tool() {
+        let registry = SkillRegistry::new();
+        register_running_skill(&registry, "alpha");
+
+        let result = registry
+            .call_tool_scoped(
+                ToolCallOrigin::External,
+                "alpha",
+                "echo",
+                serde_json::json!({}),
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn skill_origin_cannot_call_other_skill_tool() {
+        let registry = SkillRegistry::new();
+        register_running_skill(&registry, "alpha");
+        register_running_skill(&registry, "beta");
+
+        let err = registry
+            .call_tool_scoped(
+                ToolCallOrigin::SkillSelf {
+                    skill_id: "alpha".to_string(),
+                },
+                "beta",
+                "echo",
+                serde_json::json!({}),
+            )
+            .await
+            .expect_err("cross-skill call should be denied");
+
+        assert!(err.contains("Cross-skill tool calls are forbidden"));
+    }
+
+    #[tokio::test]
+    async fn skill_origin_can_call_own_tool() {
+        let registry = SkillRegistry::new();
+        register_running_skill(&registry, "alpha");
+
+        let result = registry
+            .call_tool_scoped(
+                ToolCallOrigin::SkillSelf {
+                    skill_id: "alpha".to_string(),
+                },
+                "alpha",
+                "echo",
+                serde_json::json!({}),
+            )
+            .await;
+
+        assert!(result.is_ok());
     }
 }

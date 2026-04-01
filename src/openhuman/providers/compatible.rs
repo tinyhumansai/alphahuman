@@ -987,7 +987,11 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        ProviderChatResponse { text, tool_calls }
+        ProviderChatResponse {
+            text,
+            tool_calls,
+            usage: None,
+        }
     }
 
     fn is_native_tool_schema_unsupported(status: reqwest::StatusCode, error: &str) -> bool {
@@ -1138,10 +1142,7 @@ impl Provider for OpenAiCompatibleProvider {
                 // If tool_calls are present, serialize the full message as JSON
                 // so parse_tool_calls can handle the OpenAI-style format
                 if c.message.tool_calls.is_some()
-                    && c.message
-                        .tool_calls
-                        .as_ref()
-                        .map_or(false, |t| !t.is_empty())
+                    && c.message.tool_calls.as_ref().is_some_and(|t| !t.is_empty())
                 {
                     serde_json::to_string(&c.message)
                         .unwrap_or_else(|_| c.message.effective_content())
@@ -1245,10 +1246,7 @@ impl Provider for OpenAiCompatibleProvider {
                 // If tool_calls are present, serialize the full message as JSON
                 // so parse_tool_calls can handle the OpenAI-style format
                 if c.message.tool_calls.is_some()
-                    && c.message
-                        .tool_calls
-                        .as_ref()
-                        .map_or(false, |t| !t.is_empty())
+                    && c.message.tool_calls.as_ref().is_some_and(|t| !t.is_empty())
                 {
                     serde_json::to_string(&c.message)
                         .unwrap_or_else(|_| c.message.effective_content())
@@ -1320,6 +1318,7 @@ impl Provider for OpenAiCompatibleProvider {
                 return Ok(ProviderChatResponse {
                     text: Some(text),
                     tool_calls: vec![],
+                    usage: None,
                 });
             }
         };
@@ -1354,7 +1353,11 @@ impl Provider for OpenAiCompatibleProvider {
             })
             .collect::<Vec<_>>();
 
-        Ok(ProviderChatResponse { text, tool_calls })
+        Ok(ProviderChatResponse {
+            text,
+            tool_calls,
+            usage: None,
+        })
     }
 
     async fn chat(
@@ -1404,6 +1407,7 @@ impl Provider for OpenAiCompatibleProvider {
                         .map(|text| ProviderChatResponse {
                             text: Some(text),
                             tool_calls: vec![],
+                            usage: None,
                         })
                         .map_err(|responses_err| {
                             let fb = super::format_anyhow_chain(&responses_err);
@@ -1432,6 +1436,7 @@ impl Provider for OpenAiCompatibleProvider {
                 return Ok(ProviderChatResponse {
                     text: Some(text),
                     tool_calls: vec![],
+                    usage: None,
                 });
             }
 
@@ -1442,6 +1447,7 @@ impl Provider for OpenAiCompatibleProvider {
                     .map(|text| ProviderChatResponse {
                         text: Some(text),
                         tool_calls: vec![],
+                        usage: None,
                     })
                     .map_err(|responses_err| {
                         let fb = super::format_anyhow_chain(&responses_err);

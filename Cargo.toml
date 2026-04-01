@@ -82,6 +82,7 @@ tower = { version = "0.5", default-features = false }
 opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
 opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+sentry = { version = "0.47.0", default-features = false, features = ["backtrace", "contexts", "panic", "tracing", "reqwest", "rustls"] }
 tokio-stream = { version = "0.1.18", features = ["full"] }
 url = "2"
 socketioxide = { version = "0.15", features = ["extensions"] }
@@ -119,3 +120,13 @@ landlock = ["sandbox-landlock"]
 probe = ["dep:probe-rs"]
 rag-pdf = ["dep:pdf-extract"]
 whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-proto", "dep:wa-rs-ureq-http", "dep:wa-rs-tokio-transport", "serde-big-array"]
+
+# Fast CI builds: trade runtime perf for compile speed
+[profile.ci]
+inherits = "release"
+opt-level = 1
+codegen-units = 16
+lto = false
+incremental = false
+strip = true
+debug = false

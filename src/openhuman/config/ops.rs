@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::openhuman::config::{Config, TunnelConfig};
+use crate::openhuman::config::Config;
 use crate::openhuman::screen_intelligence;
 use crate::rpc::RpcOutcome;
 
@@ -86,6 +86,11 @@ pub struct ScreenIntelligenceSettingsPatch {
     pub autocomplete_enabled: Option<bool>,
     pub allowlist: Option<Vec<String>>,
     pub denylist: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnalyticsSettingsPatch {
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -218,22 +223,6 @@ pub async fn apply_screen_intelligence_settings(
     ))
 }
 
-pub async fn apply_tunnel_settings(
-    config: &mut Config,
-    tunnel: TunnelConfig,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    config.tunnel = tunnel;
-    config.save().await.map_err(|e| e.to_string())?;
-    let snapshot = snapshot_config_json(config)?;
-    Ok(RpcOutcome::new(
-        snapshot,
-        vec![format!(
-            "tunnel settings saved to {}",
-            config.config_path.display()
-        )],
-    ))
-}
-
 pub async fn apply_runtime_settings(
     config: &mut Config,
     update: RuntimeSettingsPatch,
@@ -299,18 +288,36 @@ pub async fn load_and_apply_screen_intelligence_settings(
     apply_screen_intelligence_settings(&mut config, update).await
 }
 
-pub async fn load_and_apply_tunnel_settings(
-    tunnel: TunnelConfig,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    let mut config = load_config_with_timeout().await?;
-    apply_tunnel_settings(&mut config, tunnel).await
-}
-
 pub async fn load_and_apply_runtime_settings(
     update: RuntimeSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
     let mut config = load_config_with_timeout().await?;
     apply_runtime_settings(&mut config, update).await
+}
+
+pub async fn apply_analytics_settings(
+    config: &mut Config,
+    update: AnalyticsSettingsPatch,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    if let Some(enabled) = update.enabled {
+        config.observability.analytics_enabled = enabled;
+    }
+    config.save().await.map_err(|e| e.to_string())?;
+    let snapshot = snapshot_config_json(config)?;
+    Ok(RpcOutcome::new(
+        snapshot,
+        vec![format!(
+            "analytics settings saved to {}",
+            config.config_path.display()
+        )],
+    ))
+}
+
+pub async fn load_and_apply_analytics_settings(
+    update: AnalyticsSettingsPatch,
+) -> Result<RpcOutcome<serde_json::Value>, String> {
+    let mut config = load_config_with_timeout().await?;
+    apply_analytics_settings(&mut config, update).await
 }
 
 pub async fn load_and_apply_browser_settings(

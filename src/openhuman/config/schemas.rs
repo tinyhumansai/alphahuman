@@ -5,7 +5,6 @@ use serde_json::{Map, Value};
 use crate::core::all::{ControllerFuture, RegisteredController};
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 use crate::openhuman::config::rpc as config_rpc;
-use crate::openhuman::config::TunnelConfig;
 use crate::rpc::RpcOutcome;
 
 const DEFAULT_ONBOARDING_FLAG_NAME: &str = ".skip_onboarding";
@@ -51,6 +50,11 @@ struct ScreenIntelligenceSettingsUpdate {
 }
 
 #[derive(Debug, Deserialize)]
+struct AnalyticsSettingsUpdate {
+    enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SetBrowserAllowAllParams {
     enabled: bool,
 }
@@ -72,7 +76,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("update_model_settings"),
         schemas("update_memory_settings"),
         schemas("update_screen_intelligence_settings"),
-        schemas("update_tunnel_settings"),
         schemas("update_runtime_settings"),
         schemas("update_browser_settings"),
         schemas("resolve_api_url"),
@@ -80,6 +83,8 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("set_browser_allow_all"),
         schemas("workspace_onboarding_flag_exists"),
         schemas("workspace_onboarding_flag_set"),
+        schemas("update_analytics_settings"),
+        schemas("get_analytics_settings"),
         schemas("agent_server_status"),
     ]
 }
@@ -101,10 +106,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("update_screen_intelligence_settings"),
             handler: handle_update_screen_intelligence_settings,
-        },
-        RegisteredController {
-            schema: schemas("update_tunnel_settings"),
-            handler: handle_update_tunnel_settings,
         },
         RegisteredController {
             schema: schemas("update_runtime_settings"),
@@ -133,6 +134,14 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("workspace_onboarding_flag_set"),
             handler: handle_workspace_onboarding_flag_set,
+        },
+        RegisteredController {
+            schema: schemas("update_analytics_settings"),
+            handler: handle_update_analytics_settings,
+        },
+        RegisteredController {
+            schema: schemas("get_analytics_settings"),
+            handler: handle_get_analytics_settings,
         },
         RegisteredController {
             schema: schemas("agent_server_status"),
@@ -225,39 +234,6 @@ pub fn schemas(function: &str) -> ControllerSchema {
                         TypeSchema::String,
                     )))),
                     comment: "Denied app list.",
-                    required: false,
-                },
-            ],
-            outputs: vec![json_output("snapshot", "Updated config snapshot.")],
-        },
-        "update_tunnel_settings" => ControllerSchema {
-            namespace: "config",
-            function: "update_tunnel_settings",
-            description: "Replace tunnel settings with provided config payload.",
-            inputs: vec![
-                required_string("provider", "Tunnel provider id."),
-                FieldSchema {
-                    name: "cloudflare",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Ref("CloudflareTunnelConfig"))),
-                    comment: "Cloudflare tunnel settings.",
-                    required: false,
-                },
-                FieldSchema {
-                    name: "tailscale",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Ref("TailscaleTunnelConfig"))),
-                    comment: "Tailscale tunnel settings.",
-                    required: false,
-                },
-                FieldSchema {
-                    name: "ngrok",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Ref("NgrokTunnelConfig"))),
-                    comment: "ngrok tunnel settings.",
-                    required: false,
-                },
-                FieldSchema {
-                    name: "custom",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Ref("CustomTunnelConfig"))),
-                    comment: "Custom tunnel settings.",
                     required: false,
                 },
             ],
@@ -363,6 +339,28 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 required: true,
             }],
         },
+        "update_analytics_settings" => ControllerSchema {
+            namespace: "config",
+            function: "update_analytics_settings",
+            description: "Enable or disable anonymized analytics and error reporting.",
+            inputs: vec![optional_bool(
+                "enabled",
+                "Enable anonymized analytics and crash reports.",
+            )],
+            outputs: vec![json_output("snapshot", "Updated config snapshot.")],
+        },
+        "get_analytics_settings" => ControllerSchema {
+            namespace: "config",
+            function: "get_analytics_settings",
+            description: "Read current analytics settings.",
+            inputs: vec![],
+            outputs: vec![FieldSchema {
+                name: "enabled",
+                ty: TypeSchema::Bool,
+                comment: "Whether anonymized analytics is enabled.",
+                required: true,
+            }],
+        },
         "agent_server_status" => ControllerSchema {
             namespace: "config",
             function: "agent_server_status",
@@ -433,13 +431,6 @@ fn handle_update_screen_intelligence_settings(params: Map<String, Value>) -> Con
     })
 }
 
-fn handle_update_tunnel_settings(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let tunnel = deserialize_params::<TunnelConfig>(params)?;
-        to_json(config_rpc::load_and_apply_tunnel_settings(tunnel).await?)
-    })
-}
-
 fn handle_update_runtime_settings(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let update = deserialize_params::<RuntimeSettingsUpdate>(params)?;
@@ -500,6 +491,29 @@ fn handle_workspace_onboarding_flag_set(params: Map<String, Value>) -> Controlle
             )
             .await?,
         )
+    })
+}
+
+fn handle_update_analytics_settings(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let update = deserialize_params::<AnalyticsSettingsUpdate>(params)?;
+        let patch = config_rpc::AnalyticsSettingsPatch {
+            enabled: update.enabled,
+        };
+        to_json(config_rpc::load_and_apply_analytics_settings(patch).await?)
+    })
+}
+
+fn handle_get_analytics_settings(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async {
+        let config = config_rpc::load_config_with_timeout().await?;
+        let result = serde_json::json!({
+            "enabled": config.observability.analytics_enabled,
+        });
+        to_json(RpcOutcome::new(
+            result,
+            vec!["analytics settings read".to_string()],
+        ))
     })
 }
 
