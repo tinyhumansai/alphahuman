@@ -18,10 +18,6 @@ use serde_json::{json, Value};
 
 use openhuman_core::openhuman::skills::qjs_engine::{set_global_engine, RuntimeEngine};
 
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
 fn try_find_skills_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SKILL_DEBUG_DIR") {
         let p = PathBuf::from(&dir);
@@ -63,43 +59,47 @@ macro_rules! require_skills_dir {
 
 #[tokio::test]
 async fn notion_live_with_real_data() {
+    // Opt-in: only runs when RUN_LIVE_NOTION=1 is set explicitly.
+    if std::env::var("RUN_LIVE_NOTION").unwrap_or_default() != "1" {
+        eprintln!("SKIPPED: set RUN_LIVE_NOTION=1 to run this live integration test");
+        return;
+    }
+
     let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .is_test(true)
         .try_init();
 
-    let backend_url = env_or("BACKEND_URL", "https://staging-api.alphahuman.xyz");
-    let jwt_token = env_or("JWT_TOKEN", "");
-    let credential_id = env_or("CREDENTIAL_ID", "69cafd0b103bd070232d3223");
+    let backend_url = std::env::var("BACKEND_URL")
+        .expect("BACKEND_URL must be set for live Notion test");
+    let jwt_token =
+        std::env::var("JWT_TOKEN").expect("JWT_TOKEN must be set for live Notion test");
+    let credential_id = std::env::var("CREDENTIAL_ID")
+        .expect("CREDENTIAL_ID must be set for live Notion test");
     let skills_dir = require_skills_dir!();
 
-    // Use the REAL skills_data directory so oauth_credential.json is available
-    let real_data_dir = PathBuf::from(env_or(
-        "SKILLS_DATA_DIR",
-        &dirs::home_dir()
-            .unwrap()
-            .join(".openhuman/skills_data")
-            .to_string_lossy(),
-    ));
+    let real_data_dir = PathBuf::from(
+        std::env::var("SKILLS_DATA_DIR")
+            .expect("SKILLS_DATA_DIR must be set for live Notion test"),
+    );
 
     let sep = "=".repeat(60);
     eprintln!("\n{sep}");
     eprintln!("  Notion Live Debug (real data dir)");
     eprintln!("{sep}");
     eprintln!("  Backend:       {backend_url}");
-    eprintln!(
-        "  JWT:           {}...",
-        &jwt_token.get(..20).unwrap_or("(empty)")
-    );
+    eprintln!("  JWT:           <redacted, {} bytes>", jwt_token.len());
     eprintln!("  Credential ID: {credential_id}");
     eprintln!("  Skills dir:    {}", skills_dir.display());
     eprintln!("  Data dir:      {}", real_data_dir.display());
 
-    // Check oauth_credential.json exists
+    // Check oauth_credential.json exists (don't log contents — may contain secrets)
     let cred_path = real_data_dir.join("notion/oauth_credential.json");
     if cred_path.exists() {
-        let cred = std::fs::read_to_string(&cred_path).unwrap_or_default();
-        eprintln!("  OAuth cred:    {cred}");
+        let size = std::fs::metadata(&cred_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        eprintln!("  OAuth cred:    present ({size} bytes)");
     } else {
         eprintln!("  OAuth cred:    NOT FOUND at {}", cred_path.display());
         eprintln!("  (Skill will start without OAuth — tools that need API access will fail)");

@@ -670,12 +670,12 @@ async fn skill_disconnect_flow() {
     eprintln!("  ✓ Stopped + setup_complete = false");
 
     // Verify credential file is gone after oauth/revoked
-    let cred_after_revoke = cred_path.exists();
-    if !cred_after_revoke {
-        eprintln!("  ✓ oauth_credential.json deleted after oauth/revoked");
-    } else {
-        eprintln!("  ⚠ oauth_credential.json still exists (oauth/revoked may not delete for non-OAuth skills)");
-    }
+    assert!(
+        !cred_path.exists(),
+        "oauth_credential.json should be deleted after oauth/revoked but still exists at {}",
+        cred_path.display()
+    );
+    eprintln!("  ✓ oauth_credential.json deleted after oauth/revoked");
 
     // ── Verify restart after disconnect shows clean state ──
     eprintln!("\n  Verifying clean restart after proper disconnect...");

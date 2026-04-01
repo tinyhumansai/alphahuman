@@ -111,13 +111,13 @@ async fn rpc_call(base: &str, id: i64, method: &str, params: Value) -> Value {
         .unwrap_or_else(|e| panic!("json for {method}: {e}"))
 }
 
-fn check_result(resp: &Value, context: &str) -> Value {
+fn assert_rpc_ok(resp: &Value, context: &str) -> Value {
     if let Some(err) = resp.get("error") {
-        eprintln!("  [JSONRPC ERROR] {context}: {err}");
-        // Don't panic — some errors are expected
-        return json!({"__error": err.clone()});
+        panic!("{context}: unexpected JSON-RPC error: {err}");
     }
-    resp.get("result").cloned().unwrap_or(json!(null))
+    resp.get("result")
+        .cloned()
+        .unwrap_or_else(|| panic!("{context}: missing 'result' field in response: {resp}"))
 }
 
 // ── Test ─────────────────────────────────────────────────────────────────────
@@ -175,14 +175,14 @@ encrypt = false
     // 1. core.ping
     eprintln!("\n--- core.ping ---");
     let ping = rpc_call(&base, 1, "core.ping", json!({})).await;
-    let r = check_result(&ping, "core.ping");
+    let r = assert_rpc_ok(&ping, "core.ping");
     assert_eq!(r.get("ok"), Some(&json!(true)));
     eprintln!("  OK");
 
     // 2. openhuman.skills_discover
     eprintln!("\n--- openhuman.skills_discover ---");
     let discover = rpc_call(&base, 2, "openhuman.skills_discover", json!({})).await;
-    let r = check_result(&discover, "skills_discover");
+    let r = assert_rpc_ok(&discover, "skills_discover");
     eprintln!(
         "  Result: {} skills",
         r.as_array().map(|a| a.len()).unwrap_or(0)
@@ -197,19 +197,15 @@ encrypt = false
         json!({ "skill_id": skill_id }),
     )
     .await;
-    let r = check_result(&start, "skills_start");
-    if r.get("__error").is_some() {
-        eprintln!("  Start failed (see error above)");
-    } else {
-        eprintln!("  Status: {:?}", r.get("status"));
-        eprintln!(
-            "  Tools: {}",
-            r.get("tools")
-                .and_then(|t| t.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0)
-        );
-    }
+    let r = assert_rpc_ok(&start, "skills_start");
+    eprintln!("  Status: {:?}", r.get("status"));
+    eprintln!(
+        "  Tools: {}",
+        r.get("tools")
+            .and_then(|t| t.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
+    );
 
     // 4. openhuman.skills_list_tools
     eprintln!("\n--- openhuman.skills_list_tools ---");
@@ -220,7 +216,7 @@ encrypt = false
         json!({ "skill_id": skill_id }),
     )
     .await;
-    let r = check_result(&tools, "skills_list_tools");
+    let r = assert_rpc_ok(&tools, "skills_list_tools");
     let tool_list = r.get("tools").and_then(|t| t.as_array());
     if let Some(tools) = tool_list {
         eprintln!("  {} tools:", tools.len());
@@ -249,7 +245,7 @@ encrypt = false
         json!({ "skill_id": skill_id, "tool_name": tool_name, "arguments": tool_args }),
     )
     .await;
-    let r = check_result(&call, "skills_call_tool");
+    let r = assert_rpc_ok(&call, "skills_call_tool");
     eprintln!("  Result: {r}");
 
     // 6. openhuman.skills_sync (tick)
@@ -261,7 +257,7 @@ encrypt = false
         json!({ "skill_id": skill_id }),
     )
     .await;
-    let r = check_result(&sync, "skills_sync");
+    let r = assert_rpc_ok(&sync, "skills_sync");
     eprintln!("  Result: {r}");
 
     // 7. openhuman.skills_status
@@ -273,7 +269,7 @@ encrypt = false
         json!({ "skill_id": skill_id }),
     )
     .await;
-    let r = check_result(&status, "skills_status");
+    let r = assert_rpc_ok(&status, "skills_status");
     eprintln!("  Status: {:?}", r.get("status"));
     eprintln!(
         "  Published state keys: {:?}",
@@ -291,13 +287,13 @@ encrypt = false
         json!({ "skill_id": skill_id }),
     )
     .await;
-    let r = check_result(&stop, "skills_stop");
+    let r = assert_rpc_ok(&stop, "skills_stop");
     eprintln!("  Result: {r}");
 
     // 9. openhuman.skills_list (post-stop)
     eprintln!("\n--- openhuman.skills_list (post-stop) ---");
     let list = rpc_call(&base, 9, "openhuman.skills_list", json!({})).await;
-    let r = check_result(&list, "skills_list");
+    let r = assert_rpc_ok(&list, "skills_list");
     let skills = r.as_array();
     eprintln!("  {} skill(s)", skills.map(|a| a.len()).unwrap_or(0));
 

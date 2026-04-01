@@ -116,14 +116,22 @@ export SKILL_DEBUG_ID=notion
 export SKILL_DEBUG_TOOL=sync-status
 export RUST_LOG="${RUST_LOG:-info}"
 
-cargo test --test skills_debug_e2e skill_full_lifecycle -- --nocapture 2>&1 | \
-    grep -E "(✓|✗|·|---|====|Text:|Result:)" | head -40
+STEP3_OUT=$(cargo test --test skills_debug_e2e skill_full_lifecycle -- --nocapture 2>&1) || true
+STEP3_RC=${PIPESTATUS[0]:-$?}
+echo "$STEP3_OUT" | grep -E "(✓|✗|·|---|====|Text:|Result:)" | head -40 || true
+if [ "$STEP3_RC" -ne 0 ]; then
+    echo "  ✗ cargo test exited with code $STEP3_RC"
+fi
 
 echo ""
 echo "--- Step 4: Notion Live Test (real data dir) ---"
 echo ""
-cargo test --test skills_notion_live -- --nocapture 2>&1 | \
-    grep -E "(✓|✗|---|Step|Backend|OAuth|HTTP|status|connected|workspace|totals|Result:|is_error|Done|COMPLETE)" | head -30
+STEP4_OUT=$(RUN_LIVE_NOTION=1 cargo test --test skills_notion_live -- --nocapture 2>&1) || true
+STEP4_RC=${PIPESTATUS[0]:-$?}
+echo "$STEP4_OUT" | grep -E "(✓|✗|---|Step|Backend|OAuth|HTTP|status|connected|workspace|totals|Result:|is_error|Done|COMPLETE)" | head -30 || true
+if [ "$STEP4_RC" -ne 0 ]; then
+    echo "  ✗ cargo test exited with code $STEP4_RC"
+fi
 
 echo ""
 echo "=== Done ==="
