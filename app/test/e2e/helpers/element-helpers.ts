@@ -67,7 +67,13 @@ function xpathContainsText(text: string): string {
  */
 async function clickAtElement(el: ChainablePromiseElement): Promise<void> {
   if (isTauriDriver()) {
-    await el.click();
+    try {
+      await el.click();
+    } catch {
+      // Fallback: element may not be interactable (off-screen, covered).
+      // Use JS click which bypasses visibility checks.
+      await browser.execute((e: HTMLElement) => e.click(), el as unknown as HTMLElement);
+    }
     return;
   }
 
