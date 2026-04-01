@@ -1,9 +1,10 @@
 import { useState } from 'react';
 
 import ProgressIndicator from '../../components/ProgressIndicator';
+import { useUser } from '../../hooks/useUser';
 import { userApi } from '../../services/api/userApi';
 import { setOnboardedForUser, setOnboardingTasksForUser } from '../../store/authSlice';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { useAppDispatch } from '../../store/hooks';
 import { openhumanWorkspaceOnboardingFlagSet } from '../../utils/tauriCommands';
 import LocalAIStep from './steps/LocalAIStep';
 import MnemonicStep from './steps/MnemonicStep';
@@ -27,7 +28,7 @@ interface OnboardingDraft {
 
 const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const dispatch = useAppDispatch();
-  const user = useAppSelector(state => state.user.user);
+  const { user } = useUser();
   const [currentStep, setCurrentStep] = useState(0);
   const [draft, setDraft] = useState<OnboardingDraft>({
     localModelConsentGiven: false,

@@ -184,10 +184,11 @@ const MnemonicStep = ({ onComplete, onBack }: MnemonicStepProps) => {
       {mode === 'generate' ? (
         <>
           <div className="text-center mb-4">
-            <h1 className="text-xl font-bold mb-2">Your Recovery Phrase</h1>
+            <h1 className="text-xl font-bold mb-2">Lastly, your Recovery Phrase</h1>
             <p className="opacity-70 text-sm">
               Write down these {MNEMONIC_GENERATE_WORD_COUNT} words in order and store them
-              somewhere safe. This phrase encrypts your data and can never be recovered if lost.
+              somewhere safe. This phrase encrypts your data and can never be recovered if lost. You
+              can always back up later.
             </p>
           </div>
 
@@ -322,26 +323,16 @@ const MnemonicStep = ({ onComplete, onBack }: MnemonicStepProps) => {
 
       {error && <p className="text-coral-400 text-sm mb-3 text-center">{error}</p>}
 
-      <div className="flex gap-2">
-        {onBack && (
-          <button
-            onClick={onBack}
-            disabled={loading}
-            className="py-2.5 px-4 text-sm font-medium rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors disabled:opacity-60">
-            Back
-          </button>
-        )}
-        <button
-          onClick={handleContinue}
-          disabled={!canContinue || loading}
-          className="btn-primary flex-1 py-2.5 text-sm font-medium rounded-xl disabled:opacity-60 disabled:cursor-not-allowed">
-          {loading
-            ? 'Securing Your Data...'
-            : mode === 'import'
-              ? 'Import & Finish Setup'
-              : 'Finish Setup'}
-        </button>
-      </div>
+      <button
+        onClick={handleContinue}
+        disabled={!canContinue || loading}
+        className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
+        {loading
+          ? 'Securing Your Data...'
+          : mode === 'import'
+            ? 'Import & Finish Setup'
+            : "I'm Ready! Let's Go!"}
+      </button>
     </div>
   );
 };
