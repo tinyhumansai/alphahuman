@@ -31,10 +31,7 @@ pub enum AgentEvent {
     },
 
     /// A single tool execution is starting.
-    ToolExecutionStart {
-        name: String,
-        iteration: usize,
-    },
+    ToolExecutionStart { name: String, iteration: usize },
 
     /// A single tool execution completed.
     ToolExecutionComplete {
@@ -64,10 +61,7 @@ pub enum AgentEvent {
     },
 
     /// An error occurred during the agent loop.
-    Error {
-        message: String,
-        recoverable: bool,
-    },
+    Error { message: String, recoverable: bool },
 
     /// Cost update after an inference call.
     CostUpdate {
@@ -175,7 +169,10 @@ mod tests {
             message_count: 5,
         });
         let event = rx.try_recv().unwrap();
-        assert!(matches!(event, AgentEvent::InferenceStart { iteration: 1, .. }));
+        assert!(matches!(
+            event,
+            AgentEvent::InferenceStart { iteration: 1, .. }
+        ));
     }
 
     #[test]

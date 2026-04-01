@@ -23,10 +23,7 @@ pub enum ContextCheckResult {
     /// Context is near capacity; compaction should be attempted.
     CompactionNeeded,
     /// Context is critically full and compaction is disabled (circuit breaker tripped).
-    ContextExhausted {
-        utilization_pct: u8,
-        reason: String,
-    },
+    ContextExhausted { utilization_pct: u8, reason: String },
 }
 
 /// Tracks context window utilization and compaction health.

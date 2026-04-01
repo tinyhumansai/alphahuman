@@ -10,28 +10,18 @@ use std::fmt;
 #[derive(Debug)]
 pub enum AgentError {
     /// The LLM provider returned an error.
-    ProviderError {
-        message: String,
-        retryable: bool,
-    },
+    ProviderError { message: String, retryable: bool },
     /// Context window is exhausted and compaction cannot help.
-    ContextLimitExceeded {
-        utilization_pct: u8,
-    },
+    ContextLimitExceeded { utilization_pct: u8 },
     /// A tool execution failed.
-    ToolExecutionError {
-        tool_name: String,
-        message: String,
-    },
+    ToolExecutionError { tool_name: String, message: String },
     /// The daily cost budget has been exceeded.
     CostBudgetExceeded {
         spent_microdollars: u64,
         budget_microdollars: u64,
     },
     /// The agent exceeded its maximum tool iterations.
-    MaxIterationsExceeded {
-        max: usize,
-    },
+    MaxIterationsExceeded { max: usize },
     /// History compaction failed.
     CompactionFailed {
         message: String,
@@ -51,10 +41,7 @@ impl fmt::Display for AgentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ProviderError { message, retryable } => {
-                write!(
-                    f,
-                    "Provider error (retryable={retryable}): {message}"
-                )
+                write!(f, "Provider error (retryable={retryable}): {message}")
             }
             Self::ContextLimitExceeded { utilization_pct } => {
                 write!(

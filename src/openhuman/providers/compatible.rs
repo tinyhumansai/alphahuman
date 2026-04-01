@@ -987,7 +987,11 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        ProviderChatResponse { text, tool_calls, usage: None }
+        ProviderChatResponse {
+            text,
+            tool_calls,
+            usage: None,
+        }
     }
 
     fn is_native_tool_schema_unsupported(status: reqwest::StatusCode, error: &str) -> bool {
@@ -1349,7 +1353,11 @@ impl Provider for OpenAiCompatibleProvider {
             })
             .collect::<Vec<_>>();
 
-        Ok(ProviderChatResponse { text, tool_calls, usage: None })
+        Ok(ProviderChatResponse {
+            text,
+            tool_calls,
+            usage: None,
+        })
     }
 
     async fn chat(

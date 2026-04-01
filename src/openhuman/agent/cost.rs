@@ -110,9 +110,7 @@ impl CostTracker {
         let output = self.total_output_tokens.load(Ordering::Relaxed);
         let cost = self.total_cost_microdollars.load(Ordering::Relaxed);
         let dollars = cost as f64 / 1_000_000.0;
-        format!(
-            "Tokens: {input} in / {output} out | Cost: ${dollars:.4}"
-        )
+        format!("Tokens: {input} in / {output} out | Cost: ${dollars:.4}")
     }
 }
 
