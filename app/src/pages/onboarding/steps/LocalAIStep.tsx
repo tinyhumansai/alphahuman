@@ -71,7 +71,7 @@ const LocalAIStep = ({ onNext, onBack }: LocalAIStepProps) => {
 
       <button
         onClick={handleConsent}
-        className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10 mb-3">
+        className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
         Use Local Models
       </button>
     </div>

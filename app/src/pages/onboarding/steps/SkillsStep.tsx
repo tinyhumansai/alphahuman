@@ -163,22 +163,12 @@ const SkillsStep = ({ onComplete, onBack }: SkillsStepProps) => {
 
       {error && <p className="text-coral-400 text-sm mb-3 text-center">{error}</p>}
 
-      <div className="flex gap-2">
-        {onBack && (
-          <button
-            onClick={onBack}
-            disabled={loading}
-            className="py-2.5 px-4 text-sm font-medium rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors disabled:opacity-60">
-            Back
-          </button>
-        )}
-        <button
-          onClick={handleFinish}
-          disabled={loading}
-          className="btn-primary flex-1 py-2.5 text-sm font-medium rounded-xl disabled:opacity-60 disabled:cursor-not-allowed">
-          {loading ? 'Finishing...' : 'Finish Setup'}
-        </button>
-      </div>
+      <button
+        onClick={handleFinish}
+        disabled={loading}
+        className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
+        {loading ? 'Loading...' : 'Continue'}
+      </button>
 
       {setupModalOpen && activeSkillId && (
         <SkillSetupModal
