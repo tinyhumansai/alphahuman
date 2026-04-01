@@ -1324,6 +1324,33 @@ export async function openhumanLocalAiTts(
   });
 }
 
+export interface LocalAiChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface LocalAiChatResult {
+  result: string;
+}
+
+/**
+ * Multi-turn chat completion via the local Ollama model.
+ * Only callable when local AI is in "ready" state.
+ * Does NOT hit the cloud API — zero billed token cost.
+ *
+ * @param messages  Full conversation history including the latest user turn.
+ * @param maxTokens Optional cap on output tokens (defaults to model max).
+ */
+export async function openhumanLocalAiChat(
+  messages: LocalAiChatMessage[],
+  maxTokens?: number
+): Promise<CommandResponse<string>> {
+  return await callCoreRpc<CommandResponse<string>>({
+    method: 'openhuman.local_ai_chat',
+    params: { messages, max_tokens: maxTokens },
+  });
+}
+
 export async function openhumanLocalAiAssetsStatus(): Promise<
   CommandResponse<LocalAiAssetsStatus>
 > {

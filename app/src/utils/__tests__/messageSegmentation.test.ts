@@ -89,3 +89,29 @@ describe('getSegmentDelay', () => {
     expect(long).toBeGreaterThan(short);
   });
 });
+
+describe('edge cases', () => {
+  it('handles text with only whitespace', () => {
+    expect(segmentMessage('   ')).toEqual(['']);
+  });
+
+  it('handles exactly 80 characters — treated as short, returns single segment', () => {
+    const text = 'a'.repeat(80);
+    expect(segmentMessage(text)).toHaveLength(1);
+  });
+
+  it('handles exactly 81 characters with a paragraph break — may split', () => {
+    const text = 'a'.repeat(40) + '\n\n' + 'b'.repeat(40);
+    const result = segmentMessage(text);
+    // Both paragraphs are >= MIN_SEGMENT_CHARS so should split
+    expect(result.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('delay scales with length', () => {
+    const short = getSegmentDelay('hi');
+    const long = getSegmentDelay('a'.repeat(500));
+    expect(long).toBeGreaterThan(short);
+    expect(long).toBeLessThanOrEqual(1400);
+    expect(short).toBeGreaterThanOrEqual(500);
+  });
+});

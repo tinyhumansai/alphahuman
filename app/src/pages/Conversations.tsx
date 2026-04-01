@@ -32,8 +32,10 @@ import {
   isTauri,
   openhumanAutocompleteAccept,
   openhumanAutocompleteCurrent,
+  openhumanLocalAiChat,
   openhumanLocalAiTranscribeBytes,
   openhumanLocalAiTts,
+  type LocalAiChatMessage,
 } from '../utils/tauriCommands';
 import { getSegmentDelay, segmentMessage } from '../utils/messageSegmentation';
 
@@ -283,10 +285,7 @@ const Conversations = () => {
   useEffect(() => {
     if (!rustChat || socketStatus !== 'connected') return;
 
-    let cleanup: (() => void) | null = null;
-    let mounted = true;
-
-    subscribeChatEvents({
+    const cleanup = subscribeChatEvents({
       onToolCall: (event: ChatToolCallEvent) => {
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
@@ -432,23 +431,52 @@ const Conversations = () => {
           dispatch(setActiveThread(null));
         }
       },
-    }).then(fn => {
-      if (mounted) cleanup = fn;
     });
 
-    return () => {
-      mounted = false;
-      cleanup?.();
-    };
+    return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rustChat, socketStatus]);
+
+  /**
+   * Segment a complete response string and dispatch each segment as a
+   * separate message bubble with a typing pause between them.
+   * Local-model-only path — no cloud API calls.
+   */
+  const deliverLocalResponse = async (fullResponse: string, threadId: string) => {
+    const segments = segmentMessage(fullResponse);
+
+    if (segments.length <= 1) {
+      dispatch(addInferenceResponse({ content: fullResponse, threadId }));
+      return;
+    }
+
+    setIsDelivering(true);
+    deliveryActiveRef.current = true;
+
+    for (let i = 0; i < segments.length; i++) {
+      if (!deliveryActiveRef.current) break;
+
+      if (i > 0) {
+        await new Promise<void>(resolve =>
+          setTimeout(resolve, getSegmentDelay(segments[i - 1]))
+        );
+      }
+
+      if (!deliveryActiveRef.current) break;
+
+      dispatch(addInferenceResponse({ content: segments[i], threadId }));
+    }
+
+    deliveryActiveRef.current = false;
+    setIsDelivering(false);
+  };
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
     const trimmed = normalized.trim();
 
     if (!trimmed || !selectedThreadId || isSending) return;
-    if (socketStatus !== 'connected') {
+    if (!isLocalModelActiveRef.current && socketStatus !== 'connected') {
       setSendError('Realtime socket is not connected.');
       return;
     }
@@ -476,6 +504,53 @@ const Conversations = () => {
     setToolTimelineByThread(prev => ({ ...prev, [sendingThreadId]: [] }));
     dispatch(setActiveThread(sendingThreadId));
 
+    // ── Local Ollama path ────────────────────────────────────────────────────
+    // When a local model is ready, bypass the cloud socket entirely.
+    // Zero cloud tokens consumed on this path.
+    if (isLocalModelActiveRef.current) {
+      try {
+        // Build message history: convert stored messages + the new user turn
+        const storedMessages = (store.getState() as {
+          thread: { messagesByThreadId: Record<string, import('../types/thread').ThreadMessage[]> };
+        }).thread.messagesByThreadId[sendingThreadId] ?? [];
+
+        const history: LocalAiChatMessage[] = storedMessages
+          .filter(m => m.sender === 'user' || m.sender === 'agent')
+          .map(m => ({
+            role: m.sender === 'user' ? 'user' as const : 'assistant' as const,
+            content: m.content,
+          }));
+
+        console.debug('[conversations:local] sending to local model', {
+          historyLength: history.length,
+          threadId: sendingThreadId,
+        });
+
+        const response = await openhumanLocalAiChat(history);
+        const reply = response.result?.trim() ?? '';
+
+        if (!reply) {
+          throw new Error('Local model returned an empty response.');
+        }
+
+        await deliverLocalResponse(reply, sendingThreadId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setSendError(msg);
+        dispatch(
+          addInferenceResponse({
+            content: 'Local model error — please try again.',
+            threadId: sendingThreadId,
+          })
+        );
+      } finally {
+        setIsSending(false);
+        dispatch(setActiveThread(null));
+      }
+      return;
+    }
+
+    // ── Cloud socket path (unchanged) ────────────────────────────────────────
     try {
       await chatSend({ threadId: sendingThreadId, message: trimmed, model: selectedModel });
 
