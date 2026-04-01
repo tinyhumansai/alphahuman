@@ -836,7 +836,29 @@ export interface RuntimeFlags {
   log_prompts: boolean;
 }
 
-export const DEFAULT_WORKSPACE_ONBOARDING_FLAG = '.skip_onboarding';
+/** Read onboarding_completed from core config. */
+export async function getOnboardingCompleted(): Promise<boolean> {
+  if (!isTauri()) return false;
+  const res = await callCoreRpc<boolean | { result: boolean }>({
+    method: 'openhuman.config_get_onboarding_completed',
+  });
+  // RpcOutcome may wrap value in { result, logs } when logs are present
+  if (typeof res === 'boolean') return res;
+  if (res && typeof res === 'object' && 'result' in res) return res.result;
+  return false;
+}
+
+/** Write onboarding_completed to core config. */
+export async function setOnboardingCompleted(value: boolean): Promise<boolean> {
+  if (!isTauri()) return false;
+  const res = await callCoreRpc<boolean | { result: boolean }>({
+    method: 'openhuman.config_set_onboarding_completed',
+    params: { value },
+  });
+  if (typeof res === 'boolean') return res;
+  if (res && typeof res === 'object' && 'result' in res) return res.result;
+  return false;
+}
 
 export interface LocalAiStatus {
   state: string;
@@ -1105,31 +1127,6 @@ export async function openhumanGetRuntimeFlags(): Promise<CommandResponse<Runtim
   }
   return await callCoreRpc<CommandResponse<RuntimeFlags>>({
     method: 'openhuman.get_runtime_flags',
-  });
-}
-
-export async function openhumanWorkspaceOnboardingFlagExists(
-  flagName = DEFAULT_WORKSPACE_ONBOARDING_FLAG
-): Promise<boolean> {
-  if (!isTauri()) {
-    return false;
-  }
-  return await callCoreRpc<boolean>({
-    method: 'openhuman.workspace_onboarding_flag_exists',
-    params: { flag_name: flagName },
-  });
-}
-
-export async function openhumanWorkspaceOnboardingFlagSet(
-  value: boolean,
-  flagName = DEFAULT_WORKSPACE_ONBOARDING_FLAG
-): Promise<boolean> {
-  if (!isTauri()) {
-    return false;
-  }
-  return await callCoreRpc<boolean>({
-    method: 'openhuman.workspace_onboarding_flag_set',
-    params: { flag_name: flagName, value },
   });
 }
 

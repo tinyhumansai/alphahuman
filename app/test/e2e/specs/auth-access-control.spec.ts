@@ -29,6 +29,7 @@ import { waitForApp, waitForAppReady, waitForAuthBootstrap } from '../helpers/ap
 import { triggerAuthDeepLink } from '../helpers/deep-link-helpers';
 import {
   clickButton,
+  clickNativeButton,
   clickText,
   dumpAccessibilityTree,
   hasAppChrome,

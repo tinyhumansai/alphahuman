@@ -23,6 +23,7 @@ import { waitForApp } from '../helpers/app-helpers';
 import { triggerAuthDeepLink } from '../helpers/deep-link-helpers';
 import {
   clickButton,
+  clickNativeButton,
   clickText,
   dumpAccessibilityTree,
   textExists,

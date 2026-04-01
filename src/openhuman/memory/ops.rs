@@ -106,6 +106,8 @@ fn memory_kind_label(kind: &MemoryItemKind) -> &'static str {
     match kind {
         MemoryItemKind::Document => "document",
         MemoryItemKind::Kv => "kv",
+        MemoryItemKind::Episodic => "episodic",
+        MemoryItemKind::Event => "event",
     }
 }
 
@@ -142,6 +144,7 @@ fn chunk_metadata(hit: &NamespaceMemoryHit) -> Value {
             "keyword_relevance": hit.score_breakdown.keyword_relevance,
             "vector_similarity": hit.score_breakdown.vector_similarity,
             "graph_relevance": hit.score_breakdown.graph_relevance,
+            "episodic_relevance": hit.score_breakdown.episodic_relevance,
             "freshness": hit.score_breakdown.freshness,
             "final_score": hit.score_breakdown.final_score,
         }
@@ -233,6 +236,12 @@ fn format_llm_context_message(query: Option<&str>, hits: &[NamespaceMemoryHit]) 
                 format!("{title}: {}", hit.content.trim())
             }
             MemoryItemKind::Kv => format!("[kv:{}] {}", hit.key, hit.content.trim()),
+            MemoryItemKind::Episodic => {
+                format!("[episodic:{}] {}", hit.key, hit.content.trim())
+            }
+            MemoryItemKind::Event => {
+                format!("[event:{}] {}", hit.key, hit.content.trim())
+            }
         };
         parts.push(summary);
 
@@ -1013,6 +1022,7 @@ mod tests {
                 keyword_relevance: 0.3,
                 vector_similarity: 0.4,
                 graph_relevance: 0.9,
+                episodic_relevance: 0.0,
                 freshness: 0.0,
                 final_score: 0.92,
             },
@@ -1059,6 +1069,7 @@ mod tests {
                 keyword_relevance: 0.3,
                 vector_similarity: 0.4,
                 graph_relevance: 0.9,
+                episodic_relevance: 0.0,
                 freshness: 0.0,
                 final_score: 0.92,
             },
