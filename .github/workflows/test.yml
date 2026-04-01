@@ -186,11 +186,31 @@ jobs:
           # Ensure XDG dirs exist for deep-link URL scheme registration on Linux
           mkdir -p ~/.local/share/applications
           export RUST_BACKTRACE=1
-          yarn workspace openhuman-app test:e2e:all:flows || {
-            echo "=== tauri-driver log ==="
-            cat /tmp/tauri-driver-e2e-*.log 2>/dev/null || echo "No tauri-driver logs"
+          cd app
+          FAILED=0
+          for spec in \
+            test/e2e/specs/login-flow.spec.ts \
+            test/e2e/specs/smoke.spec.ts \
+            test/e2e/specs/navigation.spec.ts \
+            test/e2e/specs/tauri-commands.spec.ts \
+            test/e2e/specs/auth-access-control.spec.ts \
+            test/e2e/specs/telegram-flow.spec.ts \
+            test/e2e/specs/gmail-flow.spec.ts \
+            test/e2e/specs/notion-flow.spec.ts \
+            test/e2e/specs/card-payment-flow.spec.ts \
+            test/e2e/specs/crypto-payment-flow.spec.ts; do
+            SPEC_NAME=$(basename "$spec" .spec.ts)
+            echo "=== Running $SPEC_NAME ==="
+            bash scripts/e2e-run-spec.sh "$spec" "$SPEC_NAME" || {
+              echo "FAILED: $SPEC_NAME"
+              cat /tmp/tauri-driver-e2e-${SPEC_NAME}.log 2>/dev/null || true
+              FAILED=1
+            }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "Some E2E specs failed"
             exit 1
-          }
+          fi
 
 #   e2e-macos:
 #     name: E2E (macOS / Appium)
