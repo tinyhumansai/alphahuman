@@ -90,18 +90,26 @@ pub fn voice_schemas(function: &str) -> ControllerSchema {
         "voice_transcribe" => ControllerSchema {
             namespace: "voice",
             function: "transcribe",
-            description: "Transcribe audio from a file path using whisper.cpp, with optional LLM cleanup.",
+            description:
+                "Transcribe audio from a file path using whisper.cpp, with optional LLM cleanup.",
             inputs: vec![
                 required_string("audio_path", "Path to the audio file."),
                 optional_string("context", "Conversation context for LLM post-processing."),
-                optional_bool("skip_cleanup", "Skip LLM cleanup, return raw whisper output."),
+                optional_bool(
+                    "skip_cleanup",
+                    "Skip LLM cleanup, return raw whisper output.",
+                ),
             ],
-            outputs: vec![json_output("speech", "Transcription result with text and raw_text.")],
+            outputs: vec![json_output(
+                "speech",
+                "Transcription result with text and raw_text.",
+            )],
         },
         "voice_transcribe_bytes" => ControllerSchema {
             namespace: "voice",
             function: "transcribe_bytes",
-            description: "Transcribe audio from raw bytes using whisper.cpp, with optional LLM cleanup.",
+            description:
+                "Transcribe audio from raw bytes using whisper.cpp, with optional LLM cleanup.",
             inputs: vec![
                 FieldSchema {
                     name: "audio_bytes",
@@ -111,9 +119,15 @@ pub fn voice_schemas(function: &str) -> ControllerSchema {
                 },
                 optional_string("extension", "Audio file extension (default: webm)."),
                 optional_string("context", "Conversation context for LLM post-processing."),
-                optional_bool("skip_cleanup", "Skip LLM cleanup, return raw whisper output."),
+                optional_bool(
+                    "skip_cleanup",
+                    "Skip LLM cleanup, return raw whisper output.",
+                ),
             ],
-            outputs: vec![json_output("speech", "Transcription result with text and raw_text.")],
+            outputs: vec![json_output(
+                "speech",
+                "Transcription result with text and raw_text.",
+            )],
         },
         "voice_tts" => ControllerSchema {
             namespace: "voice",

@@ -37,10 +37,7 @@ pub fn load_engine(handle: &WhisperEngineHandle, model_path: &Path) -> Result<()
     );
 
     if !model_path.is_file() {
-        return Err(format!(
-            "whisper model not found: {}",
-            model_path.display()
-        ));
+        return Err(format!("whisper model not found: {}", model_path.display()));
     }
 
     let params = WhisperContextParameters::default();
@@ -168,13 +165,9 @@ pub fn transcribe_wav_file(
     wav_path: &Path,
     language: Option<&str>,
 ) -> Result<String, String> {
-    debug!(
-        "{LOG_PREFIX} reading WAV file: {}",
-        wav_path.display()
-    );
+    debug!("{LOG_PREFIX} reading WAV file: {}", wav_path.display());
 
-    let raw_bytes = std::fs::read(wav_path)
-        .map_err(|e| format!("failed to read WAV file: {e}"))?;
+    let raw_bytes = std::fs::read(wav_path).map_err(|e| format!("failed to read WAV file: {e}"))?;
 
     let audio_f32 = decode_wav_to_f32(&raw_bytes)?;
     transcribe_pcm_f32(handle, &audio_f32, language)
@@ -201,12 +194,9 @@ fn decode_wav_to_f32(data: &[u8]) -> Result<Vec<f32>, String> {
 
     while pos + 8 <= data.len() {
         let chunk_id = &data[pos..pos + 4];
-        let chunk_size = u32::from_le_bytes([
-            data[pos + 4],
-            data[pos + 5],
-            data[pos + 6],
-            data[pos + 7],
-        ]) as usize;
+        let chunk_size =
+            u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+                as usize;
 
         if chunk_id == b"fmt " {
             if chunk_size < 16 || pos + 8 + chunk_size > data.len() {

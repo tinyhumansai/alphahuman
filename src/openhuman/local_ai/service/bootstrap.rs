@@ -176,9 +176,7 @@ impl LocalAiService {
                     }
                 }
             } else {
-                log::debug!(
-                    "[local_ai] STT model not found, whisper in-process not loaded"
-                );
+                log::debug!("[local_ai] STT model not found, whisper in-process not loaded");
             }
         }
 
