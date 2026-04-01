@@ -11,7 +11,7 @@
  *
  *   Phase 2 — Onboarding steps (6 steps in Onboarding.tsx):
  *     Step 0: WelcomeStep       — "Continue"
- *     Step 1: LocalAIStep       — "Setup later" or "Use Local Models"
+ *     Step 1: LocalAIStep       — "Use Local Models"
  *     Step 2: ScreenPermissions — "Continue Without Permission" or "Continue"
  *     Step 3: ToolsStep         — "Continue"
  *     Step 4: SkillsStep        — "Finish Setup"
@@ -125,11 +125,16 @@ async function getReduxAuthState() {
   }
 }
 
+// Track whether onboarding was walked through in the UI so Phase 3 can
+// decide whether to require the onboarding-complete backend call.
+let hadOnboardingWalkthrough = false;
+
 describe('Login flow — complete with mock data (Linux)', () => {
   before(async () => {
     await startMockServer();
     await waitForApp();
     clearRequestLog();
+    hadOnboardingWalkthrough = false;
   });
 
   after(async () => {
@@ -205,7 +210,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
   //
   // Steps in order:
   //   0: WelcomeStep       — "Continue" button
-  //   1: LocalAIStep       — "Setup later" (skip) or "Use Local Models"
+  //   1: LocalAIStep       — "Use Local Models"
   //   2: ScreenPermissions — "Continue Without Permission" or "Continue"
   //   3: ToolsStep         — "Continue" button
   //   4: SkillsStep        — "Finish Setup" button (fires onboarding-complete)
@@ -218,7 +223,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
     // Real onboarding step markers
     const onboardingCandidates = [
       'Welcome',             // WelcomeStep heading
-      'Set up later',        // Onboarding defer button
+      'Skip',                // Onboarding defer button (top-right)
       'Continue',            // WelcomeStep CTA
     ];
     const homeCandidates = ['Home', 'Skills', 'Conversations'];
@@ -241,13 +246,17 @@ describe('Login flow — complete with mock data (Linux)', () => {
   it('walk through onboarding steps (if overlay is visible)', async () => {
     // Check if we're on the WelcomeStep or any onboarding step
     const onboardingVisible = (await textExists('Welcome')) ||
-      (await textExists('Set up later')) ||
+      (await textExists('Skip')) ||
+      (await textExists('Use Local Models')) ||
       (await textExists('Continue'));
 
     if (!onboardingVisible) {
       console.log('[LoginFlow] Onboarding overlay not visible — skipping step walkthrough');
+      hadOnboardingWalkthrough = false;
       return;
     }
+
+    hadOnboardingWalkthrough = true;
 
     // Step 0: WelcomeStep — click "Continue"
     if (await textExists('Welcome')) {
@@ -256,24 +265,15 @@ describe('Login flow — complete with mock data (Linux)', () => {
       await browser.pause(2_000);
     }
 
-    // Step 1: LocalAIStep — click "Setup later" to skip Ollama install
+    // Step 1: LocalAIStep — only has "Use Local Models" button now
     {
       const clicked = await clickFirstMatch(
-        ['Setup later', 'Use Local Models', 'Continue'],
+        ['Use Local Models', 'Continue'],
         10_000
       );
       if (clicked) {
         console.log(`[LoginFlow] LocalAIStep: clicked "${clicked}"`);
         await browser.pause(2_000);
-
-        // If we clicked "Setup later", LocalAIStep shows "Ollama Skipped" with "Continue"
-        if (clicked === 'Setup later') {
-          const continueClicked = await clickFirstMatch(['Continue'], 5_000);
-          if (continueClicked) {
-            console.log('[LoginFlow] LocalAIStep (skipped): clicked "Continue"');
-            await browser.pause(2_000);
-          }
-        }
       }
     }
 
@@ -349,6 +349,13 @@ describe('Login flow — complete with mock data (Linux)', () => {
   // -----------------------------------------------------------------------
 
   it('mock server received the onboarding-complete call (if onboarding was walked)', async () => {
+    if (!hadOnboardingWalkthrough) {
+      console.log(
+        '[LoginFlow] Onboarding was not walked (overlay not visible) — skipping assertion'
+      );
+      return;
+    }
+
     const log = getRequestLog();
     // The app calls POST /settings/onboarding-complete (via userApi.onboardingComplete)
     // The mock may handle it at /telegram/settings/onboarding-complete or /settings/onboarding-complete
@@ -359,25 +366,11 @@ describe('Login flow — complete with mock data (Linux)', () => {
           r.url.includes('/telegram/settings/onboarding-complete'))
     );
     if (!call) {
-      const hadOnboarding = log.some(
-        r =>
-          r.url.includes('onboarding') ||
-          r.url.includes('Welcome') ||
-          r.url.includes('Install Skills')
-      );
-      if (!hadOnboarding) {
-        console.log(
-          '[LoginFlow] Onboarding was not walked (overlay not visible) — skipping assertion'
-        );
-        return;
-      }
+      console.log('[LoginFlow] Onboarding was walked but onboarding-complete call missing.');
       console.log('[LoginFlow] Request log:', JSON.stringify(log, null, 2));
     }
-    // If onboarding was walked, the call should exist
-    if (call) {
-      console.log('[LoginFlow] onboarding-complete call verified');
-    }
     expect(call).toBeDefined();
+    console.log('[LoginFlow] onboarding-complete call verified');
   });
 
   it('app navigated to Home page after onboarding', async () => {
@@ -407,63 +400,91 @@ describe('Login flow — complete with mock data (Linux)', () => {
   // -----------------------------------------------------------------------
 
   it('expired token does not navigate to home', async () => {
-    // Clear state from previous test
+    // Clear auth state so we're starting unauthenticated
     clearRequestLog();
     setMockBehavior('token', 'expired');
-
-    // Navigate away from home first (simulate fresh state)
-    try {
-      await browser.execute(() => {
-        window.location.hash = '/';
-      });
-    } catch {
-      // may fail if page is navigating
-    }
+    await browser.execute(() => {
+      localStorage.removeItem('persist:auth');
+      window.location.hash = '/';
+    });
     await browser.pause(2_000);
 
     // Trigger deep link with the expired token behavior
     await triggerDeepLink('openhuman://auth?token=expired-test-token');
     await browser.pause(5_000);
 
-    // Verify the consume call returned 401
+    // Verify the consume call was made (mock returns 401 for expired tokens)
     const call = await waitForRequest('POST', '/telegram/login-tokens/', 10_000);
     expect(call).toBeDefined();
     console.log('[LoginFlow] Expired token: consume call made (mock returns 401)');
 
-    // The app should NOT be on the home page
+    // Assert the app is NOT on the authenticated home page
     const homeCandidates = ['Good morning', 'Good afternoon', 'Good evening', 'Message OpenHuman'];
     const onHome = await waitForAnyText(homeCandidates, 5_000);
+    expect(onHome).toBeNull();
+    console.log('[LoginFlow] Expired token: home page not reached (correct)');
 
-    // If app fell back to home from previous session, check request log for 401 handling
-    if (onHome) {
-      console.log('[LoginFlow] Expired token: app remained on home from previous session (acceptable if token was rejected)');
-    } else {
-      console.log('[LoginFlow] Expired token: app did not navigate to home (correct)');
-    }
+    // Assert the app shows unauthenticated UI (welcome/landing page)
+    const welcomeCandidates = ['Welcome', 'OpenHuman', 'Sign in', 'Get Started'];
+    const onWelcome = await waitForAnyText(welcomeCandidates, 5_000);
+    console.log(`[LoginFlow] Expired token: unauthenticated UI visible: ${onWelcome ?? 'none'}`);
 
-    // Reset mock behavior for next test
+    // Assert auth token was not persisted
+    const hasToken = await browser.execute(() => {
+      const persisted = localStorage.getItem('persist:auth');
+      if (!persisted) return false;
+      try {
+        const parsed = JSON.parse(persisted);
+        const token = typeof parsed.token === 'string'
+          ? parsed.token.replace(/^"|"$/g, '')
+          : null;
+        return !!token && token !== 'null';
+      } catch { return false; }
+    });
+    expect(hasToken).toBe(false);
+    console.log('[LoginFlow] Expired token: no auth token in localStorage (correct)');
+
     resetMockBehavior();
   });
 
   it('invalid token does not navigate to home', async () => {
+    // Clear auth state so we're starting unauthenticated
     clearRequestLog();
     setMockBehavior('token', 'invalid');
-
-    try {
-      await browser.execute(() => {
-        window.location.hash = '/';
-      });
-    } catch {
-      // may fail if page is navigating
-    }
+    await browser.execute(() => {
+      localStorage.removeItem('persist:auth');
+      window.location.hash = '/';
+    });
     await browser.pause(2_000);
 
     await triggerDeepLink('openhuman://auth?token=invalid-test-token');
     await browser.pause(5_000);
 
+    // Verify the consume call was made (mock returns 401 for invalid tokens)
     const call = await waitForRequest('POST', '/telegram/login-tokens/', 10_000);
     expect(call).toBeDefined();
     console.log('[LoginFlow] Invalid token: consume call made (mock returns 401)');
+
+    // Assert the app is NOT on the authenticated home page
+    const homeCandidates = ['Good morning', 'Good afternoon', 'Good evening', 'Message OpenHuman'];
+    const onHome = await waitForAnyText(homeCandidates, 5_000);
+    expect(onHome).toBeNull();
+    console.log('[LoginFlow] Invalid token: home page not reached (correct)');
+
+    // Assert auth token was not persisted
+    const hasToken = await browser.execute(() => {
+      const persisted = localStorage.getItem('persist:auth');
+      if (!persisted) return false;
+      try {
+        const parsed = JSON.parse(persisted);
+        const token = typeof parsed.token === 'string'
+          ? parsed.token.replace(/^"|"$/g, '')
+          : null;
+        return !!token && token !== 'null';
+      } catch { return false; }
+    });
+    expect(hasToken).toBe(false);
+    console.log('[LoginFlow] Invalid token: no auth token in localStorage (correct)');
 
     resetMockBehavior();
   });
@@ -473,8 +494,14 @@ describe('Login flow — complete with mock data (Linux)', () => {
   // -----------------------------------------------------------------------
 
   it('bypass auth deep link sets token directly without consume call', async () => {
+    // Clear auth state so we start unauthenticated — prevents stale session
     clearRequestLog();
     resetMockBehavior();
+    await browser.execute(() => {
+      localStorage.removeItem('persist:auth');
+      window.location.hash = '/';
+    });
+    await browser.pause(2_000);
 
     const bypassJwt = buildBypassJwt('e2e-bypass-user');
 
@@ -484,19 +511,14 @@ describe('Login flow — complete with mock data (Linux)', () => {
     );
     await browser.pause(5_000);
 
-    // Verify NO consume call was made (bypass skips it)
+    // Assert NO consume call was made (bypass skips it)
     const consumeCall = getRequestLog().find(
       r => r.method === 'POST' && r.url.includes('/telegram/login-tokens/')
     );
-
-    if (consumeCall) {
-      console.log('[LoginFlow] Bypass auth: unexpected consume call found');
-    } else {
-      console.log('[LoginFlow] Bypass auth: no consume call (correct — token set directly)');
-    }
     expect(consumeCall).toBeUndefined();
+    console.log('[LoginFlow] Bypass auth: no consume call (correct — token set directly)');
 
-    // Verify the app navigated to home
+    // Assert the app navigated to home (post-login UI marker)
     const homeCandidates = [
       'Good morning',
       'Good afternoon',
@@ -505,30 +527,24 @@ describe('Login flow — complete with mock data (Linux)', () => {
       'Home',
     ];
     const foundHome = await waitForAnyText(homeCandidates, 15_000);
-    if (foundHome) {
-      console.log(`[LoginFlow] Bypass auth: home reached with "${foundHome}"`);
-    } else {
-      console.log('[LoginFlow] Bypass auth: home not reached (may need onboarding)');
-    }
+    expect(foundHome).not.toBeNull();
+    console.log(`[LoginFlow] Bypass auth: home reached with "${foundHome}"`);
 
-    // Verify Redux token was set via browser.execute
-    try {
-      const tokenSet = await browser.execute(() => {
-        const persisted = localStorage.getItem('persist:auth');
-        if (!persisted) return false;
-        try {
-          const parsed = JSON.parse(persisted);
-          const token = typeof parsed.token === 'string'
-            ? parsed.token.replace(/^"|"$/g, '')
-            : null;
-          return !!token;
-        } catch {
-          return false;
-        }
-      });
-      console.log(`[LoginFlow] Bypass auth: Redux token present=${tokenSet}`);
-    } catch {
-      console.log('[LoginFlow] Bypass auth: could not verify Redux token');
-    }
+    // Assert Redux token was persisted in localStorage
+    const tokenSet = await browser.execute(() => {
+      const persisted = localStorage.getItem('persist:auth');
+      if (!persisted) return false;
+      try {
+        const parsed = JSON.parse(persisted);
+        const token = typeof parsed.token === 'string'
+          ? parsed.token.replace(/^"|"$/g, '')
+          : null;
+        return !!token && token !== 'null';
+      } catch {
+        return false;
+      }
+    });
+    expect(tokenSet).toBe(true);
+    console.log('[LoginFlow] Bypass auth: Redux token present in localStorage');
   });
 });

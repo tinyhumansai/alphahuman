@@ -142,6 +142,21 @@ export async function navigateToBilling() {
   });
   console.log(`[E2E] Billing fallback: ${clicked}`);
   await browser.pause(3_000);
+
+  // Verify billing actually loaded after fallback
+  const finalCheck = (await textExists('Current Plan')) ||
+    (await textExists('FREE')) ||
+    (await textExists('Upgrade'));
+  if (!finalCheck) {
+    const finalHash = await browser.execute(() => window.location.hash);
+    const tree = await dumpAccessibilityTree();
+    console.log(`[E2E] Billing verification failed after fallback. Hash: ${finalHash}`);
+    console.log(`[E2E] Accessibility tree:\n`, tree.slice(0, 4000));
+    throw new Error(
+      `navigateToBilling: billing markers not found after fallback (hash: ${finalHash})`
+    );
+  }
+  console.log('[E2E] Billing page loaded (after fallback)');
 }
 
 export async function navigateToSkills() {
@@ -163,15 +178,18 @@ export async function navigateToConversations() {
 /**
  * Walk through the real onboarding steps:
  *   Step 0: WelcomeStep       — "Continue"
- *   Step 1: LocalAIStep       — "Setup later" → "Continue" (skip Ollama)
+ *   Step 1: LocalAIStep       — "Use Local Models"
  *   Step 2: ScreenPermissions — "Continue Without Permission"
  *   Step 3: ToolsStep         — "Continue"
  *   Step 4: SkillsStep        — "Finish Setup" (fires onboarding-complete)
  *   Step 5: MnemonicStep      — checkbox + "Finish Setup"
  */
 export async function walkOnboarding(logPrefix = '[E2E]') {
+  // Detect onboarding overlay. The Onboarding.tsx parent renders a "Skip" defer
+  // button (top-right), and step 0 is WelcomeStep with "Continue".
   const onboardingVisible = (await textExists('Welcome')) ||
-    (await textExists('Set up later')) ||
+    (await textExists('Skip')) ||
+    (await textExists('Use Local Models')) ||
     (await textExists('Continue'));
 
   if (!onboardingVisible) {
@@ -187,19 +205,12 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
     await browser.pause(2_000);
   }
 
-  // Step 1: LocalAIStep
+  // Step 1: LocalAIStep — only has "Use Local Models" button now (no skip phase)
   {
-    const clicked = await clickFirstMatch(['Setup later', 'Use Local Models', 'Continue'], 10_000);
+    const clicked = await clickFirstMatch(['Use Local Models', 'Continue'], 10_000);
     if (clicked) {
       console.log(`${logPrefix} LocalAIStep: clicked "${clicked}"`);
       await browser.pause(2_000);
-      if (clicked === 'Setup later') {
-        const cont = await clickFirstMatch(['Continue'], 5_000);
-        if (cont) {
-          console.log(`${logPrefix} LocalAIStep (skipped): clicked "Continue"`);
-          await browser.pause(2_000);
-        }
-      }
     }
   }
 
@@ -260,7 +271,20 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
 // Full login flow
 // ---------------------------------------------------------------------------
 
-export async function performFullLogin(token = 'e2e-test-token', logPrefix = '[E2E]') {
+/**
+ * @param token          Deep link token string.
+ * @param logPrefix      Prefix for console log lines.
+ * @param postLoginVerifier  Optional async callback invoked after the Home page
+ *   is confirmed.  Receives `logPrefix` so it can log consistently.  If the
+ *   verifier throws, performFullLogin propagates the error — callers can use
+ *   this to assert that auth side-effects (e.g. token consume, profile fetch)
+ *   actually occurred rather than relying on UI alone.
+ */
+export async function performFullLogin(
+  token = 'e2e-test-token',
+  logPrefix = '[E2E]',
+  postLoginVerifier?: (logPrefix: string) => Promise<void>,
+) {
   await triggerAuthDeepLink(token);
   await waitForWindowVisible(25_000);
   await waitForWebView(15_000);
@@ -275,5 +299,10 @@ export async function performFullLogin(token = 'e2e-test-token', logPrefix = '[E
     console.log(`${logPrefix} Home page not reached after login. Tree:\n`, tree.slice(0, 4000));
     throw new Error('Full login did not reach Home page');
   }
+
+  if (postLoginVerifier) {
+    await postLoginVerifier(logPrefix);
+  }
+
   console.log(`${logPrefix} Home page confirmed: found "${homeText}"`);
 }

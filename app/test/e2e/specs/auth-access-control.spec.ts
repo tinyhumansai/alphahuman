@@ -16,7 +16,7 @@
  *
  * Onboarding steps (Onboarding.tsx — 6 steps):
  *   Step 0: WelcomeStep       — "Continue"
- *   Step 1: LocalAIStep       — "Setup later" → "Continue"
+ *   Step 1: LocalAIStep       — "Use Local Models"
  *   Step 2: ScreenPermissions — "Continue Without Permission"
  *   Step 3: ToolsStep         — "Continue"
  *   Step 4: SkillsStep        — "Finish Setup" (fires onboarding-complete)
@@ -29,7 +29,6 @@ import { waitForApp, waitForAppReady, waitForAuthBootstrap } from '../helpers/ap
 import { triggerAuthDeepLink } from '../helpers/deep-link-helpers';
 import {
   clickButton,
-  clickNativeButton,
   clickText,
   dumpAccessibilityTree,
   hasAppChrome,
@@ -38,6 +37,12 @@ import {
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
+import {
+  navigateToHome,
+  navigateToSettings,
+  navigateToBilling,
+  waitForHomePage,
+} from '../helpers/shared-flows';
 import {
   clearRequestLog,
   getRequestLog,
@@ -51,23 +56,7 @@ import {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-async function waitForHomePage(timeout = 15_000) {
-  const candidates = [
-    'Test',
-    'Good morning',
-    'Good afternoon',
-    'Good evening',
-    'Message OpenHuman',
-  ];
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    for (const text of candidates) {
-      if (await textExists(text)) return text;
-    }
-    await browser.pause(1_000);
-  }
-  return null;
-}
+// waitForHomePage imported from shared-flows
 
 async function waitForTextToDisappear(text, timeout = 10_000) {
   const deadline = Date.now() + timeout;
@@ -90,144 +79,56 @@ async function waitForRequest(method, urlFragment, timeout = 15_000) {
 }
 
 /**
- * Click the first matching text from a list of candidates.
- * Returns the clicked text or null if none found.
+ * Poll for the first matching text from candidates until timeout,
+ * then click it. Returns the clicked text or null if none found.
  */
 async function clickFirstMatch(candidates, timeout = 5_000) {
-  for (const text of candidates) {
-    if (await textExists(text)) {
-      await clickText(text, timeout);
-      return text;
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const text of candidates) {
+      if (await textExists(text)) {
+        await clickText(text, Math.max(deadline - Date.now(), 1_000));
+        return text;
+      }
     }
+    await browser.pause(500);
   }
   return null;
 }
 
-/**
- * Navigate via JS hash change. The sidebar nav buttons are icon-only
- * (no text content, just aria-label + SVG), so XPath text matching
- * and standard clicks fail on tauri-driver. Using window.location.hash
- * is the most reliable strategy.
- */
-async function navigateViaHash(hash) {
-  try {
-    await browser.execute((h) => { window.location.hash = h; }, hash);
-    await browser.pause(2_000);
-    const currentHash = await browser.execute(() => window.location.hash);
-    console.log(`[AuthAccess] Navigated to ${hash} (current: ${currentHash})`);
-  } catch (err) {
-    console.log(`[AuthAccess] Hash navigation to ${hash} failed:`, err);
-  }
-}
-
-/**
- * Click a sidebar nav button by aria-label via JS.
- * Fallback for cases where hash navigation doesn't trigger the right route.
- */
-async function clickNavByAriaLabel(label) {
-  try {
-    const clicked = await browser.execute((lbl) => {
-      const btn = document.querySelector(`button[aria-label="${lbl}"]`) as HTMLButtonElement;
-      if (btn) { btn.click(); return true; }
-      return false;
-    }, label);
-    if (clicked) {
-      console.log(`[AuthAccess] Clicked nav button [aria-label="${label}"] via JS`);
-      await browser.pause(2_000);
-    }
-    return clicked;
-  } catch {
-    return false;
-  }
-}
-
-async function navigateToHome() {
-  await navigateViaHash('/home');
-  const homeText = await waitForHomePage(10_000);
-  if (!homeText) {
-    await clickNavByAriaLabel('Home');
-    await waitForHomePage(10_000);
-  }
-}
-
-async function navigateToSettings() {
-  await navigateViaHash('/settings');
-}
-
-async function navigateToBilling() {
-  // Navigate directly to billing settings via hash route
-  await navigateViaHash('/settings/billing');
-
-  // Wait for billing page content to appear
-  const deadline = Date.now() + 15_000;
-  let hasBilling = false;
-  while (Date.now() < deadline) {
-    hasBilling = (await textExists('Current Plan')) ||
-      (await textExists('FREE')) ||
-      (await textExists('Upgrade'));
-    if (hasBilling) break;
-    await browser.pause(500);
-  }
-
-  if (hasBilling) {
-    console.log('[AuthAccess] Billing page loaded');
-    return;
-  }
-
-  // Debug: check where we actually are
-  const currentHash = await browser.execute(() => window.location.hash);
-  console.log(`[AuthAccess] Billing content not found. Current hash: ${currentHash}`);
-
-  // Fallback: go to settings home, then click Billing menu item via JS
-  await navigateViaHash('/settings');
-  await browser.pause(3_000);
-
-  const clicked = await browser.execute(() => {
-    // Settings menu items have title text — find and click "Billing & Usage"
-    const allText = document.querySelectorAll('*');
-    for (const el of allText) {
-      const text = el.textContent?.trim() || '';
-      if ((text === 'Billing & Usage' || text === 'Billing') && el.closest('button, [role="button"], a, [class*="MenuItem"]')) {
-        (el.closest('button, [role="button"], a, [class*="MenuItem"]') as HTMLElement).click();
-        return 'clicked';
-      }
-    }
-    // Try direct hash as last resort
-    window.location.hash = '/settings/billing';
-    return 'hash-fallback';
-  });
-  console.log(`[AuthAccess] Billing fallback: ${clicked}`);
-  await browser.pause(3_000);
-
-  // Final check
-  const finalCheck = (await textExists('Current Plan')) || (await textExists('Upgrade'));
-  if (!finalCheck) {
-    const tree = await dumpAccessibilityTree();
-    console.log('[AuthAccess] Billing still not found. Tree:\n', tree.slice(0, 4000));
-    throw new Error('Could not navigate to Billing panel');
-  }
-}
+// navigateViaHash, navigateToHome, navigateToSettings, navigateToBilling,
+// waitForHomePage are imported from shared-flows
 
 /**
  * Walk through the real onboarding steps (Onboarding.tsx — 6 steps).
  *
  *   Step 0: WelcomeStep       — "Continue"
- *   Step 1: LocalAIStep       — "Setup later" → "Continue" (skip Ollama)
+ *   Step 1: LocalAIStep       — "Use Local Models" (skip Ollama)
  *   Step 2: ScreenPermissions — "Continue Without Permission" or "Continue"
  *   Step 3: ToolsStep         — "Continue"
  *   Step 4: SkillsStep        — "Finish Setup" (fires onboarding-complete)
  *   Step 5: MnemonicStep      — checkbox + "Finish Setup"
  */
 async function walkOnboarding() {
-  const skipVisible = (await textExists('Welcome')) ||
-    (await textExists('Set up later')) ||
-    (await textExists('Continue'));
+  // Poll a few times before concluding onboarding never mounted
+  const markers = ['Welcome', 'Skip', 'Use Local Models', 'Continue'];
+  let onboardingVisible = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    for (const m of markers) {
+      if (await textExists(m)) {
+        onboardingVisible = true;
+        break;
+      }
+    }
+    if (onboardingVisible) break;
+    await browser.pause(500);
+  }
 
-  if (!skipVisible) {
+  if (!onboardingVisible) {
     console.log(
-      '[AuthAccess] Onboarding overlay not visible — skipping (portal not in accessibility tree)'
+      '[AuthAccess] Onboarding overlay not visible after polling — skipping'
     );
-    await browser.pause(3_000);
+    await browser.pause(2_000);
     return;
   }
 
@@ -238,22 +139,15 @@ async function walkOnboarding() {
     await browser.pause(2_000);
   }
 
-  // Step 1: LocalAIStep — click "Setup later" to skip Ollama, then "Continue"
+  // Step 1: LocalAIStep — only has "Use Local Models" button now
   {
     const clicked = await clickFirstMatch(
-      ['Setup later', 'Use Local Models', 'Continue'],
+      ['Use Local Models', 'Continue'],
       10_000
     );
     if (clicked) {
       console.log(`[AuthAccess] LocalAIStep: clicked "${clicked}"`);
       await browser.pause(2_000);
-      if (clicked === 'Setup later') {
-        const cont = await clickFirstMatch(['Continue'], 5_000);
-        if (cont) {
-          console.log('[AuthAccess] LocalAIStep (skipped): clicked "Continue"');
-          await browser.pause(2_000);
-        }
-      }
     }
   }
 
@@ -294,10 +188,11 @@ async function walkOnboarding() {
   }
 
   // Step 5: MnemonicStep — tick checkbox and click "Finish Setup"
+  // Note: Do NOT dump accessibility tree here — it would leak the recovery phrase.
   {
     const mnemonicVisible = await textExists('Your Recovery Phrase');
     if (mnemonicVisible) {
-      console.log('[AuthAccess] MnemonicStep: visible');
+      console.log('[AuthAccess] MnemonicStep: visible [tree dump redacted — contains recovery phrase]');
       try {
         await browser.execute(() => {
           const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
@@ -468,7 +363,12 @@ describe('Auth & Access Control', () => {
     setMockBehavior('planExpiry', new Date(Date.now() + 30 * 86400000).toISOString());
 
     if (hasWaiting) {
-      await waitForTextToDisappear('Waiting', 20_000);
+      const disappeared = await waitForTextToDisappear('Waiting', 20_000);
+      if (!disappeared) {
+        throw new Error(
+          '3.2.1 — "Waiting" spinner did not clear within 20s after mock plan was set to BASIC'
+        );
+      }
     }
 
     console.log('[AuthAccess] 3.2.1 — Upgrade purchase flow verified');
@@ -480,10 +380,12 @@ describe('Auth & Access Control', () => {
   // -------------------------------------------------------------------------
 
   it('3.3.1 — active subscription is displayed correctly', async () => {
-    // Mock was set to BASIC + planActive in 3.2.1.
-    // Navigate to billing — the BillingPanel fetches /payments/stripe/currentPlan on mount
-    // which returns the mock plan data (hasActiveSubscription: true).
+    // Seed mock state explicitly so this test is self-contained
+    setMockBehavior('plan', 'BASIC');
+    setMockBehavior('planActive', 'true');
+    setMockBehavior('planExpiry', new Date(Date.now() + 30 * 86400000).toISOString());
     clearRequestLog();
+
     await navigateToBilling();
 
     // Wait for billing data to load
@@ -504,24 +406,24 @@ describe('Auth & Access Control', () => {
 
     // "Manage" button appears when hasActiveSubscription is true in currentPlan response.
     const hasManage = await textExists('Manage');
-    console.log(`[AuthAccess] 3.3.1 — Manage button visible: ${hasManage}`);
+    expect(hasManage).toBe(true);
 
-    console.log('[AuthAccess] 3.3.1 — Active subscription display verified');
+    console.log('[AuthAccess] 3.3.1 — Active subscription display verified (Manage visible)');
   });
 
   it('3.3.3 — manage subscription opens Stripe portal', async () => {
-    // Still on billing page from previous test.
-    const hasManage = await textExists('Manage');
-    if (!hasManage) {
-      console.log(
-        '[AuthAccess] 3.3.3 — Manage button not visible (team subscription stale). Skipping portal click.'
-      );
-      resetMockBehavior();
-      await navigateToHome();
-      return;
-    }
-
+    // Seed mock state explicitly so this test is self-contained
+    setMockBehavior('plan', 'BASIC');
+    setMockBehavior('planActive', 'true');
+    setMockBehavior('planExpiry', new Date(Date.now() + 30 * 86400000).toISOString());
     clearRequestLog();
+
+    await navigateToBilling();
+    await browser.pause(3_000);
+
+    const hasManage = await textExists('Manage');
+    expect(hasManage).toBe(true);
+
     await clickText('Manage', 10_000);
     console.log('[AuthAccess] Clicked Manage button');
     await browser.pause(3_000);
@@ -599,37 +501,51 @@ describe('Auth & Access Control', () => {
     const hasConfirm =
       (await textExists('Confirm')) || (await textExists('Yes')) || (await textExists('Log Out'));
     if (hasConfirm) {
-      await browser.execute(() => {
-        const btns = document.querySelectorAll('button');
-        for (const btn of btns) {
-          const text = btn.textContent?.trim() || '';
-          if (text === 'Confirm' || text === 'Yes' || text === 'Log Out') {
-            btn.click();
-            return;
+      const confirmed = await browser.execute(() => {
+        const candidates = document.querySelectorAll('button, [role="button"], a');
+        for (const el of candidates) {
+          const text = el.textContent?.trim() || '';
+          const label = el.getAttribute('aria-label') || '';
+          if (['Confirm', 'Yes', 'Log Out'].some(t => text === t || label === t)) {
+            (el as HTMLElement).click();
+            return true;
           }
         }
+        return false;
       });
+      expect(confirmed).toBe(true);
+      console.log('[AuthAccess] Confirmation dialog: clicked');
       await browser.pause(2_000);
     }
 
-    // Verify we're on the Welcome/landing page (no auth)
+    // Verify we landed on the logged-out state — assert a specific marker
     await browser.pause(3_000);
-    const welcomeCandidates = ['Welcome', 'Sign in', 'Login', 'Get Started', 'OpenHuman'];
+    const welcomeCandidates = ['Welcome', 'Sign in', 'Login', 'Get Started'];
     let onWelcome = false;
     for (const text of welcomeCandidates) {
       if (await textExists(text)) {
-        console.log(`[AuthAccess] Welcome page confirmed: found "${text}"`);
+        console.log(`[AuthAccess] Logged-out state confirmed: found "${text}"`);
         onWelcome = true;
         break;
       }
     }
 
-    // Even if welcome text isn't found, the important thing is we're NOT on Home
-    const stillOnHome = await waitForHomePage(3_000);
-    if (onWelcome || !stillOnHome) {
-      console.log('[AuthAccess] Logout successful — no longer on Home page');
-    }
-    expect(onWelcome || !stillOnHome).toBe(true);
+    // Also verify auth token was cleared from localStorage
+    const hasToken = await browser.execute(() => {
+      const persisted = localStorage.getItem('persist:auth');
+      if (!persisted) return false;
+      try {
+        const parsed = JSON.parse(persisted);
+        const token = typeof parsed.token === 'string'
+          ? parsed.token.replace(/^"|"$/g, '')
+          : null;
+        return !!token && token !== 'null';
+      } catch { return false; }
+    });
+
+    // Must see logged-out UI or token must be cleared (or both)
+    expect(onWelcome || !hasToken).toBe(true);
+    console.log(`[AuthAccess] Logout verified: welcomeUI=${onWelcome}, tokenCleared=${!hasToken}`);
   });
 
   it('revoked session auto-logs out the user', async () => {

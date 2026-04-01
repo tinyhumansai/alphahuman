@@ -78,31 +78,7 @@ async function waitForTextToDisappear(text, timeout = 10_000) {
   return false;
 }
 
-/**
- * Wait until one of the candidate texts appears on screen (Home page markers).
- */
-async function waitForHomePage(timeout = 15_000) {
-  const candidates = [
-    'Test',
-    'Good morning',
-    'Good afternoon',
-    'Good evening',
-    'Message OpenHuman',
-    'Upgrade to Premium',
-  ];
-
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    for (const text of candidates) {
-      if (await textExists(text)) return text;
-    }
-    await browser.pause(1_000);
-  }
-  return null;
-}
-
-// clickFirstCandidate, navigateToHome, performFullLogin, waitForHomePage
-// are now imported from shared-flows
+// waitForHomePage, navigateToHome, performFullLogin are imported from shared-flows
 
 /**
  * Counter for unique JWT suffixes.
@@ -148,7 +124,10 @@ async function findNotionInUI() {
   // Check Intelligence page
   try {
     await navigateToIntelligence();
-    if (await textExists('Notion')) {
+    const hash = await browser.execute(() => window.location.hash);
+    if (!hash.includes('/intelligence')) {
+      console.log(`${LOG_PREFIX} Intelligence navigation failed (hash: ${hash})`);
+    } else if (await textExists('Notion')) {
       console.log(`${LOG_PREFIX} Notion found on Intelligence page`);
       return true;
     }
@@ -429,10 +408,16 @@ describe('Notion Integration Flows', () => {
       // Navigate to Intelligence page to see skills list
       try {
         await navigateToIntelligence();
-        await browser.pause(3_000);
-        console.log(`${LOG_PREFIX} 8.2.1: Navigated to Intelligence page`);
+        const hash = await browser.execute(() => window.location.hash);
+        if (!hash.includes('/intelligence')) {
+          console.log(`${LOG_PREFIX} 8.2.1: Intelligence navigation failed (hash: ${hash}), falling back to Home`);
+          await navigateToHome();
+        } else {
+          await browser.pause(3_000);
+          console.log(`${LOG_PREFIX} 8.2.1: Navigated to Intelligence page`);
+        }
       } catch {
-        console.log(`${LOG_PREFIX} 8.2.1: Intelligence nav not found — checking Home for skills`);
+        console.log(`${LOG_PREFIX} 8.2.1: Intelligence nav error — checking Home for skills`);
         await navigateToHome();
       }
 

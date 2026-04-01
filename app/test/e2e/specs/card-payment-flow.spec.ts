@@ -96,8 +96,12 @@ describe('Card Payment Flow', () => {
   });
 
   it('5.2.1 — successful payment detected via polling', async () => {
-    // Mock still has BASIC active from 5.1.1
+    // Seed mock state explicitly so this test is self-contained
+    setMockBehavior('plan', 'BASIC');
+    setMockBehavior('planActive', 'true');
+    setMockBehavior('planExpiry', new Date(Date.now() + 30 * 86400000).toISOString());
     clearRequestLog();
+
     await navigateToBilling();
     await browser.pause(3_000);
 
@@ -147,6 +151,8 @@ describe('Card Payment Flow', () => {
   });
 
   it('5.3.1 — plan transition from FREE to PRO', async () => {
+    // Start from FREE plan
+    resetMockBehavior();
     clearRequestLog();
     await navigateToBilling();
 
@@ -167,19 +173,17 @@ describe('Card Payment Flow', () => {
   });
 
   it('5.3.2 — Manage Subscription opens Stripe portal', async () => {
+    // Seed mock with active subscription so "Manage" button appears
+    setMockBehavior('plan', 'PRO');
+    setMockBehavior('planActive', 'true');
+    setMockBehavior('planExpiry', new Date(Date.now() + 30 * 86400000).toISOString());
     clearRequestLog();
+
     await navigateToBilling();
     await browser.pause(3_000);
 
     const hasManage = await textExists('Manage');
-    if (!hasManage) {
-      console.log(
-        `${LOG_PREFIX} 5.3.2 — Manage not visible (stale team data). Verifying API only.`
-      );
-      resetMockBehavior();
-      await navigateToHome();
-      return;
-    }
+    expect(hasManage).toBe(true);
 
     await clickText('Manage', 10_000);
     console.log(`${LOG_PREFIX} Clicked Manage`);

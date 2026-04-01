@@ -34,8 +34,9 @@ async function waitForRequest(method, urlFragment, timeout = 20_000) {
 
 // This spec tests the full agent chat loop (UI → core sidecar → backend → streaming response).
 // On Linux CI, the core sidecar's chat pipeline may not be fully functional in the E2E
-// environment (mock backend lacks streaming SSE support). Skip on Linux for now.
-describe.skip('Conversations web channel flow', () => {
+// environment (mock backend lacks streaming SSE support). Skip on Linux only.
+const suiteRunner = process.platform === 'linux' ? describe.skip : describe;
+suiteRunner('Conversations web channel flow', () => {
   before(async () => {
     stepLog('starting mock server');
     await startMockServer();

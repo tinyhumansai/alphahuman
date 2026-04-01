@@ -313,7 +313,7 @@ export async function clickToggle(_timeout: number = 15_000): Promise<void> {
     for (const sel of selectors) {
       const el = await browser.$(sel);
       if (await el.isExisting()) {
-        await el.click();
+        await clickAtElement(el);
         return;
       }
     }
