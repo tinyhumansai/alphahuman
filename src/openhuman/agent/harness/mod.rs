@@ -13,6 +13,7 @@
 //! 8. **Archivist** — background post-session knowledge extraction.
 
 pub mod archetypes;
+pub mod archivist;
 pub mod dag;
 pub mod executor;
 pub mod interrupt;
@@ -21,6 +22,7 @@ pub mod session_queue;
 pub mod types;
 
 pub use archetypes::AgentArchetype;
+pub use archivist::ArchivistHook;
 pub use dag::{DagError, TaskDag, TaskNode};
 pub use executor::run_orchestrated;
 pub use interrupt::{check_interrupt, InterruptFence, InterruptedError};
