@@ -49,7 +49,11 @@ mod inner {
         })
     }
 
-    pub fn transcribe(engine: &mut WhisperEngine, audio_f32: &[f32], language: Option<&str>) -> Result<String, String> {
+    pub fn transcribe(
+        engine: &mut WhisperEngine,
+        audio_f32: &[f32],
+        language: Option<&str>,
+    ) -> Result<String, String> {
         debug!(
             "{LOG_PREFIX} transcribing {} samples ({:.1}s of audio)",
             audio_f32.len(),
