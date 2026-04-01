@@ -5,7 +5,7 @@ import { persistor } from '../../store';
 import { clearToken } from '../../store/authSlice';
 import { useAppDispatch } from '../../store/hooks';
 import {
-  openhumanWorkspaceOnboardingFlagSet,
+  setOnboardingCompleted,
   logout as tauriLogout,
 } from '../../utils/tauriCommands';
 import SettingsHeader from './components/SettingsHeader';
@@ -22,9 +22,9 @@ const SettingsHome = () => {
   const handleLogout = async () => {
     await dispatch(clearToken());
     try {
-      await openhumanWorkspaceOnboardingFlagSet(false);
+      await setOnboardingCompleted(false);
     } catch (err) {
-      console.warn('[Settings] Failed to clear workspace onboarding flag:', err);
+      console.warn('[Settings] Failed to clear onboarding_completed in config:', err);
     }
     try {
       await tauriLogout();
@@ -37,9 +37,9 @@ const SettingsHome = () => {
   const clearAllAppData = async () => {
     await dispatch(clearToken());
     try {
-      await openhumanWorkspaceOnboardingFlagSet(false);
+      await setOnboardingCompleted(false);
     } catch (err) {
-      console.warn('[Settings] Failed to clear workspace onboarding flag:', err);
+      console.warn('[Settings] Failed to clear onboarding_completed in config:', err);
     }
     try {
       await tauriLogout();
