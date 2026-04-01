@@ -77,7 +77,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("update_model_settings"),
         schemas("update_memory_settings"),
         schemas("update_screen_intelligence_settings"),
-        schemas("update_tunnel_settings"),
         schemas("update_runtime_settings"),
         schemas("update_browser_settings"),
         schemas("resolve_api_url"),
