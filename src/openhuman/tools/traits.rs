@@ -7,10 +7,12 @@ use serde::{Deserialize, Serialize};
 /// are available. Tools requiring a level above the channel's maximum
 /// are rejected before execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum PermissionLevel {
     /// No permission needed (metadata-only operations).
     None = 0,
     /// Read-only operations (file reads, memory recall, listing).
+    #[default]
     ReadOnly = 1,
     /// Write operations (file writes, memory store).
     Write = 2,
@@ -32,11 +34,6 @@ impl std::fmt::Display for PermissionLevel {
     }
 }
 
-impl Default for PermissionLevel {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
-}
 
 /// Result of a tool execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
