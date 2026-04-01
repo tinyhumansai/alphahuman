@@ -67,11 +67,20 @@ function xpathContainsText(text: string): string {
  */
 async function clickAtElement(el: ChainablePromiseElement): Promise<void> {
   if (isTauriDriver()) {
+    // Scroll element into view first — webkit2gtk may not auto-scroll
+    try {
+      await browser.execute(
+        (e: HTMLElement) => e.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        el as unknown as HTMLElement
+      );
+      await browser.pause(200);
+    } catch {
+      // scrollIntoView may fail if element is detached
+    }
     try {
       await el.click();
     } catch {
-      // Fallback: element may not be interactable (off-screen, covered).
-      // Use JS click which bypasses visibility checks.
+      // Fallback: use JS click which bypasses visibility checks
       await browser.execute((e: HTMLElement) => e.click(), el as unknown as HTMLElement);
     }
     return;
