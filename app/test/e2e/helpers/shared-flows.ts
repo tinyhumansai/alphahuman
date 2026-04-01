@@ -77,7 +77,9 @@ export async function clickFirstMatch(candidates, timeout = 5_000) {
 
 export async function navigateViaHash(hash) {
   try {
-    await browser.execute((h) => { window.location.hash = h; }, hash);
+    await browser.execute(h => {
+      window.location.hash = h;
+    }, hash);
     await browser.pause(2_000);
     const currentHash = await browser.execute(() => window.location.hash);
     console.log(`[E2E] Navigated to ${hash} (current: ${currentHash})`);
@@ -91,8 +93,12 @@ export async function navigateToHome() {
   const homeText = await waitForHomePage(10_000);
   if (!homeText) {
     try {
-      await browser.execute(() => { window.location.hash = '/home'; });
-    } catch { /* ignore */ }
+      await browser.execute(() => {
+        window.location.hash = '/home';
+      });
+    } catch {
+      /* ignore */
+    }
     await browser.pause(2_000);
     await waitForHomePage(10_000);
   }
@@ -108,7 +114,8 @@ export async function navigateToBilling() {
   const deadline = Date.now() + 15_000;
   let hasBilling = false;
   while (Date.now() < deadline) {
-    hasBilling = (await textExists('Current Plan')) ||
+    hasBilling =
+      (await textExists('Current Plan')) ||
       (await textExists('FREE')) ||
       (await textExists('Upgrade'));
     if (hasBilling) break;
@@ -131,8 +138,10 @@ export async function navigateToBilling() {
     const allText = document.querySelectorAll('*');
     for (const el of allText) {
       const text = el.textContent?.trim() || '';
-      if ((text === 'Billing & Usage' || text === 'Billing') &&
-          el.closest('button, [role="button"], a, [class*="MenuItem"]')) {
+      if (
+        (text === 'Billing & Usage' || text === 'Billing') &&
+        el.closest('button, [role="button"], a, [class*="MenuItem"]')
+      ) {
         (el.closest('button, [role="button"], a, [class*="MenuItem"]') as HTMLElement).click();
         return 'clicked';
       }
@@ -144,7 +153,8 @@ export async function navigateToBilling() {
   await browser.pause(3_000);
 
   // Verify billing actually loaded after fallback
-  const finalCheck = (await textExists('Current Plan')) ||
+  const finalCheck =
+    (await textExists('Current Plan')) ||
     (await textExists('FREE')) ||
     (await textExists('Upgrade'));
   if (!finalCheck) {
@@ -187,7 +197,8 @@ export async function navigateToConversations() {
 export async function walkOnboarding(logPrefix = '[E2E]') {
   // Detect onboarding overlay. The Onboarding.tsx parent renders a "Skip" defer
   // button (top-right), and step 0 is WelcomeStep with "Continue".
-  const onboardingVisible = (await textExists('Welcome')) ||
+  const onboardingVisible =
+    (await textExists('Welcome')) ||
     (await textExists('Skip')) ||
     (await textExists('Use Local Models')) ||
     (await textExists('Continue'));
@@ -283,7 +294,7 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
 export async function performFullLogin(
   token = 'e2e-test-token',
   logPrefix = '[E2E]',
-  postLoginVerifier?: (logPrefix: string) => Promise<void>,
+  postLoginVerifier?: (logPrefix: string) => Promise<void>
 ) {
   await triggerAuthDeepLink(token);
   await waitForWindowVisible(25_000);

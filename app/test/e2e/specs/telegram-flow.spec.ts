@@ -32,12 +32,12 @@ import {
   waitForText,
 } from '../helpers/element-helpers';
 import {
-  performFullLogin,
   navigateToHome,
-  navigateToSkills,
   navigateToIntelligence,
   navigateToSettings,
+  navigateToSkills,
   navigateViaHash,
+  performFullLogin,
   waitForHomePage,
 } from '../helpers/shared-flows';
 import {

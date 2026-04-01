@@ -32,10 +32,10 @@ import {
   waitForText,
 } from '../helpers/element-helpers';
 import {
-  performFullLogin,
   navigateToHome,
   navigateToIntelligence,
   navigateToSettings,
+  performFullLogin,
   waitForHomePage,
 } from '../helpers/shared-flows';
 import {
@@ -79,31 +79,7 @@ async function waitForTextToDisappear(text, timeout = 10_000) {
   return false;
 }
 
-/**
- * Wait until one of the candidate texts appears on screen (Home page markers).
- */
-async function waitForHomePage(timeout = 15_000) {
-  const candidates = [
-    'Test',
-    'Good morning',
-    'Good afternoon',
-    'Good evening',
-    'Message OpenHuman',
-    'Upgrade to Premium',
-  ];
-
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    for (const text of candidates) {
-      if (await textExists(text)) return text;
-    }
-    await browser.pause(1_000);
-  }
-  return null;
-}
-
-// clickFirstCandidate, navigateToHome, performFullLogin, waitForHomePage
-// are now imported from shared-flows
+// waitForHomePage, navigateToHome, performFullLogin are imported from shared-flows
 
 /**
  * Counter for unique JWT suffixes.

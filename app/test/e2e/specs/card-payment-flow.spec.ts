@@ -12,14 +12,11 @@
  *   5.3.2  Manage Subscription opens Stripe portal
  */
 import { waitForApp } from '../helpers/app-helpers';
+import { clickText, textExists } from '../helpers/element-helpers';
 import {
-  clickText,
-  textExists,
-} from '../helpers/element-helpers';
-import {
-  performFullLogin,
-  navigateToHome,
   navigateToBilling,
+  navigateToHome,
+  performFullLogin,
   waitForTextToDisappear,
 } from '../helpers/shared-flows';
 import {

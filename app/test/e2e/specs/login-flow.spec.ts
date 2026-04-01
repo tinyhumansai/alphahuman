@@ -191,9 +191,8 @@ describe('Login flow — complete with mock data (Linux)', () => {
   it('Redux auth state has a token after login', async () => {
     const authState = await getReduxAuthState();
     if (authState) {
-      const token = typeof authState.token === 'string'
-        ? authState.token.replace(/^"|"$/g, '')
-        : null;
+      const token =
+        typeof authState.token === 'string' ? authState.token.replace(/^"|"$/g, '') : null;
       console.log('[LoginFlow] Redux auth token present:', !!token);
       expect(token).toBeTruthy();
     } else {
@@ -222,9 +221,9 @@ describe('Login flow — complete with mock data (Linux)', () => {
 
     // Real onboarding step markers
     const onboardingCandidates = [
-      'Welcome',             // WelcomeStep heading
-      'Skip',                // Onboarding defer button (top-right)
-      'Continue',            // WelcomeStep CTA
+      'Welcome', // WelcomeStep heading
+      'Skip', // Onboarding defer button (top-right)
+      'Continue', // WelcomeStep CTA
     ];
     const homeCandidates = ['Home', 'Skills', 'Conversations'];
 
@@ -233,11 +232,11 @@ describe('Login flow — complete with mock data (Linux)', () => {
       console.log(`[LoginFlow] Onboarding visible: "${foundOnboarding}"`);
     }
 
-    const foundHome = !foundOnboarding
-      ? await waitForAnyText(homeCandidates, 5_000)
-      : null;
+    const foundHome = !foundOnboarding ? await waitForAnyText(homeCandidates, 5_000) : null;
     if (foundHome) {
-      console.log(`[LoginFlow] Home page visible: "${foundHome}" (onboarding may be deferred/completed)`);
+      console.log(
+        `[LoginFlow] Home page visible: "${foundHome}" (onboarding may be deferred/completed)`
+      );
     }
 
     expect(foundOnboarding || foundHome).toBeTruthy();
@@ -245,7 +244,8 @@ describe('Login flow — complete with mock data (Linux)', () => {
 
   it('walk through onboarding steps (if overlay is visible)', async () => {
     // Check if we're on the WelcomeStep or any onboarding step
-    const onboardingVisible = (await textExists('Welcome')) ||
+    const onboardingVisible =
+      (await textExists('Welcome')) ||
       (await textExists('Skip')) ||
       (await textExists('Use Local Models')) ||
       (await textExists('Continue'));
@@ -267,10 +267,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
 
     // Step 1: LocalAIStep — only has "Use Local Models" button now
     {
-      const clicked = await clickFirstMatch(
-        ['Use Local Models', 'Continue'],
-        10_000
-      );
+      const clicked = await clickFirstMatch(['Use Local Models', 'Continue'], 10_000);
       if (clicked) {
         console.log(`[LoginFlow] LocalAIStep: clicked "${clicked}"`);
         await browser.pause(2_000);
@@ -279,10 +276,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
 
     // Step 2: ScreenPermissionsStep — click "Continue Without Permission" (no accessibility on Linux CI)
     {
-      const clicked = await clickFirstMatch(
-        ['Continue Without Permission', 'Continue'],
-        10_000
-      );
+      const clicked = await clickFirstMatch(['Continue Without Permission', 'Continue'], 10_000);
       if (clicked) {
         console.log(`[LoginFlow] ScreenPermissionsStep: clicked "${clicked}"`);
         await browser.pause(2_000);
@@ -435,11 +429,11 @@ describe('Login flow — complete with mock data (Linux)', () => {
       if (!persisted) return false;
       try {
         const parsed = JSON.parse(persisted);
-        const token = typeof parsed.token === 'string'
-          ? parsed.token.replace(/^"|"$/g, '')
-          : null;
+        const token = typeof parsed.token === 'string' ? parsed.token.replace(/^"|"$/g, '') : null;
         return !!token && token !== 'null';
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     });
     expect(hasToken).toBe(false);
     console.log('[LoginFlow] Expired token: no auth token in localStorage (correct)');
@@ -477,11 +471,11 @@ describe('Login flow — complete with mock data (Linux)', () => {
       if (!persisted) return false;
       try {
         const parsed = JSON.parse(persisted);
-        const token = typeof parsed.token === 'string'
-          ? parsed.token.replace(/^"|"$/g, '')
-          : null;
+        const token = typeof parsed.token === 'string' ? parsed.token.replace(/^"|"$/g, '') : null;
         return !!token && token !== 'null';
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     });
     expect(hasToken).toBe(false);
     console.log('[LoginFlow] Invalid token: no auth token in localStorage (correct)');
@@ -506,9 +500,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
     const bypassJwt = buildBypassJwt('e2e-bypass-user');
 
     // Trigger bypass deep link (key=auth skips token consume)
-    await triggerDeepLink(
-      `openhuman://auth?token=${encodeURIComponent(bypassJwt)}&key=auth`
-    );
+    await triggerDeepLink(`openhuman://auth?token=${encodeURIComponent(bypassJwt)}&key=auth`);
     await browser.pause(5_000);
 
     // Assert NO consume call was made (bypass skips it)
@@ -536,9 +528,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
       if (!persisted) return false;
       try {
         const parsed = JSON.parse(persisted);
-        const token = typeof parsed.token === 'string'
-          ? parsed.token.replace(/^"|"$/g, '')
-          : null;
+        const token = typeof parsed.token === 'string' ? parsed.token.replace(/^"|"$/g, '') : null;
         return !!token && token !== 'null';
       } catch {
         return false;

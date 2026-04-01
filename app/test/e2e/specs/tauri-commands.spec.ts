@@ -17,7 +17,9 @@ describe('Tauri app integration', () => {
       // verify the session is alive via getWindowHandle instead.
       const handle = await browser.getWindowHandle();
       expect(handle).toBeTruthy();
-      console.log('[TauriCommands] Screenshot not supported on tauri-driver; verified session handle');
+      console.log(
+        '[TauriCommands] Screenshot not supported on tauri-driver; verified session handle'
+      );
       return;
     }
     const screenshot = await browser.takeScreenshot();

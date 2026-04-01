@@ -38,9 +38,9 @@ import {
   waitForWindowVisible,
 } from '../helpers/element-helpers';
 import {
+  navigateToBilling,
   navigateToHome,
   navigateToSettings,
-  navigateToBilling,
   waitForHomePage,
 } from '../helpers/shared-flows';
 import {
@@ -125,9 +125,7 @@ async function walkOnboarding() {
   }
 
   if (!onboardingVisible) {
-    console.log(
-      '[AuthAccess] Onboarding overlay not visible after polling — skipping'
-    );
+    console.log('[AuthAccess] Onboarding overlay not visible after polling — skipping');
     await browser.pause(2_000);
     return;
   }
@@ -141,10 +139,7 @@ async function walkOnboarding() {
 
   // Step 1: LocalAIStep — only has "Use Local Models" button now
   {
-    const clicked = await clickFirstMatch(
-      ['Use Local Models', 'Continue'],
-      10_000
-    );
+    const clicked = await clickFirstMatch(['Use Local Models', 'Continue'], 10_000);
     if (clicked) {
       console.log(`[AuthAccess] LocalAIStep: clicked "${clicked}"`);
       await browser.pause(2_000);
@@ -153,10 +148,7 @@ async function walkOnboarding() {
 
   // Step 2: ScreenPermissionsStep — click "Continue Without Permission"
   {
-    const clicked = await clickFirstMatch(
-      ['Continue Without Permission', 'Continue'],
-      10_000
-    );
+    const clicked = await clickFirstMatch(['Continue Without Permission', 'Continue'], 10_000);
     if (clicked) {
       console.log(`[AuthAccess] ScreenPermissionsStep: clicked "${clicked}"`);
       await browser.pause(2_000);
@@ -192,7 +184,9 @@ async function walkOnboarding() {
   {
     const mnemonicVisible = await textExists('Your Recovery Phrase');
     if (mnemonicVisible) {
-      console.log('[AuthAccess] MnemonicStep: visible [tree dump redacted — contains recovery phrase]');
+      console.log(
+        '[AuthAccess] MnemonicStep: visible [tree dump redacted — contains recovery phrase]'
+      );
       try {
         await browser.execute(() => {
           const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
@@ -463,7 +457,9 @@ describe('Auth & Access Control', () => {
       for (const el of allElements) {
         const text = el.textContent?.trim() || '';
         if (text === 'Log out') {
-          const clickable = el.closest('button, [role="button"], a, [class*="MenuItem"]') as HTMLElement;
+          const clickable = el.closest(
+            'button, [role="button"], a, [class*="MenuItem"]'
+          ) as HTMLElement;
           if (clickable) {
             clickable.click();
             return 'clicked-parent';
@@ -536,11 +532,11 @@ describe('Auth & Access Control', () => {
       if (!persisted) return false;
       try {
         const parsed = JSON.parse(persisted);
-        const token = typeof parsed.token === 'string'
-          ? parsed.token.replace(/^"|"$/g, '')
-          : null;
+        const token = typeof parsed.token === 'string' ? parsed.token.replace(/^"|"$/g, '') : null;
         return !!token && token !== 'null';
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     });
 
     // Must see logged-out UI or token must be cleared (or both)

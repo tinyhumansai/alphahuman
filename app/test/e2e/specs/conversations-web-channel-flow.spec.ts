@@ -9,7 +9,7 @@ import {
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
-import { walkOnboarding, navigateToConversations, navigateViaHash } from '../helpers/shared-flows';
+import { navigateToConversations, navigateViaHash, walkOnboarding } from '../helpers/shared-flows';
 import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 function stepLog(message: string, context?: unknown) {
@@ -93,7 +93,9 @@ suiteRunner('Conversations web channel flow', () => {
     // The chat input uses a textarea with placeholder attribute — not visible as text content.
     // Use browser.execute to find and focus it, then type.
     const foundInput = await browser.execute(() => {
-      const textarea = document.querySelector('textarea[placeholder*="Type a message"]') as HTMLTextAreaElement;
+      const textarea = document.querySelector(
+        'textarea[placeholder*="Type a message"]'
+      ) as HTMLTextAreaElement;
       if (textarea) {
         textarea.focus();
         textarea.click();
@@ -118,10 +120,13 @@ suiteRunner('Conversations web channel flow', () => {
 
     // Set value via JS and dispatch input event (browser.keys unreliable on tauri-driver)
     await browser.execute(() => {
-      const textarea = document.querySelector('textarea[placeholder*="Type a message"]') as HTMLTextAreaElement;
+      const textarea = document.querySelector(
+        'textarea[placeholder*="Type a message"]'
+      ) as HTMLTextAreaElement;
       if (!textarea) return;
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype, 'value'
+        window.HTMLTextAreaElement.prototype,
+        'value'
       )?.set;
       nativeInputValueSetter?.call(textarea, 'hello from e2e web channel');
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -131,9 +136,13 @@ suiteRunner('Conversations web channel flow', () => {
 
     // Submit by pressing Enter via JS (simulates form submission)
     await browser.execute(() => {
-      const textarea = document.querySelector('textarea[placeholder*="Type a message"]') as HTMLTextAreaElement;
+      const textarea = document.querySelector(
+        'textarea[placeholder*="Type a message"]'
+      ) as HTMLTextAreaElement;
       if (!textarea) return;
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })
+      );
     });
     await browser.pause(1_000);
 

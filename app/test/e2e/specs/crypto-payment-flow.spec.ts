@@ -11,15 +11,11 @@
  *   6.3.2  Coinbase API error handled gracefully
  */
 import { waitForApp } from '../helpers/app-helpers';
+import { clickText, clickToggle, textExists } from '../helpers/element-helpers';
 import {
-  clickText,
-  clickToggle,
-  textExists,
-} from '../helpers/element-helpers';
-import {
-  performFullLogin,
-  navigateToHome,
   navigateToBilling,
+  navigateToHome,
+  performFullLogin,
   waitForTextToDisappear,
 } from '../helpers/shared-flows';
 import {
@@ -103,7 +99,9 @@ describe('Crypto Payment Flow', () => {
     if (coinbaseCall) {
       console.log(`${LOG_PREFIX} 6.1.1 — Coinbase charge API called (crypto path)`);
     } else if (stripeCall) {
-      console.log(`${LOG_PREFIX} 6.1.1 — Stripe API called (crypto toggle may not have taken effect)`);
+      console.log(
+        `${LOG_PREFIX} 6.1.1 — Stripe API called (crypto toggle may not have taken effect)`
+      );
     }
     expect(coinbaseCall || stripeCall).toBeDefined();
 

@@ -30,11 +30,11 @@ import {
   waitForText,
 } from '../helpers/element-helpers';
 import {
-  performFullLogin,
   navigateToHome,
-  navigateToSkills,
   navigateToIntelligence,
   navigateToSettings,
+  navigateToSkills,
+  performFullLogin,
   waitForHomePage,
 } from '../helpers/shared-flows';
 import {
@@ -410,7 +410,9 @@ describe('Notion Integration Flows', () => {
         await navigateToIntelligence();
         const hash = await browser.execute(() => window.location.hash);
         if (!hash.includes('/intelligence')) {
-          console.log(`${LOG_PREFIX} 8.2.1: Intelligence navigation failed (hash: ${hash}), falling back to Home`);
+          console.log(
+            `${LOG_PREFIX} 8.2.1: Intelligence navigation failed (hash: ${hash}), falling back to Home`
+          );
           await navigateToHome();
         } else {
           await browser.pause(3_000);
