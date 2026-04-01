@@ -210,6 +210,8 @@ struct EngineState {
     phase: String,
     debounce_ms: u64,
     app_name: Option<String>,
+    /// AXRole of the text element when the suggestion was generated.
+    target_role: Option<String>,
     context: String,
     suggestion: Option<AutocompleteSuggestion>,
     last_error: Option<String>,
@@ -227,6 +229,7 @@ impl Default for EngineState {
             phase: "idle".to_string(),
             debounce_ms: 120,
             app_name: None,
+            target_role: None,
             context: String::new(),
             suggestion: None,
             last_error: None,
@@ -450,6 +453,13 @@ impl AutocompleteEngine {
             state.phase = "accepting".to_string();
         }
         if should_apply {
+            // Validate the focused element still matches before inserting.
+            let (expected_app, expected_role) = {
+                let state = self.inner.lock().await;
+                (state.app_name.clone(), state.target_role.clone())
+            };
+            #[cfg(target_os = "macos")]
+            validate_focused_target(expected_app.as_deref(), expected_role.as_deref())?;
             apply_text_to_focused_field(&cleaned)?;
         }
         {
@@ -718,8 +728,10 @@ impl AutocompleteEngine {
 
         let suggestion = sanitize_suggestion(&generated);
         let app_name = focused.app_name.clone();
+        let target_role = focused.role.clone();
         let mut state = self.inner.lock().await;
         state.app_name = app_name.clone();
+        state.target_role = target_role;
         state.context = context;
         state.updated_at_ms = Some(Utc::now().timestamp_millis());
         if suggestion.is_empty() {
@@ -791,6 +803,22 @@ impl AutocompleteEngine {
         if let Some(suggestion) = pending {
             let cleaned = sanitize_suggestion(&suggestion);
             if !cleaned.is_empty() {
+                // Validate the focused element still matches before inserting.
+                let (expected_app, expected_role) = {
+                    let state = self.inner.lock().await;
+                    (state.app_name.clone(), state.target_role.clone())
+                };
+                #[cfg(target_os = "macos")]
+                if let Err(e) =
+                    validate_focused_target(expected_app.as_deref(), expected_role.as_deref())
+                {
+                    log::warn!("[autocomplete] tab-accept aborted: {e}");
+                    let mut state = self.inner.lock().await;
+                    state.suggestion = None;
+                    state.phase = "idle".to_string();
+                    state.last_overlay_signature = None;
+                    return Ok(());
+                }
                 {
                     let mut state = self.inner.lock().await;
                     state.phase = "accepting".to_string();
@@ -956,7 +984,16 @@ fn show_overflow_badge(
         }
 
         if kind == "ready" {
-            if let (Some(bounds), Some(suggestion_text)) = (anchor_bounds, suggestion) {
+            if let Some(suggestion_text) = suggestion {
+                // Use anchor bounds if available, otherwise pass zero bounds
+                // (the overlay helper will fall back to mouse cursor position).
+                let fallback_bounds = FocusedElementBounds {
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                };
+                let bounds = anchor_bounds.unwrap_or(&fallback_bounds);
                 if overlay_helper_show(bounds, suggestion_text).is_ok() {
                     return;
                 }
@@ -1166,13 +1203,47 @@ final class OverlayController {
     private var hideWorkItem: DispatchWorkItem?
 
     func show(x: CGFloat, yTop: CGFloat, width: CGFloat, height: CGFloat, text: String, ttlMs: Int) {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let screenHeight = screen?.frame.height ?? 900
         let panelWidth = min(420, max(140, CGFloat(text.count) * 7 + 26))
         let panelHeight: CGFloat = 26
-        let originX = x + max(8, min(width - panelWidth - 8, 28))
-        let originYTop = yTop + max(5, min(height - panelHeight - 4, 10))
-        let originYCocoa = max(6, screenHeight - originYTop - panelHeight)
+
+        // Multi-monitor: find the screen that contains the target bounds.
+        // Fall back to the screen containing the mouse cursor, then main screen.
+        let targetPoint = NSPoint(x: x + width / 2, y: yTop + height / 2)
+        let screen: NSScreen? = {
+            // Convert AX top-left coords to Cocoa bottom-left for screen matching
+            let mainHeight = NSScreen.screens.first?.frame.height ?? 900
+            let cocoaPoint = NSPoint(x: targetPoint.x, y: mainHeight - targetPoint.y)
+            if let s = NSScreen.screens.first(where: { $0.frame.contains(cocoaPoint) }) {
+                return s
+            }
+            // Fallback: screen containing mouse cursor
+            let mouseLocation = NSEvent.mouseLocation
+            if let s = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+                return s
+            }
+            return NSScreen.main ?? NSScreen.screens.first
+        }()
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let screenHeight = screenFrame.height + screenFrame.origin.y
+
+        var originX: CGFloat
+        var originYCocoa: CGFloat
+
+        // If bounds are valid, position relative to the text field
+        if width > 0 && height > 0 {
+            originX = x + max(8, min(width - panelWidth - 8, 28))
+            let originYTop = yTop + max(5, min(height - panelHeight - 4, 10))
+            originYCocoa = max(6, screenHeight - originYTop - panelHeight)
+        } else {
+            // Bounds unavailable — position near the mouse cursor
+            let mouseLocation = NSEvent.mouseLocation
+            originX = mouseLocation.x + 8
+            originYCocoa = mouseLocation.y - panelHeight - 8
+        }
+
+        // Clamp to screen bounds to prevent off-screen positioning
+        originX = max(screenFrame.origin.x + 4, min(originX, screenFrame.origin.x + screenFrame.width - panelWidth - 4))
+        originYCocoa = max(screenFrame.origin.y + 4, min(originYCocoa, screenFrame.origin.y + screenFrame.height - panelHeight - 4))
 
         if panel == nil {
             let p = NSPanel(
@@ -1294,6 +1365,12 @@ fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
         set sizeW to ""
         set sizeH to ""
         set targetRoles to {"AXTextArea", "AXTextField", "AXSearchField", "AXComboBox", "AXEditableText"}
+
+        -- Enable AXEnhancedUserInterface for Chromium-based apps (Chrome, Electron, VS Code, Slack, etc.)
+        -- Without this, these apps do not properly expose focused text elements via Accessibility API.
+        try
+          set value of attribute "AXEnhancedUserInterface" of frontApp to true
+        end try
 
         try
           set focusedElement to value of attribute "AXFocusedUIElement" of frontApp
@@ -1518,8 +1595,129 @@ fn parse_ax_number(raw: &str) -> Option<i32> {
     cleaned.parse::<f64>().ok().map(|v| v.round() as i32)
 }
 
+/// Validate that the currently focused element still matches the target we generated the
+/// suggestion for. Returns Ok if it matches or if validation is inconclusive (to avoid
+/// false negatives). Returns Err if it clearly does not match.
 #[cfg(target_os = "macos")]
-fn apply_text_to_focused_field(text: &str) -> Result<(), String> {
+fn validate_focused_target(
+    expected_app: Option<&str>,
+    expected_role: Option<&str>,
+) -> Result<(), String> {
+    if expected_app.is_none() {
+        return Ok(()); // No target to validate against
+    }
+    let current = focused_text_context_verbose();
+    match current {
+        Ok(ctx) => {
+            if let (Some(expected), Some(actual)) = (expected_app, ctx.app_name.as_deref()) {
+                if expected.to_lowercase() != actual.to_lowercase() {
+                    return Err(format!(
+                        "focus shifted from '{}' to '{}', aborting insertion",
+                        expected, actual
+                    ));
+                }
+            }
+            // Role check is advisory — some apps change role dynamically
+            if let (Some(expected), Some(actual)) = (expected_role, ctx.role.as_deref()) {
+                if expected != actual {
+                    log::debug!(
+                        "[autocomplete] target role changed from '{}' to '{}', proceeding anyway",
+                        expected,
+                        actual
+                    );
+                }
+            }
+            Ok(())
+        }
+        Err(_) => Ok(()), // Validation inconclusive, proceed
+    }
+}
+
+/// Save the current clipboard contents, returning the text (or None if non-text/empty).
+#[cfg(target_os = "macos")]
+fn clipboard_save() -> Option<String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg("the clipboard as text")
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim_end().to_string();
+        if text.is_empty() || text == "missing value" {
+            None
+        } else {
+            Some(text)
+        }
+    } else {
+        None
+    }
+}
+
+/// Set the system clipboard to the given text.
+#[cfg(target_os = "macos")]
+fn clipboard_set(text: &str) -> Result<(), String> {
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('\"', "\\\"")
+        .replace('\n', "\\n");
+    let script = format!(r#"set the clipboard to "{}""#, escaped);
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| format!("failed to set clipboard: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("failed to set clipboard: {stderr}"));
+    }
+    Ok(())
+}
+
+/// Simulate Cmd+V keypress via CGEvent to paste clipboard contents into the focused field.
+/// This works universally across all apps (unlike direct AXValue writes).
+#[cfg(target_os = "macos")]
+fn simulate_paste() {
+    unsafe {
+        let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, true);
+        let key_up = CGEventCreateKeyboardEvent(std::ptr::null(), KVK_V, false);
+        if key_down.is_null() || key_up.is_null() {
+            log::warn!("[autocomplete] failed to create CGEvent for paste");
+            return;
+        }
+        CGEventSetFlags(key_down, KCG_EVENT_FLAG_MASK_COMMAND);
+        CGEventSetFlags(key_up, KCG_EVENT_FLAG_MASK_COMMAND);
+        CGEventPost(KCG_HID_EVENT_TAP, key_down);
+        std::thread::sleep(std::time::Duration::from_millis(8));
+        CGEventPost(KCG_HID_EVENT_TAP, key_up);
+    }
+}
+
+/// Primary insertion method: clipboard + simulated Cmd+V paste.
+/// Saves and restores the original clipboard contents.
+#[cfg(target_os = "macos")]
+fn paste_text_via_clipboard(text: &str) -> Result<(), String> {
+    let original_clipboard = clipboard_save();
+    clipboard_set(text)?;
+
+    // Brief delay to ensure clipboard is set before paste
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    simulate_paste();
+
+    // Restore original clipboard after a delay so the paste has time to complete
+    if let Some(original) = original_clipboard {
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let _ = clipboard_set(&original);
+        });
+    }
+
+    Ok(())
+}
+
+/// Fallback insertion method: direct AXValue write via AppleScript.
+/// Works well for simple text editors but fails on many web/Electron inputs.
+#[cfg(target_os = "macos")]
+fn apply_text_via_axvalue(text: &str) -> Result<(), String> {
     let escaped = text
         .replace('\\', "\\\\")
         .replace('\"', "\\\"")
@@ -1562,6 +1760,27 @@ end tell
     Ok(())
 }
 
+/// Apply suggestion text to the focused field.
+/// Uses clipboard+paste (reliable across all apps) as the primary method,
+/// with direct AXValue write as fallback.
+#[cfg(target_os = "macos")]
+fn apply_text_to_focused_field(text: &str) -> Result<(), String> {
+    log::debug!(
+        "[autocomplete] applying text via clipboard+paste: {:?}",
+        truncate_tail(text, 40)
+    );
+    match paste_text_via_clipboard(text) {
+        Ok(()) => Ok(()),
+        Err(paste_err) => {
+            log::warn!(
+                "[autocomplete] clipboard+paste failed ({}), falling back to AXValue write",
+                paste_err
+            );
+            apply_text_via_axvalue(text)
+        }
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 fn apply_text_to_focused_field(_text: &str) -> Result<(), String> {
     Err("autocomplete is only supported on macOS".to_string())
@@ -1594,8 +1813,30 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventCreateKeyboardEvent(
+        source: *const std::ffi::c_void,
+        virtual_key: u16,
+        key_down: bool,
+    ) -> *mut std::ffi::c_void;
+    fn CGEventSetFlags(event: *mut std::ffi::c_void, flags: u64);
+    fn CGEventPost(tap: u32, event: *mut std::ffi::c_void);
+}
+
+#[cfg(target_os = "macos")]
 const KCG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE: i32 = 0;
 #[cfg(target_os = "macos")]
 const KVK_TAB: u16 = 48;
 #[cfg(target_os = "macos")]
 const KVK_ESCAPE: u16 = 53;
+#[cfg(target_os = "macos")]
+const KVK_V: u16 = 9;
+#[cfg(target_os = "macos")]
+const KCG_HID_EVENT_TAP: u32 = 0;
+#[cfg(target_os = "macos")]
+const KCG_EVENT_FLAG_MASK_COMMAND: u64 = 0x00100000;
