@@ -6,6 +6,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::io::Write as _;
 
+use super::context_guard::{ContextCheckResult, ContextGuard};
 use super::credentials::scrub_credentials;
 use super::parse::{
     build_native_assistant_history, find_tool, parse_structured_tool_calls, parse_tool_calls,
@@ -77,7 +78,35 @@ pub(crate) async fn run_tool_call_loop(
         tools_registry.iter().map(|tool| tool.spec()).collect();
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
 
-    for _iteration in 0..max_iterations {
+    let mut context_guard = ContextGuard::new();
+
+    for iteration in 0..max_iterations {
+        // ── Context guard: check utilization before each LLM call ──
+        match context_guard.check() {
+            ContextCheckResult::Ok => {}
+            ContextCheckResult::CompactionNeeded => {
+                tracing::warn!(
+                    iteration,
+                    "[agent_loop] context guard: compaction needed (>{:.0}% full)",
+                    super::context_guard::COMPACTION_TRIGGER_THRESHOLD * 100.0
+                );
+                // Compaction is handled by history management upstream;
+                // log and continue so the caller can act on it.
+            }
+            ContextCheckResult::ContextExhausted {
+                utilization_pct,
+                reason,
+            } => {
+                tracing::error!(
+                    iteration,
+                    utilization_pct,
+                    "[agent_loop] context exhausted, aborting: {reason}"
+                );
+                anyhow::bail!("Context window exhausted ({utilization_pct}% full): {reason}");
+            }
+        }
+
+        tracing::debug!(iteration, "[agent_loop] sending LLM request");
         let image_marker_count = multimodal::count_image_markers(history);
         if image_marker_count > 0 && !provider.supports_vision() {
             return Err(ProviderCapabilityError {
@@ -115,6 +144,23 @@ pub(crate) async fn run_tool_call_loop(
                 .await
             {
                 Ok(resp) => {
+                    // Update context guard with token usage from this response.
+                    if let Some(ref usage) = resp.usage {
+                        context_guard.update_usage(usage);
+                        tracing::debug!(
+                            iteration,
+                            input_tokens = usage.input_tokens,
+                            output_tokens = usage.output_tokens,
+                            context_window = usage.context_window,
+                            "[agent_loop] LLM response received"
+                        );
+                    } else {
+                        tracing::debug!(
+                            iteration,
+                            "[agent_loop] LLM response received (no usage info)"
+                        );
+                    }
+
                     let response_text = resp.text_or_empty().to_string();
                     let mut calls = parse_structured_tool_calls(&resp.tool_calls);
                     let mut parsed_text = String::new();
@@ -126,6 +172,13 @@ pub(crate) async fn run_tool_call_loop(
                         }
                         calls = fallback_calls;
                     }
+
+                    tracing::debug!(
+                        iteration,
+                        native_tool_calls = resp.tool_calls.len(),
+                        parsed_tool_calls = calls.len(),
+                        "[agent_loop] tool calls parsed"
+                    );
 
                     // Preserve native tool call IDs in assistant history so role=tool
                     // follow-up messages can reference the exact call id.
@@ -156,6 +209,10 @@ pub(crate) async fn run_tool_call_loop(
         };
 
         if tool_calls.is_empty() {
+            tracing::debug!(
+                iteration,
+                "[agent_loop] no tool calls — returning final response"
+            );
             // No tool calls — this is the final response.
             // If a streaming sender is provided, relay the text in small chunks
             // so the channel can progressively update the draft message.
@@ -221,20 +278,62 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
 
+            tracing::debug!(
+                iteration,
+                tool = call.name.as_str(),
+                "[agent_loop] executing tool"
+            );
+
             let result = if let Some(tool) = find_tool(tools_registry, &call.name) {
-                match tool.execute(call.arguments.clone()).await {
-                    Ok(r) => {
+                // Execute with a 120-second timeout to prevent hangs.
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(120),
+                    tool.execute(call.arguments.clone()),
+                )
+                .await
+                {
+                    Ok(Ok(r)) => {
                         if r.success {
+                            tracing::debug!(
+                                iteration,
+                                tool = call.name.as_str(),
+                                output_len = r.output.len(),
+                                "[agent_loop] tool succeeded"
+                            );
                             scrub_credentials(&r.output)
                         } else {
-                            format!("Error: {}", r.error.unwrap_or(r.output))
+                            let err_msg = r.error.unwrap_or(r.output);
+                            tracing::warn!(
+                                iteration,
+                                tool = call.name.as_str(),
+                                "[agent_loop] tool returned error: {err_msg}"
+                            );
+                            format!("Error: {err_msg}")
                         }
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
+                        tracing::error!(
+                            iteration,
+                            tool = call.name.as_str(),
+                            "[agent_loop] tool execution failed: {e}"
+                        );
                         format!("Error executing {}: {e}", call.name)
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            iteration,
+                            tool = call.name.as_str(),
+                            "[agent_loop] tool execution timed out after 120s"
+                        );
+                        format!("Error: tool '{}' timed out after 120 seconds", call.name)
                     }
                 }
             } else {
+                tracing::warn!(
+                    iteration,
+                    tool = call.name.as_str(),
+                    "[agent_loop] unknown tool requested"
+                );
                 format!("Unknown tool: {}", call.name)
             };
 
