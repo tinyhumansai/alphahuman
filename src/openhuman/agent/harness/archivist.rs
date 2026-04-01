@@ -355,7 +355,13 @@ impl PostTurnHook for ArchivistHook {
         )?;
 
         // Manage conversation segmentation.
-        self.manage_segment(conn, session_id, timestamp, &ctx.user_message, current_episodic_id);
+        self.manage_segment(
+            conn,
+            session_id,
+            timestamp,
+            &ctx.user_message,
+            current_episodic_id,
+        );
 
         tracing::debug!("[archivist] turn indexed successfully");
         Ok(())
