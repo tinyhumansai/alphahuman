@@ -122,9 +122,11 @@ pub async fn fetch_latest_release(last_etag: Option<&str>) -> Result<ResolvedRel
     let url = format!("{api_base}/repos/{repo}/releases/latest");
     log::debug!("[update] fetching latest release from {url} (etag={last_etag:?})");
 
-    let client = reqwest::Client::builder()
-        .build()
-        .map_err(|e| format!("failed to build http client: {e}"))?;
+    let client = crate::openhuman::config::build_runtime_proxy_client_with_timeouts(
+        "update.release-check",
+        30, // 30-second total timeout for API call
+        10, // 10-second connect timeout
+    );
 
     let mut req = client
         .get(url)
