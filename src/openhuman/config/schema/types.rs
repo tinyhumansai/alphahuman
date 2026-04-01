@@ -67,9 +67,6 @@ pub struct Config {
     pub storage: StorageConfig,
 
     #[serde(default)]
-    pub tunnel: TunnelConfig,
-
-    #[serde(default)]
     pub composio: ComposioConfig,
 
     #[serde(default)]
@@ -107,6 +104,9 @@ pub struct Config {
 
     #[serde(default)]
     pub local_ai: LocalAiConfig,
+
+    #[serde(default)]
+    pub learning: LearningConfig,
 }
 
 impl Default for Config {
@@ -137,7 +137,6 @@ impl Default for Config {
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
             storage: StorageConfig::default(),
-            tunnel: TunnelConfig::default(),
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
@@ -152,6 +151,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             local_ai: LocalAiConfig::default(),
             query_classification: QueryClassificationConfig::default(),
+            learning: LearningConfig::default(),
         }
     }
 }
