@@ -416,10 +416,24 @@ fn core_port() -> u16 {
         .unwrap_or(7788)
 }
 
-pub async fn run_server(port: Option<u16>, socketio_enabled: bool) -> anyhow::Result<()> {
+fn core_host() -> String {
+    std::env::var("OPENHUMAN_CORE_HOST")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
+pub async fn run_server(
+    host: Option<&str>,
+    port: Option<u16>,
+    socketio_enabled: bool,
+) -> anyhow::Result<()> {
     let _ = all::all_registered_controllers();
     let port = port.unwrap_or_else(core_port);
-    let bind_addr = format!("127.0.0.1:{port}");
+    let host = host
+        .map(|h| h.to_string())
+        .unwrap_or_else(core_host);
+    let bind_addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
     let app = build_core_http_router(socketio_enabled);
