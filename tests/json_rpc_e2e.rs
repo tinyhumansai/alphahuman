@@ -36,6 +36,12 @@ impl EnvVarGuard {
         std::env::remove_var(key);
         Self { key, old }
     }
+
+    fn set_to_value(key: &'static str, value: &str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
 }
 
 impl Drop for EnvVarGuard {
@@ -964,5 +970,203 @@ async fn json_rpc_local_ai_device_profile_and_presets() {
     );
 
     mock_join.abort();
+    rpc_join.abort();
+}
+
+#[tokio::test]
+async fn json_rpc_update_check_and_apply_stages_binary() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
+
+    let managed_bin = home.join("managed").join("openhuman-core");
+    std::fs::create_dir_all(
+        managed_bin
+            .parent()
+            .expect("managed binary should have parent directory"),
+    )
+    .expect("create managed dir");
+    std::fs::write(&managed_bin, b"old-core-binary").expect("seed managed binary");
+    let _managed_bin_guard = EnvVarGuard::set_to_path("OPENHUMAN_UPDATE_MANAGED_BIN", &managed_bin);
+    let target = {
+        let os = if cfg!(target_os = "windows") {
+            "pc-windows-msvc"
+        } else if cfg!(target_os = "macos") {
+            "apple-darwin"
+        } else {
+            "unknown-linux-gnu"
+        };
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => "x86_64",
+            "aarch64" => "aarch64",
+            "arm64" => "aarch64",
+            other => other,
+        };
+        std::env::var("TARGET").unwrap_or_else(|_| format!("{arch}-{os}"))
+    };
+    let _update_target_guard = EnvVarGuard::set_to_value("OPENHUMAN_UPDATE_TARGET", &target);
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let new_payload = b"new-core-binary".to_vec();
+    let digest = {
+        let mut hasher = Sha256::new();
+        hasher.update(&new_payload);
+        format!("{:x}", hasher.finalize())
+    };
+    let asset_name = if cfg!(windows) {
+        format!("openhuman-core_0.99.99_{target}.exe")
+    } else {
+        format!("openhuman-core_0.99.99_{target}")
+    };
+
+    let release_router = {
+        let asset_name = asset_name.clone();
+        let digest = digest.clone();
+        let payload = new_payload.clone();
+        Router::new()
+            .route(
+                "/repos/tinyhumansai/openhuman/releases/latest",
+                get(move || {
+                    let asset_name = asset_name.clone();
+                    let digest = digest.clone();
+                    async move {
+                        let base = std::env::var("OPENHUMAN_UPDATE_API_BASE")
+                            .unwrap_or_else(|_| "http://127.0.0.1".to_string());
+                        Json(json!({
+                            "tag_name": "v0.99.99",
+                            "html_url": "https://example.com/release/v0.99.99",
+                            "assets": [{
+                                "name": asset_name,
+                                "browser_download_url": format!("{base}/downloads/openhuman-core"),
+                                "digest": format!("sha256:{digest}")
+                            }]
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/downloads/openhuman-core",
+                get(move || {
+                    let payload = payload.clone();
+                    async move { payload }
+                }),
+            )
+    };
+
+    let (release_addr, release_join) = serve_on_ephemeral(release_router).await;
+    let release_origin = format!("http://{}", release_addr);
+
+    let _update_api_base_guard =
+        EnvVarGuard::set_to_value("OPENHUMAN_UPDATE_API_BASE", &release_origin);
+    let _update_repo_guard =
+        EnvVarGuard::set_to_value("OPENHUMAN_UPDATE_REPO", "tinyhumansai/openhuman");
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let baseline = post_json_rpc(&rpc_base, 101, "openhuman.update_status", json!({})).await;
+    let baseline_result = assert_no_jsonrpc_error(&baseline, "update_status");
+    let baseline_payload = baseline_result.get("result").unwrap_or(baseline_result);
+    assert_eq!(
+        baseline_payload
+            .get("pending_restart")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+
+    let checked = post_json_rpc(&rpc_base, 102, "openhuman.update_check", json!({})).await;
+    let checked_result = assert_no_jsonrpc_error(&checked, "update_check");
+    let checked_payload = checked_result.get("result").unwrap_or(checked_result);
+    assert_eq!(
+        checked_payload
+            .get("update_available")
+            .and_then(Value::as_bool),
+        Some(true),
+        "expected update_available=true: {checked_payload}"
+    );
+
+    let applied = post_json_rpc(&rpc_base, 103, "openhuman.update_apply", json!({})).await;
+    let applied_result = assert_no_jsonrpc_error(&applied, "update_apply");
+    let applied_payload = applied_result.get("result").unwrap_or(applied_result);
+    let staged_path = applied_payload
+        .get("staged_path")
+        .and_then(Value::as_str)
+        .expect("update_apply should return staged_path");
+    assert!(
+        Path::new(staged_path).exists(),
+        "staged binary should exist at {staged_path}"
+    );
+    assert_eq!(
+        applied_payload
+            .get("pending_restart")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let staged_status = post_json_rpc(&rpc_base, 104, "openhuman.update_status", json!({})).await;
+    let staged_status_result = assert_no_jsonrpc_error(&staged_status, "update_status_after_apply");
+    let staged_status_payload = staged_status_result
+        .get("result")
+        .unwrap_or(staged_status_result);
+    assert_eq!(
+        staged_status_payload
+            .get("pending_restart")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    // --- set_policy: switch to manual mode ---
+    let policy = post_json_rpc(
+        &rpc_base,
+        105,
+        "openhuman.update_set_policy",
+        json!({"mode": "manual", "check_interval_hours": 48}),
+    )
+    .await;
+    let policy_result = assert_no_jsonrpc_error(&policy, "update_set_policy");
+    let policy_payload = policy_result.get("result").unwrap_or(policy_result);
+    assert_eq!(
+        policy_payload.get("mode").and_then(Value::as_str),
+        Some("manual"),
+        "expected mode=manual after set_policy: {policy_payload}"
+    );
+    assert_eq!(
+        policy_payload
+            .get("check_interval_hours")
+            .and_then(Value::as_u64),
+        Some(48),
+        "expected check_interval_hours=48: {policy_payload}"
+    );
+
+    // --- dismiss: suppress prompt for this version ---
+    let dismiss = post_json_rpc(
+        &rpc_base,
+        106,
+        "openhuman.update_dismiss",
+        json!({"version": "0.99.99"}),
+    )
+    .await;
+    let dismiss_result = assert_no_jsonrpc_error(&dismiss, "update_dismiss");
+    let dismiss_payload = dismiss_result.get("result").unwrap_or(dismiss_result);
+    assert_eq!(
+        dismiss_payload
+            .get("should_prompt")
+            .and_then(Value::as_bool),
+        Some(false),
+        "should_prompt should be false after dismissing the available version: {dismiss_payload}"
+    );
+
+    mock_join.abort();
+    release_join.abort();
     rpc_join.abort();
 }

@@ -90,6 +90,11 @@ impl CoreProcessHandle {
             CoreRunMode::ChildProcess => {
                 let mut guard = self.child.lock().await;
                 if guard.is_none() {
+                    if let Some(core_bin) = &self.core_bin {
+                        if let Err(error) = apply_staged_sidecar_update(core_bin) {
+                            log::warn!("[core] staged sidecar update could not be applied: {error}");
+                        }
+                    }
                     let mut cmd = if let Some(core_bin) = &self.core_bin {
                         let mut cmd = Command::new(core_bin);
                         if is_current_exe_path(core_bin) {
@@ -192,6 +197,45 @@ impl CoreProcessHandle {
             task.abort();
         }
     }
+}
+
+/// Activate a staged `.next` sidecar binary before spawning the child process.
+/// Mirrors `openhuman_core::openhuman::update::store::apply_staged_update_for_path`
+/// — kept inline because the Tauri crate does not depend on `openhuman_core`.
+fn apply_staged_sidecar_update(target_bin: &std::path::Path) -> Result<(), String> {
+    let mut staged_os = target_bin.as_os_str().to_os_string();
+    staged_os.push(".next");
+    let staged = std::path::PathBuf::from(staged_os);
+    if !staged.exists() {
+        return Ok(());
+    }
+
+    let mut backup_os = target_bin.as_os_str().to_os_string();
+    backup_os.push(".bak");
+    let backup = std::path::PathBuf::from(backup_os);
+    if backup.exists() {
+        let _ = std::fs::remove_file(&backup);
+    }
+
+    std::fs::rename(target_bin, &backup).map_err(|e| {
+        format!(
+            "failed to move current sidecar to backup ({} -> {}): {e}",
+            target_bin.display(),
+            backup.display()
+        )
+    })?;
+
+    if let Err(error) = std::fs::rename(&staged, target_bin) {
+        let _ = std::fs::rename(&backup, target_bin);
+        return Err(format!(
+            "failed to activate staged sidecar ({} -> {}): {error}",
+            staged.display(),
+            target_bin.display()
+        ));
+    }
+
+    let _ = std::fs::remove_file(&backup);
+    Ok(())
 }
 
 fn is_current_exe_path(candidate: &std::path::Path) -> bool {

@@ -984,11 +984,106 @@ function tauriErrorMessage(err: unknown): string {
   return 'Unknown Tauri invoke error';
 }
 
+export interface TunnelConfig {
+  provider: string;
+  cloudflare?: { token: string } | null;
+  tailscale?: { funnel?: boolean; hostname?: string | null } | null;
+  ngrok?: { auth_token: string; domain?: string | null } | null;
+  custom?: {
+    start_command: string;
+    health_url?: string | null;
+    url_pattern?: string | null;
+  } | null;
+}
+
+export type CoreUpdateMode = 'auto' | 'prompt' | 'manual';
+
+export interface CoreUpdateAsset {
+  version: string;
+  tag: string;
+  name: string;
+  download_url: string;
+  digest_sha256?: string | null;
+  release_url: string;
+}
+
+export interface CoreUpdateStatus {
+  current_version: string;
+  mode: CoreUpdateMode;
+  check_interval_hours: number;
+  last_check_at?: string | null;
+  last_seen_version?: string | null;
+  last_result?: string | null;
+  last_error?: string | null;
+  update_available: boolean;
+  should_prompt: boolean;
+  latest?: CoreUpdateAsset | null;
+  pending_restart: boolean;
+  staged_path?: string | null;
+}
+
+export interface CoreUpdateApplyStatus {
+  staged_path: string;
+  pending_restart: boolean;
+  version: string;
+  release_url: string;
+}
+
 export async function openhumanGetConfig(): Promise<CommandResponse<ConfigSnapshot>> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
   return await callCoreRpc<CommandResponse<ConfigSnapshot>>({ method: 'openhuman.get_config' });
+}
+
+export async function openhumanUpdateStatus(): Promise<CommandResponse<CoreUpdateStatus>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<CoreUpdateStatus>>({
+    method: 'openhuman.update_status',
+  });
+}
+
+export async function openhumanUpdateSetPolicy(
+  mode: CoreUpdateMode,
+  checkIntervalHours?: number
+): Promise<CommandResponse<CoreUpdateStatus>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<CoreUpdateStatus>>({
+    method: 'openhuman.update_set_policy',
+    params: { mode, check_interval_hours: checkIntervalHours },
+  });
+}
+
+export async function openhumanUpdateCheck(): Promise<CommandResponse<CoreUpdateStatus>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<CoreUpdateStatus>>({ method: 'openhuman.update_check' });
+}
+
+export async function openhumanUpdateApply(): Promise<CommandResponse<CoreUpdateApplyStatus>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<CoreUpdateApplyStatus>>({
+    method: 'openhuman.update_apply',
+  });
+}
+
+export async function openhumanUpdateDismiss(
+  version: string
+): Promise<CommandResponse<CoreUpdateStatus>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<CommandResponse<CoreUpdateStatus>>({
+    method: 'openhuman.update_dismiss',
+    params: { version },
+  });
 }
 
 export async function openhumanUpdateModelSettings(
