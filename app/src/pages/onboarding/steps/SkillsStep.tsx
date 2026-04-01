@@ -119,10 +119,10 @@ const SkillsStep = ({ onComplete, onBack }: SkillsStepProps) => {
   return (
     <div className="rounded-3xl border border-stone-700 bg-stone-900 p-8 shadow-large animate-fade-up">
       <div className="text-center mb-4">
-        <h1 className="text-xl font-bold mb-2">Install Skills</h1>
+        <h1 className="text-xl font-bold mb-2">Connect Skills</h1>
         <p className="opacity-70 text-sm">
-          Connect integrations to give OpenHuman richer context. You can skip this and set them up
-          later.
+          Skills allows OpenHuman to have interact with your workflow. All data consumed by skills
+          is saved and processed locally. You can connect as many skills as you want.
         </p>
       </div>
 
