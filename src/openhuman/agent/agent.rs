@@ -316,7 +316,7 @@ impl Agent {
         let model_name = config
             .default_model
             .as_deref()
-            .unwrap_or("neocortex-mk1")
+            .unwrap_or(crate::openhuman::config::DEFAULT_MODEL)
             .to_string();
 
         let provider: Box<dyn Provider> = providers::create_routed_provider(

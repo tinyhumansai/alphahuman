@@ -111,7 +111,7 @@ const TauriCommandsPanel = () => {
   };
 
   const backendModelSuggestions = useMemo(
-    () => ['neocortex-mk1', 'gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o1', 'o3-mini'],
+    () => ['agentic-v1', 'reasoning-v1', 'coding-v1'],
     []
   );
 
