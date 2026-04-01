@@ -106,13 +106,6 @@ pub fn profile_upsert(
         .ok();
 
     if let Some((existing_id, existing_confidence, existing_count, existing_segments)) = existing {
-        // Update: increment evidence, only overwrite value if higher confidence.
-        let new_value = if confidence > existing_confidence {
-            value
-        } else {
-            // Keep existing value — we need a placeholder; use the SQL approach.
-            ""
-        };
         let new_segments = match (existing_segments, segment_id) {
             (Some(existing), Some(sid)) => {
                 if existing.contains(sid) {
@@ -127,6 +120,7 @@ pub fn profile_upsert(
         };
 
         if confidence > existing_confidence {
+            // Higher confidence: overwrite value + update metadata.
             conn.execute(
                 "UPDATE user_profile
                  SET value = ?2, confidence = ?3, evidence_count = ?4,
@@ -134,7 +128,7 @@ pub fn profile_upsert(
                  WHERE facet_id = ?1",
                 params![
                     existing_id,
-                    new_value,
+                    value,
                     confidence,
                     existing_count + 1,
                     new_segments,
@@ -142,6 +136,7 @@ pub fn profile_upsert(
                 ],
             )?;
         } else {
+            // Lower confidence: keep existing value, only bump evidence.
             conn.execute(
                 "UPDATE user_profile
                  SET evidence_count = ?2, source_segment_ids = ?3, last_seen_at = ?4

@@ -432,19 +432,19 @@ pub fn incremental_mean_embedding(
 
 /// Build a fallback summary from first and last turn content.
 pub fn fallback_summary(first_content: &str, last_content: &str, turn_count: i32) -> String {
-    let first_truncated = if first_content.len() > 200 {
-        format!("{}...", &first_content[..200])
-    } else {
-        first_content.to_string()
-    };
-    let last_truncated = if last_content.len() > 200 {
-        format!("{}...", &last_content[..200])
-    } else {
-        last_content.to_string()
-    };
+    let first_truncated = truncate_utf8_safe(first_content, 200);
+    let last_truncated = truncate_utf8_safe(last_content, 200);
     format!(
         "Conversation segment ({turn_count} turns). Started with: {first_truncated} | Ended with: {last_truncated}"
     )
+}
+
+/// Truncate a string at a safe UTF-8 char boundary.
+fn truncate_utf8_safe(s: &str, max_chars: usize) -> String {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => format!("{}...", &s[..byte_idx]),
+        None => s.to_string(),
+    }
 }
 
 // ── helpers ──

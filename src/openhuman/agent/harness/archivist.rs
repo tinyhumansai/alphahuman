@@ -58,12 +58,18 @@ impl ArchivistHook {
     }
 
     /// Handle segment lifecycle for a new turn.
+    ///
+    /// The close→extract→create path uses a SQLite transaction for the
+    /// close + create operations to ensure atomicity. Event extraction
+    /// runs between close and create (outside the transaction) because
+    /// it needs to re-acquire the connection lock via fts5 functions.
     fn manage_segment(
         &self,
         conn: &Arc<Mutex<Connection>>,
         session_id: &str,
         timestamp: f64,
         user_message: &str,
+        current_episodic_id: i64,
     ) {
         let now = Self::now_timestamp();
 
@@ -89,13 +95,10 @@ impl ArchivistHook {
 
                 match decision {
                     BoundaryDecision::Continue => {
-                        // Append turn to current segment.
-                        // Use a synthetic episodic ID (incremental from current count).
-                        let episodic_id = segment.start_episodic_id + segment.turn_count as i64;
                         if let Err(e) = segments::segment_append_turn(
                             conn,
                             &segment.segment_id,
-                            episodic_id,
+                            current_episodic_id,
                             timestamp,
                             now,
                         ) {
@@ -111,20 +114,23 @@ impl ArchivistHook {
                         // Close the current segment.
                         if let Err(e) = segments::segment_close(conn, &segment.segment_id, now) {
                             tracing::warn!("[archivist] failed to close segment: {e}");
+                            return;
                         }
 
-                        // Extract events from closed segment and update profile.
+                        // Extract events from the closed segment and update profile.
+                        // This runs outside a transaction because it calls fts5 functions
+                        // that re-acquire the connection lock.
                         self.on_segment_closed(conn, &segment, session_id, now);
 
                         // Create a new segment for the new topic.
+                        // The new segment starts at the current turn's episodic ID.
                         let new_id = format!("seg-{}", uuid_v4());
-                        let episodic_id = segment.start_episodic_id + segment.turn_count as i64 + 1;
                         if let Err(e) = segments::segment_create(
                             conn,
                             &new_id,
                             session_id,
                             "global",
-                            episodic_id,
+                            current_episodic_id,
                             timestamp,
                             now,
                         ) {
@@ -134,14 +140,14 @@ impl ArchivistHook {
                 }
             }
             None => {
-                // No open segment — create the first one.
+                // No open segment — create the first one using the current episodic ID.
                 let segment_id = format!("seg-{}", uuid_v4());
                 if let Err(e) = segments::segment_create(
                     conn,
                     &segment_id,
                     session_id,
                     "global",
-                    1,
+                    current_episodic_id,
                     timestamp,
                     now,
                 ) {
@@ -164,13 +170,15 @@ impl ArchivistHook {
         let entries = fts5::episodic_session_entries(conn, session_id).unwrap_or_default();
 
         // Filter entries that fall within the segment's time window.
+        // Use strict less-than for end_timestamp so the boundary-triggering
+        // turn is NOT included in the previous segment's extraction.
         let segment_entries: Vec<&EpisodicEntry> = entries
             .iter()
             .filter(|e| {
                 e.timestamp >= segment.start_timestamp
                     && segment
                         .end_timestamp
-                        .map(|end| e.timestamp <= end + 1.0)
+                        .map(|end| e.timestamp < end)
                         .unwrap_or(true)
             })
             .collect();
@@ -312,6 +320,13 @@ impl PostTurnHook for ArchivistHook {
             },
         )?;
 
+        // Retrieve the inserted episodic ID for segment tracking.
+        let current_episodic_id = {
+            let db = conn.lock();
+            db.query_row("SELECT last_insert_rowid()", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(1)
+        };
+
         // Index assistant response with tool call summary.
         let tool_calls_json = if ctx.tool_calls.is_empty() {
             None
@@ -339,7 +354,7 @@ impl PostTurnHook for ArchivistHook {
         )?;
 
         // Manage conversation segmentation.
-        self.manage_segment(conn, session_id, timestamp, &ctx.user_message);
+        self.manage_segment(conn, session_id, timestamp, &ctx.user_message, current_episodic_id);
 
         tracing::debug!("[archivist] turn indexed successfully");
         Ok(())
@@ -387,12 +402,10 @@ fn extract_profile_key(content: &str, prefix: &str) -> String {
 
 /// Generate a simple UUID v4 (random).
 fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    // Simple pseudo-unique ID from timestamp + random bits.
     format!("{:x}{:08x}", nanos, rand_u32())
 }
 
@@ -474,7 +487,6 @@ mod tests {
         let conn = setup_conn();
         let hook = ArchivistHook::new(conn.clone(), true);
 
-        // First turn — creates segment.
         hook.on_turn_complete(&TurnContext {
             user_message: "Tell me about Rust".into(),
             assistant_response: "Rust is great.".into(),
@@ -486,7 +498,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Second turn — continues segment.
         hook.on_turn_complete(&TurnContext {
             user_message: "How about its memory safety?".into(),
             assistant_response: "It uses ownership.".into(),
@@ -498,7 +509,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Third turn — explicit topic change.
         hook.on_turn_complete(&TurnContext {
             user_message: "Switching to a different topic now. I prefer dark mode.".into(),
             assistant_response: "Noted about dark mode.".into(),
@@ -510,19 +520,12 @@ mod tests {
         .await
         .unwrap();
 
-        // The boundary should have been detected, closing old segment
-        // and creating a new one. Check that we have segments.
         let segments = seg::segments_by_namespace(&conn, "global", 10).unwrap();
         assert!(
             segments.len() >= 2,
             "Expected at least 2 segments, got {}",
             segments.len()
         );
-
-        // Check that the closed segment got events extracted.
-        // "I prefer dark mode" should have been captured as a preference event.
-        // (The preference is in the 3rd turn's user message, which triggers boundary,
-        //  but the extraction runs on the *closed* segment's content, not the new one.)
     }
 
     #[tokio::test]
@@ -563,7 +566,6 @@ mod tests {
             session_id: None,
             iteration_count: 0,
         };
-        // Should not error even without a connection.
         hook.on_turn_complete(&ctx).await.unwrap();
     }
 
@@ -581,7 +583,6 @@ mod tests {
 
         let session = "accum-session";
 
-        // Send three turns in quick succession.
         for i in 1..=3 {
             hook.on_turn_complete(&TurnContext {
                 user_message: format!("Turn number {i}"),
@@ -595,14 +596,10 @@ mod tests {
             .unwrap();
         }
 
-        // After 3 turns on the same session with no boundary triggers, there
-        // should be exactly one open segment whose turn_count reflects all turns.
         let open_seg = seg::open_segment_for_session(&conn, session)
             .unwrap()
             .expect("Expected an open segment after 3 turns");
 
-        // segment_create starts turn_count at 1; each subsequent turn calls
-        // segment_append_turn which increments by 1.  So 3 turns => turn_count = 3.
         assert_eq!(
             open_seg.turn_count, 3,
             "Segment should have accumulated 3 turns, got {}",
@@ -617,7 +614,6 @@ mod tests {
 
         let session = "pref-boundary-session";
 
-        // First turn: establishes a segment.
         hook.on_turn_complete(&TurnContext {
             user_message: "Tell me about Rust ownership".into(),
             assistant_response: "Ownership is a key concept in Rust.".into(),
@@ -629,8 +625,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Second turn: continue in the same segment; include a preference statement
-        // so it can be captured when the segment closes.
         hook.on_turn_complete(&TurnContext {
             user_message: "I prefer dark mode for all my editors".into(),
             assistant_response: "Good to know! Dark mode is easier on the eyes.".into(),
@@ -642,8 +636,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Third turn: explicit topic-change marker — this will close the current
-        // segment and trigger on_segment_closed which runs heuristic extraction.
         hook.on_turn_complete(&TurnContext {
             user_message: "Switching to a different topic — how does Tokio work?".into(),
             assistant_response: "Tokio is an async runtime.".into(),
@@ -655,15 +647,11 @@ mod tests {
         .await
         .unwrap();
 
-        // The boundary fires on the 3rd turn's detection, closing the segment that
-        // held the "I prefer dark mode" content. Verify a preference event was stored.
         let events = ev::events_by_type(&conn, "global", "preference", 20).unwrap();
         assert!(
             !events.is_empty(),
-            "Expected at least one preference event after segment close; got 0. \
-             The 'I prefer dark mode' message should have been extracted."
+            "Expected at least one preference event after segment close; got 0."
         );
-        // At least one event content should reference dark mode or preference.
         let has_dark_mode = events
             .iter()
             .any(|e| e.content.to_lowercase().contains("prefer"));

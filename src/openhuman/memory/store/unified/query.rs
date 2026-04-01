@@ -198,11 +198,16 @@ impl UnifiedMemory {
         }
 
         // Episodic FTS5 search — search past conversation turns.
-        let episodic_hits = fts5::episodic_search(&self.conn, query, limit as usize)
-            .unwrap_or_else(|e| {
+        // Only merge episodic results when querying the global namespace,
+        // since episodic entries are session-scoped, not namespace-scoped.
+        let episodic_hits = if ns == "global" {
+            fts5::episodic_search(&self.conn, query, limit as usize).unwrap_or_else(|e| {
                 tracing::warn!("[query] episodic search failed: {e}");
                 Vec::new()
-            });
+            })
+        } else {
+            Vec::new()
+        };
 
         if !episodic_hits.is_empty() {
             tracing::debug!(
@@ -239,11 +244,10 @@ impl UnifiedMemory {
                 let episodic_score = (fts_relevance * 0.7) + (freshness * 0.3);
                 let final_score = episodic_score * EPISODIC_WEIGHT;
 
-                // Truncate long episodic content for context display.
-                let content = if entry.content.len() > 500 {
-                    format!("{}...", &entry.content[..500])
-                } else {
-                    entry.content.clone()
+                // Truncate long episodic content for context display (UTF-8 safe).
+                let content = match entry.content.char_indices().nth(500) {
+                    Some((byte_idx, _)) => format!("{}...", &entry.content[..byte_idx]),
+                    None => entry.content.clone(),
                 };
 
                 hits.push(NamespaceMemoryHit {
@@ -273,7 +277,7 @@ impl UnifiedMemory {
         }
 
         // Event FTS5 search — search extracted facts, decisions, preferences.
-        let event_hits = events::event_search_fts(&self.conn, query, limit as usize)
+        let event_hits = events::event_search_fts(&self.conn, &ns, query, limit as usize)
             .unwrap_or_else(|e| {
                 tracing::warn!("[query] event search failed: {e}");
                 Vec::new()

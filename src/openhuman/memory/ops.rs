@@ -144,6 +144,7 @@ fn chunk_metadata(hit: &NamespaceMemoryHit) -> Value {
             "keyword_relevance": hit.score_breakdown.keyword_relevance,
             "vector_similarity": hit.score_breakdown.vector_similarity,
             "graph_relevance": hit.score_breakdown.graph_relevance,
+            "episodic_relevance": hit.score_breakdown.episodic_relevance,
             "freshness": hit.score_breakdown.freshness,
             "final_score": hit.score_breakdown.final_score,
         }

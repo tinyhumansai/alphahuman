@@ -150,9 +150,10 @@ pub fn event_insert(conn: &Arc<Mutex<Connection>>, event: &EventRecord) -> anyho
     Ok(())
 }
 
-/// Search events via FTS5.
+/// Search events via FTS5, scoped to a namespace.
 pub fn event_search_fts(
     conn: &Arc<Mutex<Connection>>,
+    namespace: &str,
     query: &str,
     limit: usize,
 ) -> anyhow::Result<Vec<EventRecord>> {
@@ -163,16 +164,19 @@ pub fn event_search_fts(
                 el.confidence, el.embedding, el.source_turn_ids, el.created_at
          FROM event_fts AS ef
          JOIN event_log AS el ON ef.rowid = el.rowid
-         WHERE event_fts MATCH ?1
+         WHERE event_fts MATCH ?1 AND el.namespace = ?2
          ORDER BY rank
-         LIMIT ?2",
+         LIMIT ?3",
     )?;
     let rows = stmt
-        .query_map(params![query, limit as i64], |row| row_to_event(row))?
+        .query_map(params![query, namespace, limit as i64], |row| {
+            row_to_event(row)
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     tracing::debug!(
-        "[events] FTS search '{}' returned {} results",
+        "[events] FTS search '{}' (ns={}) returned {} results",
         query,
+        namespace,
         rows.len()
     );
     Ok(rows)
@@ -420,7 +424,7 @@ mod tests {
         };
         event_insert(&conn, &event).unwrap();
 
-        let results = event_search_fts(&conn, "Rust backend", 10).unwrap();
+        let results = event_search_fts(&conn, "global", "Rust backend", 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].event_type, EventType::Decision);
     }
@@ -595,11 +599,11 @@ mod tests {
         event_insert(&conn, &event).unwrap();
 
         // Search by content (should match).
-        let by_content = event_search_fts(&conn, "design", 5).unwrap();
+        let by_content = event_search_fts(&conn, "global", "design", 5).unwrap();
         assert_eq!(by_content.len(), 1, "FTS should match on content field");
 
         // Search by subject text (should also match via event_fts).
-        let by_subject = event_search_fts(&conn, "microservice", 5).unwrap();
+        let by_subject = event_search_fts(&conn, "global", "microservice", 5).unwrap();
         assert_eq!(by_subject.len(), 1, "FTS should match on subject field");
         assert_eq!(by_subject[0].event_id, "evt-subj");
     }
