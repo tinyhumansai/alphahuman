@@ -92,20 +92,11 @@ const ToolsStep = ({ onNext, onBack }: ToolsStepProps) => {
         })}
       </div>
 
-      <div className="flex gap-2">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="py-2.5 px-4 text-sm font-medium rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors">
-            Back
-          </button>
-        )}
-        <button
-          onClick={() => onNext(enabledList)}
-          className="btn-primary flex-1 py-2.5 text-sm font-medium rounded-xl">
-          Continue
-        </button>
-      </div>
+      <button
+        onClick={() => onNext(enabledList)}
+        className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
+        Continue
+      </button>
     </div>
   );
 };

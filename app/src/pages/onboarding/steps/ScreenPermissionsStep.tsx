@@ -81,7 +81,7 @@ const ScreenPermissionsStep = ({ onNext, onBack }: ScreenPermissionsStepProps) =
       ) : (
         <button
           onClick={() => onNext(isGranted)}
-          className="w-full py-2.5 text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
+          className="w-full py-2.5 btn-primary text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10 mb-3">
           Continue
         </button>
       )}
