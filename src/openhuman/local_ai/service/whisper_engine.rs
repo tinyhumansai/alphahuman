@@ -167,8 +167,7 @@ pub fn transcribe_wav_file(
 ) -> Result<String, String> {
     debug!("{LOG_PREFIX} reading WAV file: {}", wav_path.display());
 
-    let raw_bytes =
-        std::fs::read(wav_path).map_err(|e| format!("failed to read WAV file: {e}"))?;
+    let raw_bytes = std::fs::read(wav_path).map_err(|e| format!("failed to read WAV file: {e}"))?;
 
     let audio_f32 = decode_wav_to_f32(&raw_bytes)?;
     transcribe_pcm_f32(handle, &audio_f32, language)
