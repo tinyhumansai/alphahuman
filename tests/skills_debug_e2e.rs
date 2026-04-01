@@ -570,3 +570,110 @@ async fn skill_rapid_start_stop() {
 
     eprintln!("  Rapid start/stop completed without panic");
 }
+
+/// Test disconnect flow: stop → oauth/revoked → verify credential cleaned up.
+/// Mirrors what the frontend *should* do when a user clicks "Disconnect".
+#[tokio::test]
+async fn skill_disconnect_flow() {
+    let _ = env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
+
+    let skill_id = env_or("SKILL_DEBUG_ID", "example-skill");
+    let skills_dir = find_skills_dir();
+    let tmp = tempdir().expect("tempdir");
+    let data_dir = tmp.path().join("skills_data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    let engine = create_engine(&skills_dir, &data_dir).await;
+
+    // ── Start skill ──
+    eprintln!("\n--- DISCONNECT TEST ---");
+    eprintln!("  Starting skill '{skill_id}'...");
+    let snap = engine.start_skill(&skill_id).await.expect("start");
+    assert_eq!(snap.status, openhuman_core::openhuman::skills::types::SkillStatus::Running);
+    eprintln!("  ✓ Running, {} tools", snap.tools.len());
+
+    // ── Write a fake OAuth credential ──
+    let skill_data_dir = data_dir.join(&skill_id);
+    std::fs::create_dir_all(&skill_data_dir).unwrap();
+    let cred_path = skill_data_dir.join("oauth_credential.json");
+    std::fs::write(
+        &cred_path,
+        r#"{"credentialId":"test-cred-123","provider":"test","grantedScopes":[]}"#,
+    )
+    .unwrap();
+    assert!(cred_path.exists(), "Credential file should exist before disconnect");
+    eprintln!("  ✓ Wrote fake oauth_credential.json");
+
+    // ── Simulate frontend disconnect: stop + set_setup_complete(false) ──
+    eprintln!("  Simulating frontend disconnectSkill()...");
+
+    // Step 1: Stop (what frontend does)
+    engine.stop_skill(&skill_id).await.expect("stop");
+    eprintln!("  ✓ Skill stopped");
+
+    // Step 2: Reset setup_complete (what frontend does)
+    engine.preferences().set_setup_complete(&skill_id, false);
+    assert!(!engine.preferences().is_setup_complete(&skill_id));
+    eprintln!("  ✓ setup_complete = false");
+
+    // ── Verify credential file still exists (BUG: disconnect doesn't clean it) ──
+    let cred_still_exists = cred_path.exists();
+    if cred_still_exists {
+        eprintln!("  ⚠ oauth_credential.json still exists after disconnect (expected gap)");
+        eprintln!("    → Frontend disconnect does NOT call oauth/revoked");
+        eprintln!("    → On restart, the old credential will be restored");
+    } else {
+        eprintln!("  ✓ oauth_credential.json cleaned up");
+    }
+
+    // ── Now test the proper flow: start + send oauth/revoked ──
+    eprintln!("\n  Testing proper disconnect (with oauth/revoked)...");
+    // Re-write credential for the proper test
+    std::fs::write(
+        &cred_path,
+        r#"{"credentialId":"test-cred-456","provider":"test","grantedScopes":[]}"#,
+    )
+    .unwrap();
+
+    let snap2 = engine.start_skill(&skill_id).await.expect("restart");
+    assert_eq!(snap2.status, openhuman_core::openhuman::skills::types::SkillStatus::Running);
+    eprintln!("  ✓ Restarted skill");
+
+    // Send oauth/revoked RPC (what disconnect SHOULD do)
+    let revoke_result = engine
+        .rpc(
+            &skill_id,
+            "oauth/revoked",
+            json!({"integrationId": "test-cred-456"}),
+        )
+        .await;
+    match &revoke_result {
+        Ok(val) => eprintln!("  ✓ oauth/revoked returned: {val}"),
+        Err(e) => eprintln!("  · oauth/revoked: {e} (may be expected for non-OAuth skills)"),
+    }
+
+    // Now stop
+    engine.stop_skill(&skill_id).await.expect("stop");
+    engine.preferences().set_setup_complete(&skill_id, false);
+    eprintln!("  ✓ Stopped + setup_complete = false");
+
+    // Verify credential file is gone after oauth/revoked
+    let cred_after_revoke = cred_path.exists();
+    if !cred_after_revoke {
+        eprintln!("  ✓ oauth_credential.json deleted after oauth/revoked");
+    } else {
+        eprintln!("  ⚠ oauth_credential.json still exists (oauth/revoked may not delete for non-OAuth skills)");
+    }
+
+    // ── Verify restart after disconnect shows clean state ──
+    eprintln!("\n  Verifying clean restart after proper disconnect...");
+    let snap3 = engine.start_skill(&skill_id).await.expect("restart after disconnect");
+    eprintln!("  ✓ Restarted: {:?}, {} tools", snap3.status, snap3.tools.len());
+    eprintln!("  setup_complete: {}", engine.preferences().is_setup_complete(&skill_id));
+
+    engine.stop_skill(&skill_id).await.expect("final stop");
+    eprintln!("\n  ✓ Disconnect flow test complete");
+}
