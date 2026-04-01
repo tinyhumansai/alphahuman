@@ -1,0 +1,36 @@
+{
+  "name": "openhuman",
+  "version": "0.0.0",
+  "description": "AI-powered assistant for communities — OpenHuman CLI",
+  "keywords": [
+    "openhuman",
+    "ai",
+    "cli",
+    "crypto",
+    "community"
+  ],
+  "homepage": "https://github.com/tinyhumansai/openhuman",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinyhumansai/openhuman.git",
+    "directory": "packages/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/tinyhumansai/openhuman/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "openhuman": "./bin/openhuman.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

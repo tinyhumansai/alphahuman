@@ -14,6 +14,7 @@
 pub mod agent;
 pub mod approval;
 pub mod autocomplete;
+pub mod billing;
 pub mod channels;
 pub mod config;
 pub mod cost;
@@ -33,6 +34,7 @@ pub mod screen_intelligence;
 pub mod security;
 pub mod service;
 pub mod skills;
+pub mod team;
 pub mod tools;
 pub mod util;
 pub mod webhooks;

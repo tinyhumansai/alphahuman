@@ -1,0 +1,454 @@
+name: Release Packages
+
+# Triggered after the main release.yml publishes a release.
+# By the time this fires, macOS (aarch64 + x86_64) and Linux x86_64
+# CLI tarballs are already attached to the release by release.yml.
+#
+# This workflow adds:
+#   1. Linux arm64 CLI tarball
+#   2. Homebrew tap formula update
+#   3. Debian apt repository (gh-pages)
+#   4. npm package publish
+#   5. Smoke tests for each channel
+#   6. One-time backlog issue for future package managers
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: release-packages-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. Build Linux arm64 CLI tarball (native runner)
+  #    Requires: ubuntu-24.04-arm GitHub-hosted runner (free for public repos).
+  #    If this runner type is unavailable on your plan, replace runs-on with
+  #    ubuntu-22.04 and add: uses: taiki-e/install-action@cross + use
+  #    `cross build --target aarch64-unknown-linux-gnu` instead of plain cargo.
+  # ────────────────────────────────────────────────────────────────────────────
+  build-cli-linux-arm64:
+    name: Build Linux arm64 CLI tarball
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 1
+          submodules: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.93.0
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-arm64-release
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev build-essential
+
+      - name: Build CLI binary
+        run: cargo build --release --bin openhuman-core
+        env:
+          OPENHUMAN_SENTRY_DSN: ${{ vars.OPENHUMAN_SENTRY_DSN }}
+
+      - name: Package tarball and upload to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          TARGET="aarch64-unknown-linux-gnu"
+          TARBALL="openhuman-core-${VERSION}-${TARGET}.tar.gz"
+
+          WORK=$(mktemp -d)
+          trap 'rm -rf "$WORK"' EXIT
+          cp target/release/openhuman-core "$WORK/"
+          chmod +x "$WORK/openhuman-core"
+          tar -czf "$TARBALL" -C "$WORK" openhuman-core
+          openssl dgst -sha256 -r "$TARBALL" | awk '{print $1}' > "${TARBALL}.sha256"
+
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "$TARBALL" "${TARBALL}.sha256" \
+            --repo tinyhumansai/openhuman --clobber
+
+          echo "[pkg] Uploaded $TARBALL"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. Update Homebrew tap
+  #    Requires secret: HOMEBREW_TAP_TOKEN (PAT or App token with contents:write
+  #    on tinyhumansai/homebrew-openhuman)
+  # ────────────────────────────────────────────────────────────────────────────
+  update-homebrew:
+    name: Update Homebrew tap formula
+    runs-on: ubuntu-latest
+    needs: [build-cli-linux-arm64]
+    steps:
+      - name: Checkout main repo (for formula template)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          path: src
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: tinyhumansai/homebrew-openhuman
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Download tarballs and compute checksums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p /tmp/tarballs
+
+          for row in \
+            "aarch64-apple-darwin:SHA256_MACOS_ARM64" \
+            "x86_64-apple-darwin:SHA256_MACOS_X64" \
+            "x86_64-unknown-linux-gnu:SHA256_LINUX_X64" \
+            "aarch64-unknown-linux-gnu:SHA256_LINUX_ARM64"
+          do
+            TARGET="${row%%:*}"
+            VAR="${row##*:}"
+            TARBALL="openhuman-core-${VERSION}-${TARGET}.tar.gz"
+            echo "[homebrew] Downloading $TARBALL ..."
+            gh release download "$TAG" \
+              --pattern "$TARBALL" \
+              --repo tinyhumansai/openhuman \
+              --dir /tmp/tarballs
+            SHA=$(openssl dgst -sha256 -r "/tmp/tarballs/$TARBALL" | awk '{print $1}')
+            echo "${VAR}=${SHA}" >> "$GITHUB_ENV"
+            echo "[homebrew]   $TARGET → $SHA"
+          done
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Render and commit formula
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Formula
+
+          sed \
+            -e "s/@VERSION@/${VERSION}/g" \
+            -e "s/@SHA256_MACOS_ARM64@/${SHA256_MACOS_ARM64}/g" \
+            -e "s/@SHA256_MACOS_X64@/${SHA256_MACOS_X64}/g" \
+            -e "s/@SHA256_LINUX_X64@/${SHA256_LINUX_X64}/g" \
+            -e "s/@SHA256_LINUX_ARM64@/${SHA256_LINUX_ARM64}/g" \
+            src/packages/homebrew/openhuman.rb > tap/Formula/openhuman.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/openhuman.rb
+          git diff --cached --quiet && echo "[homebrew] No changes to commit." && exit 0
+          git commit -m "chore: update formula to v${VERSION}"
+          git push
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. Build Debian apt repository and deploy to GitHub Pages
+  #    Requires: APT_SIGNING_KEY (ASCII-armor GPG private key secret)
+  #              APT_SIGNING_KEY_ID (key fingerprint / ID)
+  #    GitHub Pages must be enabled (Settings → Pages → Source: gh-pages branch)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-apt-repo:
+    name: Build apt repository
+    runs-on: ubuntu-22.04
+    needs: [build-cli-linux-arm64]
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 1
+
+      - name: Install apt-repo build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev apt-utils gnupg2
+
+      - name: Import GPG signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
+          gpg --list-secret-keys
+
+      - name: Download Linux CLI tarballs from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p /tmp/tarballs
+
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            TARBALL="openhuman-core-${VERSION}-${target}.tar.gz"
+            gh release download "$TAG" \
+              --pattern "$TARBALL" \
+              --repo tinyhumansai/openhuman \
+              --dir /tmp/tarballs
+            echo "[apt] Downloaded $TARBALL"
+          done
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Extract binaries and build .deb packages
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bins
+
+          tar -xzf "/tmp/tarballs/openhuman-core-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            -C /tmp/bins
+          mv /tmp/bins/openhuman-core /tmp/bins/openhuman-core-amd64
+
+          tar -xzf "/tmp/tarballs/openhuman-core-${VERSION}-aarch64-unknown-linux-gnu.tar.gz" \
+            -C /tmp/bins
+          mv /tmp/bins/openhuman-core /tmp/bins/openhuman-core-arm64
+
+          chmod +x /tmp/bins/openhuman-core-amd64 /tmp/bins/openhuman-core-arm64
+
+          bash packages/deb/build.sh /tmp/bins/openhuman-core-amd64 "${VERSION}" amd64
+          bash packages/deb/build.sh /tmp/bins/openhuman-core-arm64 "${VERSION}" arm64
+
+          ls -lh openhuman_*.deb
+
+      - name: Build apt repository
+        env:
+          APT_SIGNING_KEY_ID: ${{ secrets.APT_SIGNING_KEY_ID }}
+        run: |
+          bash scripts/build-apt-repo.sh /tmp/apt-repo \
+            "openhuman_${VERSION}_amd64.deb" \
+            "openhuman_${VERSION}_arm64.deb"
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+          # Create the branch if it doesn't exist
+          fetch-depth: 0
+
+      - name: Update apt/ directory on gh-pages
+        run: |
+          set -euo pipefail
+          mkdir -p gh-pages/apt
+          # Remove old apt content, replace with freshly built repo
+          rm -rf gh-pages/apt/*
+          cp -r /tmp/apt-repo/. gh-pages/apt/
+
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apt/
+          git diff --cached --quiet && echo "[apt] No changes." && exit 0
+          git commit -m "chore(apt): publish v${VERSION}"
+          git push origin gh-pages
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. Publish npm package
+  #    Requires secret: NPM_TOKEN (automation token from npmjs.com)
+  # ────────────────────────────────────────────────────────────────────────────
+  publish-npm:
+    name: Publish npm package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set version and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+
+          cd packages/npm
+
+          # Stamp version without creating a git commit
+          npm version "$VERSION" --no-git-tag-version
+
+          # SKIP_OPENHUMAN_BINARY_DOWNLOAD prevents postinstall from running
+          # during publish (the binary doesn't exist yet on the publish runner)
+          SKIP_OPENHUMAN_BINARY_DOWNLOAD=1 npm publish --access public
+
+          echo "[npm] Published openhuman@${VERSION}"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 5. Smoke test: Homebrew
+  # ────────────────────────────────────────────────────────────────────────────
+  smoke-homebrew:
+    name: Smoke — Homebrew (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [update-homebrew]
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-22.04]
+    steps:
+      - name: Install Homebrew (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+
+      - name: Tap and install
+        run: |
+          brew tap tinyhumansai/openhuman
+          brew install openhuman
+
+      - name: Smoke test
+        run: openhuman --version
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 6. Smoke test: apt
+  # ────────────────────────────────────────────────────────────────────────────
+  smoke-apt:
+    name: Smoke — apt (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    needs: [build-apt-repo]
+    continue-on-error: true
+    steps:
+      - name: Add apt repository
+        run: |
+          sudo apt-get install -y --no-install-recommends gnupg2 curl ca-certificates
+          curl -fsSL https://tinyhumansai.github.io/openhuman/apt/KEY.gpg \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/openhuman.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/openhuman.gpg arch=amd64] \
+            https://tinyhumansai.github.io/openhuman/apt stable main" \
+            | sudo tee /etc/apt/sources.list.d/openhuman.list
+
+      - name: Install and smoke test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openhuman
+          openhuman --version
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 7. Smoke test: npm
+  # ────────────────────────────────────────────────────────────────────────────
+  smoke-npm:
+    name: Smoke — npm (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [publish-npm]
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      - name: Wait for npm propagation, then install
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          # npm can take up to ~2 min to propagate a new publish
+          for i in 1 2 3 4 5; do
+            npm install -g "openhuman@${VERSION}" && break || sleep 30
+          done
+
+      - name: Smoke test
+        run: openhuman --version
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 8. File the "future package managers" backlog issue (once ever)
+  # ────────────────────────────────────────────────────────────────────────────
+  create-backlog-issue:
+    name: Create backlog issue (once)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue if it doesn't exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const label = 'distribution-backlog';
+            const title = '[Backlog] Package manager distribution — next tiers';
+
+            // Check for existing open or closed issue with this exact title
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner, repo,
+              state: 'all',
+              labels: label,
+              per_page: 10,
+            });
+            if (existing.some(i => i.title === title)) {
+              core.info('Backlog issue already exists — skipping.');
+              return;
+            }
+
+            // Ensure the label exists
+            try {
+              await github.rest.issues.createLabel({
+                owner, repo,
+                name: label,
+                color: '0075ca',
+                description: 'Package distribution backlog',
+              });
+            } catch (_) { /* label may already exist */ }
+
+            const body = `## Summary
+
+Track remaining package manager channels. Each tier reflects expected maintenance commitment from the core team.
+
+## Tier 1 — Official (core team maintains)
+
+- [ ] **npx / pnpm dlx** — zero-install via the npm package already published; document the one-liner: \`npx openhuman@latest\`
+- [ ] **Scoop (Windows)** — needs a Windows binary (un-comment the Windows matrix in \`release.yml\` first); add a \`tinyhumansai/scoop-openhuman\` bucket
+
+## Tier 2 — Community-supported (PRs welcome, core team reviews)
+
+- [ ] **AUR (Arch Linux)** — add \`PKGBUILD\` pointing at the GitHub release tarball; list in \`packages/\`
+- [ ] **Nix / nixpkgs** — upstream a \`pkgs/tools/openhuman/default.nix\` derivation; document local flake overlay as interim
+
+## Tier 3 — Planned (no timeline)
+
+- [ ] **Snap / Snapcraft** — \`snapcraft.yaml\`, publish to Snap Store
+- [ ] **Flatpak** — \`org.tinyhumans.Openhuman.yaml\`, publish to Flathub
+- [ ] **WinGet** — manifest in \`microsoft/winget-pkgs\` once Windows binary is stable
+
+## Acceptance criteria
+
+- [ ] Each official channel has a CI smoke test (install + \`openhuman --version\`)
+- [ ] Install commands appear in \`docs/install.md\`
+- [ ] Checksums shipped for all artifacts
+`;
+            const issue = await github.rest.issues.create({
+              owner, repo,
+              title,
+              body,
+              labels: [label],
+            });
+            core.info(\`Created backlog issue: \${issue.data.html_url}\`);

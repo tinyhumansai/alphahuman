@@ -7,7 +7,7 @@
 use crate::openhuman::providers::UsageInfo;
 
 /// Threshold (0.0–1.0) at which auto-compaction is triggered.
-const COMPACTION_TRIGGER_THRESHOLD: f64 = 0.90;
+pub(crate) const COMPACTION_TRIGGER_THRESHOLD: f64 = 0.90;
 
 /// Threshold above which, if compaction is disabled, the guard returns an error.
 const HARD_LIMIT_THRESHOLD: f64 = 0.95;

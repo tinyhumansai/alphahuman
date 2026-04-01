@@ -1,0 +1,6 @@
+# Exclude the downloaded native binary from published package
+bin/openhuman-bin
+bin/openhuman-bin.exe
+bin/*.tar.gz
+bin/*.zip
+bin/*.sha256
