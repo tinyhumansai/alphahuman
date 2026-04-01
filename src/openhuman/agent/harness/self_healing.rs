@@ -13,7 +13,7 @@ const MAX_HEAL_ATTEMPTS: u8 = 2;
 /// Patterns in tool error output that indicate a missing command/binary.
 const MISSING_CMD_PATTERNS: &[&str] = &[
     "command not found",
-    "not found",
+    ": not found",
     "not installed",
     "No such file or directory",
     "not recognized as an internal or external command",

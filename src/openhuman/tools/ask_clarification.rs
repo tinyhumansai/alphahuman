@@ -31,11 +31,11 @@ impl Tool for AskClarificationTool {
     fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
-            "required": ["question"],
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": "The clarifying question to ask the user."
+                    "description": "The clarifying question to ask the user. \
+                                   If omitted, a generic clarification prompt is used."
                 },
                 "options": {
                     "type": "array",

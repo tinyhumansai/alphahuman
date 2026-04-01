@@ -65,11 +65,13 @@ impl TaskDag {
     /// Validate the DAG: check for missing dependencies and cycles.
     pub fn validate(&self) -> Result<(), DagError> {
         let ids: HashSet<&str> = self.nodes.iter().map(|n| n.id.as_str()).collect();
+        tracing::trace!("[dag] validating {} node(s): {:?}", ids.len(), ids);
 
         // Check all dependency references exist.
         for node in &self.nodes {
             for dep in &node.depends_on {
                 if !ids.contains(dep.as_str()) {
+                    tracing::debug!("[dag] node '{}' depends on missing node '{}'", node.id, dep);
                     return Err(DagError::MissingDependency {
                         node: node.id.clone(),
                         missing: dep.clone(),
@@ -78,15 +80,18 @@ impl TaskDag {
             }
             // Self-dependency check.
             if node.depends_on.contains(&node.id) {
+                tracing::debug!("[dag] node '{}' has self-dependency", node.id);
                 return Err(DagError::Cycle);
             }
         }
 
         // Full cycle detection via Kahn's algorithm.
         if self.topological_sort().is_none() {
+            tracing::debug!("[dag] topological sort detected a cycle");
             return Err(DagError::Cycle);
         }
 
+        tracing::trace!("[dag] validation passed");
         Ok(())
     }
 
@@ -154,6 +159,10 @@ impl TaskDag {
             })
             .collect();
 
+        // Build the id_map once outside the loop.
+        let id_map: HashMap<&str, &TaskId> =
+            self.nodes.iter().map(|n| (n.id.as_str(), &n.id)).collect();
+
         let mut levels = Vec::new();
         let mut completed: HashSet<&str> = HashSet::new();
 
@@ -168,9 +177,6 @@ impl TaskDag {
                 // Remaining nodes have unsatisfied deps (should be caught by validate).
                 break;
             }
-
-            let id_map: HashMap<&str, &TaskId> =
-                self.nodes.iter().map(|n| (n.id.as_str(), &n.id)).collect();
 
             let level: Vec<&TaskId> = ready
                 .iter()

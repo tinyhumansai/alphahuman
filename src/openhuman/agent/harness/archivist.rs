@@ -101,7 +101,9 @@ impl PostTurnHook for ArchivistHook {
             &EpisodicEntry {
                 id: None,
                 session_id: session_id.to_string(),
-                timestamp: timestamp + 0.001, // slightly after user message
+                // Offset by 1ms so assistant entries sort after user entries within
+                // the same turn. Relies on turn timestamps having >=1ms resolution.
+                timestamp: timestamp + 0.001,
                 role: "assistant".to_string(),
                 content: ctx.assistant_response.clone(),
                 lesson,

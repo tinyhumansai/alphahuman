@@ -53,6 +53,9 @@ pub async fn run_orchestrated(
     }
 
     // ── 2. EXECUTE ───────────────────────────────────────────────────────────
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(
+        orch_config.max_concurrent_agents,
+    ));
     let mut dag = dag;
     let levels = dag.execution_levels();
     let level_ids: Vec<Vec<String>> = levels
@@ -76,6 +79,7 @@ pub async fn run_orchestrated(
             provider,
             memory.clone(),
             session_id,
+            semaphore.clone(),
         )
         .await;
 
@@ -114,6 +118,7 @@ pub async fn run_orchestrated(
                     provider,
                     memory.clone(),
                     session_id,
+                    semaphore.clone(),
                 )
                 .await;
                 for result in retry_results {
@@ -135,6 +140,29 @@ pub async fn run_orchestrated(
                     summarise_completed(&dag)
                 ));
             }
+        }
+
+        // After retries, check if any task in this level still failed.
+        let still_failed: Vec<&str> = task_ids
+            .iter()
+            .filter(|id| {
+                dag.node(id)
+                    .is_some_and(|n| matches!(n.status, TaskStatus::Failed))
+            })
+            .map(|s| s.as_str())
+            .collect();
+        if !still_failed.is_empty() {
+            tracing::warn!(
+                "[orchestrator] level {} has {} task(s) still failed after retries, halting",
+                level_idx + 1,
+                still_failed.len()
+            );
+            return Ok(format!(
+                "Plan halted: {} task(s) failed in level {}.\n\nCompleted so far:\n{}",
+                still_failed.len(),
+                level_idx + 1,
+                summarise_completed(&dag)
+            ));
         }
     }
 
@@ -212,11 +240,9 @@ async fn execute_level(
     _provider: &dyn Provider,
     _memory: Arc<dyn Memory>,
     session_id: &str,
+    semaphore: Arc<tokio::sync::Semaphore>,
 ) -> Vec<SubAgentResult> {
     let mut join_set: JoinSet<SubAgentResult> = JoinSet::new();
-    let _semaphore = Arc::new(tokio::sync::Semaphore::new(
-        orch_config.max_concurrent_agents,
-    ));
 
     for task_id in task_ids {
         let Some(node) = dag.node(task_id) else {
@@ -261,25 +287,30 @@ async fn execute_level(
         );
         let model_clone = model.clone();
         let _timeout = timeout;
+        let semaphore_clone = semaphore.clone();
 
         join_set.spawn(async move {
+            let _permit = semaphore_clone
+                .acquire_owned()
+                .await
+                .expect("semaphore closed");
             let start = Instant::now();
 
             // For now, sub-agents use a simple prompt (no tool loop).
             // This will be upgraded when archetype-specific tool subsets are wired.
             let result_text = format!(
-                "[placeholder: {archetype} sub-agent would execute here]\n\
+                "[placeholder — no execution] {archetype} sub-agent would execute here\n\
                  Task: {description}\nModel: {model_clone}\nTimeout: {timeout:?}"
             );
 
             tracing::debug!(
-                "[orchestrator] sub-agent {archetype} completed task {tid} in {:?}",
+                "[orchestrator] sub-agent {archetype} placeholder task {tid} in {:?}",
                 start.elapsed()
             );
 
             SubAgentResult {
                 task_id: tid,
-                success: true,
+                success: false,
                 output: result_text,
                 artifacts: Vec::new(),
                 cost_microdollars: 0,

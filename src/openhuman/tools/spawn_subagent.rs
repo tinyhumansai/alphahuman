@@ -80,20 +80,20 @@ impl Tool for SpawnSubagentTool {
         // Placeholder: In the full implementation, this will construct a sub-agent
         // via AgentBuilder with the archetype's tool subset, model, and sandbox,
         // then run its tool loop and return the result.
-        tracing::info!(
-            "[spawn_subagent] would spawn {archetype_str} sub-agent with prompt length={}",
+        tracing::warn!(
+            "[spawn_subagent] no-op — would spawn {archetype_str} sub-agent with prompt length={}",
             prompt.len()
         );
 
         Ok(ToolResult {
-            success: true,
+            success: false,
             output: format!(
                 "[Sub-agent {archetype_str}] Task received. Prompt: {prompt}\n\
                  Context length: {} chars\n\
                  (Full sub-agent execution will be wired in next phase)",
                 context.len()
             ),
-            error: None,
+            error: Some("spawn_subagent not yet wired to sub-agent execution".into()),
         })
     }
 }

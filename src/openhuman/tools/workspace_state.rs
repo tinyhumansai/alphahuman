@@ -60,6 +60,11 @@ impl Tool for WorkspaceStateTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(5) as usize;
 
+        tracing::debug!(
+            "[workspace_state] dir={}, include_tree={include_tree}, recent_commits={recent_commits}",
+            self.workspace_dir.display()
+        );
+
         let mut output = String::new();
         let dir = &self.workspace_dir;
 
@@ -116,6 +121,7 @@ impl Tool for WorkspaceStateTool {
             }
         }
 
+        tracing::debug!("[workspace_state] output length={}", output.len());
         Ok(ToolResult {
             success: true,
             output,

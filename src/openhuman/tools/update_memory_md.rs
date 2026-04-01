@@ -97,6 +97,24 @@ impl Tool for UpdateMemoryMdTool {
 
         let target_path = self.workspace_dir.join(file);
 
+        // Prevent symlink-based workspace escape.
+        let workspace_canon = self
+            .workspace_dir
+            .canonicalize()
+            .map_err(|e| anyhow::anyhow!("Failed to canonicalize workspace: {e}"))?;
+        // Check parent dir exists and canonicalize to detect symlinks.
+        let parent = target_path.parent().unwrap_or(&self.workspace_dir);
+        let parent_canon = parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
+        if !parent_canon.starts_with(&workspace_canon) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("File path '{file}' resolves outside workspace")),
+            });
+        }
+
         tracing::debug!("[update_memory_md] action={action} file={file} path={target_path:?}");
 
         match action {
@@ -140,7 +158,8 @@ impl UpdateMemoryMdTool {
         };
         let new_content = format!("{existing}{separator}{content}\n");
 
-        std::fs::write(path, &new_content)
+        tokio::fs::write(path, &new_content)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to write {file}: {e}"))?;
 
         let bytes = new_content.len();

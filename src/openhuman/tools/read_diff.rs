@@ -65,17 +65,21 @@ impl Tool for ReadDiffTool {
             git_args.push("--cached");
         }
 
-        let base_str;
-        if let Some(b) = base {
-            base_str = b.to_string();
-            git_args.push(&base_str);
+        let base_str = base.map(|b| b.to_string());
+        if let Some(ref bs) = base_str {
+            git_args.push(bs);
         }
 
         if let Some(pf) = path_filter {
             git_args.push("--");
-            // Safe: path_filter is passed as a git pathspec.
             git_args.push(pf);
         }
+
+        tracing::debug!(
+            workspace = %self.workspace_dir.display(),
+            ?git_args,
+            "[read_diff] running git diff"
+        );
 
         let output = tokio::process::Command::new("git")
             .args(&git_args)
@@ -85,6 +89,7 @@ impl Tool for ReadDiffTool {
 
         if output.status.success() {
             let diff = String::from_utf8_lossy(&output.stdout);
+            tracing::debug!("[read_diff] success, diff length={}", diff.len());
             if diff.trim().is_empty() {
                 Ok(ToolResult {
                     success: true,
@@ -99,10 +104,12 @@ impl Tool for ReadDiffTool {
                 })
             }
         } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::debug!("[read_diff] failed: {stderr}");
             Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+                error: Some(stderr.to_string()),
             })
         }
     }

@@ -101,6 +101,7 @@ pub enum ArtifactKind {
 
 /// Decision the orchestrator makes after reviewing a completed DAG level.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReviewDecision {
     /// Continue to the next DAG level.
     Continue,
@@ -120,14 +121,14 @@ mod humantime_serde {
     where
         S: Serializer,
     {
-        serializer.serialize_u64(duration.as_secs())
+        serializer.serialize_f64(duration.as_secs_f64())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let secs = u64::deserialize(deserializer)?;
-        Ok(Duration::from_secs(secs))
+        let secs = f64::deserialize(deserializer)?;
+        Ok(Duration::from_secs_f64(secs))
     }
 }

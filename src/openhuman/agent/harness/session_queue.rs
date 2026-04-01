@@ -32,23 +32,44 @@ impl SessionQueue {
     pub async fn acquire(&self, session_id: &str) -> OwnedSemaphorePermit {
         let sem = {
             let mut map = self.lanes.lock().await;
-            map.entry(session_id.to_string())
+            let is_new = !map.contains_key(session_id);
+            let sem = map
+                .entry(session_id.to_string())
                 .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                .clone()
+                .clone();
+            if is_new {
+                tracing::trace!("[session-queue] created lane for session={session_id}");
+            }
+            tracing::trace!(
+                "[session-queue] acquiring lane session={session_id}, permits={}",
+                sem.available_permits()
+            );
+            sem
         };
-        // unwrap: we never close the semaphore
-        sem.acquire_owned().await.expect("session semaphore closed")
+        let permit = sem.acquire_owned().await.expect("session semaphore closed");
+        tracing::trace!("[session-queue] acquired lane for session={session_id}");
+        permit
     }
 
     /// Remove stale session lanes that have no waiters.
     /// Call periodically or after sessions end to prevent unbounded growth.
     pub async fn gc(&self) {
         let mut map = self.lanes.lock().await;
-        map.retain(|_id, sem| {
-            // Keep lanes that currently have permits checked out.
-            // available_permits == 1 means nobody is holding the lock.
-            sem.available_permits() < 1
+        let before = map.len();
+        map.retain(|id, sem| {
+            let keep = sem.available_permits() < 1 || Arc::strong_count(sem) > 1;
+            if !keep {
+                tracing::trace!("[session-queue] pruning idle lane session={id}");
+            }
+            keep
         });
+        let removed = before - map.len();
+        if removed > 0 {
+            tracing::debug!(
+                "[session-queue] gc removed {removed} idle lane(s), {} remaining",
+                map.len()
+            );
+        }
     }
 
     /// Number of tracked session lanes (for diagnostics).

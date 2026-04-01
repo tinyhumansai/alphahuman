@@ -146,9 +146,9 @@ impl Tool for InsertSqlRecordTool {
         );
 
         Ok(ToolResult {
-            success: true,
+            success: false,
             output: summary,
-            error: None,
+            error: Some("episodic memory write not yet wired (FTS5/SQLite insert pending)".into()),
         })
     }
 }
@@ -171,7 +171,13 @@ mod tests {
             }))
             .await
             .unwrap();
-        assert!(result.success, "{:?}", result.error);
+        // The tool is a stub: success is false until FTS5 write is wired.
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not yet wired"));
         assert!(result.output.contains("sess-001"));
         assert!(result.output.contains("user"));
     }
@@ -187,7 +193,8 @@ mod tests {
             }))
             .await
             .unwrap();
-        assert!(result.success, "{:?}", result.error);
+        // The tool is a stub: success is false until FTS5 write is wired.
+        assert!(!result.success);
         assert!(result.output.contains("lesson="));
     }
 

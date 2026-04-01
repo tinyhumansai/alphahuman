@@ -107,27 +107,58 @@ impl Tool for RunTestsTool {
             }
         };
 
+        tracing::debug!("[run_tests] runner={runner}, filter={filter:?}, timeout={timeout_secs}s");
+
         cmd.current_dir(&self.workspace_dir);
+        cmd.kill_on_drop(true);
 
         let output =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
                 .await
-                .map_err(|_| anyhow::anyhow!("test execution timed out after {timeout_secs}s"))??;
+            {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("failed to spawn test runner: {e}")),
+                    });
+                }
+                Err(_) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("test execution timed out after {timeout_secs}s")),
+                    });
+                }
+            };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-
         let combined = format!("{stdout}\n{stderr}");
-        // Truncate if very long.
+
+        // Truncate on a safe UTF-8 char boundary.
         let truncated = if combined.len() > 8000 {
+            let safe_end = combined
+                .char_indices()
+                .take_while(|(i, _)| *i <= 8000)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
             format!(
                 "{}...\n[truncated, {} total chars]",
-                &combined[..8000],
+                &combined[..safe_end],
                 combined.len()
             )
         } else {
             combined
         };
+
+        tracing::debug!(
+            "[run_tests] exit_code={:?}, output_len={}",
+            output.status.code(),
+            truncated.len()
+        );
 
         Ok(ToolResult {
             success: output.status.success(),

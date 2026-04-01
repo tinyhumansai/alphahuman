@@ -87,6 +87,17 @@ impl Tool for RunLinterTool {
             }
             "eslint" => {
                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+                if path.starts_with('/') || path.contains("..") {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "path must be a relative path within the workspace \
+                             (no absolute paths or '..')"
+                                .into(),
+                        ),
+                    });
+                }
                 tokio::process::Command::new("npx")
                     .args(["eslint", "--format", "compact", path])
                     .current_dir(&self.workspace_dir)
