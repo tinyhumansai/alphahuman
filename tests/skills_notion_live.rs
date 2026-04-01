@@ -70,17 +70,15 @@ async fn notion_live_with_real_data() {
         .is_test(true)
         .try_init();
 
-    let backend_url = std::env::var("BACKEND_URL")
-        .expect("BACKEND_URL must be set for live Notion test");
-    let jwt_token =
-        std::env::var("JWT_TOKEN").expect("JWT_TOKEN must be set for live Notion test");
-    let credential_id = std::env::var("CREDENTIAL_ID")
-        .expect("CREDENTIAL_ID must be set for live Notion test");
+    let backend_url =
+        std::env::var("BACKEND_URL").expect("BACKEND_URL must be set for live Notion test");
+    let jwt_token = std::env::var("JWT_TOKEN").expect("JWT_TOKEN must be set for live Notion test");
+    let credential_id =
+        std::env::var("CREDENTIAL_ID").expect("CREDENTIAL_ID must be set for live Notion test");
     let skills_dir = require_skills_dir!();
 
     let real_data_dir = PathBuf::from(
-        std::env::var("SKILLS_DATA_DIR")
-            .expect("SKILLS_DATA_DIR must be set for live Notion test"),
+        std::env::var("SKILLS_DATA_DIR").expect("SKILLS_DATA_DIR must be set for live Notion test"),
     );
 
     let sep = "=".repeat(60);
@@ -96,9 +94,7 @@ async fn notion_live_with_real_data() {
     // Check oauth_credential.json exists (don't log contents — may contain secrets)
     let cred_path = real_data_dir.join("notion/oauth_credential.json");
     if cred_path.exists() {
-        let size = std::fs::metadata(&cred_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size = std::fs::metadata(&cred_path).map(|m| m.len()).unwrap_or(0);
         eprintln!("  OAuth cred:    present ({size} bytes)");
     } else {
         eprintln!("  OAuth cred:    NOT FOUND at {}", cred_path.display());
