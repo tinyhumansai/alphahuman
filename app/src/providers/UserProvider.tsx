@@ -57,8 +57,8 @@ const UserProvider = ({ children }: { children: React.ReactNode }) => {
           await dispatch(clearToken());
           try {
             await openhumanWorkspaceOnboardingFlagSet(false);
-          } catch {
-            // Best-effort: flag clear failure shouldn't block auth recovery
+          } catch (err) {
+            console.warn('[auth] Failed to clear workspace onboarding flag:', err);
           }
         }
       } catch (err) {

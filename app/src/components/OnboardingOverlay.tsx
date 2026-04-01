@@ -38,7 +38,10 @@ const OnboardingOverlay = () => {
     return () => clearTimeout(timer);
   }, [token, isAuthBootstrapComplete, user?._id]);
 
-  // Check workspace flag once user is loaded (or timeout reached)
+  // User is ready when profile loaded or timeout elapsed.
+  // Note: userLoadTimedOut is sticky across sessions but harmless — when token
+  // is null (logged out) the early-return guard prevents any visible effect,
+  // and the workspace flag check doesn't require userId.
   const userReady = !!user?._id || userLoadTimedOut;
   useEffect(() => {
     if (!token || !isAuthBootstrapComplete || !userReady) return;
