@@ -492,7 +492,11 @@ mod tests {
         event_insert(&conn, &event).unwrap();
 
         let events = events_for_segment(&conn, "seg-1").unwrap();
-        assert_eq!(events.len(), 1, "Duplicate insert should not create a second row");
+        assert_eq!(
+            events.len(),
+            1,
+            "Duplicate insert should not create a second row"
+        );
     }
 
     #[test]
@@ -529,7 +533,10 @@ mod tests {
 
         // Different namespace should return nothing.
         let other = events_by_type(&conn, "ns2", "decision", 10).unwrap();
-        assert!(other.is_empty(), "No events expected for unrelated namespace");
+        assert!(
+            other.is_empty(),
+            "No events expected for unrelated namespace"
+        );
     }
 
     #[test]

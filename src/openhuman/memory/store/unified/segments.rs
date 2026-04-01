@@ -744,7 +744,11 @@ mod tests {
         segment_set_summary(&conn, "seg-summ", "A summary", 3002.0).unwrap();
 
         let pending = segments_pending_summary(&conn, 20).unwrap();
-        assert_eq!(pending.len(), 1, "Only the closed segment should be pending");
+        assert_eq!(
+            pending.len(),
+            1,
+            "Only the closed segment should be pending"
+        );
         assert_eq!(pending[0].segment_id, "seg-closed");
         assert_eq!(pending[0].status, SegmentStatus::Closed);
     }

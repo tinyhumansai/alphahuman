@@ -1454,10 +1454,7 @@ mod tests {
             .await
             .unwrap();
 
-        for hit in hits
-            .iter()
-            .filter(|h| h.id.starts_with("episodic:"))
-        {
+        for hit in hits.iter().filter(|h| h.id.starts_with("episodic:")) {
             assert_eq!(
                 hit.kind,
                 crate::openhuman::memory::MemoryItemKind::Episodic,
