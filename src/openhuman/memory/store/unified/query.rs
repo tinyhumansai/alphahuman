@@ -234,8 +234,7 @@ impl UnifiedMemory {
                     .iter()
                     .position(|e| e.id == entry.id)
                     .unwrap_or(0);
-                let fts_relevance =
-                    1.0 - (position_idx as f64 / episodic_hits.len().max(1) as f64);
+                let fts_relevance = 1.0 - (position_idx as f64 / episodic_hits.len().max(1) as f64);
 
                 let episodic_score = (fts_relevance * 0.7) + (freshness * 0.3);
                 let final_score = episodic_score * EPISODIC_WEIGHT;

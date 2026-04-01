@@ -170,11 +170,16 @@ pub fn segment_create(
          (segment_id, session_id, namespace, start_episodic_id, start_timestamp,
           turn_count, status, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 1, 'open', ?6, ?6)",
-        params![segment_id, session_id, namespace, start_episodic_id, start_timestamp, now],
+        params![
+            segment_id,
+            session_id,
+            namespace,
+            start_episodic_id,
+            start_timestamp,
+            now
+        ],
     )?;
-    tracing::debug!(
-        "[segments] created segment {segment_id} for session={session_id}"
-    );
+    tracing::debug!("[segments] created segment {segment_id} for session={session_id}");
     Ok(())
 }
 
@@ -501,7 +506,8 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SEGMENTS_INIT_SQL).unwrap();
         // Also need episodic tables for integration.
-        conn.execute_batch(super::super::fts5::EPISODIC_INIT_SQL).unwrap();
+        conn.execute_batch(super::super::fts5::EPISODIC_INIT_SQL)
+            .unwrap();
         Arc::new(Mutex::new(conn))
     }
 
@@ -599,8 +605,13 @@ mod tests {
             updated_at: 1000.0,
         };
 
-        let decision =
-            detect_boundary(&config, &seg, 1005.0, "Switching to a different topic", None);
+        let decision = detect_boundary(
+            &config,
+            &seg,
+            1005.0,
+            "Switching to a different topic",
+            None,
+        );
         assert!(matches!(
             decision,
             BoundaryDecision::Boundary(BoundaryReason::ExplicitMarker)
@@ -658,13 +669,11 @@ mod tests {
         };
 
         // Similar direction — continue.
-        let decision =
-            detect_boundary(&config, &seg, 1005.0, "hello", Some(&[0.9, 0.1, 0.0]));
+        let decision = detect_boundary(&config, &seg, 1005.0, "hello", Some(&[0.9, 0.1, 0.0]));
         assert!(matches!(decision, BoundaryDecision::Continue));
 
         // Orthogonal direction — boundary.
-        let decision =
-            detect_boundary(&config, &seg, 1005.0, "hello", Some(&[0.0, 1.0, 0.0]));
+        let decision = detect_boundary(&config, &seg, 1005.0, "hello", Some(&[0.0, 1.0, 0.0]));
         assert!(matches!(
             decision,
             BoundaryDecision::Boundary(BoundaryReason::EmbeddingDrift)
@@ -689,6 +698,9 @@ mod tests {
         segment_set_summary(&conn, "seg-s", "Discussed deployment strategy", 1002.0).unwrap();
         let seg = segment_get(&conn, "seg-s").unwrap().unwrap();
         assert_eq!(seg.status, SegmentStatus::Summarised);
-        assert_eq!(seg.summary.as_deref(), Some("Discussed deployment strategy"));
+        assert_eq!(
+            seg.summary.as_deref(),
+            Some("Discussed deployment strategy")
+        );
     }
 }

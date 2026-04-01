@@ -77,16 +77,14 @@ impl Memory for UnifiedMemory {
 
         // When session_id is provided, also search episodic entries for that session.
         if let Some(sid) = session_id {
-            let episodic_entries = fts5::episodic_session_entries(&self.conn, sid)
-                .unwrap_or_default();
+            let episodic_entries =
+                fts5::episodic_session_entries(&self.conn, sid).unwrap_or_default();
             // Filter by query terms (simple keyword overlap).
             let query_lower = query.to_lowercase();
             let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
             for entry in episodic_entries {
                 let content_lower = entry.content.to_lowercase();
-                let matches = query_terms
-                    .iter()
-                    .any(|term| content_lower.contains(term));
+                let matches = query_terms.iter().any(|term| content_lower.contains(term));
                 if matches {
                     out.push(MemoryEntry {
                         id: format!("episodic:{}", entry.id.unwrap_or(0)),

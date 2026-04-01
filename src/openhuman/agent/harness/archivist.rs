@@ -93,7 +93,11 @@ impl ArchivistHook {
                         // Use a synthetic episodic ID (incremental from current count).
                         let episodic_id = segment.start_episodic_id + segment.turn_count as i64;
                         if let Err(e) = segments::segment_append_turn(
-                            conn, &segment.segment_id, episodic_id, timestamp, now,
+                            conn,
+                            &segment.segment_id,
+                            episodic_id,
+                            timestamp,
+                            now,
                         ) {
                             tracing::warn!("[archivist] failed to append turn to segment: {e}");
                         }
@@ -116,7 +120,13 @@ impl ArchivistHook {
                         let new_id = format!("seg-{}", uuid_v4());
                         let episodic_id = segment.start_episodic_id + segment.turn_count as i64 + 1;
                         if let Err(e) = segments::segment_create(
-                            conn, &new_id, session_id, "global", episodic_id, timestamp, now,
+                            conn,
+                            &new_id,
+                            session_id,
+                            "global",
+                            episodic_id,
+                            timestamp,
+                            now,
                         ) {
                             tracing::warn!("[archivist] failed to create new segment: {e}");
                         }
@@ -127,7 +137,13 @@ impl ArchivistHook {
                 // No open segment — create the first one.
                 let segment_id = format!("seg-{}", uuid_v4());
                 if let Err(e) = segments::segment_create(
-                    conn, &segment_id, session_id, "global", 1, timestamp, now,
+                    conn,
+                    &segment_id,
+                    session_id,
+                    "global",
+                    1,
+                    timestamp,
+                    now,
                 ) {
                     tracing::warn!("[archivist] failed to create initial segment: {e}");
                 }
@@ -176,8 +192,14 @@ impl ArchivistHook {
         }
 
         // Generate a fallback summary from first and last content.
-        let first = segment_entries.first().map(|e| e.content.as_str()).unwrap_or("");
-        let last = segment_entries.last().map(|e| e.content.as_str()).unwrap_or(first);
+        let first = segment_entries
+            .first()
+            .map(|e| e.content.as_str())
+            .unwrap_or("");
+        let last = segment_entries
+            .last()
+            .map(|e| e.content.as_str())
+            .unwrap_or(first);
         let summary = segments::fallback_summary(first, last, segment.turn_count);
         if let Err(e) = segments::segment_set_summary(conn, &segment.segment_id, &summary, now) {
             tracing::warn!("[archivist] failed to set segment summary: {e}");

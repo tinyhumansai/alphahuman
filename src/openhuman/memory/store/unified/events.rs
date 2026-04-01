@@ -170,7 +170,11 @@ pub fn event_search_fts(
     let rows = stmt
         .query_map(params![query, limit as i64], |row| row_to_event(row))?
         .collect::<Result<Vec<_>, _>>()?;
-    tracing::debug!("[events] FTS search '{}' returned {} results", query, rows.len());
+    tracing::debug!(
+        "[events] FTS search '{}' returned {} results",
+        query,
+        rows.len()
+    );
     Ok(rows)
 }
 

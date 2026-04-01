@@ -123,10 +123,7 @@ pub fn load_user_profile_context(_memory: &dyn Memory) -> String {
 pub fn load_user_profile_from_unified(unified: &UnifiedMemory) -> String {
     match profile::profile_load_all(&unified.conn) {
         Ok(facets) if !facets.is_empty() => {
-            tracing::debug!(
-                "[context-assembly] loaded {} profile facets",
-                facets.len()
-            );
+            tracing::debug!("[context-assembly] loaded {} profile facets", facets.len());
             profile::render_profile_context(&facets)
         }
         Ok(_) => String::new(),
