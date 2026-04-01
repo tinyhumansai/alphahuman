@@ -41,13 +41,7 @@ const ScreenPermissionsStep = ({ onNext, onBack }: ScreenPermissionsStepProps) =
           <p className="text-sm font-medium mb-1">Complete Privacy</p>
           <p className="text-xs opacity-80">
             All screenshots and accessibility information gets processed locally by your local AI
-            model. No data is sent to any third party.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-sage-500/30 bg-sage-500/10 p-3">
-          <p className="text-sm font-medium mb-1">Absolutely Free</p>
-          <p className="text-xs opacity-80">
-            Processing uses your local AI model and hence remains free.
+            model. No data is sent to any third party or cloud.
           </p>
         </div>
         <div className="rounded-2xl border border-stone-700 bg-stone-900 p-3">
@@ -68,36 +62,29 @@ const ScreenPermissionsStep = ({ onNext, onBack }: ScreenPermissionsStepProps) =
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        <button
-          type="button"
-          onClick={() => void dispatch(requestAccessibilityPermission('accessibility'))}
-          disabled={isRequestingPermissions || isLoading}
-          className="btn-primary w-full py-2.5 text-sm font-medium rounded-xl disabled:opacity-60">
-          {isRequestingPermissions ? 'Requesting...' : 'Request Permission'}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate('/settings/accessibility')}
-          className="w-full py-2.5 text-sm font-medium rounded-xl border border-stone-600 hover:border-stone-500 transition-colors">
-          Open Accessibility
-        </button>
-      </div>
-
-      <div className="flex gap-2">
-        {onBack && (
+      {!isGranted ? (
+        <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={onBack}
-            className="py-2.5 px-4 text-sm font-medium rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors">
-            Back
+            type="button"
+            onClick={() => void dispatch(requestAccessibilityPermission('accessibility'))}
+            disabled={isRequestingPermissions || isLoading}
+            className="btn-primary w-full py-2.5 text-sm font-medium rounded-xl disabled:opacity-60">
+            {isRequestingPermissions ? 'Requesting...' : 'Request Permissions'}
           </button>
-        )}
+          <button
+            type="button"
+            onClick={() => navigate('/settings/accessibility')}
+            className="w-full py-2.5 text-sm font-medium rounded-xl border border-stone-600 hover:border-stone-500 transition-colors">
+            Open Accessibility
+          </button>
+        </div>
+      ) : (
         <button
           onClick={() => onNext(isGranted)}
-          className="flex-1 py-2.5 text-sm font-medium rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors">
-          {isGranted ? 'Continue' : 'Continue Without Permission'}
+          className="w-full py-2.5 text-sm font-medium rounded-xl border transition-colors border-stone-600 hover:border-sage-500 hover:bg-sage-500/10">
+          Continue
         </button>
-      </div>
+      )}
     </div>
   );
 };

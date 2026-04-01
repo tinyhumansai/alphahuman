@@ -136,16 +136,17 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
 
   return (
     <div className="min-h-full relative flex items-center justify-center">
+      {onDefer && (
+        <div className="fixed top-4 right-0 z-20 sm:top-6 sm:right-6">
+          <button
+            type="button"
+            onClick={onDefer}
+            className="text-sm text-white hover:text-stone-200 transition-colors">
+            Skip
+          </button>
+        </div>
+      )}
       <div className="relative z-10 max-w-lg w-full mx-4">
-        {onDefer && (
-          <div className="flex justify-end mb-2">
-            <button
-              onClick={onDefer}
-              className="text-sm text-stone-400 hover:text-stone-200 transition-colors">
-              Set up later
-            </button>
-          </div>
-        )}
         <ProgressIndicator currentStep={currentStep} totalSteps={totalSteps} />
         {renderStep()}
       </div>
