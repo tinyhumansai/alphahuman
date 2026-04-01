@@ -117,6 +117,9 @@ pub struct Config {
 
     #[serde(default)]
     pub update: UpdateConfig,
+
+    #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
 }
 
 impl Default for Config {
@@ -163,6 +166,7 @@ impl Default for Config {
             query_classification: QueryClassificationConfig::default(),
             learning: LearningConfig::default(),
             update: UpdateConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         }
     }
 }

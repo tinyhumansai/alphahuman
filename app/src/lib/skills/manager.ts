@@ -8,7 +8,12 @@
 import { callCoreRpc } from "../../services/coreRpcClient";
 import { SkillRuntime } from "./runtime";
 import { emitSkillStateChange } from "./skillEvents";
-import { setSetupComplete as rpcSetSetupComplete } from "./skillsApi";
+import {
+  getSkillSnapshot,
+  setSetupComplete as rpcSetSetupComplete,
+  revokeOAuth as rpcRevokeOAuth,
+  removePersistedOAuthCredential,
+} from "./skillsApi";
 import { syncToolsToBackend } from "./sync";
 import type {
   SkillManifest,
@@ -340,10 +345,53 @@ class SkillManager {
   }
 
   /**
-   * Disconnect a skill — stop it and reset setup state.
+   * Disconnect a skill — revoke OAuth credentials, stop it, and reset setup state.
    */
   async disconnectSkill(skillId: string): Promise<void> {
+    // Read the stored credential ID so oauth/revoked clears the right memory bucket.
+    let credentialId: string | undefined;
+    try {
+      const snap = await getSkillSnapshot(skillId);
+      const cred = snap?.state?.__oauth_credential as
+        | { credentialId?: string }
+        | string
+        | undefined;
+      if (cred && typeof cred === "object") {
+        credentialId = cred.credentialId;
+      }
+    } catch {
+      // Snapshot may fail if skill isn't registered yet
+    }
+
+    // Revoke OAuth credential before stopping so the running skill can clean up
+    // its in-memory state and the event loop deletes oauth_credential.json.
+    let revokeSucceeded = false;
+    if (credentialId) {
+      try {
+        await rpcRevokeOAuth(skillId, credentialId);
+        revokeSucceeded = true;
+      } catch (err) {
+        console.debug(
+          "[SkillManager] oauth/revoked failed (runtime may be stopped):",
+          err,
+        );
+      }
+    }
+
     await this.stopSkill(skillId);
+
+    // Host-side fallback: if the RPC couldn't reach the runtime (already stopped,
+    // or non-OAuth skill), delete the persisted credential file so it isn't
+    // restored on next start.
+    if (!revokeSucceeded) {
+      await removePersistedOAuthCredential(skillId).catch((err) => {
+        console.debug(
+          "[SkillManager] host-side credential cleanup failed:",
+          err,
+        );
+      });
+    }
+
     await rpcSetSetupComplete(skillId, false).catch(() => {});
     emitSkillStateChange(skillId);
     syncToolsToBackend();
