@@ -25,10 +25,16 @@ impl LocalAiService {
             return Err("local ai is disabled".to_string());
         }
 
-        // Try in-process whisper engine first.
+        // Try in-process whisper engine first (offloaded to a blocking thread).
         if whisper_engine::is_loaded(&self.whisper) {
             debug!("{LOG_PREFIX} using in-process whisper engine for {audio_path}");
-            match self.transcribe_in_process(audio_path) {
+            let handle = self.whisper.clone();
+            let path = audio_path.to_string();
+            let result =
+                tokio::task::spawn_blocking(move || Self::transcribe_in_process_inner(&handle, &path))
+                    .await
+                    .map_err(|e| format!("whisper task join error: {e}"))?;
+            match result {
                 Ok(text) => {
                     self.status.lock().stt_state = "ready".to_string();
                     return Ok(LocalAiSpeechResult {
@@ -47,9 +53,12 @@ impl LocalAiService {
         self.transcribe_subprocess(config, audio_path).await
     }
 
-    /// Transcribe using the in-process whisper-rs engine. Reads the audio file
-    /// and runs inference without spawning a subprocess.
-    fn transcribe_in_process(&self, audio_path: &str) -> Result<String, String> {
+    /// Transcribe using the in-process whisper-rs engine. Runs on a blocking
+    /// thread — takes the engine handle directly so it can be `Send`.
+    fn transcribe_in_process_inner(
+        handle: &whisper_engine::WhisperEngineHandle,
+        audio_path: &str,
+    ) -> Result<String, String> {
         let path = std::path::Path::new(audio_path);
         let ext = path
             .extension()
@@ -58,17 +67,13 @@ impl LocalAiService {
             .to_ascii_lowercase();
 
         if ext == "wav" {
-            whisper_engine::transcribe_wav_file(&self.whisper, path, None)
+            whisper_engine::transcribe_wav_file(handle, path, None)
         } else {
-            // For non-WAV formats, read raw bytes and try to decode.
-            // This works when the file is already raw PCM, but for encoded
-            // formats (webm, ogg, mp3) the audio pipeline (Phase 3) will
-            // convert to WAV via ffmpeg before reaching here.
             warn!(
                 "{LOG_PREFIX} non-WAV input ({ext}), attempting WAV decode anyway \
                  (may fail — use ffmpeg conversion for best results)"
             );
-            whisper_engine::transcribe_wav_file(&self.whisper, path, None)
+            whisper_engine::transcribe_wav_file(handle, path, None)
         }
     }
 

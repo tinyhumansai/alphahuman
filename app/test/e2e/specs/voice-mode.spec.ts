@@ -159,20 +159,14 @@ describe('Voice mode integration', () => {
     }
     expect(voiceStatusMessage).not.toBeNull();
 
-    // --- Verify the voice recording button is visible ---
-    // In voice mode, we should see "Start Talking" (or the unavailability message)
+    // --- Verify the voice recording button or unavailability message is visible ---
     const hasVoiceButton = await waitForAnyText(
       ['Start Talking', 'Transcribing', 'Stop & Send'],
       10_000
     );
-    // The button should be present even if STT is unavailable (it will be disabled)
     if (!hasVoiceButton) {
-      console.log('[VoiceModeE2E] Voice button not found, checking for status messages...');
-      // If whisper is not available, the button may still be present but the status message dominates
       const hasStatus = await textExists('Speech-to-text unavailable');
-      if (hasStatus) {
-        console.log('[VoiceModeE2E] STT unavailable message displayed — voice mode active.');
-      }
+      expect(hasStatus).toBe(true);
     }
 
     // --- Switch back to text mode ---
@@ -186,6 +180,20 @@ describe('Voice mode integration', () => {
   });
 
   it('shows reply mode toggle with text and voice options', async () => {
+    // Ensure conversations page is loaded (re-authenticate if state was lost).
+    const onConversations = await waitForAnyText(
+      ['Message OpenHuman', 'Type a message', 'Reply'],
+      5_000
+    );
+    if (!onConversations) {
+      await triggerAuthDeepLink('e2e-voice-token');
+      await waitForWindowVisible(25_000);
+      await waitForWebView(15_000);
+      await waitForAppReady(15_000);
+      await completeOnboardingIfVisible();
+      await waitForHome(20_000);
+    }
+
     // The Reply toggle should be visible on the conversations page
     const hasReplyLabel = await textExists('Reply');
     expect(hasReplyLabel).toBe(true);

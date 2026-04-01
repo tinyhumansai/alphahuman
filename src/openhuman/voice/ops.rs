@@ -4,7 +4,7 @@
 //! domain modules (billing, health, etc.).
 
 use chrono::Utc;
-use log::debug;
+use log::{debug, warn};
 
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai;
@@ -38,8 +38,11 @@ pub async fn voice_status(config: &Config) -> Result<RpcOutcome<VoiceStatus>, St
     debug!(
         "{LOG_PREFIX} stt_available={stt_available} tts_available={tts_available} \
          whisper_in_process={whisper_in_process} \
-         whisper_bin={:?} piper_bin={:?} stt_model={:?} tts_voice={:?}",
-        whisper_bin, piper_bin, stt_model, tts_voice
+         whisper_bin={} piper_bin={} stt_model={} tts_voice={}",
+        safe_basename_path(&whisper_bin),
+        safe_basename_path(&piper_bin),
+        safe_basename_str(&stt_model),
+        safe_basename_str(&tts_voice),
     );
 
     let status = VoiceStatus {
@@ -136,7 +139,12 @@ pub async fn voice_transcribe_bytes(
     let output = service
         .transcribe(config, file_path.to_string_lossy().as_ref())
         .await;
-    let _ = tokio::fs::remove_file(&file_path).await;
+    if let Err(e) = tokio::fs::remove_file(&file_path).await {
+        warn!(
+            "{LOG_PREFIX} failed to clean up temp audio file {}: {e}",
+            file_path.display()
+        );
+    }
 
     let output = output.map_err(|e| e.to_string())?;
     let raw_text = output.text.clone();
@@ -209,6 +217,24 @@ pub(crate) fn normalize_extension(ext: Option<String>) -> Result<String, String>
     Ok(normalized)
 }
 
+/// Extract the file name from an `Option<PathBuf>`, returning `"<none>"` if absent.
+fn safe_basename_path(p: &Option<std::path::PathBuf>) -> String {
+    p.as_ref()
+        .and_then(|pb| pb.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("<none>")
+        .to_string()
+}
+
+/// Extract the file name from an `Option<String>` path, returning `"<none>"` if absent.
+fn safe_basename_str(p: &Option<String>) -> String {
+    p.as_ref()
+        .and_then(|s| std::path::Path::new(s).file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("<none>")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +287,27 @@ mod tests {
         assert!(!status.tts_voice_id.is_empty());
     }
 
+    /// RAII guard that restores an env var on drop, even on panic.
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<std::ffi::OsString>,
+    }
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let prev = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, prev }
+        }
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var(self.key, v),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn voice_status_detects_stub_binaries() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -274,7 +321,7 @@ mod tests {
                 .expect("chmod");
         }
 
-        std::env::set_var("WHISPER_BIN", whisper_stub.display().to_string());
+        let _guard = EnvGuard::set("WHISPER_BIN", &whisper_stub.display().to_string());
 
         let mut config = Config::default();
         config.workspace_dir = tmp.path().join("workspace");
@@ -282,7 +329,5 @@ mod tests {
 
         let result = voice_status(&config).await.unwrap();
         assert!(result.value.whisper_binary.is_some());
-
-        std::env::remove_var("WHISPER_BIN");
     }
 }

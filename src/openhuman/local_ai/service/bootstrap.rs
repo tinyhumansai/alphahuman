@@ -159,20 +159,28 @@ impl LocalAiService {
             return;
         }
 
-        // Attempt to load whisper model in-process if configured.
+        // Attempt to load whisper model in-process if configured (blocking I/O).
         if config.local_ai.whisper_in_process {
             if let Ok(model_path) =
                 crate::openhuman::local_ai::paths::resolve_stt_model_path(config)
             {
                 let model = std::path::PathBuf::from(&model_path);
-                match super::whisper_engine::load_engine(&self.whisper, &model) {
-                    Ok(()) => {
+                let handle = self.whisper.clone();
+                let load_result = tokio::task::spawn_blocking(move || {
+                    super::whisper_engine::load_engine(&handle, &model)
+                })
+                .await;
+                match load_result {
+                    Ok(Ok(())) => {
                         log::info!("[local_ai] whisper engine loaded in-process: {model_path}");
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         log::warn!(
                             "[local_ai] whisper in-process load failed, will fall back to CLI: {e}"
                         );
+                    }
+                    Err(e) => {
+                        log::warn!("[local_ai] whisper load task panicked: {e}");
                     }
                 }
             } else {

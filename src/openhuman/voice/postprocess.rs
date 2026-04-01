@@ -99,4 +99,14 @@ mod tests {
         let result = rt.block_on(cleanup_transcription(&config, "   ", None));
         assert_eq!(result, "   ");
     }
+
+    #[test]
+    fn disabled_cleanup_returns_raw_text() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut config = Config::default();
+        config.local_ai.voice_llm_cleanup_enabled = false;
+        let result =
+            rt.block_on(cleanup_transcription(&config, "um hello uh world", None));
+        assert_eq!(result, "um hello uh world");
+    }
 }

@@ -188,7 +188,8 @@ fn decode_wav_to_f32(data: &[u8]) -> Result<Vec<f32>, String> {
     let mut fmt_found = false;
     let mut audio_format: u16 = 0;
     let mut num_channels: u16 = 0;
-    let mut _sample_rate: u32 = 0;
+    #[allow(unused_assignments)]
+    let mut sample_rate: u32 = 0;
     let mut bits_per_sample: u16 = 0;
 
     while pos + 8 <= data.len() {
@@ -204,9 +205,20 @@ fn decode_wav_to_f32(data: &[u8]) -> Result<Vec<f32>, String> {
             let fmt = &data[pos + 8..];
             audio_format = u16::from_le_bytes([fmt[0], fmt[1]]);
             num_channels = u16::from_le_bytes([fmt[2], fmt[3]]);
-            _sample_rate = u32::from_le_bytes([fmt[4], fmt[5], fmt[6], fmt[7]]);
+            sample_rate = u32::from_le_bytes([fmt[4], fmt[5], fmt[6], fmt[7]]);
             bits_per_sample = u16::from_le_bytes([fmt[14], fmt[15]]);
             fmt_found = true;
+
+            if sample_rate != 16000 {
+                return Err(format!(
+                    "unsupported sample rate {sample_rate} Hz, whisper requires 16000 Hz"
+                ));
+            }
+            if num_channels == 0 || num_channels > 2 {
+                return Err(format!(
+                    "unsupported channel count {num_channels}, expected 1 (mono) or 2 (stereo)"
+                ));
+            }
         }
 
         if chunk_id == b"data" && fmt_found {
