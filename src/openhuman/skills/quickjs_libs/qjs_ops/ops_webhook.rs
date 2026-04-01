@@ -28,9 +28,7 @@ pub fn register<'js>(
                         .as_ref()
                         .ok_or_else(|| js_err("Webhook router not available"))?;
 
-                    let name = tunnel_name
-                        .as_string()
-                        .and_then(|s| s.to_string().ok());
+                    let name = tunnel_name.as_string().and_then(|s| s.to_string().ok());
                     let backend_id = backend_tunnel_id
                         .as_string()
                         .and_then(|s| s.to_string().ok());
@@ -69,18 +67,15 @@ pub fn register<'js>(
         let sc = skill_context;
         ops.set(
             "webhook_list",
-            Function::new(
-                ctx.clone(),
-                move || -> rquickjs::Result<String> {
-                    let router = sc
-                        .webhook_router
-                        .as_ref()
-                        .ok_or_else(|| js_err("Webhook router not available"))?;
+            Function::new(ctx.clone(), move || -> rquickjs::Result<String> {
+                let router = sc
+                    .webhook_router
+                    .as_ref()
+                    .ok_or_else(|| js_err("Webhook router not available"))?;
 
-                    let registrations = router.list_for_skill(&sc.skill_id);
-                    serde_json::to_string(&registrations).map_err(|e| js_err(e.to_string()))
-                },
-            ),
+                let registrations = router.list_for_skill(&sc.skill_id);
+                serde_json::to_string(&registrations).map_err(|e| js_err(e.to_string()))
+            }),
         )?;
     }
 

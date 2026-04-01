@@ -256,9 +256,7 @@ mod tests {
     #[test]
     fn test_unregister_ownership() {
         let router = WebhookRouter::new(None);
-        router
-            .register("uuid-1", "gmail", None, None)
-            .unwrap();
+        router.register("uuid-1", "gmail", None, None).unwrap();
 
         // Another skill cannot unregister
         let result = router.unregister("uuid-1", "notion");
@@ -272,15 +270,9 @@ mod tests {
     #[test]
     fn test_unregister_skill() {
         let router = WebhookRouter::new(None);
-        router
-            .register("uuid-1", "gmail", None, None)
-            .unwrap();
-        router
-            .register("uuid-2", "gmail", None, None)
-            .unwrap();
-        router
-            .register("uuid-3", "notion", None, None)
-            .unwrap();
+        router.register("uuid-1", "gmail", None, None).unwrap();
+        router.register("uuid-2", "gmail", None, None).unwrap();
+        router.register("uuid-3", "notion", None, None).unwrap();
 
         router.unregister_skill("gmail");
 
@@ -292,15 +284,9 @@ mod tests {
     #[test]
     fn test_list_for_skill() {
         let router = WebhookRouter::new(None);
-        router
-            .register("uuid-1", "gmail", None, None)
-            .unwrap();
-        router
-            .register("uuid-2", "notion", None, None)
-            .unwrap();
-        router
-            .register("uuid-3", "gmail", None, None)
-            .unwrap();
+        router.register("uuid-1", "gmail", None, None).unwrap();
+        router.register("uuid-2", "notion", None, None).unwrap();
+        router.register("uuid-3", "gmail", None, None).unwrap();
 
         let gmail_tunnels = router.list_for_skill("gmail");
         assert_eq!(gmail_tunnels.len(), 2);

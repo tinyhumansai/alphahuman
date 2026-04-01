@@ -1,15 +1,9 @@
-import { useCallback, useEffect } from 'react';
 import debug from 'debug';
+import { useCallback, useEffect } from 'react';
 
 import { tunnelsApi } from '../services/api/tunnelsApi';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import {
-  setTunnels,
-  addTunnel,
-  removeTunnel,
-  setLoading,
-  setError,
-} from '../store/webhooksSlice';
+import { addTunnel, removeTunnel, setError, setLoading, setTunnels } from '../store/webhooksSlice';
 
 const log = debug('webhooks');
 

@@ -80,6 +80,13 @@ const webhooksSlice = createSlice({
   },
 });
 
-export const { setTunnels, addTunnel, removeTunnel, setRegistrations, addActivity, setLoading, setError } =
-  webhooksSlice.actions;
+export const {
+  setTunnels,
+  addTunnel,
+  removeTunnel,
+  setRegistrations,
+  addActivity,
+  setLoading,
+  setError,
+} = webhooksSlice.actions;
 export default webhooksSlice.reducer;

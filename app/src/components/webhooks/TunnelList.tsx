@@ -39,8 +39,7 @@ export default function TunnelList({
     }
   };
 
-  const getRegistration = (uuid: string) =>
-    registrations.find(r => r.tunnel_uuid === uuid);
+  const getRegistration = (uuid: string) => registrations.find(r => r.tunnel_uuid === uuid);
 
   const webhookUrl = (uuid: string) =>
     `${BACKEND_URL || 'https://api.tinyhumans.ai'}/webhooks/${uuid}`;
@@ -54,14 +53,12 @@ export default function TunnelList({
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors"
-          >
+            className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors">
             {loading ? 'Loading...' : 'Refresh'}
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors"
-          >
+            className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors">
             + New Tunnel
           </button>
         </div>
@@ -88,15 +85,13 @@ export default function TunnelList({
           <div className="flex gap-2 justify-end">
             <button
               onClick={() => setShowCreate(false)}
-              className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg"
-            >
+              className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg">
               Cancel
             </button>
             <button
               onClick={handleCreate}
               disabled={!newName.trim() || creating}
-              className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 disabled:opacity-50 transition-colors"
-            >
+              className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 disabled:opacity-50 transition-colors">
               {creating ? 'Creating...' : 'Create'}
             </button>
           </div>
@@ -168,11 +163,8 @@ function TunnelCard({ tunnel, registration, webhookUrl, onDelete }: TunnelCardPr
             <h4 className="text-sm font-medium text-stone-900 truncate">{tunnel.name}</h4>
             <span
               className={`inline-flex items-center px-1.5 py-0.5 text-xs rounded-full ${
-                tunnel.isActive
-                  ? 'bg-sage-100 text-sage-700'
-                  : 'bg-stone-100 text-stone-500'
-              }`}
-            >
+                tunnel.isActive ? 'bg-sage-100 text-sage-700' : 'bg-stone-100 text-stone-500'
+              }`}>
               {tunnel.isActive ? 'Active' : 'Inactive'}
             </span>
             {registration && (
@@ -190,8 +182,7 @@ function TunnelCard({ tunnel, registration, webhookUrl, onDelete }: TunnelCardPr
             </code>
             <button
               onClick={handleCopy}
-              className="text-xs text-primary-500 hover:text-primary-700 whitespace-nowrap"
-            >
+              className="text-xs text-primary-500 hover:text-primary-700 whitespace-nowrap">
               {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
@@ -199,8 +190,7 @@ function TunnelCard({ tunnel, registration, webhookUrl, onDelete }: TunnelCardPr
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="ml-3 px-2 py-1 text-xs text-coral-600 hover:text-coral-700 hover:bg-coral-50 rounded-lg transition-colors"
-        >
+          className="ml-3 px-2 py-1 text-xs text-coral-600 hover:text-coral-700 hover:bg-coral-50 rounded-lg transition-colors">
           {deleting ? '...' : 'Delete'}
         </button>
       </div>

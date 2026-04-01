@@ -50,22 +50,21 @@ export default function WebhookActivity({ activity }: WebhookActivityProps) {
         {activity.map(entry => (
           <div
             key={entry.correlation_id}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-stone-50 transition-colors text-sm"
-          >
+            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-stone-50 transition-colors text-sm">
             <span className="text-xs text-stone-400 font-mono w-20 shrink-0">
               {formatTime(entry.timestamp)}
             </span>
             <span
               className={`text-xs font-mono font-medium px-1.5 py-0.5 rounded w-14 text-center shrink-0 ${
                 METHOD_COLORS[entry.method] || 'text-stone-600 bg-stone-50'
-              }`}
-            >
+              }`}>
               {entry.method}
             </span>
             <span className="text-stone-700 truncate flex-1 font-mono text-xs">
               {entry.path || '/'}
             </span>
-            <span className={`text-xs font-mono w-8 text-right shrink-0 ${statusColor(entry.status_code)}`}>
+            <span
+              className={`text-xs font-mono w-8 text-right shrink-0 ${statusColor(entry.status_code)}`}>
               {entry.status_code ?? '---'}
             </span>
             {entry.skill_id && (

@@ -439,7 +439,6 @@ const TauriCommandsPanel = () => {
     }
   };
 
-
   const saveMemorySettings = () =>
     run(
       () =>

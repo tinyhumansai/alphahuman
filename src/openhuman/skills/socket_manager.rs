@@ -829,10 +829,7 @@ async fn handle_webhook_request(
 
     let (response, resolved_skill_id) = match skill_id {
         Some(sid) => {
-            log::debug!(
-                "[socket-mgr] webhook:request routed to skill '{}'",
-                sid,
-            );
+            log::debug!("[socket-mgr] webhook:request routed to skill '{}'", sid,);
 
             let registry = shared.registry.read().clone();
             match registry {
@@ -854,10 +851,7 @@ async fn handle_webhook_request(
                     match result {
                         Ok(resp) => (resp, Some(sid)),
                         Err(e) => {
-                            log::warn!(
-                                "[socket-mgr] Skill webhook handler error: {}",
-                                e,
-                            );
+                            log::warn!("[socket-mgr] Skill webhook handler error: {}", e,);
                             (
                                 crate::openhuman::webhooks::WebhookResponseData {
                                     correlation_id: correlation_id.clone(),
@@ -935,8 +929,7 @@ async fn handle_webhook_request(
 /// Base64-encode a string (for webhook response bodies).
 /// Uses the `STANDARD` alphabet (A-Z, a-z, 0-9, +, /) with `=` padding.
 fn base64_encode(input: &str) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = input.as_bytes();
     let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
     for chunk in bytes.chunks(3) {
