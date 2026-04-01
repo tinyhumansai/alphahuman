@@ -14,12 +14,38 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
+# ---------------------------------------------------------------------------
+# Job dependency graph
+#
+#   prepare-release
+#        │
+#        ├─── create-release
+#        │         │
+#        │    ┌────┴────────────┐
+#        │    │                 │
+#        │  build-desktop    build-docker
+#        │  (matrix: macOS,  (GHCR image)
+#        │   linux, windows)
+#        │    │                 │
+#        │    └────┬────────────┘
+#        │         │
+#        │    publish-release
+#        │         │
+#        │    notify-discord
+#        │
+#        └─── cleanup-failed-release (on failure)
+# ---------------------------------------------------------------------------
+
 jobs:
+  # =========================================================================
+  # Phase 1: Version bump, commit, tag
+  # =========================================================================
   prepare-release:
     name: Prepare release commit and tag
     runs-on: ubuntu-latest
@@ -98,6 +124,9 @@ jobs:
 
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  # =========================================================================
+  # Phase 2: Create draft GitHub release
+  # =========================================================================
   create-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
@@ -142,8 +171,11 @@ jobs:
             core.setOutput('release_id', String(release.data.id));
             core.setOutput('upload_url', release.data.upload_url);
 
-  build-artifacts:
-    name: Build and upload artifacts
+  # =========================================================================
+  # Phase 3a: Build desktop artifacts (parallel matrix)
+  # =========================================================================
+  build-desktop:
+    name: "Desktop: ${{ matrix.settings.artifact_suffix }}"
     needs: [prepare-release, create-release]
     runs-on: ${{ matrix.settings.platform }}
     environment: Production
@@ -502,12 +534,60 @@ jobs:
           path: |
             ${{ steps.cli-paths.outputs.cli_path }}
 
+  # =========================================================================
+  # Phase 3b: Build & push Docker image (runs parallel with build-desktop)
+  # =========================================================================
+  build-docker:
+    name: "Docker: build and push"
+    needs: [prepare-release, create-release]
+    runs-on: ubuntu-latest
+    environment: Production
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: tinyhumansai/openhuman-core
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push staging tag
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-${{ needs.prepare-release.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=openhuman-core
+            org.opencontainers.image.description=OpenHuman core JSON-RPC server
+            org.opencontainers.image.version=${{ needs.prepare-release.outputs.version }}
+            org.opencontainers.image.source=https://github.com/tinyhumansai/openhuman
+            org.opencontainers.image.revision=${{ needs.prepare-release.outputs.sha }}
+
+  # =========================================================================
+  # Phase 4: Publish the draft release (waits for ALL build phases)
+  # =========================================================================
   publish-release:
     name: Publish draft release
     runs-on: ubuntu-latest
     environment: Production
-    needs: [create-release, build-artifacts]
-    if: needs.build-artifacts.result == 'success'
+    needs: [prepare-release, create-release, build-desktop, build-docker]
+    if: needs.build-desktop.result == 'success' && needs.build-docker.result == 'success'
     steps:
       - name: Validate required installer assets exist
         uses: actions/github-script@v7
@@ -539,6 +619,33 @@ jobs:
             }
             core.info('All required installer assets are present.');
 
+      - name: Promote Docker image from staging to release tags
+        env:
+          REGISTRY: ghcr.io
+          IMAGE_NAME: tinyhumansai/openhuman-core
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          # Log in to GHCR
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          STAGING="${REGISTRY}/${IMAGE_NAME}:staging-${TAG}"
+          VERSIONED="${REGISTRY}/${IMAGE_NAME}:${TAG}"
+          LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
+
+          echo "Promoting ${STAGING} → ${VERSIONED}, ${LATEST}"
+          docker buildx imagetools create --tag "${VERSIONED}" --tag "${LATEST}" "${STAGING}"
+
+      - name: Append Docker pull instructions to release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          IMAGE_NAME: tinyhumansai/openhuman-core
+        run: |
+          gh release view "${TAG}" --repo tinyhumansai/openhuman --json body -q .body > /tmp/body.md
+          printf '\n---\n\n### Docker\n\n```\ndocker pull ghcr.io/%s:%s\ndocker run -p 7788:7788 --env-file .env ghcr.io/%s:%s\n```\n' \
+            "${IMAGE_NAME}" "${TAG}" "${IMAGE_NAME}" "${TAG}" >> /tmp/body.md
+          gh release edit "${TAG}" --repo tinyhumansai/openhuman --notes-file /tmp/body.md
+
       - name: Publish release
         uses: actions/github-script@v7
         with:
@@ -552,12 +659,19 @@ jobs:
             });
             core.info(`Published release ${releaseId}`);
 
+  # =========================================================================
+  # Cleanup: remove draft release + tag if ANY build phase failed
+  # =========================================================================
   cleanup-failed-release:
     name: Remove release and tag if build failed
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-release, create-release, build-artifacts]
-    if: always() && needs.create-release.result == 'success' && (needs.build-artifacts.result == 'failure' || needs.build-artifacts.result == 'cancelled')
+    needs: [prepare-release, create-release, build-desktop, build-docker]
+    if: >-
+      always()
+      && needs.create-release.result == 'success'
+      && (needs.build-desktop.result == 'failure' || needs.build-desktop.result == 'cancelled'
+          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled')
     steps:
       - name: Delete GitHub release
         uses: actions/github-script@v7
@@ -597,3 +711,23 @@ jobs:
                 throw e;
               }
             }
+
+      - name: Delete staging Docker image
+        continue-on-error: true
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          PACKAGE="openhuman-core"
+          STAGING_TAG="staging-${TAG}"
+          echo "Attempting to delete staging Docker tag: ${STAGING_TAG}"
+          # List package versions and find the staging tag
+          VERSION_ID="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/orgs/tinyhumansai/packages/container/${PACKAGE}/versions" \
+            --paginate --jq ".[] | select(.metadata.container.tags[] == \"${STAGING_TAG}\") | .id" 2>/dev/null | head -1)"
+          if [ -n "$VERSION_ID" ]; then
+            gh api -X DELETE "/orgs/tinyhumansai/packages/container/${PACKAGE}/versions/${VERSION_ID}" || true
+            echo "Deleted staging image version ${VERSION_ID}"
+          else
+            echo "Staging tag ${STAGING_TAG} not found or already deleted"
+          fi
