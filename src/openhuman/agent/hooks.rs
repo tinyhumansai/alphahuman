@@ -50,10 +50,7 @@ pub fn fire_hooks(hooks: &[Arc<dyn PostTurnHook>], ctx: TurnContext) {
         let ctx = ctx.clone();
         tokio::spawn(async move {
             if let Err(e) = hook.on_turn_complete(&ctx).await {
-                log::warn!(
-                    "[learning] post-turn hook '{}' failed: {e:#}",
-                    hook.name()
-                );
+                log::warn!("[learning] post-turn hook '{}' failed: {e:#}", hook.name());
             }
         });
     }

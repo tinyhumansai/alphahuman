@@ -55,8 +55,8 @@ impl ToolStats {
         }
         // Running average
         let prev_total = self.total_calls - 1;
-        self.avg_duration_ms =
-            (self.avg_duration_ms * prev_total as f64 + duration_ms as f64) / self.total_calls as f64;
+        self.avg_duration_ms = (self.avg_duration_ms * prev_total as f64 + duration_ms as f64)
+            / self.total_calls as f64;
     }
 
     /// Format stats for display.
@@ -88,9 +88,7 @@ impl ToolTrackerHook {
     async fn load_stats(&self, tool_name: &str) -> ToolStats {
         let key = format!("tool/{tool_name}");
         match self.memory.get(&key).await {
-            Ok(Some(entry)) => {
-                serde_json::from_str(&entry.content).unwrap_or_default()
-            }
+            Ok(Some(entry)) => serde_json::from_str(&entry.content).unwrap_or_default(),
             _ => ToolStats::default(),
         }
     }

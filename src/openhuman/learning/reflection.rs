@@ -123,13 +123,10 @@ impl ReflectionHook {
                     .map_err(|e| anyhow::anyhow!("local reflection failed: {e}"))
             }
             ReflectionSource::Cloud => {
-                let provider = self
-                    .provider
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("no cloud provider configured for reflection"))?;
-                provider
-                    .simple_chat(prompt, "hint:reasoning", 0.3)
-                    .await
+                let provider = self.provider.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("no cloud provider configured for reflection")
+                })?;
+                provider.simple_chat(prompt, "hint:reasoning", 0.3).await
             }
         }
     }
@@ -149,7 +146,9 @@ impl ReflectionHook {
         };
 
         serde_json::from_str(json_str).unwrap_or_else(|_| {
-            log::debug!("[learning] could not parse reflection JSON, using raw text as observation");
+            log::debug!(
+                "[learning] could not parse reflection JSON, using raw text as observation"
+            );
             ReflectionOutput {
                 observations: vec![trimmed.to_string()],
                 patterns: Vec::new(),

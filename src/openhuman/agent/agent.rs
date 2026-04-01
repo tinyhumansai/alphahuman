@@ -362,34 +362,31 @@ impl Agent {
                     } else {
                         None
                     };
-                post_turn_hooks.push(Arc::new(
-                    crate::openhuman::learning::ReflectionHook::new(
-                        config.learning.clone(),
-                        full_config.clone(),
-                        memory.clone(),
-                        reflection_provider,
-                    ),
-                ));
-                log::info!("[learning] reflection hook registered (source={:?})", config.learning.reflection_source);
+                post_turn_hooks.push(Arc::new(crate::openhuman::learning::ReflectionHook::new(
+                    config.learning.clone(),
+                    full_config.clone(),
+                    memory.clone(),
+                    reflection_provider,
+                )));
+                log::info!(
+                    "[learning] reflection hook registered (source={:?})",
+                    config.learning.reflection_source
+                );
             }
 
             if config.learning.user_profile_enabled {
-                post_turn_hooks.push(Arc::new(
-                    crate::openhuman::learning::UserProfileHook::new(
-                        config.learning.clone(),
-                        memory.clone(),
-                    ),
-                ));
+                post_turn_hooks.push(Arc::new(crate::openhuman::learning::UserProfileHook::new(
+                    config.learning.clone(),
+                    memory.clone(),
+                )));
                 log::info!("[learning] user_profile hook registered");
             }
 
             if config.learning.tool_tracking_enabled {
-                post_turn_hooks.push(Arc::new(
-                    crate::openhuman::learning::ToolTrackerHook::new(
-                        config.learning.clone(),
-                        memory.clone(),
-                    ),
-                ));
+                post_turn_hooks.push(Arc::new(crate::openhuman::learning::ToolTrackerHook::new(
+                    config.learning.clone(),
+                    memory.clone(),
+                )));
                 log::info!("[learning] tool_tracker hook registered");
             }
         }

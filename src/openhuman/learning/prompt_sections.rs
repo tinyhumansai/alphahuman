@@ -120,12 +120,9 @@ impl UserProfileSection {
                 let mem = memory;
                 std::thread::spawn(move || {
                     handle.block_on(async {
-                        mem.list(
-                            Some(&MemoryCategory::Custom("user_profile".into())),
-                            None,
-                        )
-                        .await
-                        .unwrap_or_default()
+                        mem.list(Some(&MemoryCategory::Custom("user_profile".into())), None)
+                            .await
+                            .unwrap_or_default()
                     })
                 })
                 .join()

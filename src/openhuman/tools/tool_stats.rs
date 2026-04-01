@@ -83,10 +83,7 @@ impl Tool for ToolStatsTool {
                     output.push_str(&format!("**{}**\n", tool_name));
                     output.push_str(&format!("  Calls: {}\n", stats.total_calls));
                     output.push_str(&format!("  Success rate: {:.0}%\n", success_rate));
-                    output.push_str(&format!(
-                        "  Avg duration: {:.0}ms\n",
-                        stats.avg_duration_ms
-                    ));
+                    output.push_str(&format!("  Avg duration: {:.0}ms\n", stats.avg_duration_ms));
                     if stats.failures > 0 {
                         output.push_str(&format!("  Failures: {}\n", stats.failures));
                     }
