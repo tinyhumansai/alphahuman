@@ -204,7 +204,9 @@ impl AgentBuilder {
                 .memory_loader
                 .unwrap_or_else(|| Box::new(DefaultMemoryLoader::default())),
             config: self.config.unwrap_or_default(),
-            model_name: self.model_name.unwrap_or_else(|| "neocortex-mk1".into()),
+            model_name: self
+                .model_name
+                .unwrap_or_else(|| crate::openhuman::config::DEFAULT_MODEL.into()),
             temperature: self.temperature.unwrap_or(0.7),
             workspace_dir: self
                 .workspace_dir
