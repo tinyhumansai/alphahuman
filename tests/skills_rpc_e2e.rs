@@ -29,9 +29,10 @@ fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-fn find_skills_dir() -> PathBuf {
+fn try_find_skills_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SKILL_DEBUG_DIR") {
-        return PathBuf::from(dir);
+        let p = PathBuf::from(&dir);
+        return if p.exists() { Some(p) } else { None };
     }
     let cwd = std::env::current_dir().expect("cwd");
     for candidate in &[
@@ -41,19 +42,30 @@ fn find_skills_dir() -> PathBuf {
     ] {
         let p = cwd.join(candidate);
         if p.exists() {
-            return p.canonicalize().unwrap();
+            return Some(p.canonicalize().unwrap());
         }
     }
-    // Search parent
     if let Some(parent) = cwd.parent() {
         for entry in std::fs::read_dir(parent).into_iter().flatten().flatten() {
             let c = entry.path().join("skills/skills");
             if c.join("example-skill/manifest.json").exists() {
-                return c.canonicalize().unwrap();
+                return Some(c.canonicalize().unwrap());
             }
         }
     }
-    panic!("Skills directory not found. Set SKILL_DEBUG_DIR.");
+    None
+}
+
+macro_rules! require_skills_dir {
+    () => {
+        match try_find_skills_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("SKIPPED: no skills directory available");
+                return;
+            }
+        }
+    };
 }
 
 async fn serve_on_ephemeral(
