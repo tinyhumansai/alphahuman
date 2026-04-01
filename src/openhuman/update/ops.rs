@@ -126,6 +126,11 @@ async fn check_for_update(config: &mut Config) -> Result<Option<UpdateAsset>, St
     let latest = resolved.latest;
     if let Some(asset) = latest.as_ref() {
         config.update.last_seen_version = Some(asset.version.clone());
+        config.update.last_seen_tag = Some(asset.tag.clone());
+        config.update.last_seen_asset_name = Some(asset.name.clone());
+        config.update.last_seen_download_url = Some(asset.download_url.clone());
+        config.update.last_seen_release_url = Some(asset.release_url.clone());
+        config.update.last_seen_digest_sha256 = asset.digest_sha256.clone();
         let ordering = compare_versions(&asset.version, current_version)?;
         log::debug!(
             "[update] version compare: latest={} current={current_version} ordering={ordering:?}",
@@ -157,11 +162,11 @@ pub async fn update_status() -> Result<RpcOutcome<UpdateCheckStatus>, String> {
         if compare_versions(&version, &current_version).ok()?.is_gt() {
             Some(UpdateAsset {
                 version,
-                tag: String::new(),
-                name: String::new(),
-                download_url: String::new(),
-                digest_sha256: None,
-                release_url: String::new(),
+                tag: config.update.last_seen_tag.clone().unwrap_or_default(),
+                name: config.update.last_seen_asset_name.clone().unwrap_or_default(),
+                download_url: config.update.last_seen_download_url.clone().unwrap_or_default(),
+                digest_sha256: config.update.last_seen_digest_sha256.clone(),
+                release_url: config.update.last_seen_release_url.clone().unwrap_or_default(),
             })
         } else {
             None

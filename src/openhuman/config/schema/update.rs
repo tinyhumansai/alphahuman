@@ -35,6 +35,16 @@ pub struct UpdateConfig {
     pub last_etag: Option<String>,
     #[serde(default)]
     pub last_dismissed_version: Option<String>,
+    #[serde(default)]
+    pub last_seen_tag: Option<String>,
+    #[serde(default)]
+    pub last_seen_asset_name: Option<String>,
+    #[serde(default)]
+    pub last_seen_download_url: Option<String>,
+    #[serde(default)]
+    pub last_seen_release_url: Option<String>,
+    #[serde(default)]
+    pub last_seen_digest_sha256: Option<String>,
 }
 
 fn default_check_interval_hours() -> u64 {
@@ -52,6 +62,11 @@ impl Default for UpdateConfig {
             last_error: None,
             last_etag: None,
             last_dismissed_version: None,
+            last_seen_tag: None,
+            last_seen_asset_name: None,
+            last_seen_download_url: None,
+            last_seen_release_url: None,
+            last_seen_digest_sha256: None,
         }
     }
 }
