@@ -50,8 +50,7 @@ const sampleStatus: AccessibilityStatus = {
   },
   denylist: ['wallet'],
   is_context_blocked: false,
-  permission_check_process_path:
-    '/test/app/src-tauri/binaries/openhuman-core-aarch64-apple-darwin',
+  permission_check_process_path: '/test/app/src-tauri/binaries/openhuman-core-aarch64-apple-darwin',
 };
 
 describe('accessibilitySlice', () => {

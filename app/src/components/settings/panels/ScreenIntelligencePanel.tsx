@@ -182,8 +182,8 @@ const ScreenIntelligencePanel = () => {
           {anyPermissionDenied && (
             <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-3 text-sm text-amber-200 space-y-1">
               <p>
-                After granting in System Settings, click &ldquo;Restart &amp; Refresh Permissions&rdquo;
-                so a new core process picks up the grants.
+                After granting in System Settings, click &ldquo;Restart &amp; Refresh
+                Permissions&rdquo; so a new core process picks up the grants.
               </p>
               {status?.permission_check_process_path ? (
                 <p className="opacity-75 text-xs">

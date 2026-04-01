@@ -148,8 +148,8 @@ const AccessibilityPanel = () => {
               <p className="opacity-75">
                 Still stuck? Remove the old entry for this app in System Settings → Privacy, then
                 click &ldquo;Request&rdquo; again. For dev, run{' '}
-                <span className="font-mono text-xs">yarn core:stage</span> so the sidecar matches the
-                staged binary name.
+                <span className="font-mono text-xs">yarn core:stage</span> so the sidecar matches
+                the staged binary name.
               </p>
             </div>
           )}

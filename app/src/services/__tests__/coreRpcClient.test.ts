@@ -46,8 +46,7 @@ function sampleAccessibilityStatus(
     },
     denylist: [],
     is_context_blocked: false,
-    permission_check_process_path:
-      '/tmp/openhuman-core-aarch64-apple-darwin',
+    permission_check_process_path: '/tmp/openhuman-core-aarch64-apple-darwin',
     ...overrides,
   };
 }
