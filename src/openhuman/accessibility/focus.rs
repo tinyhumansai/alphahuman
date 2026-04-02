@@ -449,6 +449,14 @@ pub fn foreground_context() -> Option<AppContext> {
 }
 
 #[cfg(not(target_os = "macos"))]
+pub fn validate_focused_target(
+    _expected_app: Option<&str>,
+    _expected_role: Option<&str>,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn foreground_context() -> Option<AppContext> {
     None
 }
