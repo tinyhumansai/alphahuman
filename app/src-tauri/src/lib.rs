@@ -149,19 +149,11 @@ async fn register_dictation_hotkey(
 ) -> Result<(), String> {
     log::info!("[dictation] register_dictation_hotkey: shortcut={shortcut}");
 
-    // Unregister the old shortcut if one is already registered.
-    {
+    let old_shortcuts = {
         let state = app.state::<DictationHotkeyState>();
-        let mut guard = state.0.lock().unwrap();
-        let old_shortcuts = guard.clone();
-        guard.clear();
-        for old in old_shortcuts {
-            log::debug!("[dictation] unregistering previous shortcut: {old}");
-            if let Err(e) = app.global_shortcut().unregister(old.as_str()) {
-                log::warn!("[dictation] failed to unregister old shortcut '{old}': {e}");
-            }
-        }
-    }
+        let guard = state.0.lock().unwrap();
+        guard.clone()
+    };
 
     let expanded_shortcuts = expand_dictation_shortcuts(&shortcut);
     if expanded_shortcuts.is_empty() {
@@ -172,10 +164,10 @@ async fn register_dictation_hotkey(
         expanded_shortcuts.join(", ")
     );
 
-    for shortcut_variant in &expanded_shortcuts {
+    let register_shortcut = |shortcut_variant: &str| -> Result<(), String> {
         let app_clone = app.clone();
         app.global_shortcut()
-            .on_shortcut(shortcut_variant.as_str(), move |_app, _sc, event| {
+            .on_shortcut(shortcut_variant, move |_app, _sc, event| {
                 if event.state == ShortcutState::Pressed {
                     log::debug!("[dictation] hotkey pressed — emitting dictation://toggle");
                     if let Err(e) = app_clone.emit("dictation://toggle", ()) {
@@ -183,12 +175,46 @@ async fn register_dictation_hotkey(
                     }
                 }
             })
-            .map_err(|e| {
-                log::error!(
-                    "[dictation] failed to register shortcut '{shortcut_variant}': {e}"
-                );
-                format!("Failed to register shortcut '{shortcut_variant}': {e}")
-            })?;
+            .map_err(|e| format!("Failed to register shortcut '{shortcut_variant}': {e}"))
+    };
+
+    let mut unregistered_old: Vec<String> = Vec::new();
+    for old in &old_shortcuts {
+        log::debug!("[dictation] unregistering previous shortcut: {old}");
+        if let Err(e) = app.global_shortcut().unregister(old.as_str()) {
+            for restored in &unregistered_old {
+                if let Err(restore_err) = register_shortcut(restored.as_str()) {
+                    log::warn!(
+                        "[dictation] rollback failed while restoring old shortcut '{restored}': {restore_err}"
+                    );
+                }
+            }
+            return Err(format!("Failed to unregister previous shortcut '{old}': {e}"));
+        }
+        unregistered_old.push(old.clone());
+    }
+
+    let mut newly_registered: Vec<String> = Vec::new();
+    for shortcut_variant in &expanded_shortcuts {
+        if let Err(err) = register_shortcut(shortcut_variant.as_str()) {
+            log::error!("[dictation] failed to register shortcut '{shortcut_variant}': {err}");
+            for registered in &newly_registered {
+                if let Err(unregister_err) = app.global_shortcut().unregister(registered.as_str()) {
+                    log::warn!(
+                        "[dictation] rollback failed while unregistering '{registered}': {unregister_err}"
+                    );
+                }
+            }
+            for old in &old_shortcuts {
+                if let Err(restore_err) = register_shortcut(old.as_str()) {
+                    log::warn!(
+                        "[dictation] rollback failed while restoring old shortcut '{old}': {restore_err}"
+                    );
+                }
+            }
+            return Err(err);
+        }
+        newly_registered.push(shortcut_variant.clone());
     }
 
     // Persist all newly registered shortcuts.
