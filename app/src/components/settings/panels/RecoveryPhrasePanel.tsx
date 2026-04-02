@@ -86,9 +86,9 @@ const RecoveryPhrasePanel = () => {
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand('copy');
+      const ok = document.execCommand('copy');
       document.body.removeChild(textarea);
-      setCopied(true);
+      if (ok) setCopied(true);
     }
   }, [mnemonic]);
 
@@ -120,10 +120,6 @@ const RecoveryPhrasePanel = () => {
       newWords[index] = value.toLowerCase().trim();
       setImportWords(newWords);
       setImportValid(null);
-
-      if (value.trim() && index < newWords.length - 1) {
-        inputRefs.current[index + 1]?.focus();
-      }
     },
     [importWords]
   );
