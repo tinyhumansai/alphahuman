@@ -175,10 +175,7 @@ impl RuntimeEngine {
         if let Ok(local_dir) = std::env::var("SKILLS_LOCAL_DIR") {
             let local_path = PathBuf::from(&local_dir);
             if local_path.exists() {
-                log::info!(
-                    "[runtime] Using SKILLS_LOCAL_DIR: {:?}",
-                    local_path
-                );
+                log::info!("[runtime] Using SKILLS_LOCAL_DIR: {:?}", local_path);
                 return Ok(local_path);
             }
             log::warn!(

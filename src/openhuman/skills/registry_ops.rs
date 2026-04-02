@@ -98,8 +98,8 @@ pub async fn registry_fetch(
     if is_local_path(&url) {
         log::info!("[registry] reading local registry from {url}");
         let bytes = read_local_file(&url)?;
-        let body =
-            String::from_utf8(bytes).map_err(|e| format!("registry file is not valid UTF-8: {e}"))?;
+        let body = String::from_utf8(bytes)
+            .map_err(|e| format!("registry file is not valid UTF-8: {e}"))?;
         let mut registry: RemoteSkillRegistry = serde_json::from_str(&body)
             .map_err(|e| format!("failed to parse local registry JSON: {e}"))?;
         tag_categories(&mut registry);
@@ -271,11 +271,17 @@ pub async fn skill_install(workspace_dir: &Path, skill_id: &str) -> Result<(), S
     std::fs::create_dir_all(&skill_dir).map_err(|e| format!("failed to create skill dir: {e}"))?;
 
     // Fetch manifest (local or remote)
-    log::info!("[registry] fetching manifest for '{skill_id}' from {}", entry.manifest_url);
+    log::info!(
+        "[registry] fetching manifest for '{skill_id}' from {}",
+        entry.manifest_url
+    );
     let manifest_bytes = fetch_url_bytes(&entry.manifest_url).await?;
 
     // Fetch JS bundle (local or remote)
-    log::info!("[registry] fetching JS bundle for '{skill_id}' from {}", entry.download_url);
+    log::info!(
+        "[registry] fetching JS bundle for '{skill_id}' from {}",
+        entry.download_url
+    );
     let js_bytes = fetch_url_bytes(&entry.download_url).await?;
 
     // Verify checksum if present
@@ -304,10 +310,11 @@ pub async fn skill_install(workspace_dir: &Path, skill_id: &str) -> Result<(), S
 
 /// Recursively copy a directory tree from `src` to `dst`.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| format!("failed to create dir {}: {e}", dst.display()))?;
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("failed to create dir {}: {e}", dst.display()))?;
 
-    let entries = std::fs::read_dir(src)
-        .map_err(|e| format!("failed to read dir {}: {e}", src.display()))?;
+    let entries =
+        std::fs::read_dir(src).map_err(|e| format!("failed to read dir {}: {e}", src.display()))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
