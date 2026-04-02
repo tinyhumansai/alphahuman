@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "dev:web": "vite",
-    "dev:app": "source ../scripts/load-dotenv.sh && tauri dev",
+    "dev:app": "yarn core:stage && source ../scripts/load-dotenv.sh && tauri dev",
     "core:stage": "node ../scripts/stage-core-sidecar.mjs",
     "build": "tsc && vite build",
     "build:app": "tsc && vite build",
