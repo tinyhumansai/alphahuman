@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
 
 interface MemoryHeatmapProps {
-  /** Array of document creation timestamps (unix epoch seconds). */
+  /** Array of document/relation timestamps (unix epoch seconds). */
   timestamps: number[];
   loading?: boolean;
 }
 
-const WEEKS = 52;
+const MONTHS = 8;
 const DAYS_PER_WEEK = 7;
-const CELL_SIZE = 11;
 const CELL_GAP = 2;
 const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
@@ -44,8 +43,21 @@ function formatDate(date: Date): string {
 export function MemoryHeatmap({ timestamps, loading }: MemoryHeatmapProps) {
   const [hoveredCell, setHoveredCell] = useState<{ date: Date; count: number; x: number; y: number } | null>(null);
 
-  const { grid, monthLabels, totalEvents, maxDailyCount } = useMemo(() => {
-    // Build a date->count map from timestamps
+  const { grid, monthLabels, totalEvents, maxDailyCount, totalWeeks } = useMemo(() => {
+    // The window: 6 months ago through today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rangeStart = new Date(today);
+    rangeStart.setMonth(rangeStart.getMonth() - MONTHS);
+    rangeStart.setDate(1); // start of that month
+
+    // Align to the Sunday of rangeStart's week
+    const startDate = new Date(rangeStart);
+    startDate.setDate(startDate.getDate() - startDate.getDay());
+
+    // Count timestamps that fall anywhere (not limited to the 6-month window)
+    // — this means ingesting old data still lights up that old date.
     const countMap = new Map<string, number>();
     let total = 0;
     let maxCount = 0;
@@ -53,57 +65,64 @@ export function MemoryHeatmap({ timestamps, loading }: MemoryHeatmapProps) {
     for (const ts of timestamps) {
       const date = new Date(ts > 9999999999 ? ts : ts * 1000);
       const key = dateToKey(date);
-      const count = (countMap.get(key) ?? 0) + 1;
-      countMap.set(key, count);
-      total++;
-      if (count > maxCount) maxCount = count;
-    }
-
-    // Build grid: weeks x 7 days, ending today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Find the Sunday of the week that's WEEKS ago
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - (WEEKS * 7) - startDate.getDay());
-
-    const cells: { date: Date; count: number; weekIdx: number; dayIdx: number }[] = [];
-    const months: { label: string; weekIdx: number }[] = [];
-    let lastMonth = -1;
-
-    const cursor = new Date(startDate);
-    for (let w = 0; w <= WEEKS; w++) {
-      for (let d = 0; d < DAYS_PER_WEEK; d++) {
-        const cellDate = new Date(cursor);
-        const key = dateToKey(cellDate);
-
-        if (cellDate <= today) {
-          cells.push({
-            date: cellDate,
-            count: countMap.get(key) ?? 0,
-            weekIdx: w,
-            dayIdx: d,
-          });
-
-          // Track month labels
-          if (cellDate.getMonth() !== lastMonth && d === 0) {
-            lastMonth = cellDate.getMonth();
-            months.push({
-              label: cellDate.toLocaleDateString('en-US', { month: 'short' }),
-              weekIdx: w,
-            });
-          }
-        }
-
-        cursor.setDate(cursor.getDate() + 1);
+      const prev = countMap.get(key) ?? 0;
+      const next = prev + 1;
+      countMap.set(key, next);
+      // Only count towards total/max if inside our display range
+      if (date >= startDate && date <= today) {
+        total++;
+        if (next > maxCount) maxCount = next;
       }
     }
 
-    return { grid: cells, monthLabels: months, totalEvents: total, maxDailyCount: maxCount };
+    // Build grid
+    const cells: { date: Date; count: number; weekIdx: number; dayIdx: number }[] = [];
+    const months: { label: string; weekIdx: number }[] = [];
+    let lastMonth = -1;
+    let weekIdx = 0;
+
+    const cursor = new Date(startDate);
+    while (cursor <= today) {
+      const d = cursor.getDay(); // 0=Sun ... 6=Sat
+
+      if (d === 0 && cells.length > 0) weekIdx++;
+
+      const cellDate = new Date(cursor);
+      const key = dateToKey(cellDate);
+      cells.push({
+        date: cellDate,
+        count: countMap.get(key) ?? 0,
+        weekIdx,
+        dayIdx: d,
+      });
+
+      // Track month labels (on the first Sunday-row cell of each new month)
+      if (cellDate.getMonth() !== lastMonth && d === 0) {
+        lastMonth = cellDate.getMonth();
+        months.push({
+          label: cellDate.toLocaleDateString('en-US', { month: 'short' }),
+          weekIdx,
+        });
+      }
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return {
+      grid: cells,
+      monthLabels: months,
+      totalEvents: total,
+      maxDailyCount: maxCount,
+      totalWeeks: weekIdx + 1,
+    };
   }, [timestamps]);
 
-  const svgWidth = (WEEKS + 1) * (CELL_SIZE + CELL_GAP) + 30;
-  const svgHeight = DAYS_PER_WEEK * (CELL_SIZE + CELL_GAP) + 24;
+  // Dynamic cell size: fill available width (parent is ~100%).
+  // We use a viewBox + 100% width so SVG scales to fit container.
+  const DAY_LABEL_WIDTH = 28;
+  const cellSize = 11;
+  const svgWidth = DAY_LABEL_WIDTH + totalWeeks * (cellSize + CELL_GAP) + CELL_GAP;
+  const svgHeight = DAYS_PER_WEEK * (cellSize + CELL_GAP) + 22;
 
   if (loading) {
     return (
@@ -120,7 +139,7 @@ export function MemoryHeatmap({ timestamps, loading }: MemoryHeatmapProps) {
         <div>
           <h3 className="text-sm font-semibold text-white">Ingestion Activity</h3>
           <p className="text-xs text-stone-500 mt-0.5">
-            {totalEvents} events over the last {WEEKS} weeks
+            {totalEvents} event{totalEvents !== 1 ? 's' : ''} over the last {MONTHS} months
             {maxDailyCount > 0 && <> · peak: {maxDailyCount}/day</>}
           </p>
         </div>
@@ -137,77 +156,75 @@ export function MemoryHeatmap({ timestamps, loading }: MemoryHeatmapProps) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <svg
-          width={svgWidth}
-          height={svgHeight}
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="block">
-          {/* Day labels */}
-          {DAY_LABELS.map((label, i) =>
-            label ? (
-              <text
-                key={i}
-                x={0}
-                y={24 + i * (CELL_SIZE + CELL_GAP) + CELL_SIZE * 0.75}
-                fontSize={9}
-                fill="rgba(255,255,255,0.3)"
-                style={{ userSelect: 'none' }}>
-                {label}
-              </text>
-            ) : null
-          )}
-
-          {/* Month labels */}
-          {monthLabels.map((m, i) => (
+      <svg
+        width="100%"
+        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        preserveAspectRatio="xMinYMin meet"
+        className="block">
+        {/* Day labels */}
+        {DAY_LABELS.map((label, i) =>
+          label ? (
             <text
               key={i}
-              x={30 + m.weekIdx * (CELL_SIZE + CELL_GAP)}
-              y={12}
+              x={0}
+              y={22 + i * (cellSize + CELL_GAP) + cellSize * 0.75}
               fontSize={9}
               fill="rgba(255,255,255,0.3)"
               style={{ userSelect: 'none' }}>
-              {m.label}
+              {label}
             </text>
-          ))}
+          ) : null
+        )}
 
-          {/* Cells */}
-          {grid.map((cell, i) => {
-            const x = 30 + cell.weekIdx * (CELL_SIZE + CELL_GAP);
-            const y = 20 + cell.dayIdx * (CELL_SIZE + CELL_GAP);
-            const intensity = getIntensity(cell.count);
+        {/* Month labels */}
+        {monthLabels.map((m, i) => (
+          <text
+            key={i}
+            x={DAY_LABEL_WIDTH + m.weekIdx * (cellSize + CELL_GAP)}
+            y={12}
+            fontSize={9}
+            fill="rgba(255,255,255,0.3)"
+            style={{ userSelect: 'none' }}>
+            {m.label}
+          </text>
+        ))}
 
-            return (
-              <rect
-                key={i}
-                x={x}
-                y={y}
-                width={CELL_SIZE}
-                height={CELL_SIZE}
-                rx={2}
-                fill={INTENSITY_COLORS[intensity]}
-                stroke={
-                  hoveredCell?.date.getTime() === cell.date.getTime()
-                    ? 'rgba(255,255,255,0.4)'
-                    : 'transparent'
-                }
-                strokeWidth={1}
-                style={{ cursor: 'pointer', transition: 'fill 0.1s' }}
-                onMouseEnter={e => {
-                  const rect = (e.target as SVGRectElement).getBoundingClientRect();
-                  setHoveredCell({
-                    date: cell.date,
-                    count: cell.count,
-                    x: rect.left + rect.width / 2,
-                    y: rect.top,
-                  });
-                }}
-                onMouseLeave={() => setHoveredCell(null)}
-              />
-            );
-          })}
-        </svg>
-      </div>
+        {/* Cells */}
+        {grid.map((cell, i) => {
+          const x = DAY_LABEL_WIDTH + cell.weekIdx * (cellSize + CELL_GAP);
+          const y = 18 + cell.dayIdx * (cellSize + CELL_GAP);
+          const intensity = getIntensity(cell.count);
+
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={y}
+              width={cellSize}
+              height={cellSize}
+              rx={2}
+              fill={INTENSITY_COLORS[intensity]}
+              stroke={
+                hoveredCell?.date.getTime() === cell.date.getTime()
+                  ? 'rgba(255,255,255,0.4)'
+                  : 'transparent'
+              }
+              strokeWidth={1}
+              style={{ cursor: 'pointer', transition: 'fill 0.1s' }}
+              onMouseEnter={e => {
+                const rect = (e.target as SVGRectElement).getBoundingClientRect();
+                setHoveredCell({
+                  date: cell.date,
+                  count: cell.count,
+                  x: rect.left + rect.width / 2,
+                  y: rect.top,
+                });
+              }}
+              onMouseLeave={() => setHoveredCell(null)}
+            />
+          );
+        })}
+      </svg>
 
       {/* Tooltip */}
       {hoveredCell && (
