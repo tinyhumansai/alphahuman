@@ -290,7 +290,9 @@ fn clipboard_save() -> Option<String> {
         .output()
         .ok()?;
     if output.status.success() {
-        let text = String::from_utf8_lossy(&output.stdout).trim_end().to_string();
+        let text = String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_string();
         if text.is_empty() || text == "missing value" {
             None
         } else {

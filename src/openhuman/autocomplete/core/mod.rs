@@ -2,6 +2,7 @@
 
 mod engine;
 mod focus;
+mod helper;
 mod overlay;
 mod terminal;
 mod text;

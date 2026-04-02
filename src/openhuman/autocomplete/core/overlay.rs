@@ -170,6 +170,11 @@ pub(super) fn overlay_helper_quit() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(super) fn overlay_helper_quit() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn overlay_helper_send_line(line: &str) -> Result<(), String> {
     ensure_overlay_helper_running()?;
