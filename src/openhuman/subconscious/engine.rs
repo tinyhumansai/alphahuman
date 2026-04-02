@@ -297,7 +297,7 @@ impl SubconsciousEngine {
         match crate::openhuman::local_ai::ops::agent_chat_simple(
             &config,
             &escalation_prompt,
-            config.subconscious.escalation_model.clone(),
+            config.heartbeat.escalation_model.clone(),
             Some(0.3),
         )
         .await

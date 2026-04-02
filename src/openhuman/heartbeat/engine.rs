@@ -62,29 +62,21 @@ impl HeartbeatEngine {
             if self.config.inference_enabled {
                 // Full subconscious tick with local model inference
                 match subconscious.tick().await {
-                    Ok(result) => {
-                        match result.output.decision {
-                            Decision::Noop => {
-                                info!(
-                                    "[heartbeat] tick: noop — {}",
-                                    result.output.reason
-                                );
-                            }
-                            Decision::Act => {
-                                info!(
-                                    "[heartbeat] tick: act — {} ({} actions)",
-                                    result.output.reason,
-                                    result.output.actions.len()
-                                );
-                            }
-                            Decision::Escalate => {
-                                info!(
-                                    "[heartbeat] tick: escalate — {}",
-                                    result.output.reason
-                                );
-                            }
+                    Ok(result) => match result.output.decision {
+                        Decision::Noop => {
+                            info!("[heartbeat] tick: noop — {}", result.output.reason);
                         }
-                    }
+                        Decision::Act => {
+                            info!(
+                                "[heartbeat] tick: act — {} ({} actions)",
+                                result.output.reason,
+                                result.output.actions.len()
+                            );
+                        }
+                        Decision::Escalate => {
+                            info!("[heartbeat] tick: escalate — {}", result.output.reason);
+                        }
+                    },
                     Err(e) => {
                         warn!("[heartbeat] subconscious tick error: {e}");
                     }
@@ -231,6 +223,7 @@ mod tests {
                 interval_minutes: 30,
                 inference_enabled: false,
                 context_budget_tokens: 40_000,
+                escalation_model: None,
             },
             std::env::temp_dir(),
         );

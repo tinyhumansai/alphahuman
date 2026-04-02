@@ -37,7 +37,7 @@ async fn ensure_engine() -> Result<(), String> {
 }
 
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
-    vec![schemas("status"), schemas("trigger")]
+    vec![schemas("status"), schemas("trigger"), schemas("actions")]
 }
 
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
@@ -49,6 +49,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("trigger"),
             handler: handle_trigger,
+        },
+        RegisteredController {
+            schema: schemas("actions"),
+            handler: handle_actions,
         },
     ]
 }
@@ -76,6 +80,23 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 name: "result",
                 ty: TypeSchema::Json,
                 comment: "Tick result with decision, reason, and actions.",
+                required: true,
+            }],
+        },
+        "actions" => ControllerSchema {
+            namespace: "subconscious",
+            function: "actions",
+            description: "List stored subconscious actions/notifications.",
+            inputs: vec![FieldSchema {
+                name: "limit",
+                ty: TypeSchema::Option(Box::new(TypeSchema::U64)),
+                comment: "Maximum number of actions to return (default: 20).",
+                required: false,
+            }],
+            outputs: vec![FieldSchema {
+                name: "actions",
+                ty: TypeSchema::Json,
+                comment: "Array of stored action entries with timestamps.",
                 required: true,
             }],
         },
@@ -124,6 +145,61 @@ fn handle_trigger(_params: Map<String, Value>) -> ControllerFuture {
         to_json(RpcOutcome::single_log(
             result,
             "subconscious tick completed",
+        ))
+    })
+}
+
+fn handle_actions(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+        let config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .map_err(|e| format!("load config: {e}"))?;
+
+        let memory =
+            crate::openhuman::memory::MemoryClient::from_workspace_dir(config.workspace_dir)
+                .map_err(|e| format!("memory client: {e}"))?;
+
+        // List all KV entries in the subconscious namespace
+        let entries = memory
+            .kv_list_namespace("subconscious")
+            .await
+            .map_err(|e| format!("list actions: {e}"))?;
+
+        // Filter to action entries (keys starting with "actions:"), parse and return
+        let mut actions: Vec<Value> = Vec::new();
+        for entry in entries {
+            let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            if !key.starts_with("actions:") {
+                continue;
+            }
+            let timestamp = key
+                .strip_prefix("actions:")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let value = entry.get("value").and_then(|v| v.as_str()).unwrap_or("[]");
+            let parsed_actions: Value =
+                serde_json::from_str(value).unwrap_or(Value::String(value.to_string()));
+
+            actions.push(serde_json::json!({
+                "tick_at": timestamp,
+                "actions": parsed_actions,
+            }));
+        }
+
+        // Sort by timestamp descending (most recent first)
+        actions.sort_by(|a, b| {
+            let ta = a.get("tick_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let tb = b.get("tick_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            tb.partial_cmp(&ta).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        actions.truncate(limit);
+
+        to_json(RpcOutcome::single_log(
+            serde_json::json!({ "entries": actions, "count": actions.len() }),
+            "subconscious actions listed",
         ))
     })
 }
