@@ -64,9 +64,10 @@ fn info(msg: &str) {
 ///
 /// Priority:
 /// 1. SKILL_DEBUG_DIR env var
-/// 2. ../openhuman-skills/skills (sibling repo)
-/// 3. openhuman-skills/skills (subdir)
-/// 4. Broader search in parent workspace
+/// 2. SKILLS_LOCAL_DIR env var (shared with runtime)
+/// 3. ../openhuman-skills/skills (sibling repo)
+/// 4. openhuman-skills/skills (subdir)
+/// 5. Broader search in parent workspace
 fn try_find_skills_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SKILL_DEBUG_DIR") {
         let p = PathBuf::from(&dir);
@@ -75,6 +76,14 @@ fn try_find_skills_dir() -> Option<PathBuf> {
         }
         eprintln!("SKILL_DEBUG_DIR={dir} does not exist");
         return None;
+    }
+
+    if let Ok(dir) = std::env::var("SKILLS_LOCAL_DIR") {
+        let p = PathBuf::from(&dir);
+        if p.exists() {
+            return Some(p);
+        }
+        eprintln!("SKILLS_LOCAL_DIR={dir} does not exist");
     }
 
     let cwd = std::env::current_dir().expect("cwd");
