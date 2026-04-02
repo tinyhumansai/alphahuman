@@ -188,7 +188,7 @@ export async function navigateToConversations() {
 /**
  * Walk through the real onboarding steps:
  *   Step 0: WelcomeStep       — "Continue"
- *   Step 1: LocalAIStep       — "Use Local Models"
+ *   Step 1: LocalAIStep       — "Continue"
  *   Step 2: ScreenPermissions — "Continue Without Permission"
  *   Step 3: ToolsStep         — "Continue"
  *   Step 4: SkillsStep        — "Finish Setup" (fires onboarding-complete)
@@ -198,10 +198,7 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
   // Detect onboarding overlay. The Onboarding.tsx parent renders a "Skip" defer
   // button (top-right), and step 0 is WelcomeStep with "Continue".
   const onboardingVisible =
-    (await textExists('Welcome')) ||
-    (await textExists('Skip')) ||
-    (await textExists('Use Local Models')) ||
-    (await textExists('Continue'));
+    (await textExists('Welcome')) || (await textExists('Skip')) || (await textExists('Continue'));
 
   if (!onboardingVisible) {
     console.log(`${logPrefix} Onboarding overlay not visible — skipping`);
@@ -216,9 +213,9 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
     await browser.pause(2_000);
   }
 
-  // Step 1: LocalAIStep — only has "Use Local Models" button now (no skip phase)
+  // Step 1: LocalAIStep — "Continue" button
   {
-    const clicked = await clickFirstMatch(['Use Local Models', 'Continue'], 10_000);
+    const clicked = await clickFirstMatch(['Continue'], 10_000);
     if (clicked) {
       console.log(`${logPrefix} LocalAIStep: clicked "${clicked}"`);
       await browser.pause(2_000);
@@ -227,7 +224,7 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
 
   // Step 2: ScreenPermissionsStep
   {
-    const clicked = await clickFirstMatch(['Continue Without Permission', 'Continue'], 10_000);
+    const clicked = await clickFirstMatch(['Continue'], 10_000);
     if (clicked) {
       console.log(`${logPrefix} ScreenPermissionsStep: clicked "${clicked}"`);
       await browser.pause(2_000);
@@ -248,7 +245,7 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
   // Step 4: SkillsStep
   {
     if (await textExists('Install Skills')) {
-      const clicked = await clickFirstMatch(['Finish Setup'], 10_000);
+      const clicked = await clickFirstMatch(['Continue'], 10_000);
       if (clicked) {
         console.log(`${logPrefix} SkillsStep: clicked "${clicked}"`);
         await browser.pause(3_000);
