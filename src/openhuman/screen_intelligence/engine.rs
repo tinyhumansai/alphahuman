@@ -866,13 +866,19 @@ impl AccessibilityEngine {
             .image_ref
             .clone()
             .ok_or_else(|| "frame has no image payload".to_string())?;
+
+        // ── Compress & resize before sending to the LLM ─────────────────
+        let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
+            .map_err(|e| format!("image compression failed: {e}"))?;
+        let vision_image_ref = compressed.data_uri;
+
         let config = Config::load_or_init()
             .await
             .map_err(|e| format!("failed to load config: {e}"))?;
         let service = local_ai::global(&config);
         let prompt = "Analyze this UI screenshot. Return strict JSON with keys: ui_state, key_text, actionable_notes, confidence (0..1). Keep actionable_notes concise.";
         let raw = service
-            .vision_prompt(&config, prompt, &[image_ref], Some(180))
+            .vision_prompt(&config, prompt, &[vision_image_ref], Some(180))
             .await?;
         Ok(parse_vision_summary_output(frame, &raw))
     }

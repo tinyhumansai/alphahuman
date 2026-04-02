@@ -7,6 +7,7 @@ mod capture;
 mod context;
 mod engine;
 mod helpers;
+mod image_processing;
 mod limits;
 mod permissions;
 mod types;
