@@ -19,11 +19,11 @@ import {
   syncMemoryClientToken,
 } from '../utils/tauriCommands';
 import accessibilityReducer from './accessibilitySlice';
-import dictationReducer from './dictationSlice';
 import aiReducer from './aiSlice';
 import authReducer, { setOnboardedForUser, setToken } from './authSlice';
 import channelConnectionsReducer from './channelConnectionsSlice';
 import daemonReducer from './daemonSlice';
+import dictationReducer from './dictationSlice';
 import intelligenceReducer from './intelligenceSlice';
 import inviteReducer from './inviteSlice';
 import socketReducer from './socketSlice';

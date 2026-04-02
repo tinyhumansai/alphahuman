@@ -22,6 +22,7 @@ interface DictationState {
   transcript: string | null;
   error: string | null;
   hotkey: string;
+  showFloatingLauncher: boolean;
   sttAvailable: boolean;
   voiceStatus: VoiceStatusResult | null;
   statusCheckError: string | null;
@@ -38,6 +39,10 @@ const initialState: DictationState = {
     typeof window !== 'undefined'
       ? (localStorage.getItem('dictation_hotkey') ?? DEFAULT_HOTKEY)
       : DEFAULT_HOTKEY,
+  showFloatingLauncher:
+    typeof window !== 'undefined'
+      ? (localStorage.getItem('dictation_show_floating_launcher') ?? 'true') === 'true'
+      : true,
   sttAvailable: false,
   voiceStatus: null,
   statusCheckError: null,
@@ -93,6 +98,10 @@ const dictationSlice = createSlice({
       state.hotkey = action.payload;
       localStorage.setItem('dictation_hotkey', action.payload);
     },
+    setShowFloatingLauncher(state, action: PayloadAction<boolean>) {
+      state.showFloatingLauncher = action.payload;
+      localStorage.setItem('dictation_show_floating_launcher', String(action.payload));
+    },
     reset(state) {
       state.status = 'idle';
       state.transcript = null;
@@ -110,9 +119,7 @@ const dictationSlice = createSlice({
         state.voiceStatus = action.payload;
         // Consider STT available if model file exists, even if not yet loaded in-process.
         // Transcription will trigger lazy loading on first call.
-        state.sttAvailable =
-          action.payload.stt_available ||
-          action.payload.stt_model_path !== null;
+        state.sttAvailable = action.payload.stt_available || action.payload.stt_model_path !== null;
       })
       .addCase(checkDictationAvailability.rejected, (state, action) => {
         state.isCheckingStatus = false;
@@ -122,6 +129,12 @@ const dictationSlice = createSlice({
   },
 });
 
-export const { setStatus, setTranscript, setError, setHotkey, reset: resetDictation } =
-  dictationSlice.actions;
+export const {
+  setStatus,
+  setTranscript,
+  setError,
+  setHotkey,
+  setShowFloatingLauncher,
+  reset: resetDictation,
+} = dictationSlice.actions;
 export default dictationSlice.reducer;

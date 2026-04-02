@@ -1,7 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
 
 import AccessibilityPanel from '../components/settings/panels/AccessibilityPanel';
-import DictationPanel from '../components/settings/panels/DictationPanel';
 import AdvancedPanel from '../components/settings/panels/AdvancedPanel';
 import AgentChatPanel from '../components/settings/panels/AgentChatPanel';
 import AIPanel from '../components/settings/panels/AIPanel';
@@ -10,6 +9,7 @@ import BillingPanel from '../components/settings/panels/BillingPanel';
 import ConnectionsPanel from '../components/settings/panels/ConnectionsPanel';
 import CronJobsPanel from '../components/settings/panels/CronJobsPanel';
 import DeveloperOptionsPanel from '../components/settings/panels/DeveloperOptionsPanel';
+import DictationPanel from '../components/settings/panels/DictationPanel';
 import LocalModelPanel from '../components/settings/panels/LocalModelPanel';
 import MemoryDebugPanel from '../components/settings/panels/MemoryDebugPanel';
 import MessagingPanel from '../components/settings/panels/MessagingPanel';
