@@ -1555,6 +1555,115 @@ async fn team_rpc_e2e() {
 }
 
 #[tokio::test]
+async fn about_app_rpc_list_lookup_and_search() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    fn inner(outer: &Value) -> Value {
+        outer
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| outer.clone())
+    }
+
+    let list = post_json_rpc(&rpc_base, 200, "openhuman.about_app_list", json!({})).await;
+    let list_outer = assert_no_jsonrpc_error(&list, "about_app_list");
+    let list_result = inner(list_outer);
+    let capabilities = list_result
+        .as_array()
+        .expect("about_app list should return an array");
+    assert!(
+        capabilities.len() >= 40,
+        "expected large capability catalog, got: {list_result}"
+    );
+    assert!(capabilities.iter().any(|capability| {
+        capability.get("id").and_then(Value::as_str) == Some("local_ai.download_model")
+    }));
+
+    let filtered = post_json_rpc(
+        &rpc_base,
+        201,
+        "openhuman.about_app_list",
+        json!({ "category": "local_ai" }),
+    )
+    .await;
+    let filtered_outer = assert_no_jsonrpc_error(&filtered, "about_app_list filtered");
+    let filtered_result = inner(filtered_outer);
+    let filtered_capabilities = filtered_result
+        .as_array()
+        .expect("filtered about_app list should return an array");
+    assert!(
+        !filtered_capabilities.is_empty(),
+        "expected local_ai capabilities: {filtered_result}"
+    );
+    assert!(filtered_capabilities.iter().all(|capability| {
+        capability.get("category").and_then(Value::as_str) == Some("local_ai")
+    }));
+
+    let lookup = post_json_rpc(
+        &rpc_base,
+        202,
+        "openhuman.about_app_lookup",
+        json!({ "id": "team.generate_invite_codes" }),
+    )
+    .await;
+    let lookup_outer = assert_no_jsonrpc_error(&lookup, "about_app_lookup");
+    let lookup_result = inner(lookup_outer);
+    assert_eq!(
+        lookup_result.get("id").and_then(Value::as_str),
+        Some("team.generate_invite_codes")
+    );
+    assert_eq!(
+        lookup_result.get("category").and_then(Value::as_str),
+        Some("team")
+    );
+
+    let search = post_json_rpc(
+        &rpc_base,
+        203,
+        "openhuman.about_app_search",
+        json!({ "query": "invite" }),
+    )
+    .await;
+    let search_outer = assert_no_jsonrpc_error(&search, "about_app_search");
+    let search_result = inner(search_outer);
+    let search_capabilities = search_result
+        .as_array()
+        .expect("about_app search should return an array");
+    assert!(
+        search_capabilities.iter().any(|capability| {
+            capability.get("id").and_then(Value::as_str) == Some("team.join_via_invite_code")
+        }),
+        "expected invite-related capability in search results: {search_result}"
+    );
+    assert!(
+        search_capabilities.iter().any(|capability| {
+            capability.get("id").and_then(Value::as_str) == Some("team.generate_invite_codes")
+        }),
+        "expected invite generation capability in search results: {search_result}"
+    );
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
+#[tokio::test]
 async fn voice_status_returns_availability() {
     let _env_lock = json_rpc_e2e_env_lock();
     let tmp = tempdir().expect("tempdir");
