@@ -32,6 +32,7 @@ const RecoveryPhrasePanel = () => {
   const mnemonic = useMemo(() => generateMnemonicPhrase(), []);
   const words = useMemo(() => mnemonic.split(' '), [mnemonic]);
 
+  const [selectedWordCount, setSelectedWordCount] = useState(IMPORT_SLOTS_INITIAL);
   const [importWords, setImportWords] = useState<string[]>(Array(IMPORT_SLOTS_INITIAL).fill(''));
   const [importValid, setImportValid] = useState<boolean | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -47,8 +48,22 @@ const RecoveryPhrasePanel = () => {
     setConfirmed(false);
     setError(null);
     setImportValid(null);
+    setSelectedWordCount(IMPORT_SLOTS_INITIAL);
     setImportWords(Array(IMPORT_SLOTS_INITIAL).fill(''));
   }, [mode]);
+
+  const handleWordCountChange = useCallback((count: number) => {
+    setSelectedWordCount(count);
+    setImportWords(prev => {
+      const newWords = Array(count).fill('');
+      for (let i = 0; i < Math.min(prev.length, count); i++) {
+        newWords[i] = prev[i];
+      }
+      return newWords;
+    });
+    setImportValid(null);
+    setError(null);
+  }, []);
 
   // Navigate back after success
   useEffect(() => {
@@ -298,6 +313,23 @@ const RecoveryPhrasePanel = () => {
                     </p>
                   </div>
 
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-stone-500">Words:</span>
+                    {BIP39_IMPORT_LENGTHS.map(len => (
+                      <button
+                        key={len}
+                        type="button"
+                        onClick={() => handleWordCountChange(len)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                          selectedWordCount === len
+                            ? 'bg-primary-500/20 border-primary-500/40 text-primary-300 border'
+                            : 'border border-stone-700 text-stone-400 hover:border-stone-500'
+                        }`}>
+                        {len}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="bg-black/20 rounded-2xl p-4 mb-4 border border-stone-700">
                     <div className="grid grid-cols-3 gap-2">
                       {importWords.map((word, index) => (
@@ -306,6 +338,7 @@ const RecoveryPhrasePanel = () => {
                             {index + 1}.
                           </span>
                           <input
+                            aria-label={`Recovery phrase word ${index + 1}`}
                             ref={el => {
                               inputRefs.current[index] = el;
                             }}
