@@ -3,8 +3,12 @@
  * End-to-end: core JSON-RPC skill runtime (UI WebView → HTTP POST to sidecar) plus Skills UI smoke.
  * Mirrors the Rust integration test `json_rpc_skills_runtime_start_tools_call_stop` (tests/json_rpc_e2e.rs).
  *
- * Covers issue #68 acceptance: model/tool execution path is exercised via the same RPC surface the UI uses
- * (`callCoreRpc` / sidecar), with a deterministic echo tool — no silent RPC failures.
+ * JSON-RPC `result` shapes match that test: `skills_start` → `SkillSnapshot` (e.g. `status`, `skill_id`);
+ * `skills_call_tool` → `ToolResult` (`content[]`); `skills_stop` → `{ success, skill_id }`. Not wrapped in `{ skill }` / `{ result }`.
+ *
+ * Issue #68 also asks for model→agent→tool→conversation; that path is environment- and LLM-dependent.
+ * This spec validates the **skill runtime + RPC + Skills shell** deterministically; full chat tool-calls belong
+ * in agent integration tests when the mock/backend can return structured tool_calls.
  */
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
 import { callOpenhumanRpc } from '../helpers/core-rpc';
@@ -17,7 +21,11 @@ import {
 } from '../helpers/element-helpers';
 import { supportsExecuteScript } from '../helpers/platform';
 import { completeOnboardingIfVisible, navigateToSkills } from '../helpers/shared-flows';
-import { E2E_RUNTIME_SKILL_ID, seedMinimalEchoSkill } from '../helpers/skill-e2e-runtime';
+import {
+  E2E_RUNTIME_SKILL_ID,
+  removeSeededEchoSkill,
+  seedMinimalEchoSkill,
+} from '../helpers/skill-e2e-runtime';
 import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 function stepLog(message: string, context?: unknown): void {
@@ -40,6 +48,7 @@ describe('Skill execution (UI + core RPC)', () => {
 
   after(async () => {
     await stopMockServer();
+    await removeSeededEchoSkill();
   });
 
   it('authenticates and reaches a logged-in shell', async () => {
@@ -124,5 +133,9 @@ describe('Skill execution (UI + core RPC)', () => {
       stepLog('Request log:', getRequestLog());
     }
     expect(visible).toBe(true);
+  });
+
+  it.skip('(future) agent chat issues model tool_calls to echo — needs LLM + mock tool_calls', async () => {
+    // Tracked under #68: drive Conversations with a prompt that forces tool use and assert echo in thread.
   });
 });

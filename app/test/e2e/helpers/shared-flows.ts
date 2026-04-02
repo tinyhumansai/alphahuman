@@ -102,6 +102,24 @@ export async function navigateViaHash(hash) {
     return;
   }
 
+  // Appium Mac2 — Settings → Billing (nested route)
+  if (normalized === '/settings/billing') {
+    try {
+      await clickText('Settings', 12_000);
+      await browser.pause(1_500);
+      const sub = await clickFirstMatch(['Billing & Usage', 'Billing'], 12_000);
+      if (!sub) {
+        throw new Error('Mac2: could not find Billing / Billing & Usage after opening Settings');
+      }
+      await browser.pause(2_000);
+      console.log(`[E2E] Mac2 navigated to ${hash} via Settings → ${sub}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`[E2E] Mac2: failed to navigate to ${hash}: ${msg}`);
+    }
+    return;
+  }
+
   const label = HASH_TO_SIDEBAR_LABEL[normalized];
   if (label) {
     try {
@@ -111,9 +129,12 @@ export async function navigateViaHash(hash) {
     } catch (err) {
       console.log(`[E2E] Mac2 sidebar navigation to ${hash} failed:`, err);
     }
-  } else {
-    console.log(`[E2E] Mac2: no sidebar label mapped for hash ${hash}`);
+    return;
   }
+
+  throw new Error(
+    `[E2E] Mac2: no sidebar mapping for hash "${hash}". Extend HASH_TO_SIDEBAR_LABEL or add a branch in navigateViaHash.`
+  );
 }
 
 export async function navigateToHome() {
@@ -163,29 +184,35 @@ export async function navigateToBilling() {
     return;
   }
 
-  // Fallback
-  const currentHash = await browser.execute(() => window.location.hash);
-  console.log(`[E2E] Billing content not found. Current hash: ${currentHash}`);
+  console.log('[E2E] Billing content not found after initial navigation; running fallback');
 
   await navigateViaHash('/settings');
   await browser.pause(3_000);
 
-  const clicked = await browser.execute(() => {
-    const allText = document.querySelectorAll('*');
-    for (const el of allText) {
-      const text = el.textContent?.trim() || '';
-      if (
-        (text === 'Billing & Usage' || text === 'Billing') &&
-        el.closest('button, [role="button"], a, [class*="MenuItem"]')
-      ) {
-        (el.closest('button, [role="button"], a, [class*="MenuItem"]') as HTMLElement).click();
-        return 'clicked';
+  if (supportsExecuteScript()) {
+    const currentHash = await browser.execute(() => window.location.hash);
+    console.log(`[E2E] Billing fallback: current hash ${currentHash}`);
+
+    const clicked = await browser.execute(() => {
+      const allText = document.querySelectorAll('*');
+      for (const el of allText) {
+        const text = el.textContent?.trim() || '';
+        if (
+          (text === 'Billing & Usage' || text === 'Billing') &&
+          el.closest('button, [role="button"], a, [class*="MenuItem"]')
+        ) {
+          (el.closest('button, [role="button"], a, [class*="MenuItem"]') as HTMLElement).click();
+          return 'clicked';
+        }
       }
-    }
-    window.location.hash = '/settings/billing';
-    return 'hash-fallback';
-  });
-  console.log(`[E2E] Billing fallback: ${clicked}`);
+      window.location.hash = '/settings/billing';
+      return 'hash-fallback';
+    });
+    console.log(`[E2E] Billing fallback: ${clicked}`);
+  } else {
+    const sub = await clickFirstMatch(['Billing & Usage', 'Billing'], 10_000);
+    console.log(`[E2E] Billing fallback (Mac2): clicked ${sub}`);
+  }
   await browser.pause(3_000);
 
   // Verify billing actually loaded after fallback
@@ -194,7 +221,10 @@ export async function navigateToBilling() {
     (await textExists('FREE')) ||
     (await textExists('Upgrade'));
   if (!finalCheck) {
-    const finalHash = await browser.execute(() => window.location.hash);
+    let finalHash = '';
+    if (supportsExecuteScript()) {
+      finalHash = await browser.execute(() => window.location.hash);
+    }
     const tree = await dumpAccessibilityTree();
     console.log(`[E2E] Billing verification failed after fallback. Hash: ${finalHash}`);
     console.log(`[E2E] Accessibility tree:\n`, tree.slice(0, 4000));

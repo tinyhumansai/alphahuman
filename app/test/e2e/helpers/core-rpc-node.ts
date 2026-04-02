@@ -11,8 +11,42 @@ function normalizeRpcUrl(raw: string): string {
   return t.endsWith('/rpc') ? t : `${t}/rpc`;
 }
 
+function coreHost(): string {
+  return (process.env.OPENHUMAN_CORE_HOST || '127.0.0.1').trim() || '127.0.0.1';
+}
+
+/** Ports to try when OPENHUMAN_CORE_PORT is unset (matches typical dev sidecar range). */
+function defaultPortProbeList(): number[] {
+  const raw = process.env.OPENHUMAN_CORE_PORT?.trim();
+  if (raw) {
+    const p = Number.parseInt(raw, 10);
+    if (!Number.isNaN(p) && p > 0 && p < 65536) {
+      return [p];
+    }
+  }
+  const ports: number[] = [];
+  for (let port = 7788; port <= 7793; port += 1) ports.push(port);
+  return ports;
+}
+
+async function tryPingRpc(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'core.ping', params: {} }),
+    });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { error?: { message?: string } };
+    return !json.error;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Resolve the sidecar JSON-RPC URL: env, then probe 127.0.0.1:7788–7793 until core.ping succeeds.
+ * Resolve the sidecar JSON-RPC URL: full `OPENHUMAN_CORE_RPC_URL`, or
+ * `OPENHUMAN_CORE_HOST` + `OPENHUMAN_CORE_PORT`, then probe host:port until core.ping succeeds.
  */
 export async function resolveCoreRpcUrl(): Promise<string> {
   if (cachedRpcUrl) return cachedRpcUrl;
@@ -23,30 +57,23 @@ export async function resolveCoreRpcUrl(): Promise<string> {
     return cachedRpcUrl;
   }
 
+  const host = coreHost();
+  const ports = defaultPortProbeList();
   const deadline = Date.now() + 60_000;
+
   while (Date.now() < deadline) {
-    for (let port = 7788; port <= 7793; port += 1) {
-      const url = `http://127.0.0.1:${port}/rpc`;
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'core.ping', params: {} }),
-        });
-        if (!res.ok) continue;
-        const json = (await res.json()) as { error?: { message?: string } };
-        if (json.error) continue;
+    for (const port of ports) {
+      const url = `http://${host}:${port}/rpc`;
+      if (await tryPingRpc(url)) {
         cachedRpcUrl = url;
         return url;
-      } catch {
-        /* ECONNREFUSED etc. */
       }
     }
     await new Promise(r => setTimeout(r, 1_500));
   }
 
   throw new Error(
-    'Core JSON-RPC not reachable: set OPENHUMAN_CORE_RPC_URL or ensure the sidecar listens on 127.0.0.1:7788–7793'
+    `Core JSON-RPC not reachable: set OPENHUMAN_CORE_RPC_URL or OPENHUMAN_CORE_HOST/OPENHUMAN_CORE_PORT (tried ${host} ports ${ports.join(', ')})`
   );
 }
 

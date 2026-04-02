@@ -13,7 +13,8 @@ const MANIFEST = {
   name: 'E2E Runtime Skill',
   version: '1.0.0',
   description: 'Minimal skill for desktop E2E (echo tool)',
-  runtime: 'quickjs',
+  /** Matches `SkillManifest` docs (`manifest.rs`); executed via QuickJS like `quickjs` alias. */
+  runtime: 'javascript',
   entry: 'index.js',
   auto_start: false,
 };
@@ -80,5 +81,16 @@ export async function seedMinimalEchoSkill(): Promise<void> {
     await fs.mkdir(skillRoot, { recursive: true });
     await fs.writeFile(path.join(skillRoot, 'manifest.json'), manifestBody, 'utf-8');
     await fs.writeFile(path.join(skillRoot, 'index.js'), INDEX_JS, 'utf-8');
+  }
+}
+
+/** Remove seeded `e2e-runtime` skill dirs so E2E runs stay isolated. */
+export async function removeSeededEchoSkill(): Promise<void> {
+  for (const skillRoot of resolveE2eRuntimeSkillDirs()) {
+    try {
+      await fs.rm(skillRoot, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 }
