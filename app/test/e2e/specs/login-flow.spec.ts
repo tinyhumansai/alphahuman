@@ -236,7 +236,10 @@ describe('Login flow — complete with mock data (Linux)', () => {
   it('walk through onboarding steps (if overlay is visible)', async () => {
     // Check if we're on the WelcomeStep or any onboarding step
     const onboardingVisible =
-      (await textExists('Welcome')) || (await textExists('Skip')) || (await textExists('Continue'));
+      (await textExists('Welcome')) ||
+      (await textExists('Skip')) ||
+      (await textExists('Continue')) ||
+      (await textExists('Finish Setup'));
 
     if (!onboardingVisible) {
       console.log('[LoginFlow] Onboarding overlay not visible — skipping step walkthrough');

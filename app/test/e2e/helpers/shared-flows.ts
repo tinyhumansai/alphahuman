@@ -198,7 +198,10 @@ export async function walkOnboarding(logPrefix = '[E2E]') {
   // Detect onboarding overlay. The Onboarding.tsx parent renders a "Skip" defer
   // button (top-right), and step 0 is WelcomeStep with "Continue".
   const onboardingVisible =
-    (await textExists('Welcome')) || (await textExists('Skip')) || (await textExists('Continue'));
+    (await textExists('Welcome')) ||
+    (await textExists('Skip')) ||
+    (await textExists('Continue')) ||
+    (await textExists('Finish Setup'));
 
   if (!onboardingVisible) {
     console.log(`${logPrefix} Onboarding overlay not visible — skipping`);
