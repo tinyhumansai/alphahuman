@@ -158,7 +158,11 @@ export function MemoryGraphMap({ relations, loading }: MemoryGraphMapProps) {
   // Build graph data from relations (synchronous, deterministic)
   const { initialNodes, initialEdges, palette } = useMemo(() => {
     if (relations.length === 0) {
-      return { initialNodes: [] as GraphNode[], initialEdges: [] as GraphEdge[], palette: new Map<string, string>() };
+      return {
+        initialNodes: [] as GraphNode[],
+        initialEdges: [] as GraphEdge[],
+        palette: new Map<string, string>(),
+      };
     }
     const { nodes: rawNodes, edges: rawEdges } = buildGraph(relations);
     const namespaces = [...new Set(rawNodes.map(n => n.namespace ?? '__none__'))];
