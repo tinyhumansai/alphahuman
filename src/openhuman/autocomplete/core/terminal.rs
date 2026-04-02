@@ -4,5 +4,4 @@
 
 pub(super) use crate::openhuman::accessibility::extract_terminal_input_context;
 pub(super) use crate::openhuman::accessibility::is_terminal_app;
-pub(super) use crate::openhuman::accessibility::is_text_role;
 pub(super) use crate::openhuman::accessibility::looks_like_terminal_buffer;

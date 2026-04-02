@@ -2,8 +2,6 @@
 
 use super::types::MAX_SUGGESTION_CHARS;
 
-pub(super) use crate::openhuman::accessibility::normalize_ax_value;
-pub(super) use crate::openhuman::accessibility::parse_ax_number;
 pub(super) use crate::openhuman::accessibility::truncate_tail;
 
 pub(super) fn sanitize_suggestion(text: &str) -> String {

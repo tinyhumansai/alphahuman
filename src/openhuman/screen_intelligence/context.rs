@@ -1,4 +1,2 @@
-//! Foreground window / app context — delegates to accessibility middleware.
-
-pub(crate) use crate::openhuman::accessibility::AppContext;
-pub(crate) use crate::openhuman::accessibility::ElementBounds as WindowBounds;
+//! Foreground window / app context — now in accessibility middleware.
+//! This module is retained for module-tree compatibility.

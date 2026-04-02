@@ -2,11 +2,7 @@ use crate::openhuman::config::AutocompleteConfig;
 use serde::{Deserialize, Serialize};
 
 // Re-export platform types from the accessibility middleware.
-pub(crate) use crate::openhuman::accessibility::ElementBounds;
 pub(crate) use crate::openhuman::accessibility::FocusedTextContext;
-
-/// Type alias for backwards compatibility within this module.
-pub(crate) type FocusedElementBounds = ElementBounds;
 
 pub(crate) const MAX_SUGGESTION_CHARS: usize = 64;
 
