@@ -97,6 +97,11 @@ async fn build_tasks_section(workspace_dir: &Path) -> String {
     section
 }
 
+/// Max chars of content to include per document in the report.
+const DOC_CONTENT_SNIPPET_CHARS: usize = 500;
+/// Max number of new docs to include full content for.
+const MAX_DOCS_WITH_CONTENT: usize = 10;
+
 async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> String {
     let docs = match client.list_documents(None).await {
         Ok(raw) => raw,
@@ -105,7 +110,6 @@ async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> 
         }
     };
 
-    // Parse the raw serde_json::Value into document summaries
     let doc_array = docs
         .as_array()
         .or_else(|| docs.get("documents").and_then(|v| v.as_array()));
@@ -114,9 +118,10 @@ async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> 
         return "## Memory Documents\n\nNo documents found.\n".to_string();
     };
 
-    // Filter to docs updated since last tick (or all on cold start)
     let is_cold_start = last_tick_at <= 0.0;
-    let mut new_docs: Vec<(&str, &str, f64)> = Vec::new();
+
+    // Collect new/updated doc metadata
+    let mut new_doc_keys: Vec<(String, String, String)> = Vec::new(); // (namespace, key, title)
     for doc in doc_array {
         let updated_at = doc
             .get("updated_at")
@@ -132,13 +137,23 @@ async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> 
             .get("title")
             .or_else(|| doc.get("key"))
             .and_then(|v| v.as_str())
-            .unwrap_or("untitled");
-        let namespace = doc.get("namespace").and_then(|v| v.as_str()).unwrap_or("?");
+            .unwrap_or("untitled")
+            .to_string();
+        let namespace = doc
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let key = doc
+            .get("key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-        new_docs.push((namespace, title, updated_at));
+        new_doc_keys.push((namespace, key, title));
     }
 
-    if new_docs.is_empty() {
+    if new_doc_keys.is_empty() {
         return format!(
             "## Memory Documents\n\n{} total documents. No changes since last tick.\n",
             doc_array.len()
@@ -148,12 +163,43 @@ async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> 
     let mut section = format!(
         "## Memory Documents\n\n{} total, {} new/updated since last tick:\n\n",
         doc_array.len(),
-        new_docs.len()
+        new_doc_keys.len()
     );
-    for (namespace, title, _) in &new_docs {
-        let _ = writeln!(section, "- [{namespace}] {title}");
+
+    // Recall content per namespace for new docs
+    let mut recalled_namespaces = std::collections::HashSet::new();
+    let mut docs_with_content = 0;
+
+    for (namespace, _key, title) in &new_doc_keys {
+        let _ = writeln!(section, "### [{namespace}] {title}\n");
+
+        // Only recall each namespace once (may have multiple docs per namespace)
+        if docs_with_content < MAX_DOCS_WITH_CONTENT
+            && recalled_namespaces.insert(namespace.clone())
+        {
+            if let Ok(Some(context)) = client.recall_namespace(namespace, 3).await {
+                let snippet = truncate_at_char_boundary(&context, DOC_CONTENT_SNIPPET_CHARS);
+                if !snippet.trim().is_empty() {
+                    let _ = writeln!(section, "{snippet}\n");
+                }
+            }
+            docs_with_content += 1;
+        }
     }
     section
+}
+
+fn truncate_at_char_boundary(text: &str, max_chars: usize) -> String {
+    if text.len() <= max_chars {
+        return text.to_string();
+    }
+    let truncate_at = text
+        .char_indices()
+        .take_while(|(i, _)| *i < max_chars)
+        .last()
+        .map(|(i, ch)| i + ch.len_utf8())
+        .unwrap_or(0);
+    format!("{}...", &text[..truncate_at])
 }
 
 async fn build_graph_section(client: &MemoryClient, last_tick_at: f64) -> String {
