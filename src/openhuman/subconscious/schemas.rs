@@ -139,8 +139,10 @@ fn handle_actions(params: Map<String, Value>) -> ControllerFuture {
             if !key.starts_with("actions:") {
                 continue;
             }
+            // Key format: "actions:{ms}:{suffix}" — extract timestamp before suffix
             let timestamp = key
                 .strip_prefix("actions:")
+                .and_then(|s| s.split(':').next())
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
             let value = entry.get("value").and_then(|v| v.as_str()).unwrap_or("[]");

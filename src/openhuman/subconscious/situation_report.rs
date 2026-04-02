@@ -189,15 +189,16 @@ async fn build_memory_docs_section(client: &MemoryClient, last_tick_at: f64) -> 
     section
 }
 
-fn truncate_at_char_boundary(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
+fn truncate_at_char_boundary(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
         return text.to_string();
     }
+    // Find the last char whose END offset fits within the budget
     let truncate_at = text
         .char_indices()
-        .take_while(|(i, _)| *i < max_chars)
-        .last()
         .map(|(i, ch)| i + ch.len_utf8())
+        .take_while(|end| *end <= max_bytes)
+        .last()
         .unwrap_or(0);
     format!("{}...", &text[..truncate_at])
 }
@@ -313,7 +314,8 @@ async fn build_skills_section() -> String {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
         {
-            line.push_str(&format!(" ERROR: {}", &err[..err.len().min(100)]));
+            let truncated_err = truncate_at_char_boundary(err, 100);
+            line.push_str(&format!(" ERROR: {truncated_err}"));
         }
 
         let _ = writeln!(section, "{line}");
@@ -332,13 +334,13 @@ fn append_section(report: &mut String, remaining: &mut usize, section: &str) {
         report.push('\n');
         *remaining -= needed;
     } else {
-        // Truncate at a valid UTF-8 char boundary
+        // Truncate at a valid UTF-8 char boundary within budget
         let budget = *remaining;
         let truncate_at = section
             .char_indices()
-            .take_while(|(i, _)| *i < budget)
-            .last()
             .map(|(i, ch)| i + ch.len_utf8())
+            .take_while(|end| *end <= budget)
+            .last()
             .unwrap_or(0);
         report.push_str(&section[..truncate_at]);
         report.push_str("\n[... truncated — token budget exceeded]\n");
