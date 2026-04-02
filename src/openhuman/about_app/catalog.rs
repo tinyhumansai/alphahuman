@@ -163,7 +163,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "skills",
         category: CapabilityCategory::Skills,
         description: "Open skill setup and update skill-specific configuration.",
-        how_to: "Skills or Settings > Skills",
+        how_to: "Skills > Setup or Settings > Connections",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -172,7 +172,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "skills",
         category: CapabilityCategory::Skills,
         description: "See whether a skill-backed integration is connected, offline, or needs setup.",
-        how_to: "Settings > Skills or Connections",
+        how_to: "Skills or Settings > Connections",
         status: CapabilityStatus::Beta,
     },
     Capability {
@@ -181,7 +181,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "skills",
         category: CapabilityCategory::Skills,
         description: "Trigger a manual data sync for a skill integration.",
-        how_to: "Settings > Skills > Sync",
+        how_to: "Skills > Skill card > Sync",
         status: CapabilityStatus::Beta,
     },
     Capability {
@@ -190,8 +190,62 @@ const CAPABILITIES: &[Capability] = &[
         domain: "skills",
         category: CapabilityCategory::Skills,
         description: "Turn individual skills on or off without uninstalling them.",
-        how_to: "Settings > Skills",
+        how_to: "Settings > Developer Options > Skills",
         status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "skills.open_connections_hub",
+        name: "Open Connections Hub",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Browse the dedicated connections hub for external skill-backed integrations.",
+        how_to: "Settings > Connections",
+        status: CapabilityStatus::Beta,
+    },
+    Capability {
+        id: "skills.connect_google",
+        name: "Connect Google",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Connect Google services for email, contacts, and calendar workflows.",
+        how_to: "Settings > Connections",
+        status: CapabilityStatus::ComingSoon,
+    },
+    Capability {
+        id: "skills.connect_notion",
+        name: "Connect Notion",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Connect Notion for workspace sync and productivity workflows.",
+        how_to: "Settings > Connections",
+        status: CapabilityStatus::ComingSoon,
+    },
+    Capability {
+        id: "skills.connect_web3_wallet",
+        name: "Connect Web3 Wallet",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Connect a wallet for crypto workflows and onchain actions.",
+        how_to: "Settings > Connections",
+        status: CapabilityStatus::ComingSoon,
+    },
+    Capability {
+        id: "skills.connect_crypto_exchange",
+        name: "Connect Crypto Exchange",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Connect supported exchanges for trading and portfolio workflows.",
+        how_to: "Settings > Connections",
+        status: CapabilityStatus::ComingSoon,
+    },
+    Capability {
+        id: "skills.browser_access_policy",
+        name: "Configure Browser Access Policy",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Control whether browser-based tools can visit only the allowlist or any public domain.",
+        how_to: "Settings > Developer Options > Skills > Browser Access",
+        status: CapabilityStatus::Beta,
     },
     Capability {
         id: "local_ai.download_model",
@@ -271,7 +325,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "team",
         category: CapabilityCategory::Team,
         description: "Join an existing team using an invite code.",
-        how_to: "Onboarding > Invite code or Invites",
+        how_to: "Invites > Redeem an Invite Code",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -335,6 +389,33 @@ const CAPABILITIES: &[Capability] = &[
         category: CapabilityCategory::Auth,
         description: "Walk through onboarding to configure initial permissions and preferences.",
         how_to: "Onboarding",
+        status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "auth.configure_tool_access",
+        name: "Configure Tool Access",
+        domain: "auth",
+        category: CapabilityCategory::Auth,
+        description: "Choose which built-in tools OpenHuman can use on your behalf during setup.",
+        how_to: "Onboarding > Enable Tools",
+        status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "auth.backup_recovery_phrase",
+        name: "Back Up Recovery Phrase",
+        domain: "auth",
+        category: CapabilityCategory::Auth,
+        description: "Generate and save a recovery phrase used to secure and restore encrypted app data.",
+        how_to: "Onboarding > Recovery Phrase",
+        status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "auth.import_recovery_phrase",
+        name: "Import Recovery Phrase",
+        domain: "auth",
+        category: CapabilityCategory::Auth,
+        description: "Import an existing recovery phrase to restore encrypted app data.",
+        how_to: "Onboarding > Recovery Phrase > I already have a recovery phrase",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -442,7 +523,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "settings",
         category: CapabilityCategory::Settings,
         description: "Adjust AI-related settings and agent behavior preferences.",
-        how_to: "Settings > AI",
+        how_to: "Settings > Developer Options > AI Configuration",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -451,7 +532,7 @@ const CAPABILITIES: &[Capability] = &[
         domain: "settings",
         category: CapabilityCategory::Settings,
         description: "Control privacy, analytics, and related data handling preferences.",
-        how_to: "Settings > Privacy",
+        how_to: "Settings > Privacy (direct route)",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -498,6 +579,33 @@ const CAPABILITIES: &[Capability] = &[
         description: "Open developer-focused panels for diagnostics, skills, AI config, and memory tools.",
         how_to: "Settings > Developer Options",
         status: CapabilityStatus::Beta,
+    },
+    Capability {
+        id: "settings.manage_service",
+        name: "Manage Desktop Service",
+        domain: "settings",
+        category: CapabilityCategory::Settings,
+        description: "Install, start, stop, restart, uninstall, or refresh the required desktop service.",
+        how_to: "App startup > OpenHuman Service Required",
+        status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "settings.clear_app_data",
+        name: "Log Out and Clear App Data",
+        domain: "settings",
+        category: CapabilityCategory::Settings,
+        description: "Sign out and permanently clear local app data, including skills data.",
+        how_to: "Settings > Log Out & Clear App Data",
+        status: CapabilityStatus::Stable,
+    },
+    Capability {
+        id: "settings.delete_all_data",
+        name: "Delete All Data",
+        domain: "settings",
+        category: CapabilityCategory::Settings,
+        description: "Delete all local data and reset the app from the destructive settings section.",
+        how_to: "Settings > Delete All Data",
+        status: CapabilityStatus::ComingSoon,
     },
     Capability {
         id: "automation.view_cron_jobs",
@@ -640,5 +748,27 @@ mod tests {
             .iter()
             .all(|capability| { capability.category == CapabilityCategory::Automation }));
         assert!(!capabilities.is_empty());
+    }
+
+    #[test]
+    fn catalog_includes_additional_user_facing_surfaces() {
+        let ids: BTreeSet<&str> = all_capabilities()
+            .iter()
+            .map(|capability| capability.id)
+            .collect();
+
+        for expected in [
+            "skills.open_connections_hub",
+            "skills.connect_google",
+            "auth.backup_recovery_phrase",
+            "auth.configure_tool_access",
+            "settings.manage_service",
+            "settings.clear_app_data",
+        ] {
+            assert!(
+                ids.contains(expected),
+                "missing catalog capability `{expected}`"
+            );
+        }
     }
 }
