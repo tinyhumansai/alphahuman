@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import ProgressIndicator from '../../components/ProgressIndicator';
@@ -38,6 +38,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const { user } = useUser();
   const [currentStep, setCurrentStep] = useState(0);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const retryInFlightRef = useRef(false);
   const [draft, setDraft] = useState<OnboardingDraft>({
     localModelConsentGiven: false,
     localModelDownloadStarted: false,
@@ -63,6 +64,8 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
 
   // Re-fires both download commands when the user clicks "Retry" in the error banner.
   const retryDownload = useCallback(() => {
+    if (retryInFlightRef.current) return;
+    retryInFlightRef.current = true;
     console.debug('[Onboarding] User retrying Local AI download');
     setDownloadError(null);
     let errorReported = false;
@@ -73,10 +76,12 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
         setDownloadError('Local AI setup encountered an issue');
       }
     };
-    void openhumanLocalAiDownload(false).catch((err: unknown) => reportError('ollama', err));
-    void openhumanLocalAiDownloadAllAssets(false).catch((err: unknown) =>
-      reportError('assets', err)
-    );
+    void Promise.allSettled([
+      openhumanLocalAiDownload(false).catch((err: unknown) => reportError('ollama', err)),
+      openhumanLocalAiDownloadAllAssets(false).catch((err: unknown) => reportError('assets', err)),
+    ]).finally(() => {
+      retryInFlightRef.current = false;
+    });
   }, []);
 
   const handleNext = () => {
