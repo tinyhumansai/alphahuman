@@ -260,7 +260,16 @@ fn config_with_recommended_tier_if_unselected(config: &Config, device: &DevicePr
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if selected_tier.is_some() {
+    let current_tier =
+        crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
+    if selected_tier.is_some()
+        || matches!(
+            current_tier,
+            crate::openhuman::local_ai::presets::ModelTier::Low
+                | crate::openhuman::local_ai::presets::ModelTier::Medium
+                | crate::openhuman::local_ai::presets::ModelTier::High
+        )
+    {
         return config.clone();
     }
 

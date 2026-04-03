@@ -87,7 +87,16 @@ const LocalAIDownloadSnackbar = () => {
 
   if (!tauriAvailable || !isDownloading || dismissed) return null;
 
-  const progress = progressFromDownloads(downloads) ?? progressFromStatus(status);
+  // Use currentState as the source of truth for the fallback sentinel so the
+  // label (derived from currentState) and the progress bar stay in sync.
+  // We still forward download_progress from status so a real numeric value
+  // isn't lost when the downloads object has no progress field.
+  // When status is absent, progressFromStatus(null) returns 0, which is the
+  // correct baseline while data hasn't arrived yet.
+  const statusForProgress: LocalAiStatus | null = status
+    ? { ...status, state: currentState }
+    : null;
+  const progress = progressFromDownloads(downloads) ?? progressFromStatus(statusForProgress);
   const percent = progress != null ? Math.round(progress * 100) : null;
   const speed = downloads?.speed_bps ?? status?.download_speed_bps;
   const eta = downloads?.eta_seconds ?? status?.eta_seconds;

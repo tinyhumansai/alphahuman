@@ -330,8 +330,7 @@ impl LocalAiService {
                 .await;
             }
 
-            let started_at = std::time::Instant::now();
-            let response = self
+            let response = match self
                 .http
                 .post(format!("{OLLAMA_BASE_URL}/api/pull"))
                 .json(&OllamaPullRequest {
@@ -343,7 +342,17 @@ impl LocalAiService {
                 .timeout(std::time::Duration::from_secs(30 * 60))
                 .send()
                 .await
-                .map_err(|e| format!("ollama pull request failed: {e}"))?;
+            {
+                Ok(response) => response,
+                Err(e) => {
+                    let err = format!("ollama pull request failed: {e}");
+                    last_error = Some(err.clone());
+                    if attempt < MAX_PULL_RETRIES {
+                        continue;
+                    }
+                    return Err(format!("{err} after {MAX_PULL_RETRIES} attempts"));
+                }
+            };
             if !response.status().is_success() {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();

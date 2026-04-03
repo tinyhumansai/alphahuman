@@ -49,6 +49,8 @@ const Home = () => {
         force ? '[Home re-bootstrap]' : '[Home manual bootstrap]'
       );
       await refreshLocalAiStatus();
+    } catch (error) {
+      console.warn('[Home] manual Local AI bootstrap failed:', error);
     } finally {
       setDownloadBusy(false);
     }
