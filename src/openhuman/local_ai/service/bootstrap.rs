@@ -335,8 +335,13 @@ mod tests {
 
         let effective = config_with_recommended_tier_if_unselected(&config, &device);
 
-        assert_eq!(effective.local_ai.selected_tier.as_deref(), Some("low"));
-        assert_eq!(effective.local_ai.chat_model_id, "gemma3:1b-it-q4_0");
+        // If config already matches a built-in preset, preserve user defaults
+        // and keep selected_tier unset.
+        assert!(effective.local_ai.selected_tier.is_none());
+        assert_eq!(
+            effective.local_ai.chat_model_id,
+            config.local_ai.chat_model_id
+        );
     }
 
     #[test]

@@ -657,8 +657,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_install_creates_files() {
-        use axum::{routing::get, Router};
-
         let manifest = serde_json::json!({
             "id": "test-skill",
             "name": "Test Skill",
@@ -666,28 +664,15 @@ mod tests {
             "runtime": "quickjs",
             "entry": "index.js"
         });
-        // let js_content = b"function init() { console.log('hello'); }";
-
-        let app = Router::new()
-            .route(
-                "/skills/test-skill/manifest.json",
-                get({
-                    let m = manifest.clone();
-                    move || async move { serde_json::to_string(&m).unwrap() }
-                }),
-            )
-            .route(
-                "/skills/test-skill/index.js",
-                get(|| async { "function init() { console.log('hello'); }" }),
-            );
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-
-        let base = format!("http://127.0.0.1:{port}");
+        let src = tempfile::TempDir::new().unwrap();
+        let manifest_source_path = src.path().join("manifest.json");
+        let js_source_path = src.path().join("index.js");
+        std::fs::write(
+            &manifest_source_path,
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(&js_source_path, "function init() { console.log('hello'); }").unwrap();
 
         // Build a registry pointing at our mock server
         let registry = RemoteSkillRegistry {
@@ -705,8 +690,8 @@ mod tests {
                     platforms: None,
                     setup: None,
                     ignore_in_production: false,
-                    download_url: format!("{base}/skills/test-skill/index.js"),
-                    manifest_url: format!("{base}/skills/test-skill/manifest.json"),
+                    download_url: js_source_path.to_string_lossy().into_owned(),
+                    manifest_url: manifest_source_path.to_string_lossy().into_owned(),
                     checksum_sha256: None,
                     author: None,
                     repository: None,
@@ -737,30 +722,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_install_checksum_verification() {
-        use axum::{routing::get, Router};
-
         let js_content = "function init() { return 42; }";
         let mut hasher = Sha256::new();
         hasher.update(js_content.as_bytes());
         let correct_checksum = format!("{:x}", hasher.finalize());
-
-        let app = Router::new()
-            .route(
-                "/skills/cs-skill/manifest.json",
-                get(|| async { r#"{"id":"cs-skill","name":"CS Skill","version":"1.0.0"}"# }),
-            )
-            .route(
-                "/skills/cs-skill/index.js",
-                get(move || async move { js_content }),
-            );
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-
-        let base = format!("http://127.0.0.1:{port}");
+        let src = tempfile::TempDir::new().unwrap();
+        let manifest_source_path = src.path().join("manifest.json");
+        let js_source_path = src.path().join("index.js");
+        std::fs::write(
+            &manifest_source_path,
+            r#"{"id":"cs-skill","name":"CS Skill","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(&js_source_path, js_content).unwrap();
 
         // Test with correct checksum
         let registry = RemoteSkillRegistry {
@@ -778,8 +752,8 @@ mod tests {
                     platforms: None,
                     setup: None,
                     ignore_in_production: false,
-                    download_url: format!("{base}/skills/cs-skill/index.js"),
-                    manifest_url: format!("{base}/skills/cs-skill/manifest.json"),
+                    download_url: js_source_path.to_string_lossy().into_owned(),
+                    manifest_url: manifest_source_path.to_string_lossy().into_owned(),
                     checksum_sha256: Some(correct_checksum.clone()),
                     author: None,
                     repository: None,

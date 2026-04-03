@@ -371,6 +371,7 @@ impl LocalAiService {
             let mut stream = response.bytes_stream();
             let mut pending = String::new();
             let mut stream_error: Option<String> = None;
+            let started_at = std::time::Instant::now();
             while let Some(item) = stream.next().await {
                 let chunk = match item {
                     Ok(value) => value,
