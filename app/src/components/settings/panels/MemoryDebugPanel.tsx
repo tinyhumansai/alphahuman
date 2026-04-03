@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  type MemoryDebugDocument,
   memoryClearNamespace,
+  type MemoryDebugDocument,
   memoryDeleteDocument,
   memoryListDocuments,
   memoryListNamespaces,

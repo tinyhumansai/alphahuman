@@ -398,7 +398,12 @@ mod tests {
         embeddings::NoopEmbedding, NamespaceDocumentInput, UnifiedMemory,
     };
 
-    fn make_doc_input(namespace: &str, key: &str, title: &str, content: &str) -> NamespaceDocumentInput {
+    fn make_doc_input(
+        namespace: &str,
+        key: &str,
+        title: &str,
+        content: &str,
+    ) -> NamespaceDocumentInput {
         NamespaceDocumentInput {
             namespace: namespace.to_string(),
             key: key.to_string(),
@@ -510,10 +515,7 @@ mod tests {
 
         // --- Verify pre-conditions ---
 
-        let cleanup_docs = memory
-            .list_documents(Some("test:cleanup"))
-            .await
-            .unwrap();
+        let cleanup_docs = memory.list_documents(Some("test:cleanup")).await.unwrap();
         assert_eq!(
             cleanup_docs["count"].as_u64().unwrap(),
             3,
@@ -537,10 +539,7 @@ mod tests {
             "test:cleanup should have 2 graph relations before clear"
         );
 
-        let other_docs = memory
-            .list_documents(Some("test:other"))
-            .await
-            .unwrap();
+        let other_docs = memory.list_documents(Some("test:other")).await.unwrap();
         assert_eq!(
             other_docs["count"].as_u64().unwrap(),
             1,
@@ -553,10 +552,7 @@ mod tests {
 
         // --- Assert: "test:cleanup" is empty ---
 
-        let cleanup_docs_after = memory
-            .list_documents(Some("test:cleanup"))
-            .await
-            .unwrap();
+        let cleanup_docs_after = memory.list_documents(Some("test:cleanup")).await.unwrap();
         assert_eq!(
             cleanup_docs_after["count"].as_u64().unwrap(),
             0,
@@ -580,10 +576,7 @@ mod tests {
 
         // --- Assert: "test:other" is untouched (critical) ---
 
-        let other_docs_after = memory
-            .list_documents(Some("test:other"))
-            .await
-            .unwrap();
+        let other_docs_after = memory.list_documents(Some("test:other")).await.unwrap();
         assert_eq!(
             other_docs_after["count"].as_u64().unwrap(),
             1,
