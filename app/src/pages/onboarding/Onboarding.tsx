@@ -6,11 +6,8 @@ import { useUser } from '../../hooks/useUser';
 import { userApi } from '../../services/api/userApi';
 import { setOnboardedForUser, setOnboardingTasksForUser } from '../../store/authSlice';
 import { useAppDispatch } from '../../store/hooks';
-import {
-  openhumanLocalAiDownload,
-  openhumanLocalAiDownloadAllAssets,
-  setOnboardingCompleted,
-} from '../../utils/tauriCommands';
+import { bootstrapLocalAiWithRecommendedPreset } from '../../utils/localAiBootstrap';
+import { setOnboardingCompleted } from '../../utils/tauriCommands';
 import LocalAIStep from './steps/LocalAIStep';
 import ScreenPermissionsStep from './steps/ScreenPermissionsStep';
 import SkillsStep from './steps/SkillsStep';
@@ -67,20 +64,14 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     retryInFlightRef.current = true;
     console.debug('[Onboarding] User retrying Local AI download');
     setDownloadError(null);
-    let errorReported = false;
-    const reportError = (source: string, err: unknown) => {
-      console.warn(`[Onboarding] Retry download failed (${source}):`, err);
-      if (!errorReported) {
-        errorReported = true;
+    void bootstrapLocalAiWithRecommendedPreset(false, '[Onboarding retry]')
+      .catch((err: unknown) => {
+        console.warn('[Onboarding] Retry download failed:', err);
         setDownloadError('Local AI setup encountered an issue');
-      }
-    };
-    void Promise.allSettled([
-      openhumanLocalAiDownload(false).catch((err: unknown) => reportError('ollama', err)),
-      openhumanLocalAiDownloadAllAssets(false).catch((err: unknown) => reportError('assets', err)),
-    ]).finally(() => {
-      retryInFlightRef.current = false;
-    });
+      })
+      .finally(() => {
+        retryInFlightRef.current = false;
+      });
   }, []);
 
   const handleNext = () => {

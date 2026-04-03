@@ -203,9 +203,14 @@ export async function restartCoreProcess(): Promise<void> {
 // --- Memory Commands ---
 
 /**
- * Initialise the TinyHumans memory client in Rust with the user's JWT token
- * (sourced from `authSlice.token` in Redux). Call this after login and after
- * Redux Persist rehydration.
+ * Initialise the local-only (SQLite) memory subsystem in the Rust core.
+ *
+ * The `token` parameter is accepted for backward compatibility with callers
+ * that pass the user's JWT, but the core **ignores** it — all memory storage
+ * and retrieval is local.  Remote/cloud memory sync is a future consideration.
+ *
+ * Call this after login and after Redux Persist rehydration so the core
+ * process has a ready memory client for the current workspace.
  */
 export async function syncMemoryClientToken(token: string): Promise<void> {
   console.debug(
@@ -213,12 +218,13 @@ export async function syncMemoryClientToken(token: string): Promise<void> {
     !!token,
     isTauri()
   );
-  if (!isTauri() || !token) {
-    console.debug('[memory] syncMemoryClientToken: exit — skipped (not Tauri or empty token)');
+  if (!isTauri()) {
+    console.debug('[memory] syncMemoryClientToken: exit — skipped (not Tauri)');
     return;
   }
   try {
-    console.debug('[memory] syncMemoryClientToken: payload → memory.init');
+    console.debug('[memory] syncMemoryClientToken: payload → memory.init (local-only)');
+    // jwt_token is passed for backward compatibility but ignored by the core.
     await callCoreRpc<boolean>({ method: 'openhuman.memory_init', params: { jwt_token: token } });
     console.info('[memory] syncMemoryClientToken: exit — ok');
   } catch (err) {
@@ -276,31 +282,98 @@ export async function memoryDeleteDocument(
   });
 }
 
+export async function memoryClearNamespace(
+  namespace: string
+): Promise<{ cleared: boolean; namespace: string }> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  const response = await callCoreRpc<{ result: { cleared: boolean; namespace: string } }>({
+    method: 'openhuman.memory_clear_namespace',
+    params: { namespace },
+  });
+  return response.result;
+}
+
+/** A single entity returned in the structured retrieval context. */
+export interface MemoryRetrievalEntity {
+  id?: string;
+  name: string;
+  entity_type?: string;
+  score?: number;
+  metadata?: unknown;
+}
+
+/** Structured retrieval context returned alongside `llm_context_message`. */
+export interface MemoryRetrievalContext {
+  entities: MemoryRetrievalEntity[];
+  relations: { subject: string; predicate: string; object: string; score?: number }[];
+  chunks: { content: string; score: number; chunk_id?: string; document_id?: string }[];
+}
+
+/** Result of a memory query or recall, combining text and structured data. */
+export interface MemoryQueryResult {
+  text: string;
+  entities: MemoryRetrievalEntity[];
+}
+
+/**
+ * Raw envelope shape returned by `openhuman.memory_query_namespace` and
+ * `openhuman.memory_recall_context` via the registry-based RPC handler.
+ */
+interface MemoryQueryEnvelope {
+  data?: { llm_context_message?: string | null; context?: MemoryRetrievalContext | null };
+  llm_context_message?: string | null;
+  context?: MemoryRetrievalContext | null;
+}
+
+/** Extract text + entities from the envelope returned by query/recall RPCs. */
+function unwrapMemoryQueryResult(resp: unknown): MemoryQueryResult {
+  // If the response is already a plain string, return it directly.
+  if (typeof resp === 'string') {
+    return { text: resp, entities: [] };
+  }
+
+  const envelope = resp as MemoryQueryEnvelope | null;
+  if (!envelope || typeof envelope !== 'object') {
+    return { text: '', entities: [] };
+  }
+
+  // Envelope may be `{ data: { llm_context_message, context } }` or flat.
+  const inner = envelope.data ?? envelope;
+  const text = inner.llm_context_message ?? '';
+  const entities = inner.context?.entities ?? [];
+
+  return { text, entities };
+}
+
 export async function memoryQueryNamespace(
   namespace: string,
   query: string,
   maxChunks?: number
-): Promise<string> {
+): Promise<MemoryQueryResult> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<string>({
+  const resp = await callCoreRpc<unknown>({
     method: 'openhuman.memory_query_namespace',
     params: { namespace, query, max_chunks: maxChunks },
   });
+  return unwrapMemoryQueryResult(resp);
 }
 
 export async function memoryRecallNamespace(
   namespace: string,
   maxChunks?: number
-): Promise<string | null> {
+): Promise<MemoryQueryResult> {
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<string | null>({
+  const resp = await callCoreRpc<unknown>({
     method: 'openhuman.memory_recall_context',
     params: { namespace, max_chunks: maxChunks },
   });
+  return unwrapMemoryQueryResult(resp);
 }
 
 export interface GraphRelation {
@@ -1472,6 +1545,7 @@ export interface PresetsResponse {
   presets: ModelPresetResult[];
   recommended_tier: string;
   current_tier: string;
+  selected_tier?: string | null;
   device: DeviceProfileResult;
 }
 

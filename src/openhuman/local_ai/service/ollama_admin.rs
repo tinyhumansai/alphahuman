@@ -303,85 +303,155 @@ impl LocalAiService {
             status.eta_seconds = None;
         }
 
-        let started_at = std::time::Instant::now();
-        let response = self
-            .http
-            .post(format!("{OLLAMA_BASE_URL}/api/pull"))
-            .json(&OllamaPullRequest {
-                name: model_id.to_string(),
-                stream: true,
-            })
-            .send()
-            .await
-            .map_err(|e| format!("ollama pull request failed: {e}"))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            let detail = body.trim();
-            return Err(format!(
-                "ollama pull failed with status {}{}",
-                status,
-                if detail.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {detail}")
-                }
-            ));
-        }
+        const MAX_PULL_RETRIES: usize = 3;
+        const PULL_RETRY_BACKOFF_MS: u64 = 1_500;
+        let mut last_error: Option<String> = None;
 
-        let mut stream = response.bytes_stream();
-        let mut pending = String::new();
-        while let Some(item) = stream.next().await {
-            let chunk = item.map_err(|e| format!("ollama pull stream error: {e}"))?;
-            pending.push_str(&String::from_utf8_lossy(&chunk));
-            while let Some(pos) = pending.find('\n') {
-                let line = pending[..pos].trim().to_string();
-                pending = pending[pos + 1..].to_string();
-                if line.is_empty() {
+        for attempt in 1..=MAX_PULL_RETRIES {
+            if attempt > 1 {
+                let retry_msg = format!(
+                    "Ollama pull stream interrupted. Retrying {}/{}...",
+                    attempt, MAX_PULL_RETRIES
+                );
+                {
+                    let mut status = self.status.lock();
+                    status.state = "downloading".to_string();
+                    status.warning = Some(retry_msg.clone());
+                }
+                log::warn!(
+                    "[local_ai] pull retry {}/{} for model `{}` after interruption",
+                    attempt,
+                    MAX_PULL_RETRIES,
+                    model_id
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    PULL_RETRY_BACKOFF_MS * attempt as u64,
+                ))
+                .await;
+            }
+
+            let response = match self
+                .http
+                .post(format!("{OLLAMA_BASE_URL}/api/pull"))
+                .json(&OllamaPullRequest {
+                    name: model_id.to_string(),
+                    stream: true,
+                })
+                // Model pulls are long-running streaming responses; the default 30s
+                // client timeout can interrupt healthy downloads mid-stream.
+                .timeout(std::time::Duration::from_secs(30 * 60))
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => {
+                    let err = format!("ollama pull request failed: {e}");
+                    last_error = Some(err.clone());
+                    if attempt < MAX_PULL_RETRIES {
+                        continue;
+                    }
+                    return Err(format!("{err} after {MAX_PULL_RETRIES} attempts"));
+                }
+            };
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let detail = body.trim();
+                return Err(format!(
+                    "ollama pull failed with status {}{}",
+                    status,
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {detail}")
+                    }
+                ));
+            }
+
+            let mut stream = response.bytes_stream();
+            let mut pending = String::new();
+            let mut stream_error: Option<String> = None;
+            let started_at = std::time::Instant::now();
+            while let Some(item) = stream.next().await {
+                let chunk = match item {
+                    Ok(value) => value,
+                    Err(e) => {
+                        stream_error = Some(format!("ollama pull stream error: {e}"));
+                        break;
+                    }
+                };
+                pending.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(pos) = pending.find('\n') {
+                    let line = pending[..pos].trim().to_string();
+                    pending = pending[pos + 1..].to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let event: OllamaPullEvent = match serde_json::from_str(&line) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    if let Some(err) = event.error {
+                        return Err(format!("ollama pull error: {err}"));
+                    }
+
+                    let completed = event.completed.unwrap_or(0);
+                    let total = event.total;
+                    let elapsed = started_at.elapsed().as_secs_f64().max(0.001);
+                    let speed_bps = (completed as f64 / elapsed).round().max(0.0) as u64;
+                    let eta_seconds = total.and_then(|t| {
+                        if completed >= t || speed_bps == 0 {
+                            None
+                        } else {
+                            Some((t.saturating_sub(completed)) / speed_bps.max(1))
+                        }
+                    });
+
+                    let mut status = self.status.lock();
+                    if let Some(status_text) = event.status.as_deref() {
+                        status.warning = Some(format!("Ollama pull: {status_text}"));
+                        if status_text.eq_ignore_ascii_case("success") {
+                            status.download_progress = Some(1.0);
+                        }
+                    }
+                    status.downloaded_bytes = Some(completed);
+                    status.total_bytes = total;
+                    status.download_speed_bps = Some(speed_bps);
+                    status.eta_seconds = eta_seconds;
+                    status.download_progress = total
+                        .map(|t| (completed as f32 / t as f32).clamp(0.0, 1.0))
+                        .or(Some(0.0));
+                }
+            }
+
+            if let Some(err) = stream_error {
+                last_error = Some(err.clone());
+                if attempt < MAX_PULL_RETRIES {
                     continue;
                 }
-                let event: OllamaPullEvent = match serde_json::from_str(&line) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                if let Some(err) = event.error {
-                    return Err(format!("ollama pull error: {err}"));
-                }
+                return Err(format!("{err} after {MAX_PULL_RETRIES} attempts"));
+            }
 
-                let completed = event.completed.unwrap_or(0);
-                let total = event.total;
-                let elapsed = started_at.elapsed().as_secs_f64().max(0.001);
-                let speed_bps = (completed as f64 / elapsed).round().max(0.0) as u64;
-                let eta_seconds = total.and_then(|t| {
-                    if completed >= t || speed_bps == 0 {
-                        None
-                    } else {
-                        Some((t.saturating_sub(completed)) / speed_bps.max(1))
-                    }
-                });
+            if self.has_model(model_id).await? {
+                break;
+            }
 
-                let mut status = self.status.lock();
-                if let Some(status_text) = event.status.as_deref() {
-                    status.warning = Some(format!("Ollama pull: {status_text}"));
-                    if status_text.eq_ignore_ascii_case("success") {
-                        status.download_progress = Some(1.0);
-                    }
-                }
-                status.downloaded_bytes = Some(completed);
-                status.total_bytes = total;
-                status.download_speed_bps = Some(speed_bps);
-                status.eta_seconds = eta_seconds;
-                status.download_progress = total
-                    .map(|t| (completed as f32 / t as f32).clamp(0.0, 1.0))
-                    .or(Some(0.0));
+            last_error = Some(format!(
+                "ollama pull finished but model `{}` was not found",
+                model_id
+            ));
+            if attempt < MAX_PULL_RETRIES {
+                continue;
             }
         }
 
         if !self.has_model(model_id).await? {
-            return Err(format!(
-                "ollama pull finished but model `{}` was not found",
-                model_id
-            ));
+            return Err(last_error.unwrap_or_else(|| {
+                format!(
+                    "ollama pull finished but model `{}` was not found",
+                    model_id
+                )
+            }));
         }
 
         match label {

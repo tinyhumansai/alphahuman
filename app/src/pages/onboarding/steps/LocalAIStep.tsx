@@ -1,9 +1,6 @@
 import { useCallback, useRef } from 'react';
 
-import {
-  openhumanLocalAiDownload,
-  openhumanLocalAiDownloadAllAssets,
-} from '../../../utils/tauriCommands';
+import { bootstrapLocalAiWithRecommendedPreset } from '../../../utils/localAiBootstrap';
 import OnboardingNextButton from '../components/OnboardingNextButton';
 
 /* ---------- component ---------- */
@@ -16,28 +13,17 @@ interface LocalAIStepProps {
 
 const LocalAIStep = ({ onNext, onBack: _onBack, onDownloadError }: LocalAIStepProps) => {
   const downloadStartedRef = useRef(false);
-  // Tracks whether onDownloadError has already been called for this download attempt,
-  // so that two concurrent failures don't fire the callback twice.
-  const errorReportedRef = useRef(false);
 
   const handleConsent = useCallback(() => {
     if (downloadStartedRef.current) return;
     downloadStartedRef.current = true;
-    errorReportedRef.current = false;
+    console.debug('[LocalAIStep] starting background Local AI bootstrap after consent');
 
-    const reportError = (source: string, err: unknown) => {
-      console.warn(`[LocalAIStep] Download failed (${source}):`, err);
-      if (!errorReportedRef.current) {
-        errorReportedRef.current = true;
-        onDownloadError?.('Local AI setup encountered an issue');
-      }
-    };
-
-    // Fire-and-forget: start downloads in the background — the global snackbar tracks progress
-    void openhumanLocalAiDownload(false).catch((err: unknown) => reportError('ollama', err));
-    void openhumanLocalAiDownloadAllAssets(false).catch((err: unknown) =>
-      reportError('assets', err)
-    );
+    // Fire-and-forget: start bootstrap in the background — the global snackbar tracks progress.
+    void bootstrapLocalAiWithRecommendedPreset(false, '[LocalAIStep]').catch((err: unknown) => {
+      console.warn('[LocalAIStep] Local AI bootstrap failed:', err);
+      onDownloadError?.('Local AI setup encountered an issue');
+    });
 
     // Advance to next step immediately
     onNext({ consentGiven: true, downloadStarted: true });

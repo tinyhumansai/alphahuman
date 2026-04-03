@@ -159,12 +159,12 @@ export function useConsciousItems(): UseConsciousItemsResult {
     setLoading(true);
     setError(null);
     try {
-      const context = await memoryQueryNamespace(
+      const queryResult = await memoryQueryNamespace(
         'conscious',
         'actionable items priority source title description',
         20
       );
-      const extracted = extractActionablesFromContext(context);
+      const extracted = extractActionablesFromContext(queryResult.text);
       setItems(extracted.map(mapToActionableItem));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load conscious items';

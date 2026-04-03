@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  memoryClearNamespace,
   type MemoryDebugDocument,
   memoryDeleteDocument,
   memoryListDocuments,
   memoryListNamespaces,
   memoryQueryNamespace,
+  type MemoryQueryResult,
   memoryRecallNamespace,
 } from '../../../utils/tauriCommands';
+import { MemoryTextWithEntities } from '../../intelligence/MemoryTextWithEntities';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import { PrimaryButton } from './components/ActionPanel';
@@ -29,12 +32,17 @@ const MemoryDebugPanel = () => {
   const [namespaceInput, setNamespaceInput] = useState('');
   const [queryInput, setQueryInput] = useState('');
   const [maxChunksInput, setMaxChunksInput] = useState('10');
-  const [queryResult, setQueryResult] = useState<string | null>(null);
-  const [recallResult, setRecallResult] = useState<string | null>(null);
+  const [queryResult, setQueryResult] = useState<MemoryQueryResult | null>(null);
+  const [recallResult, setRecallResult] = useState<MemoryQueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [recallError, setRecallError] = useState<string | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [recallLoading, setRecallLoading] = useState(false);
+
+  const [clearNamespaceInput, setClearNamespaceInput] = useState('');
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearSuccess, setClearSuccess] = useState<string | null>(null);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   const maxChunks = useMemo(() => {
     const parsed = Number(maxChunksInput);
@@ -128,13 +136,40 @@ const MemoryDebugPanel = () => {
     setRecallResult(null);
     try {
       const result = await memoryRecallNamespace(namespaceInput.trim(), maxChunks);
-      setRecallResult(result ?? '');
+      setRecallResult(result);
     } catch (error) {
       setRecallError(error instanceof Error ? error.message : String(error));
     } finally {
       setRecallLoading(false);
     }
   }, [maxChunks, namespaceInput]);
+
+  const handleClearNamespace = useCallback(async () => {
+    const ns = clearNamespaceInput.trim();
+    if (!ns) return;
+
+    const confirmed = window.confirm(
+      `This will permanently delete ALL documents in namespace "${ns}". This action cannot be undone.\n\nContinue?`
+    );
+    if (!confirmed) return;
+
+    setClearLoading(true);
+    setClearError(null);
+    setClearSuccess(null);
+    try {
+      const result = await memoryClearNamespace(ns);
+      if (result.cleared) {
+        setClearSuccess(`Namespace "${result.namespace}" cleared successfully.`);
+      } else {
+        setClearSuccess(`Clear request completed for "${result.namespace}" (nothing to clear).`);
+      }
+      await refreshAll();
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setClearLoading(false);
+    }
+  }, [clearNamespaceInput, refreshAll]);
 
   return (
     <div className="overflow-hidden h-full flex flex-col">
@@ -158,17 +193,17 @@ const MemoryDebugPanel = () => {
             <PrimaryButton onClick={() => void loadDocuments()} loading={documentsLoading}>
               Refresh Documents
             </PrimaryButton>
-            <label className="block text-xs text-stone-600">
+            <label className="block text-xs text-stone-300">
               Namespace Filter (optional)
               <input
                 value={documentsNamespaceFilter}
                 onChange={e => setDocumentsNamespaceFilter(e.target.value)}
-                className="mt-1 w-full rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900"
+                className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white"
                 placeholder="e.g. conversations"
               />
             </label>
             {documentsError && (
-              <div className="text-xs text-coral-700 border border-coral-300 bg-coral-50 rounded p-2">
+              <div className="text-xs text-coral-300 border border-coral-500/30 bg-coral-500/10 rounded p-2">
                 {documentsError}
               </div>
             )}
@@ -181,9 +216,9 @@ const MemoryDebugPanel = () => {
                 {documents.map(doc => (
                   <div
                     key={`${doc.namespace}:${doc.documentId}`}
-                    className="rounded border border-stone-200 bg-stone-50 p-2">
-                    <div className="text-xs text-stone-900 break-all">ID: {doc.documentId}</div>
-                    <div className="text-xs text-stone-600 break-all">
+                    className="rounded border border-stone-700 bg-black/20 p-2">
+                    <div className="text-xs text-white break-all">ID: {doc.documentId}</div>
+                    <div className="text-xs text-stone-300 break-all">
                       Namespace: {doc.namespace}
                     </div>
                     {doc.title ? (
@@ -204,8 +239,8 @@ const MemoryDebugPanel = () => {
               </div>
             )}
             <details className="text-xs">
-              <summary className="cursor-pointer text-stone-600">Raw documents response</summary>
-              <pre className="mt-2 rounded border border-stone-200 bg-stone-50 p-2 overflow-auto text-[11px] leading-5">
+              <summary className="cursor-pointer text-stone-300">Raw documents response</summary>
+              <pre className="mt-2 rounded border border-stone-700 bg-black/20 p-2 overflow-auto text-[11px] leading-5">
                 {JSON.stringify(documentsRaw, null, 2)}
               </pre>
             </details>
@@ -230,13 +265,78 @@ const MemoryDebugPanel = () => {
               Refresh Namespaces
             </PrimaryButton>
             {namespacesError && (
-              <div className="text-xs text-coral-700 border border-coral-300 bg-coral-50 rounded p-2">
+              <div className="text-xs text-coral-300 border border-coral-500/30 bg-coral-500/10 rounded p-2">
                 {namespacesError}
               </div>
             )}
-            <div className="rounded border border-stone-200 bg-stone-50 p-2 text-xs">
+            <div className="rounded border border-stone-700 bg-black/20 p-2 text-xs">
               {namespaces.length > 0 ? namespaces.join('\n') : 'No namespaces found.'}
             </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Clear Namespace"
+          priority="tools"
+          icon={
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          }>
+          <div className="space-y-3">
+            <p className="text-xs text-stone-400">
+              Delete all documents within a namespace. This is a destructive operation and cannot be
+              undone.
+            </p>
+
+            <label className="block text-xs text-stone-300">
+              Namespace
+              {namespaces.length > 0 ? (
+                <select
+                  value={clearNamespaceInput}
+                  onChange={e => setClearNamespaceInput(e.target.value)}
+                  className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white">
+                  <option value="">-- select a namespace --</option>
+                  {namespaces.map(ns => (
+                    <option key={ns} value={ns}>
+                      {ns}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={clearNamespaceInput}
+                  onChange={e => setClearNamespaceInput(e.target.value)}
+                  className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white"
+                  placeholder="e.g. skill:gmail:user@example.com"
+                />
+              )}
+            </label>
+
+            <PrimaryButton
+              variant="outline"
+              onClick={() => void handleClearNamespace()}
+              loading={clearLoading}
+              disabled={!clearNamespaceInput.trim()}
+              className="border-coral-500/50 text-coral-300 hover:bg-coral-500/10">
+              Clear Namespace
+            </PrimaryButton>
+
+            {clearSuccess && (
+              <div className="text-xs text-sage-300 border border-sage-500/30 bg-sage-500/10 rounded p-2">
+                {clearSuccess}
+              </div>
+            )}
+            {clearError && (
+              <div className="text-xs text-coral-300 border border-coral-500/30 bg-coral-500/10 rounded p-2">
+                {clearError}
+              </div>
+            )}
           </div>
         </SectionCard>
 
@@ -254,33 +354,33 @@ const MemoryDebugPanel = () => {
             </svg>
           }>
           <div className="space-y-3">
-            <label className="block text-xs text-stone-600">
+            <label className="block text-xs text-stone-300">
               Namespace
               <input
                 value={namespaceInput}
                 onChange={e => setNamespaceInput(e.target.value)}
-                className="mt-1 w-full rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900"
+                className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white"
                 placeholder="e.g. conversations"
               />
             </label>
 
-            <label className="block text-xs text-stone-600">
+            <label className="block text-xs text-stone-300">
               Query
               <textarea
                 value={queryInput}
                 onChange={e => setQueryInput(e.target.value)}
-                className="mt-1 w-full rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900"
+                className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white"
                 rows={3}
                 placeholder="What do I remember about..."
               />
             </label>
 
-            <label className="block text-xs text-stone-600">
+            <label className="block text-xs text-stone-300">
               Max Chunks
               <input
                 value={maxChunksInput}
                 onChange={e => setMaxChunksInput(e.target.value)}
-                className="mt-1 w-full rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900"
+                className="mt-1 w-full rounded border border-stone-600 bg-black/30 px-3 py-2 text-sm text-white"
               />
             </label>
 
@@ -301,25 +401,29 @@ const MemoryDebugPanel = () => {
             </div>
 
             {queryError && (
-              <div className="text-xs text-coral-700 border border-coral-300 bg-coral-50 rounded p-2">
+              <div className="text-xs text-coral-300 border border-coral-500/30 bg-coral-500/10 rounded p-2">
                 Query error: {queryError}
               </div>
             )}
             {recallError && (
-              <div className="text-xs text-coral-700 border border-coral-300 bg-coral-50 rounded p-2">
+              <div className="text-xs text-coral-300 border border-coral-500/30 bg-coral-500/10 rounded p-2">
                 Recall error: {recallError}
               </div>
             )}
 
             <div className="space-y-2">
               <div className="text-xs text-stone-400">Query response</div>
-              <pre className="rounded border border-stone-200 bg-stone-50 p-2 overflow-auto text-[11px] leading-5 min-h-16">
-                {queryResult ?? ''}
-              </pre>
+              <MemoryTextWithEntities
+                text={queryResult?.text ?? ''}
+                entities={queryResult?.entities}
+                className="rounded border border-stone-700 bg-black/20 p-2 overflow-auto text-[11px] leading-5 min-h-16 whitespace-pre-wrap"
+              />
               <div className="text-xs text-stone-400">Recall response</div>
-              <pre className="rounded border border-stone-200 bg-stone-50 p-2 overflow-auto text-[11px] leading-5 min-h-16">
-                {recallResult ?? ''}
-              </pre>
+              <MemoryTextWithEntities
+                text={recallResult?.text ?? ''}
+                entities={recallResult?.entities}
+                className="rounded border border-stone-700 bg-black/20 p-2 overflow-auto text-[11px] leading-5 min-h-16 whitespace-pre-wrap"
+              />
             </div>
           </div>
         </SectionCard>
