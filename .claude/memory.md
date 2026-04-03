@@ -50,6 +50,9 @@ Quick reference for anyone starting with Claude on this project. Updated by the 
 - **Recovery Phrase moved to Settings** — MnemonicStep was removed from onboarding (was step 5). The same BIP39 generate/import functionality now lives in `app/src/components/settings/panels/RecoveryPhrasePanel.tsx`, accessible via Settings > Recovery Phrase. Onboarding completion logic moved into `handleSkillsNext` in `Onboarding.tsx`.
 - **E2E tests find onboarding buttons by label text** — `shared-flows.ts`, `login-flow.spec.ts`, `auth-access-control.spec.ts`, and `voice-mode.spec.ts` locate buttons by their visible label. Changing button labels requires updating all four files. Note: `voice-mode.spec.ts` still references legacy labels that don't match current steps (pre-existing tech debt).
 - **`ScreenPermissionsStep` always shows Continue** — The Continue button is always visible regardless of permission grant status, allowing users to skip the permissions step (#274).
+- **OnboardingOverlay RPC/Redux race condition** — `getOnboardingCompleted()` RPC can fail (sidecar not ready, timeout); the old catch block hardcoded `setOnboardingCompleted(false)`, ignoring the persisted `isOnboardedByUser` Redux flag. Fix: read `selectIsOnboarded` from `authSelectors.ts` in the catch block as fallback, and combine both flags in `shouldShow`: `!onboardingCompleted && !isOnboardedRedux`. Either flag being `true` is sufficient to skip onboarding (#197).
+- **`DEV_FORCE_ONBOARDING` was a no-op** — The old ternary had identical branches; fixed to actually force-show when the flag is set.
+- **`isOnboardedRedux` must be in useEffect deps** — When reading a selector value inside a useEffect, add it to the dependency array or the effect won't re-run when Redux state changes.
 
 ## Build Blockers: macOS Tahoe + whisper-rs
 
