@@ -4,26 +4,11 @@ import { useAppSelector } from '../store/hooks';
 
 const tabs = [
   {
-    id: 'home',
-    label: 'Home',
-    path: '/home',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.8}
-          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a2 2 0 01-2-2v-4a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2z"
-        />
-      </svg>
-    ),
-  },
-  {
     id: 'chat',
     label: 'Chat',
     path: '/conversations',
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -38,7 +23,7 @@ const tabs = [
     label: 'Skills',
     path: '/skills',
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -53,7 +38,7 @@ const tabs = [
     label: 'Intelligence',
     path: '/intelligence',
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -68,7 +53,7 @@ const tabs = [
     label: 'Automation',
     path: '/settings/cron-jobs',
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -89,7 +74,7 @@ const tabs = [
     label: 'Notification',
     path: '/settings/messaging',
     icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -128,12 +113,13 @@ const BottomTabBar = () => {
     if (path === '/conversations') return location.pathname.startsWith('/conversations');
     if (path === '/settings/cron-jobs') return location.pathname.startsWith('/settings/cron-jobs');
     if (path === '/settings/messaging') return location.pathname.startsWith('/settings/messaging');
+    if (path === '/home') return location.pathname === '/home';
     return location.pathname === path;
   };
 
   return (
-    <div className="flex-shrink-0 bg-white border-t border-stone-200 px-2 pb-[env(safe-area-inset-bottom)] z-50">
-      <div className="flex items-center justify-around h-14">
+    <div className="flex-shrink-0 flex justify-center pb-4 pt-2 z-50">
+      <nav className="inline-flex items-center gap-1 bg-white rounded-full border border-stone-200 shadow-soft px-2 py-1.5">
         {tabs.map(tab => {
           const active = isActive(tab.path);
           const showBadge = tab.id === 'chat' && conversationsUnreadCount > 0;
@@ -141,28 +127,25 @@ const BottomTabBar = () => {
             <button
               key={tab.id}
               onClick={() => navigate(tab.path)}
-              className={`relative flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors duration-150 cursor-pointer ${
-                active ? 'text-stone-900' : 'text-stone-400 hover:text-stone-600'
+              className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] transition-colors duration-150 cursor-pointer ${
+                active
+                  ? 'bg-stone-100 text-stone-900 font-medium'
+                  : 'text-stone-500 hover:text-stone-700 hover:bg-stone-50'
               }`}
               aria-label={tab.label}>
-              <div className="relative">
-                {tab.icon}
-                {showBadge && (
-                  <span
-                    className="absolute -top-1 -right-1.5 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-coral-500 text-white text-[9px] font-medium"
-                    aria-label={`${conversationsUnreadCount} unread`}>
-                    {conversationsUnreadCount > 99 ? '99+' : conversationsUnreadCount}
-                  </span>
-                )}
-              </div>
-              <span
-                className={`text-[10px] leading-tight ${active ? 'font-medium' : 'font-normal'}`}>
-                {tab.label}
-              </span>
+              {tab.icon}
+              <span>{tab.label}</span>
+              {showBadge && (
+                <span
+                  className="absolute -top-1 left-5 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-coral-500 text-white text-[9px] font-medium"
+                  aria-label={`${conversationsUnreadCount} unread`}>
+                  {conversationsUnreadCount > 99 ? '99+' : conversationsUnreadCount}
+                </span>
+              )}
             </button>
           );
         })}
-      </div>
+      </nav>
     </div>
   );
 };
