@@ -183,12 +183,7 @@ fn extract_pages_from_sync(content: &str) -> Vec<SyncPage> {
 }
 
 /// Store and ingest a single document into the memory graph.
-async fn ingest_single_doc(
-    client: &MemoryClientRef,
-    namespace: &str,
-    title: &str,
-    content: &str,
-) {
+async fn ingest_single_doc(client: &MemoryClientRef, namespace: &str, title: &str, content: &str) {
     let request = MemoryIngestionRequest {
         document: NamespaceDocumentInput {
             namespace: namespace.to_string(),
@@ -902,10 +897,17 @@ mod tests {
         .to_string();
 
         let pages = extract_pages_from_sync(&content);
-        assert_eq!(pages.len(), 1, "only page with real content should be extracted");
+        assert_eq!(
+            pages.len(),
+            1,
+            "only page with real content should be extracted"
+        );
         assert_eq!(pages[0].id, "page-1");
         assert_eq!(pages[0].title, "Meeting Notes");
-        assert_eq!(pages[0].content, "Attendees: Alice, Bob. Decision: ship by Friday.");
+        assert_eq!(
+            pages[0].content,
+            "Attendees: Alice, Bob. Decision: ship by Friday."
+        );
     }
 
     #[test]
@@ -934,13 +936,19 @@ mod tests {
         .to_string();
 
         let pages = extract_pages_from_sync(&content);
-        assert!(pages.is_empty(), "empty pages array should produce no results");
+        assert!(
+            pages.is_empty(),
+            "empty pages array should produce no results"
+        );
     }
 
     #[test]
     fn extract_pages_skips_non_json() {
         let pages = extract_pages_from_sync("this is plain text, not json");
-        assert!(pages.is_empty(), "non-JSON content should produce no results");
+        assert!(
+            pages.is_empty(),
+            "non-JSON content should produce no results"
+        );
     }
 
     #[test]
@@ -954,6 +962,9 @@ mod tests {
         .to_string();
 
         let pages = extract_pages_from_sync(&content);
-        assert!(pages.is_empty(), "pages without content_text should be skipped");
+        assert!(
+            pages.is_empty(),
+            "pages without content_text should be skipped"
+        );
     }
 }
