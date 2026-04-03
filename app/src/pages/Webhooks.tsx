@@ -9,9 +9,12 @@ export default function Webhooks() {
     activity,
     loading,
     error,
+    coreConnected,
     createTunnel,
     deleteTunnel,
     refreshTunnels,
+    registerEcho,
+    unregisterEcho,
   } = useWebhooks();
 
   if (loading && tunnels.length === 0) {
@@ -28,6 +31,24 @@ export default function Webhooks() {
   return (
     <div className="h-full bg-[#F5F5F5] overflow-y-auto p-4 pt-6">
       <div className="max-w-2xl mx-auto space-y-4">
+        {/* Connection status */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold text-stone-900">Webhooks</h2>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${
+              coreConnected
+                ? 'bg-sage-100 text-sage-700'
+                : 'bg-stone-100 text-stone-500'
+            }`}>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                coreConnected ? 'bg-sage-500' : 'bg-stone-400'
+              }`}
+            />
+            {coreConnected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
+
         {error && <div className="p-3 rounded-lg bg-coral-50 text-coral-700 text-sm">{error}</div>}
 
         <div className="bg-white rounded-2xl shadow-soft border border-stone-200 p-6">
@@ -38,6 +59,8 @@ export default function Webhooks() {
             onCreateTunnel={createTunnel}
             onDeleteTunnel={deleteTunnel}
             onRefresh={refreshTunnels}
+            onRegisterEcho={registerEcho}
+            onUnregisterEcho={unregisterEcho}
           />
         </div>
 

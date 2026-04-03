@@ -363,6 +363,40 @@ export async function openhumanWebhooksClearLogs(): Promise<CommandResponse<{ cl
   });
 }
 
+export async function openhumanWebhooksRegisterEcho(
+  tunnelUuid: string,
+  tunnelName?: string,
+  backendTunnelId?: string
+): Promise<CommandResponse<{ result: { registrations: WebhookDebugRegistration[] } }>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<
+    CommandResponse<{ result: { registrations: WebhookDebugRegistration[] } }>
+  >({
+    method: 'openhuman.webhooks_register_echo',
+    params: {
+      tunnel_uuid: tunnelUuid,
+      tunnel_name: tunnelName ?? null,
+      backend_tunnel_id: backendTunnelId ?? null,
+    },
+  });
+}
+
+export async function openhumanWebhooksUnregisterEcho(
+  tunnelUuid: string
+): Promise<CommandResponse<{ result: { registrations: WebhookDebugRegistration[] } }>> {
+  if (!isTauri()) {
+    throw new Error('Not running in Tauri');
+  }
+  return await callCoreRpc<
+    CommandResponse<{ result: { registrations: WebhookDebugRegistration[] } }>
+  >({
+    method: 'openhuman.webhooks_unregister_echo',
+    params: { tunnel_uuid: tunnelUuid },
+  });
+}
+
 /** A single entity returned in the structured retrieval context. */
 export interface MemoryRetrievalEntity {
   id?: string;
