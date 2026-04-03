@@ -89,4 +89,49 @@ describe('OnboardingOverlay', () => {
 
     expect(screen.queryByText('Skip')).not.toBeInTheDocument();
   });
+
+  it('does not render when RPC fails but Redux says onboarded', async () => {
+    const { getOnboardingCompleted } = await import('../../utils/tauriCommands');
+    vi.mocked(getOnboardingCompleted).mockRejectedValue(new Error('RPC error'));
+
+    renderWithProviders(<OnboardingOverlay />, {
+      preloadedState: {
+        auth: { ...baseAuth, isOnboardedByUser: { 'user-1': true } },
+        user: baseUser,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.queryByText('Skip')).not.toBeInTheDocument();
+    });
+  });
+
+  it('does not render when RPC returns false but Redux says onboarded', async () => {
+    const { getOnboardingCompleted } = await import('../../utils/tauriCommands');
+    vi.mocked(getOnboardingCompleted).mockResolvedValue(false);
+
+    renderWithProviders(<OnboardingOverlay />, {
+      preloadedState: {
+        auth: { ...baseAuth, isOnboardedByUser: { 'user-1': true } },
+        user: baseUser,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.queryByText('Skip')).not.toBeInTheDocument();
+    });
+  });
+
+  it('renders when both RPC fails and Redux says not onboarded', async () => {
+    const { getOnboardingCompleted } = await import('../../utils/tauriCommands');
+    vi.mocked(getOnboardingCompleted).mockRejectedValue(new Error('RPC error'));
+
+    renderWithProviders(<OnboardingOverlay />, {
+      preloadedState: { auth: { ...baseAuth, isOnboardedByUser: {} }, user: baseUser },
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.queryByText('Skip')).toBeInTheDocument();
+    });
+  });
 });
