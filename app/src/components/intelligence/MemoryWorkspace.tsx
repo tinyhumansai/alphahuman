@@ -12,6 +12,7 @@ import {
   memoryGraphQuery,
   memoryListDocuments,
   memoryListNamespaces,
+  type MemoryQueryResult,
   memoryQueryNamespace,
   memoryRecallNamespace,
 } from '../../utils/tauriCommands';
@@ -19,6 +20,7 @@ import { MemoryGraphMap } from './MemoryGraphMap';
 import { MemoryHeatmap } from './MemoryHeatmap';
 import { MemoryInsights } from './MemoryInsights';
 import { MemoryStatsBar } from './MemoryStatsBar';
+import { MemoryTextWithEntities } from './MemoryTextWithEntities';
 
 type MemoryDoc = { documentId: string; namespace: string; title?: string; raw: unknown };
 
@@ -139,9 +141,9 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
   const [selectedFileError, setSelectedFileError] = useState<string | null>(null);
 
   const [queryInput, setQueryInput] = useState('important user preferences and active goals');
-  const [queryResult, setQueryResult] = useState('');
+  const [queryResult, setQueryResult] = useState<MemoryQueryResult | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
-  const [recallResult, setRecallResult] = useState('');
+  const [recallResult, setRecallResult] = useState<MemoryQueryResult | null>(null);
   const [recallLoading, setRecallLoading] = useState(false);
   const [memoryActionError, setMemoryActionError] = useState<string | null>(null);
 
@@ -254,7 +256,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
       setQueryResult(response);
     } catch (error) {
       setMemoryActionError(error instanceof Error ? error.message : 'Query failed');
-      setQueryResult('');
+      setQueryResult(null);
     } finally {
       setQueryLoading(false);
     }
@@ -266,10 +268,10 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
     setMemoryActionError(null);
     try {
       const response = await memoryRecallNamespace(selectedNamespace, 10);
-      setRecallResult(response ?? '');
+      setRecallResult(response);
     } catch (error) {
       setMemoryActionError(error instanceof Error ? error.message : 'Recall failed');
-      setRecallResult('');
+      setRecallResult(null);
     } finally {
       setRecallLoading(false);
     }
@@ -515,15 +517,19 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
                   <div>
                     <div className="text-[11px] text-stone-500 mb-1">Query response</div>
-                    <pre className="rounded-lg border border-white/10 bg-stone-950/50 p-2 h-28 overflow-auto text-[11px] leading-5 text-stone-200 whitespace-pre-wrap">
-                      {queryResult || 'No query result yet.'}
-                    </pre>
+                    <MemoryTextWithEntities
+                      text={queryResult?.text || 'No query result yet.'}
+                      entities={queryResult?.entities}
+                      className="rounded-lg border border-white/10 bg-stone-950/50 p-2 h-28 overflow-auto text-[11px] leading-5 text-stone-200 whitespace-pre-wrap"
+                    />
                   </div>
                   <div>
                     <div className="text-[11px] text-stone-500 mb-1">Recall response</div>
-                    <pre className="rounded-lg border border-white/10 bg-stone-950/50 p-2 h-28 overflow-auto text-[11px] leading-5 text-stone-200 whitespace-pre-wrap">
-                      {recallResult || 'No recall result yet.'}
-                    </pre>
+                    <MemoryTextWithEntities
+                      text={recallResult?.text || 'No recall result yet.'}
+                      entities={recallResult?.entities}
+                      className="rounded-lg border border-white/10 bg-stone-950/50 p-2 h-28 overflow-auto text-[11px] leading-5 text-stone-200 whitespace-pre-wrap"
+                    />
                   </div>
                 </div>
 

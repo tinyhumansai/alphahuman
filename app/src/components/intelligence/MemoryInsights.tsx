@@ -30,6 +30,8 @@ interface InsightItem {
   evidenceCount: number;
   namespace: string | null;
   updatedAt: number;
+  subjectType: string | null;
+  objectType: string | null;
 }
 
 const PREDICATE_CATEGORIES: Record<string, InsightCategory> = {
@@ -134,6 +136,15 @@ const CATEGORY_CONFIG: Record<
   },
 };
 
+/** Small inline badge that displays an entity type (e.g. "person", "project"). */
+function EntityTypeBadge({ type }: { type: string }) {
+  return (
+    <span className="inline-block ml-1 px-1 py-px rounded text-[9px] leading-tight font-medium bg-white/8 text-stone-400 border border-white/6 uppercase tracking-wide">
+      {type}
+    </span>
+  );
+}
+
 export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
   const [expandedCategory, setExpandedCategory] = useState<InsightCategory | null>(null);
 
@@ -143,6 +154,7 @@ export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
     for (const rel of relations) {
       const category = categorize(rel.predicate);
       const items = buckets.get(category) ?? [];
+      const entityTypes = (rel.attrs?.entity_types ?? {}) as Record<string, string>;
       items.push({
         subject: rel.subject,
         predicate: rel.predicate,
@@ -150,6 +162,8 @@ export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
         evidenceCount: rel.evidenceCount,
         namespace: rel.namespace,
         updatedAt: rel.updatedAt,
+        subjectType: entityTypes.subject ?? null,
+        objectType: entityTypes.object ?? null,
       });
       buckets.set(category, items);
     }
@@ -264,10 +278,12 @@ export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
                       className="text-white/80 font-medium shrink-0 max-w-[30%] truncate"
                       title={item.subject}>
                       {item.subject}
+                      {item.subjectType && <EntityTypeBadge type={item.subjectType} />}
                     </span>
                     <span className="text-stone-500 shrink-0 italic">{item.predicate}</span>
                     <span className="text-white/60 truncate" title={item.object}>
                       {item.object}
+                      {item.objectType && <EntityTypeBadge type={item.objectType} />}
                     </span>
                     {item.evidenceCount > 1 && (
                       <span className="ml-auto text-[9px] text-stone-600 shrink-0 tabular-nums">

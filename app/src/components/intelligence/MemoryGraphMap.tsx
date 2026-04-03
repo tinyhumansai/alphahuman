@@ -11,6 +11,7 @@ interface GraphNode {
   id: string;
   label: string;
   namespace: string | null;
+  entityType: string | null;
   connectionCount: number;
   x: number;
   y: number;
@@ -50,19 +51,28 @@ function buildGraph(relations: GraphRelation[]): { nodes: GraphNode[]; edges: Gr
   const cappedRelations = sorted.slice(0, MAX_EDGES);
 
   // Collect unique entity ids
-  const entitySet = new Map<string, { namespace: string | null; count: number }>();
+  const entitySet = new Map<
+    string,
+    { namespace: string | null; count: number; entityType: string | null }
+  >();
 
   for (const r of cappedRelations) {
     const subKey = r.subject.toLowerCase();
     const objKey = r.object.toLowerCase();
+    const entityTypes = (r.attrs?.entity_types ?? {}) as Record<string, string>;
 
     const existing = entitySet.get(subKey);
-    entitySet.set(subKey, { namespace: r.namespace, count: (existing?.count ?? 0) + 1 });
+    entitySet.set(subKey, {
+      namespace: r.namespace,
+      count: (existing?.count ?? 0) + 1,
+      entityType: existing?.entityType ?? entityTypes.subject ?? null,
+    });
 
     const existingObj = entitySet.get(objKey);
     entitySet.set(objKey, {
       namespace: existingObj?.namespace ?? r.namespace,
       count: (existingObj?.count ?? 0) + 1,
+      entityType: existingObj?.entityType ?? entityTypes.object ?? null,
     });
   }
 
@@ -75,6 +85,7 @@ function buildGraph(relations: GraphRelation[]): { nodes: GraphNode[]; edges: Gr
     id,
     label: id,
     namespace: info.namespace,
+    entityType: info.entityType,
     connectionCount: info.count,
     x: 80 + Math.random() * (WIDTH - 160),
     y: 80 + Math.random() * (HEIGHT - 160),
@@ -334,6 +345,23 @@ export function MemoryGraphMap({ relations, loading }: MemoryGraphMapProps) {
                   style={{ pointerEvents: 'none', userSelect: 'none', transition: 'fill 0.15s' }}>
                   {isCenter && node.id !== 'you' ? 'You' : truncate(node.label)}
                 </text>
+                {node.entityType && (
+                  <text
+                    y={r + 22}
+                    textAnchor="middle"
+                    fontSize={7}
+                    fontWeight={500}
+                    letterSpacing="0.04em"
+                    fill={isDimmed ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.4)'}
+                    style={{
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                      textTransform: 'uppercase',
+                      transition: 'fill 0.15s',
+                    }}>
+                    {node.entityType}
+                  </text>
+                )}
               </g>
             );
           })}
