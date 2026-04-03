@@ -176,7 +176,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
           <button
             type="button"
             onClick={onDefer}
-            className="text-sm text-white hover:text-stone-200 transition-colors">
+            className="text-sm text-stone-600 hover:text-stone-900 transition-colors">
             Skip
           </button>
         </div>
@@ -191,7 +191,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
             role="alert"
             aria-live="assertive"
             className="fixed bottom-4 left-4 z-[9997] w-[320px] animate-fade-up">
-            <div className="bg-stone-900 border border-coral-500/30 rounded-2xl shadow-large p-4">
+            <div className="bg-white border border-coral-500/30 rounded-2xl shadow-large p-4">
               <div className="flex items-start gap-3">
                 {/* Warning icon */}
                 <svg
@@ -206,14 +206,14 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
                   />
                 </svg>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-stone-100">{downloadError}</p>
-                  <p className="mt-0.5 text-xs text-stone-400">
+                  <p className="text-sm font-medium text-stone-900">{downloadError}</p>
+                  <p className="mt-0.5 text-xs text-stone-500">
                     You can retry or continue — downloads can be resumed later.
                   </p>
                   <button
                     type="button"
                     onClick={retryDownload}
-                    className="mt-2 text-xs font-medium text-primary-400 hover:text-primary-300 transition-colors">
+                    className="mt-2 text-xs font-medium text-primary-600 hover:text-primary-500 transition-colors">
                     Retry
                   </button>
                 </div>
@@ -222,7 +222,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
                   type="button"
                   aria-label="Dismiss Local AI error"
                   onClick={() => setDownloadError(null)}
-                  className="flex-shrink-0 text-stone-500 hover:text-stone-300 transition-colors">
+                  className="flex-shrink-0 text-stone-400 hover:text-stone-600 transition-colors">
                   <svg
                     aria-hidden="true"
                     className="w-4 h-4"

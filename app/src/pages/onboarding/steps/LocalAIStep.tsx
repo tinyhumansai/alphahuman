@@ -30,37 +30,37 @@ const LocalAIStep = ({ onNext, onBack: _onBack, onDownloadError }: LocalAIStepPr
   }, [onNext, onDownloadError]);
 
   return (
-    <div className="rounded-3xl border border-stone-700 bg-stone-900 p-8 shadow-large animate-fade-up">
+    <div className="rounded-2xl border border-stone-200 bg-white p-8 shadow-soft animate-fade-up">
       <div className="flex flex-col items-center mb-5">
         <img src="/ollama.svg" alt="Ollama" className="w-16 h-16 mb-3" />
-        <h1 className="text-xl font-bold mb-2">Run AI Models Locally with Ollama</h1>
-        <p className="opacity-70 text-sm text-center">
+        <h1 className="text-xl font-bold mb-2 text-stone-900">Run AI Models Locally with Ollama</h1>
+        <p className="text-stone-600 text-sm text-center">
           OpenHuman will auto-install Ollama for you so that you can download and run AI models
           locally on your device.
         </p>
       </div>
 
       <div className="space-y-2 mb-5">
-        <div className="rounded-xl border border-sage-500/30 bg-sage-500/10 px-3 py-2">
-          <p className="text-xs">
+        <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
+          <p className="text-xs text-stone-700">
             <span className="font-semibold">Complete Privacy</span>
-            <span className="opacity-80">
+            <span className="text-stone-600">
               &nbsp;- all data stays on your device. Nothing is sent to any third party or cloud.
             </span>
           </p>
         </div>
-        <div className="rounded-xl border border-sage-500/30 bg-sage-500/10 px-3 py-2">
-          <p className="text-xs">
+        <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
+          <p className="text-xs text-stone-700">
             <span className="font-semibold">Absolutely Free</span>
-            <span className="opacity-80">
+            <span className="text-stone-600">
               &nbsp;- Ollama and the AI models are open-source. No subscription needed.
             </span>
           </p>
         </div>
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <p className="text-xs">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-xs text-stone-700">
             <span className="font-semibold">Resource impact</span>
-            <span className="opacity-80">
+            <span className="text-stone-600">
               &nbsp;- uses some disk space and RAM. We will optimize this for your device.
             </span>
           </p>
