@@ -92,9 +92,7 @@ export function MemoryTextWithEntities({ text, entities, className }: MemoryText
   if (!text && (!entities || entities.length === 0)) return null;
 
   const hasStructuredEntities = entities && entities.length > 0;
-  const hasInlineAnnotations = ENTITY_TYPE_RE.test(text);
-  // Reset regex lastIndex after the test above
-  ENTITY_TYPE_RE.lastIndex = 0;
+  const hasInlineAnnotations = /\([A-Z][A-Z0-9_]{1,30}\)/.test(text);
 
   return (
     <div className={className}>
