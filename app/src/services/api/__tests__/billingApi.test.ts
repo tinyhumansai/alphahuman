@@ -86,10 +86,7 @@ describe('billingApi', () => {
     });
 
     it('should return null checkoutUrl when session creation has no URL', async () => {
-      mockCallCoreCommand.mockResolvedValue({
-        checkoutUrl: null,
-        sessionId: 'cs_789',
-      });
+      mockCallCoreCommand.mockResolvedValue({ checkoutUrl: null, sessionId: 'cs_789' });
 
       const result = await billingApi.purchasePlan('BASIC_MONTHLY');
 
@@ -126,9 +123,7 @@ describe('billingApi', () => {
     });
 
     it('should propagate errors', async () => {
-      mockCallCoreCommand.mockRejectedValue(
-        new Error('Unable to resolve Stripe customer')
-      );
+      mockCallCoreCommand.mockRejectedValue(new Error('Unable to resolve Stripe customer'));
 
       await expect(billingApi.createPortalSession()).rejects.toThrow(
         'Unable to resolve Stripe customer'
@@ -148,10 +143,10 @@ describe('billingApi', () => {
 
       const result = await billingApi.createCoinbaseCharge('BASIC', 'annual');
 
-      expect(mockCallCoreCommand).toHaveBeenCalledWith(
-        'openhuman.billing_create_coinbase_charge',
-        { plan: 'BASIC', interval: 'annual' }
-      );
+      expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_create_coinbase_charge', {
+        plan: 'BASIC',
+        interval: 'annual',
+      });
       expect(result).toEqual(chargeData);
     });
 
@@ -165,10 +160,10 @@ describe('billingApi', () => {
 
       await billingApi.createCoinbaseCharge('PRO');
 
-      expect(mockCallCoreCommand).toHaveBeenCalledWith(
-        'openhuman.billing_create_coinbase_charge',
-        { plan: 'PRO', interval: 'annual' }
-      );
+      expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_create_coinbase_charge', {
+        plan: 'PRO',
+        interval: 'annual',
+      });
     });
 
     it('should return hosted URL for payment redirect', async () => {
