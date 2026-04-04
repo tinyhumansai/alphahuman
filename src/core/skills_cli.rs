@@ -220,7 +220,7 @@ fn run_skills_list(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    crate::core::logging::init_for_cli_run(opts.verbose);
+    init_quiet_logging(opts.verbose);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -259,7 +259,7 @@ fn run_skills_start(args: &[String]) -> Result<()> {
     }
 
     let skill_id = &rest[0];
-    crate::core::logging::init_for_cli_run(opts.verbose);
+    init_quiet_logging(opts.verbose);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -321,7 +321,7 @@ fn run_skills_call(args: &[String]) -> Result<()> {
     let skill_id = &positional[0];
     let tool_name = &positional[1];
 
-    crate::core::logging::init_for_cli_run(opts.verbose);
+    init_quiet_logging(opts.verbose);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -369,7 +369,7 @@ fn run_skills_test(args: &[String]) -> Result<()> {
     }
 
     let skill_id = &rest[0];
-    crate::core::logging::init_for_cli_run(opts.verbose);
+    init_quiet_logging(opts.verbose);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -500,6 +500,14 @@ async fn list_skills() -> impl axum::response::IntoResponse {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Quiet logging: only `warn` unless verbose (used for non-server subcommands).
+fn init_quiet_logging(verbose: bool) {
+    if !verbose && std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "warn");
+    }
+    crate::core::logging::init_for_cli_run(verbose);
+}
 
 fn is_help(value: &str) -> bool {
     matches!(value, "-h" | "--help" | "help")
