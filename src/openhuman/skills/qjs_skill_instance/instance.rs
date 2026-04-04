@@ -55,7 +55,7 @@ impl QjsSkillInstance {
     pub fn spawn(
         &self,
         mut rx: mpsc::Receiver<SkillMessage>,
-        _deps: BridgeDeps,
+        deps: BridgeDeps,
     ) -> tokio::task::JoinHandle<()> {
         let config = self.config.clone();
         let state = self.state.clone();
@@ -142,8 +142,8 @@ impl QjsSkillInstance {
                     let skill_context = qjs_ops::SkillContext {
                         skill_id: skill_id.clone(),
                         data_dir: data_dir.clone(),
-                        memory_client: _deps.memory_client.clone(),
-                        webhook_router: _deps.webhook_router.clone(),
+                        memory_client: deps.memory_client.clone(),
+                        webhook_router: deps.webhook_router.clone(),
                     };
 
                     if let Err(e) = qjs_ops::register_ops(
@@ -246,7 +246,7 @@ impl QjsSkillInstance {
                 &config.skill_id,
                 &timer_state,
                 &published_state,
-                _deps.memory_client.clone(),
+                deps.memory_client.clone(),
                 &data_dir,
             )
             .await;

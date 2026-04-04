@@ -1,6 +1,5 @@
 pub mod bridge;
 pub mod cron_scheduler;
-pub mod loader;
 pub mod manifest;
 pub mod ops;
 pub mod ping_scheduler;

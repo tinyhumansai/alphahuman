@@ -167,3 +167,98 @@ impl SkillManifest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINIMAL_MANIFEST: &str = r#"{"id":"test","name":"Test Skill"}"#;
+
+    const FULL_MANIFEST: &str = r#"{
+        "id": "price-tracker",
+        "name": "Price Tracker",
+        "runtime": "quickjs",
+        "entry": "main.js",
+        "memory_limit_mb": 128,
+        "auto_start": true,
+        "version": "1.0.0",
+        "description": "Tracks prices",
+        "platforms": ["macos", "linux"]
+    }"#;
+
+    #[test]
+    fn parse_minimal_manifest() {
+        let m = SkillManifest::from_json(MINIMAL_MANIFEST).unwrap();
+        assert_eq!(m.id, "test");
+        assert_eq!(m.name, "Test Skill");
+        assert_eq!(m.runtime, "v8"); // default
+        assert_eq!(m.entry, "index.js"); // default
+        assert!(!m.auto_start);
+        assert!(m.memory_limit_mb.is_none());
+        assert!(m.platforms.is_none());
+    }
+
+    #[test]
+    fn parse_full_manifest() {
+        let m = SkillManifest::from_json(FULL_MANIFEST).unwrap();
+        assert_eq!(m.id, "price-tracker");
+        assert_eq!(m.runtime, "quickjs");
+        assert_eq!(m.entry, "main.js");
+        assert_eq!(m.memory_limit_mb, Some(128));
+        assert!(m.auto_start);
+        assert_eq!(m.platforms.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn parse_invalid_json_returns_error() {
+        assert!(SkillManifest::from_json("not json").is_err());
+    }
+
+    #[test]
+    fn is_javascript_known_runtimes() {
+        for rt in &["v8", "javascript", "quickjs"] {
+            let json = format!(r#"{{"id":"t","name":"T","runtime":"{}"}}"#, rt);
+            let m = SkillManifest::from_json(&json).unwrap();
+            assert!(m.is_javascript(), "expected is_javascript() for '{rt}'");
+        }
+    }
+
+    #[test]
+    fn is_javascript_unknown_runtime() {
+        let m =
+            SkillManifest::from_json(r#"{"id":"t","name":"T","runtime":"python"}"#).unwrap();
+        assert!(!m.is_javascript());
+    }
+
+    #[test]
+    fn supports_current_platform_no_restriction() {
+        let m = SkillManifest::from_json(MINIMAL_MANIFEST).unwrap();
+        assert!(m.supports_current_platform());
+    }
+
+    #[test]
+    fn supports_current_platform_empty_vec() {
+        let m = SkillManifest::from_json(
+            r#"{"id":"t","name":"T","platforms":[]}"#,
+        )
+        .unwrap();
+        assert!(m.supports_current_platform());
+    }
+
+    #[test]
+    fn to_config_memory_limit_conversion() {
+        let m = SkillManifest::from_json(FULL_MANIFEST).unwrap();
+        let cfg = m.to_config();
+        assert_eq!(cfg.memory_limit, 128 * 1024 * 1024);
+        assert_eq!(cfg.skill_id, "price-tracker");
+        assert_eq!(cfg.entry_point, "main.js");
+        assert!(cfg.auto_start);
+    }
+
+    #[test]
+    fn to_config_default_memory_limit() {
+        let m = SkillManifest::from_json(MINIMAL_MANIFEST).unwrap();
+        let cfg = m.to_config();
+        assert_eq!(cfg.memory_limit, 64 * 1024 * 1024);
+    }
+}
