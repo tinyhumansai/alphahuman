@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use reqwest::header::AUTHORIZATION;
-use reqwest::{Client, Url};
+use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -329,6 +329,47 @@ impl BackendOAuthClient {
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
             anyhow::bail!("create channel link token failed ({status}): {text}");
+        }
+
+        parse_settings_response_json(&text)
+    }
+
+    /// Generic authenticated JSON request helper for backend API routes that
+    /// follow the standard `{ success, data, message }` envelope.
+    pub async fn authed_json(
+        &self,
+        bearer_jwt: &str,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value> {
+        let url = self
+            .base
+            .join(path.trim_start_matches('/'))
+            .with_context(|| format!("build URL for {path}"))?;
+
+        let mut request = self
+            .client
+            .request(method.clone(), url.clone())
+            .header(AUTHORIZATION, bearer_authorization_value(bearer_jwt));
+
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+
+        let response = request
+            .send()
+            .await
+            .with_context(|| format!("backend request {} {}", method.as_str(), url.path()))?;
+
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!(
+                "{} {} failed ({status}): {text}",
+                method.as_str(),
+                url.path()
+            );
         }
 
         parse_settings_response_json(&text)

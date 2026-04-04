@@ -261,7 +261,10 @@ pub fn billing_schemas(function: &str) -> ControllerSchema {
                 optional_u64("limit", "Optional page size."),
                 optional_u64("offset", "Optional pagination offset."),
             ],
-            outputs: vec![json_output("transactions", "Credit transaction page payload.")],
+            outputs: vec![json_output(
+                "transactions",
+                "Credit transaction page payload.",
+            )],
         },
         "billing_get_auto_recharge" => ControllerSchema {
             namespace: "billing",
@@ -280,7 +283,10 @@ pub fn billing_schemas(function: &str) -> ControllerSchema {
                 comment: "PATCH payload for /payments/credits/auto-recharge.",
                 required: true,
             }],
-            outputs: vec![json_output("settings", "Updated auto-recharge settings payload.")],
+            outputs: vec![json_output(
+                "settings",
+                "Updated auto-recharge settings payload.",
+            )],
         },
         "billing_get_cards" => ControllerSchema {
             namespace: "billing",
@@ -315,7 +321,10 @@ pub fn billing_schemas(function: &str) -> ControllerSchema {
             namespace: "billing",
             function: "delete_card",
             description: "Delete a saved card for auto-recharge.",
-            inputs: vec![required_string("paymentMethodId", "Stripe payment method id.")],
+            inputs: vec![required_string(
+                "paymentMethodId",
+                "Stripe payment method id.",
+            )],
             outputs: vec![json_output("cards", "Updated saved cards payload.")],
         },
         _ => ControllerSchema {

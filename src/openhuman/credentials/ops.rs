@@ -180,7 +180,10 @@ pub async fn auth_create_channel_link_token(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(RpcOutcome::single_log(payload, "channel link token created"))
+    Ok(RpcOutcome::single_log(
+        payload,
+        "channel link token created",
+    ))
 }
 
 pub async fn store_provider_credentials(

@@ -1,4 +1,3 @@
-import type { ApiResponse } from '../../types/api';
 import { callCoreCommand } from '../coreCommandClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

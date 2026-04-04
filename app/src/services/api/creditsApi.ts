@@ -195,7 +195,7 @@ export const creditsApi = {
     return await callCoreCommand<CardsData>('openhuman.billing_update_card', {
       paymentMethodId,
       payload,
-    );
+    });
   },
 
   /**
@@ -205,6 +205,6 @@ export const creditsApi = {
   deleteCard: async (paymentMethodId: string): Promise<CardsData> => {
     return await callCoreCommand<CardsData>('openhuman.billing_delete_card', {
       paymentMethodId,
-    );
+    });
   },
 };
