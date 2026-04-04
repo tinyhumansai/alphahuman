@@ -419,17 +419,15 @@ class SkillManager {
       );
     }
 
-    // Try revoking auth credential
-    if (authMode) {
-      try {
-        await rpcRevokeAuth(skillId, authMode);
-        authRevokeSucceeded = true;
-      } catch (err) {
-        console.debug(
-          "[SkillManager] auth/revoked failed (runtime may be stopped):",
-          err,
-        );
-      }
+    // Try revoking auth credential (attempt even if authMode is unknown)
+    try {
+      await rpcRevokeAuth(skillId, authMode ?? "unknown");
+      authRevokeSucceeded = true;
+    } catch (err) {
+      console.debug(
+        "[SkillManager] auth/revoked failed (runtime may be stopped):",
+        err,
+      );
     }
 
     try {
@@ -444,7 +442,7 @@ class SkillManager {
           );
         });
       }
-      if (!authRevokeSucceeded && authMode) {
+      if (!authRevokeSucceeded) {
         await removePersistedAuthCredential(skillId).catch((err) => {
           console.debug(
             "[SkillManager] host-side auth credential cleanup failed:",

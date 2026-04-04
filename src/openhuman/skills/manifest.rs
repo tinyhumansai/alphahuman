@@ -22,19 +22,42 @@ pub struct SkillSetup {
     pub auth: Option<SkillAuthConfig>,
 }
 
+/// Auth mode type: managed, self_hosted, or text.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillAuthType {
+    Managed,
+    SelfHosted,
+    Text,
+}
+
 /// Advanced auth configuration declaring available authentication modes.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SkillAuthConfig {
     /// Available auth modes. At least one required.
+    #[serde(deserialize_with = "deserialize_non_empty_modes")]
     pub modes: Vec<SkillAuthMode>,
+}
+
+fn deserialize_non_empty_modes<'de, D>(deserializer: D) -> Result<Vec<SkillAuthMode>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let modes = Vec::<SkillAuthMode>::deserialize(deserializer)?;
+    if modes.is_empty() {
+        return Err(serde::de::Error::custom(
+            "auth.modes must contain at least one mode",
+        ));
+    }
+    Ok(modes)
 }
 
 /// A single authentication mode that a skill supports.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SkillAuthMode {
-    /// Mode type: "managed", "self_hosted", or "text".
+    /// Mode type: managed, self_hosted, or text.
     #[serde(rename = "type")]
-    pub mode_type: String,
+    pub mode_type: SkillAuthType,
     /// Display label for this mode in the UI.
     pub label: Option<String>,
     /// Short description shown below the label.

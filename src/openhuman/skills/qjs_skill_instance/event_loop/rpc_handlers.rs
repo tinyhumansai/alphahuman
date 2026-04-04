@@ -109,8 +109,8 @@ pub(crate) async fn handle_oauth_revoked(
         .map(|()| serde_json::json!({ "ok": true }))
 }
 
-/// Handle `auth/complete` RPC: inject auth credential, bridge to oauth for managed mode,
-/// persist to disk, call onAuthComplete.
+/// Handle `auth/complete` RPC: validate via onAuthComplete first, then inject
+/// credentials and persist to disk only on success.
 pub(crate) async fn handle_auth_complete(
     rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
@@ -124,6 +124,51 @@ pub(crate) async fn handle_auth_complete(
         .and_then(|v| v.as_str())
         .map(|m| m == "managed")
         .unwrap_or(false);
+
+    // Temporarily inject credentials so onAuthComplete can use them for validation
+    // (e.g. making test API calls). We'll clear them if validation fails.
+    let temp_code = format!(
+        r#"(function() {{
+            if (typeof globalThis.auth !== 'undefined' && globalThis.auth.__setCredential) {{
+                globalThis.auth.__setCredential({cred});
+            }}
+        }})()"#,
+        cred = cred_json
+    );
+    ctx.with(|js_ctx| {
+        let _ = js_ctx.eval::<rquickjs::Value, _>(temp_code.as_bytes());
+    })
+    .await;
+
+    // Call skill's onAuthComplete lifecycle hook for validation
+    let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
+    let result = handle_js_call(rt, ctx, "onAuthComplete", &params_str).await;
+
+    // Check if validation failed (error return or {status:"error"} response)
+    let validation_failed = match &result {
+        Err(_) => true,
+        Ok(val) => val.get("status").and_then(|s| s.as_str()) == Some("error"),
+    };
+
+    if validation_failed {
+        // Clear the temporary credential injection
+        let clear_code = r#"(function() {
+            if (typeof globalThis.auth !== 'undefined' && globalThis.auth.__setCredential) {
+                globalThis.auth.__setCredential(null);
+            }
+        })()"#;
+        ctx.with(|js_ctx| {
+            let _ = js_ctx.eval::<rquickjs::Value, _>(clear_code.as_bytes());
+        })
+        .await;
+        log::info!(
+            "[skill:{}] auth/complete validation failed, credentials not persisted",
+            skill_id
+        );
+        return result;
+    }
+
+    // Validation succeeded — now persist credentials into state and disk
 
     // Build managed-mode bridge code (inject into oauth globals too)
     let managed_bridge = if is_managed {
@@ -147,11 +192,8 @@ pub(crate) async fn handle_auth_complete(
         String::new()
     };
 
-    let code = format!(
+    let persist_code = format!(
         r#"(function() {{
-            if (typeof globalThis.auth !== 'undefined' && globalThis.auth.__setCredential) {{
-                globalThis.auth.__setCredential({cred});
-            }}
             if (typeof globalThis.state !== 'undefined' && globalThis.state.set) {{
                 globalThis.state.set('__auth_credential', {cred});
             }}
@@ -161,7 +203,7 @@ pub(crate) async fn handle_auth_complete(
         managed_bridge = managed_bridge
     );
     ctx.with(|js_ctx| {
-        let _ = js_ctx.eval::<rquickjs::Value, _>(code.as_bytes());
+        let _ = js_ctx.eval::<rquickjs::Value, _>(persist_code.as_bytes());
     })
     .await;
 
@@ -197,8 +239,7 @@ pub(crate) async fn handle_auth_complete(
         }
     }
 
-    let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
-    handle_js_call(rt, ctx, "onAuthComplete", &params_str).await
+    result
 }
 
 /// Handle `auth/revoked` RPC: clear auth credential from JS/disk/memory, call onAuthRevoked.

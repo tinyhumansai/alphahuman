@@ -978,15 +978,26 @@ globalThis.data = {
         headers['Content-Type'] = 'application/json';
       }
 
-      // Self-hosted: auto-inject basic auth if client_id + client_secret present
-      if (mode === 'self_hosted' && creds.client_id && creds.client_secret && !headers['Authorization']) {
-        headers['Authorization'] = 'Basic ' + btoa(creds.client_id + ':' + creds.client_secret);
+      // Check for existing Authorization header (case-insensitive)
+      var hasAuth = false;
+      for (var hk in headers) {
+        if (hk.toLowerCase() === 'authorization') { hasAuth = true; break; }
       }
 
-      var jwtToken = __ops.get_session_token() || '';
-      if (jwtToken && !headers['Authorization']) {
-        headers['Authorization'] = 'Bearer ' + jwtToken;
+      // Self-hosted: auto-inject basic auth if client_id + client_secret present
+      if (mode === 'self_hosted' && creds.client_id && creds.client_secret && !hasAuth) {
+        headers['Authorization'] = 'Basic ' + btoa(creds.client_id + ':' + creds.client_secret);
+        hasAuth = true;
       }
+
+      // Self-hosted with access_token or refresh_token: inject Bearer token
+      if (mode === 'self_hosted' && !hasAuth && creds.access_token) {
+        headers['Authorization'] = 'Bearer ' + creds.access_token;
+        hasAuth = true;
+      }
+
+      // Do NOT auto-inject session JWT for text mode or when auth is already set.
+      // Text mode credentials are opaque — the skill handles auth manually.
 
       var fetchOpts = {
         method: (options && options.method) || 'GET',

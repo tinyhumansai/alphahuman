@@ -150,13 +150,21 @@ pub(crate) async fn restore_auth_credential(
             if (typeof globalThis.state !== 'undefined' && globalThis.state.set) {{
                 globalThis.state.set('__auth_credential', cred);
             }}
-            // For managed mode, also bridge to oauth system for backward compat
+            // For managed mode, bridge to oauth system for backward compat.
+            // For non-managed modes, clear any stale oauth credentials.
             if (cred && cred.mode === 'managed' && cred.credentials) {{
                 if (typeof globalThis.oauth !== 'undefined' && globalThis.oauth.__setCredential) {{
                     globalThis.oauth.__setCredential(cred.credentials);
                 }}
                 if (typeof globalThis.state !== 'undefined' && globalThis.state.set) {{
                     globalThis.state.set('__oauth_credential', cred.credentials);
+                }}
+            }} else {{
+                if (typeof globalThis.oauth !== 'undefined' && globalThis.oauth.__setCredential) {{
+                    globalThis.oauth.__setCredential(null);
+                }}
+                if (typeof globalThis.state !== 'undefined' && globalThis.state.set) {{
+                    globalThis.state.set('__oauth_credential', null);
                 }}
             }}
             return true;
