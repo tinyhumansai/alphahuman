@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useChannelDefinitions } from '../../../hooks/useChannelDefinitions';
 import { AUTH_MODE_LABELS } from '../../../lib/channels/definitions';
 import { resolvePreferredAuthModeForChannel } from '../../../lib/channels/routing';
+import { createChannelLinkToken } from '../../../services/api/authApi';
 import { channelConnectionsApi } from '../../../services/api/channelConnectionsApi';
 import { callCoreRpc } from '../../../services/coreRpcClient';
 import {
@@ -18,11 +19,54 @@ import type {
   ChannelConnectionStatus,
   ChannelType,
 } from '../../../types/channels';
+import { BACKEND_URL, TELEGRAM_BOT_USERNAME } from '../../../utils/config';
 import { openUrl } from '../../../utils/openUrl';
 import ChannelFieldInput from '../../channels/ChannelFieldInput';
 import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
+
+function normalizeBaseUrl(baseUrl?: string): string {
+  return (baseUrl || 'https://api.tinyhumans.ai').trim().replace(/\/+$/, '');
+}
+
+function buildManagedChannelLaunchUrl(
+  channel: ChannelType,
+  token: string,
+  launchUrl?: string
+): string | undefined {
+  if (launchUrl) return launchUrl;
+
+  if (channel === 'telegram') {
+    return `https://t.me/${encodeURIComponent(TELEGRAM_BOT_USERNAME)}?start=${encodeURIComponent(token)}`;
+  }
+
+  if (channel === 'discord') {
+    return `${normalizeBaseUrl(BACKEND_URL)}/auth/discord/connect?linkToken=${encodeURIComponent(token)}`;
+  }
+
+  return undefined;
+}
+
+function buildManagedChannelInstruction(
+  channel: ChannelType,
+  token: string,
+  launchUrl?: string
+): string {
+  if (channel === 'telegram') {
+    return launchUrl
+      ? 'Continue in Telegram to finish linking your account.'
+      : `Open Telegram and message @${TELEGRAM_BOT_USERNAME} with this link token: ${token}`;
+  }
+
+  if (channel === 'discord') {
+    return launchUrl
+      ? 'Continue in Discord to finish linking your account.'
+      : `Use this Discord link token to continue linking your account: ${token}`;
+  }
+
+  return `Use this link token to continue: ${token}`;
+}
 
 const MessagingPanel = () => {
   const { navigateBack } = useSettingsNavigation();
@@ -33,6 +77,7 @@ const MessagingPanel = () => {
   const [error, setError] = useState<string | null>(null);
   const [busyKeys, setBusyKeys] = useState<Record<string, boolean>>({});
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
+  const [pendingInstruction, setPendingInstruction] = useState<Record<string, string>>({});
 
   const recommendedRoute = useMemo(() => {
     const channel = channelConnections.defaultMessagingChannel;
@@ -96,22 +141,69 @@ const MessagingPanel = () => {
           if (val) credentials[field.key] = val;
         }
 
+        const isManagedLinkFlow =
+          (channel === 'telegram' && spec.mode === 'managed_dm') ||
+          (channel === 'discord' && spec.mode === 'oauth');
+
+        if (isManagedLinkFlow) {
+          try {
+            const link = await createChannelLinkToken(channel);
+            const launchUrl = buildManagedChannelLaunchUrl(channel, link.token, link.launchUrl);
+            const instruction = buildManagedChannelInstruction(channel, link.token, launchUrl);
+
+            dispatch(
+              upsertChannelConnection({
+                channel,
+                authMode: spec.mode,
+                patch: { status: 'connecting' },
+              })
+            );
+
+            setPendingInstruction(prev => ({ ...prev, [key]: instruction }));
+
+            if (launchUrl) {
+              try {
+                await openUrl(launchUrl);
+              } catch {
+                // Opening the URL failed — include the URL so the user can copy it manually.
+                setPendingInstruction(prev => ({
+                  ...prev,
+                  [key]: `${instruction} (URL: ${launchUrl})`,
+                }));
+              }
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            dispatch(
+              setChannelConnectionStatus({
+                channel,
+                authMode: spec.mode,
+                status: 'error',
+                lastError: msg,
+              })
+            );
+            throw e;
+          }
+          return;
+        }
+
         const result = await channelConnectionsApi.connectChannel(channel, {
           authMode: spec.mode,
           credentials: Object.keys(credentials).length > 0 ? credentials : undefined,
         });
 
         if (result.status === 'pending_auth' && result.auth_action) {
+          const instruction = result.message ?? `Initiate ${result.auth_action} flow`;
+
           dispatch(
             upsertChannelConnection({
               channel,
               authMode: spec.mode,
-              patch: {
-                status: 'connecting',
-                lastError: result.message ?? `Initiate ${result.auth_action} flow`,
-              },
+              patch: { status: 'connecting' },
             })
           );
+
+          setPendingInstruction(prev => ({ ...prev, [key]: instruction }));
 
           if (result.auth_action.includes('oauth')) {
             try {
@@ -128,6 +220,12 @@ const MessagingPanel = () => {
           }
           return;
         }
+
+        setPendingInstruction(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
 
         dispatch(
           upsertChannelConnection({
@@ -231,6 +329,8 @@ const MessagingPanel = () => {
                     const connection = channelConnections.connections[channelId]?.[spec.mode];
                     const status: ChannelConnectionStatus = connection?.status ?? 'disconnected';
 
+                    const instruction = pendingInstruction[compositeKey];
+
                     return (
                       <div
                         key={spec.mode}
@@ -243,6 +343,9 @@ const MessagingPanel = () => {
                             <p className="text-xs text-stone-500 mt-1">{spec.description}</p>
                             {connection?.lastError && (
                               <p className="text-xs text-coral-300 mt-1">{connection.lastError}</p>
+                            )}
+                            {instruction && (
+                              <p className="text-xs text-primary-500 mt-1">{instruction}</p>
                             )}
                           </div>
                           <ChannelStatusBadge status={status} />

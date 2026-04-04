@@ -9,39 +9,15 @@
 //! receive a backend 401/403 surfaced verbatim as an RPC error string.
 //! API keys / JWTs are never written to logs.
 
-use log::debug;
-use reqwest::{header::AUTHORIZATION, Client, Method, Url};
+use reqwest::{Method, Url};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::time::Duration;
 
 use crate::api::config::effective_api_url;
-use crate::api::jwt::{bearer_authorization_value, get_session_token};
+use crate::api::jwt::get_session_token;
+use crate::api::BackendOAuthClient;
 use crate::openhuman::config::Config;
 use crate::rpc::RpcOutcome;
-
-const LOG_PREFIX: &str = "[team]";
-
-fn build_client() -> Result<Client, String> {
-    Client::builder()
-        .use_rustls_tls()
-        .http1_only()
-        .timeout(Duration::from_secs(120))
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))
-}
-
-fn resolve_base(config: &Config) -> Result<Url, String> {
-    let base = effective_api_url(&config.api_url);
-    let mut parsed =
-        Url::parse(base.trim()).map_err(|e| format!("invalid api_url '{}': {e}", base))?;
-    if !parsed.path().ends_with('/') && parsed.path() != "/" {
-        let normalized = format!("{}/", parsed.path());
-        parsed.set_path(&normalized);
-    }
-    Ok(parsed)
-}
 
 fn require_token(config: &Config) -> Result<String, String> {
     get_session_token(config)?
@@ -79,133 +55,6 @@ fn build_api_path(segments: &[&str]) -> Result<String, String> {
     Ok(url.path().to_string())
 }
 
-fn is_identifier_segment(segment: &str) -> bool {
-    let trimmed = segment.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-
-    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '%' | '.');
-    let has_digit = trimmed.chars().any(|c| c.is_ascii_digit());
-    let is_uuid_like = trimmed.len() >= 8
-        && trimmed.chars().all(allowed)
-        && trimmed.contains('-')
-        && trimmed.chars().any(|c| c.is_ascii_hexdigit());
-
-    (has_digit && trimmed.chars().all(allowed)) || is_uuid_like
-}
-
-fn redact_route_template(url: &Url) -> String {
-    let Some(segments) = url.path_segments() else {
-        return url.path().to_string();
-    };
-
-    let segments = segments.collect::<Vec<_>>();
-    let redacted = segments
-        .iter()
-        .enumerate()
-        .map(|(idx, segment)| {
-            match (
-                idx,
-                segments.first().copied(),
-                segments.get(2).copied(),
-                *segment,
-            ) {
-                (1, Some("teams"), _, _) => "{team_id}".to_string(),
-                (3, Some("teams"), Some("members"), _) => "{user_id}".to_string(),
-                (3, Some("teams"), Some("invites"), _) => "{invite_id}".to_string(),
-                (_, _, _, value)
-                    if is_identifier_segment(value)
-                        && !matches!(value, "teams" | "members" | "invites" | "role") =>
-                {
-                    "{id}".to_string()
-                }
-                (_, _, _, value) => value.to_string(),
-            }
-        })
-        .collect::<Vec<_>>();
-
-    format!("/{}", redacted.join("/"))
-}
-
-async fn authed_request(
-    client: &Client,
-    base: &Url,
-    token: &str,
-    method: Method,
-    path: &str,
-    body: Option<Value>,
-) -> Result<Value, String> {
-    let url = base
-        .join(path.trim_start_matches('/'))
-        .map_err(|e| format!("build URL failed: {e}"))?;
-
-    let mut req = client
-        .request(method.clone(), url.clone())
-        .header(AUTHORIZATION, bearer_authorization_value(token));
-
-    if let Some(b) = body {
-        req = req.json(&b);
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {e}"))?;
-    let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("failed to read backend response body: {e}"))?;
-
-    debug!(
-        "{LOG_PREFIX} {} {} -> {}",
-        method,
-        redact_route_template(&url),
-        status
-    );
-
-    let raw: Value = serde_json::from_str(&text).unwrap_or_else(|_| Value::String(text.clone()));
-    if !status.is_success() {
-        let msg = raw
-            .as_object()
-            .and_then(|o| {
-                o.get("message")
-                    .or_else(|| o.get("error"))
-                    .or_else(|| o.get("detail"))
-                    .and_then(|v| v.as_str())
-            })
-            .unwrap_or(&text);
-        return Err(format!(
-            "backend responded with {} for {}: {}",
-            status.as_u16(),
-            url.path(),
-            msg
-        ));
-    }
-
-    unwrap_api_envelope(raw)
-}
-
-fn unwrap_api_envelope(raw: Value) -> Result<Value, String> {
-    if let Some(obj) = raw.as_object() {
-        if let Some(success) = obj.get("success").and_then(|v| v.as_bool()) {
-            if !success {
-                let msg = obj
-                    .get("message")
-                    .or_else(|| obj.get("error"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("request unsuccessful");
-                return Err(msg.to_string());
-            }
-        }
-        if let Some(data) = obj.get("data") {
-            return Ok(data.clone());
-        }
-    }
-    Ok(raw)
-}
-
 async fn get_authed_value(
     config: &Config,
     method: Method,
@@ -213,9 +62,20 @@ async fn get_authed_value(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let token = require_token(config)?;
-    let client = build_client()?;
-    let base = resolve_base(config)?;
-    authed_request(&client, &base, &token, method, path, body).await
+    let api_url = effective_api_url(&config.api_url);
+    let client = BackendOAuthClient::new(&api_url).map_err(|e| e.to_string())?;
+    client
+        .authed_json(&token, method, path, body)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_usage(config: &Config) -> Result<RpcOutcome<Value>, String> {
+    let data = get_authed_value(config, Method::GET, "/teams/me/usage", None).await?;
+    Ok(RpcOutcome::single_log(
+        data,
+        "team usage fetched from backend",
+    ))
 }
 
 pub async fn list_members(config: &Config, team_id: &str) -> Result<RpcOutcome<Value>, String> {
@@ -414,31 +274,5 @@ mod tests {
             .expect("path should build");
 
         assert_eq!(path, "/teams/team%2Fwith%3Freserved/members/user%23frag");
-    }
-
-    #[test]
-    fn redact_route_template_hides_team_member_and_invite_ids() {
-        let members_url =
-            Url::parse("https://api.example.test/teams/team-1/members").expect("members url");
-        assert_eq!(
-            redact_route_template(&members_url),
-            "/teams/{team_id}/members"
-        );
-
-        let member_role_url = Url::parse(
-            "https://api.example.test/teams/69ca3f94bc6e00bbdc551900/members/user-2/role",
-        )
-        .expect("member role url");
-        assert_eq!(
-            redact_route_template(&member_role_url),
-            "/teams/{team_id}/members/{user_id}/role"
-        );
-
-        let invite_url =
-            Url::parse("https://api.example.test/teams/team-1/invites/inv-1").expect("invite url");
-        assert_eq!(
-            redact_route_template(&invite_url),
-            "/teams/{team_id}/invites/{invite_id}"
-        );
     }
 }

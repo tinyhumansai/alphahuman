@@ -67,6 +67,7 @@ struct RevokeInviteParams {
 
 pub fn all_team_controller_schemas() -> Vec<ControllerSchema> {
     vec![
+        team_schemas("team_get_usage"),
         team_schemas("team_list_members"),
         team_schemas("team_list_teams"),
         team_schemas("team_get_team"),
@@ -86,6 +87,10 @@ pub fn all_team_controller_schemas() -> Vec<ControllerSchema> {
 
 pub fn all_team_registered_controllers() -> Vec<RegisteredController> {
     vec![
+        RegisteredController {
+            schema: team_schemas("team_get_usage"),
+            handler: handle_team_get_usage,
+        },
         RegisteredController {
             schema: team_schemas("team_list_members"),
             handler: handle_team_list_members,
@@ -147,6 +152,16 @@ pub fn all_team_registered_controllers() -> Vec<RegisteredController> {
 
 pub fn team_schemas(function: &str) -> ControllerSchema {
     match function {
+        "team_get_usage" => ControllerSchema {
+            namespace: "team",
+            function: "get_usage",
+            description: "Fetch the current authenticated user's active team usage.",
+            inputs: vec![],
+            outputs: vec![json_output(
+                "result",
+                "Raw usage payload returned by /teams/me/usage.",
+            )],
+        },
         "team_list_members" => ControllerSchema {
             namespace: "team",
             function: "list_members",
@@ -323,6 +338,13 @@ pub fn team_schemas(function: &str) -> ControllerSchema {
             }],
         },
     }
+}
+
+fn handle_team_get_usage(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let config = config_rpc::load_config_with_timeout().await?;
+        to_json(crate::openhuman::team::get_usage(&config).await?)
+    })
 }
 
 fn handle_team_list_members(params: Map<String, Value>) -> ControllerFuture {
