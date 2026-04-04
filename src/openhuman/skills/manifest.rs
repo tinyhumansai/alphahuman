@@ -280,4 +280,33 @@ mod tests {
         let cfg = m.to_config();
         assert_eq!(cfg.memory_limit, 64 * 1024 * 1024);
     }
+
+    #[test]
+    fn auth_mode_type_deserializes_known_types() {
+        let json = r#"{"id":"t","name":"T","setup":{"required":true,"auth":{"modes":[
+            {"type":"managed","label":"Cloud","provider":"google"},
+            {"type":"self_hosted","label":"Own"},
+            {"type":"text","label":"Token"}
+        ]}}}"#;
+        let m = SkillManifest::from_json(json).unwrap();
+        let modes = &m.setup.unwrap().auth.unwrap().modes;
+        assert_eq!(modes.len(), 3);
+        assert_eq!(modes[0].mode_type, SkillAuthType::Managed);
+        assert_eq!(modes[1].mode_type, SkillAuthType::SelfHosted);
+        assert_eq!(modes[2].mode_type, SkillAuthType::Text);
+    }
+
+    #[test]
+    fn auth_mode_type_rejects_invalid_type() {
+        let json = r#"{"id":"t","name":"T","setup":{"required":true,"auth":{"modes":[
+            {"type":"banana","label":"Bad"}
+        ]}}}"#;
+        assert!(SkillManifest::from_json(json).is_err());
+    }
+
+    #[test]
+    fn auth_modes_rejects_empty() {
+        let json = r#"{"id":"t","name":"T","setup":{"required":true,"auth":{"modes":[]}}}"#;
+        assert!(SkillManifest::from_json(json).is_err());
+    }
 }
