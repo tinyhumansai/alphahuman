@@ -1065,7 +1065,7 @@ globalThis.webhook = {
     var backendUrl = __platform.env('BACKEND_URL') || 'https://api.tinyhumans.ai';
     var jwtToken = __ops.get_session_token() || '';
 
-    var result = await net.fetch(backendUrl + '/tunnels', {
+    var result = await net.fetch(backendUrl + '/webhooks/core', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1080,7 +1080,7 @@ globalThis.webhook = {
       throw new Error('Failed to create tunnel: ' + parsed.status + ' ' + parsed.body);
     }
     var data = JSON.parse(parsed.body);
-    var tunnel = data.tunnel || data;
+    var tunnel = data.data || data.tunnel || data;
 
     // Auto-register this tunnel to the calling skill
     if (tunnel.uuid) {
@@ -1088,7 +1088,7 @@ globalThis.webhook = {
     }
 
     // Build webhook URL for the caller
-    tunnel.webhookUrl = backendUrl + '/webhooks/' + tunnel.uuid;
+    tunnel.webhookUrl = backendUrl.replace(/\/$/, '') + '/webhooks/ingress/' + tunnel.uuid;
 
     console.log('[webhook] Created tunnel: ' + name + ' → ' + tunnel.webhookUrl);
     return tunnel;
@@ -1108,19 +1108,26 @@ globalThis.webhook = {
    * @param {string} tunnelUuid - The tunnel UUID to delete
    */
   deleteTunnel: async function (tunnelUuid) {
-    // Verify ownership locally first (will throw if not owned), but don't
-    // unregister yet — we need the backend DELETE to succeed first so we
-    // don't orphan tunnels if the network call fails.
+    var registration = null;
     webhook.list().forEach(function (reg) {
-      // webhook.list() only returns this skill's registrations, so if the
-      // tunnelUuid isn't among them the skill doesn't own it.
+      if (reg.tunnel_uuid === tunnelUuid) {
+        registration = reg;
+      }
     });
+    if (!registration) {
+      throw new Error('[webhook] Tunnel is not registered to this skill: ' + tunnelUuid);
+    }
+    if (!registration.backend_tunnel_id) {
+      throw new Error(
+        '[webhook] Missing backend tunnel id for deleteTunnel; re-create or re-register this tunnel'
+      );
+    }
 
     // Delete from backend first
     var backendUrl = __platform.env('BACKEND_URL') || 'https://api.tinyhumans.ai';
     var jwtToken = __ops.get_session_token() || '';
 
-    var result = await net.fetch(backendUrl + '/tunnels/' + tunnelUuid, {
+    var result = await net.fetch(backendUrl + '/webhooks/core/' + registration.backend_tunnel_id, {
       method: 'DELETE',
       headers: { Authorization: 'Bearer ' + jwtToken },
       timeout: 10000,
