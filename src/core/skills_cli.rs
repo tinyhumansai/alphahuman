@@ -97,7 +97,9 @@ fn parse_common_opts(args: &[String]) -> Result<(SkillsOpts, Vec<String>)> {
 }
 
 /// Bootstrap the QuickJS skill runtime with an optional skills directory override.
-async fn bootstrap_skills_runtime(skills_dir: Option<&PathBuf>) -> Result<Arc<crate::openhuman::skills::qjs_engine::RuntimeEngine>> {
+async fn bootstrap_skills_runtime(
+    skills_dir: Option<&PathBuf>,
+) -> Result<Arc<crate::openhuman::skills::qjs_engine::RuntimeEngine>> {
     use crate::openhuman::skills::qjs_engine::{set_global_engine, RuntimeEngine};
 
     // If --skills-dir is given, set SKILLS_LOCAL_DIR so the engine picks it up.
@@ -154,7 +156,9 @@ fn run_skills_server(args: &[String]) -> Result<()> {
         println!("Start a lightweight JSON-RPC server with only the skill runtime.");
         println!("Skills are auto-discovered and auto-started.");
         println!();
-        println!("  --skills-dir <path>  Directory containing compiled skills (default: auto-detect)");
+        println!(
+            "  --skills-dir <path>  Directory containing compiled skills (default: auto-detect)"
+        );
         println!("  --port <u16>         Listen port (default: 7799)");
         println!("  -v, --verbose        Enable debug logging");
         return Ok(());
@@ -178,24 +182,18 @@ fn run_skills_server(args: &[String]) -> Result<()> {
         let bind_addr = format!("127.0.0.1:{}", opts.port);
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
-        log::info!(
-            "[skills-cli] Skills runtime ready — http://{bind_addr}/rpc (JSON-RPC 2.0)"
-        );
-        log::info!(
-            "[skills-cli] Health check: http://{bind_addr}/health"
-        );
+        log::info!("[skills-cli] Skills runtime ready — http://{bind_addr}/rpc (JSON-RPC 2.0)");
+        log::info!("[skills-cli] Health check: http://{bind_addr}/health");
 
         // Print discovered skills summary.
         let skills = engine.list_skills();
         if skills.is_empty() {
-            log::warn!("[skills-cli] No skills discovered. Check --skills-dir or SKILLS_LOCAL_DIR.");
+            log::warn!(
+                "[skills-cli] No skills discovered. Check --skills-dir or SKILLS_LOCAL_DIR."
+            );
         } else {
             for snap in &skills {
-                log::info!(
-                    "[skills-cli]   {} — {:?}",
-                    snap.skill_id,
-                    snap.status,
-                );
+                log::info!("[skills-cli]   {} — {:?}", snap.skill_id, snap.status,);
             }
         }
 
@@ -228,10 +226,7 @@ fn run_skills_list(args: &[String]) -> Result<()> {
 
     rt.block_on(async {
         let engine = bootstrap_skills_runtime(opts.skills_dir.as_ref()).await?;
-        let manifests = engine
-            .discover_skills()
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let manifests = engine.discover_skills().await.map_err(anyhow::Error::msg)?;
 
         if manifests.is_empty() {
             println!("No skills found.");
@@ -239,7 +234,12 @@ fn run_skills_list(args: &[String]) -> Result<()> {
             println!("{:<20} {:<10} {}", "ID", "VERSION", "NAME");
             println!("{}", "-".repeat(60));
             for m in &manifests {
-                println!("{:<20} {:<10} {}", m.id, m.version.as_deref().unwrap_or("-"), m.name);
+                println!(
+                    "{:<20} {:<10} {}",
+                    m.id,
+                    m.version.as_deref().unwrap_or("-"),
+                    m.name
+                );
             }
             println!("\n{} skill(s) found.", manifests.len());
         }
@@ -272,8 +272,7 @@ fn run_skills_start(args: &[String]) -> Result<()> {
             Ok(snap) => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&snap)
-                        .unwrap_or_else(|_| format!("{:?}", snap))
+                    serde_json::to_string_pretty(&snap).unwrap_or_else(|_| format!("{:?}", snap))
                 );
             }
             Err(e) => {
@@ -298,8 +297,8 @@ fn run_skills_call(args: &[String]) -> Result<()> {
             let val = rest
                 .get(i + 1)
                 .ok_or_else(|| anyhow::anyhow!("missing value for --args"))?;
-            tool_args =
-                serde_json::from_str(val).map_err(|e| anyhow::anyhow!("invalid --args JSON: {e}"))?;
+            tool_args = serde_json::from_str(val)
+                .map_err(|e| anyhow::anyhow!("invalid --args JSON: {e}"))?;
             i += 2;
         } else if is_help(&rest[i]) {
             println!("Usage: openhuman skills call <skill-id> <tool-name> [--args '<json>'] [--skills-dir <path>] [-v]");
@@ -346,10 +345,7 @@ fn run_skills_call(args: &[String]) -> Result<()> {
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "Tool call failed: {}.{} — {}",
-                    skill_id, tool_name, e
-                );
+                eprintln!("Tool call failed: {}.{} — {}", skill_id, tool_name, e);
                 std::process::exit(1);
             }
         }
@@ -421,8 +417,8 @@ fn run_skills_test(args: &[String]) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn build_skills_only_router() -> axum::Router {
-    use axum::routing::{get, post};
     use axum::response::IntoResponse;
+    use axum::routing::{get, post};
     use axum::Json;
 
     axum::Router::new()
@@ -436,9 +432,11 @@ async fn health() -> impl axum::response::IntoResponse {
     axum::Json(serde_json::json!({ "ok": true, "mode": "skills-dev" }))
 }
 
-async fn rpc(axum::Json(req): axum::Json<crate::core::types::RpcRequest>) -> axum::response::Response {
+async fn rpc(
+    axum::Json(req): axum::Json<crate::core::types::RpcRequest>,
+) -> axum::response::Response {
+    use crate::core::types::{RpcError, RpcFailure, RpcSuccess};
     use axum::response::IntoResponse;
-    use crate::core::types::{RpcSuccess, RpcFailure, RpcError};
 
     let id = req.id.clone();
     let state = crate::core::jsonrpc::default_state();
@@ -473,13 +471,17 @@ async fn list_tools() -> impl axum::response::IntoResponse {
     let engine = crate::openhuman::skills::global_engine();
     match engine {
         Some(e) => {
-            let tools: Vec<_> = e.all_tools().into_iter().map(|(skill_id, tool)| {
-                serde_json::json!({
-                    "skill_id": skill_id,
-                    "name": tool.name,
-                    "description": tool.description,
+            let tools: Vec<_> = e
+                .all_tools()
+                .into_iter()
+                .map(|(skill_id, tool)| {
+                    serde_json::json!({
+                        "skill_id": skill_id,
+                        "name": tool.name,
+                        "description": tool.description,
+                    })
                 })
-            }).collect();
+                .collect();
             axum::Json(serde_json::json!({ "tools": tools }))
         }
         None => axum::Json(serde_json::json!({ "tools": [], "error": "runtime not initialized" })),
@@ -519,7 +521,9 @@ fn print_skills_help() {
     println!("  openhuman skills run   [--skills-dir <path>] [--port <u16>] [-v]");
     println!("  openhuman skills list  [--skills-dir <path>]");
     println!("  openhuman skills start <skill-id> [--skills-dir <path>] [-v]");
-    println!("  openhuman skills call  <skill-id> <tool-name> [--args '<json>'] [--skills-dir <path>]");
+    println!(
+        "  openhuman skills call  <skill-id> <tool-name> [--args '<json>'] [--skills-dir <path>]"
+    );
     println!("  openhuman skills test  <skill-id> [--skills-dir <path>] [-v]");
     println!();
     println!("Subcommands:");
