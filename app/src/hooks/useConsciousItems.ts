@@ -16,7 +16,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { getCoreStateSnapshot } from '../lib/coreState/store';
 import { getBackendUrl } from '../services/backendUrl';
 import type {
   ActionableItem,
@@ -142,8 +141,6 @@ export interface UseConsciousItemsResult {
 }
 
 export function useConsciousItems(): UseConsciousItemsResult {
-  const authToken = getCoreStateSnapshot().snapshot.sessionToken;
-
   const [items, setItems] = useState<ActionableItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -175,6 +172,7 @@ export function useConsciousItems(): UseConsciousItemsResult {
   }, []);
 
   const triggerAnalysis = useCallback(async () => {
+    const authToken = getCoreStateSnapshot().snapshot.sessionToken;
     if (!isTauri() || !authToken || isRunning) return;
     try {
       await consciousLoopRun(authToken, await getBackendUrl());

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useCoreState } from '../../../providers/CoreStateProvider';
 import { teamApi } from '../../../services/api/teamApi';
@@ -10,10 +10,10 @@ const TeamPanel = () => {
   const { navigateBack, navigateToTeamManagement } = useSettingsNavigation();
   const { snapshot, teams, refresh, refreshTeams } = useCoreState();
   const user = snapshot.currentUser;
-  const isLoading = false;
 
   const [newTeamName, setNewTeamName] = useState('');
   const [joinCode, setJoinCode] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -25,9 +25,18 @@ const TeamPanel = () => {
 
   const activeTeamId = user?.activeTeamId;
 
-  useEffect(() => {
-    void refreshTeams();
+  const refreshTeamsWithLoading = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await refreshTeams();
+    } finally {
+      setIsLoading(false);
+    }
   }, [refreshTeams]);
+
+  useEffect(() => {
+    void refreshTeamsWithLoading();
+  }, [refreshTeamsWithLoading]);
 
   const handleCreateTeam = async () => {
     const name = newTeamName.trim();
@@ -37,7 +46,7 @@ const TeamPanel = () => {
     try {
       await teamApi.createTeam(name);
       setNewTeamName('');
-      await refreshTeams();
+      await refreshTeamsWithLoading();
     } catch (err) {
       setError(
         err && typeof err === 'object' && 'error' in err
@@ -57,7 +66,7 @@ const TeamPanel = () => {
     try {
       await teamApi.joinTeam(code);
       setJoinCode('');
-      await Promise.all([refresh(), refreshTeams()]);
+      await Promise.all([refresh(), refreshTeamsWithLoading()]);
     } catch (err) {
       setError(
         err && typeof err === 'object' && 'error' in err
@@ -75,7 +84,7 @@ const TeamPanel = () => {
     setError(null);
     try {
       await teamApi.switchTeam(teamId);
-      await Promise.all([refresh(), refreshTeams()]);
+      await Promise.all([refresh(), refreshTeamsWithLoading()]);
     } catch (err) {
       setError(
         err && typeof err === 'object' && 'error' in err
@@ -100,7 +109,7 @@ const TeamPanel = () => {
 
     try {
       await teamApi.leaveTeam(teamToLeave.team._id);
-      await Promise.all([refresh(), refreshTeams()]);
+      await Promise.all([refresh(), refreshTeamsWithLoading()]);
       setTeamToLeave(null);
     } catch (err) {
       setError(

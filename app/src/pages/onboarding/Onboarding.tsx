@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import ProgressIndicator from '../../components/ProgressIndicator';
-import { useUser } from '../../hooks/useUser';
 import { useCoreState } from '../../providers/CoreStateProvider';
 import { userApi } from '../../services/api/userApi';
 import { bootstrapLocalAiWithRecommendedPreset } from '../../utils/localAiBootstrap';
@@ -28,7 +27,6 @@ interface OnboardingDraft {
 const LOCAL_AI_ERROR_DISMISS_MS = 10_000;
 
 const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
-  useUser();
   const { setOnboardingCompletedFlag, setOnboardingTasks } = useCoreState();
   const [currentStep, setCurrentStep] = useState(0);
   const [downloadError, setDownloadError] = useState<string | null>(null);

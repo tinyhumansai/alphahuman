@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -28,6 +29,7 @@ import {
   setOnboardingCompleted,
   storeSession,
   logout as tauriLogout,
+  syncMemoryClientToken,
 } from '../utils/tauriCommands';
 
 const POLL_MS = 3000;
@@ -48,6 +50,10 @@ interface CoreStateContextValue extends CoreState {
 
 const CoreStateContext = createContext<CoreStateContextValue | null>(null);
 
+function snapshotIdentity(snapshot: CoreAppSnapshot): string | null {
+  return snapshot.auth.userId ?? snapshot.currentUser?._id ?? null;
+}
+
 function normalizeSnapshot(
   result: Awaited<ReturnType<typeof fetchCoreAppSnapshot>>
 ): CoreAppSnapshot {
@@ -67,6 +73,9 @@ function normalizeSnapshot(
 
 export default function CoreStateProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CoreState>(() => getCoreStateSnapshot());
+  const snapshotRequestIdRef = useRef(0);
+  const teamsRequestIdRef = useRef(0);
+  const memoryTokenRef = useRef<string | null>(state.snapshot.sessionToken);
 
   const commitState = useCallback((updater: (previous: CoreState) => CoreState) => {
     setState(previous => {
@@ -77,14 +86,61 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
   }, []);
 
   const refresh = useCallback(async () => {
+    const requestId = ++snapshotRequestIdRef.current;
     const snapshot = normalizeSnapshot(await fetchCoreAppSnapshot());
-    commitState(previous => ({ ...previous, isBootstrapping: false, isReady: true, snapshot }));
+    commitState(previous => {
+      if (requestId !== snapshotRequestIdRef.current) {
+        return previous;
+      }
+
+      const previousIdentity = snapshotIdentity(previous.snapshot);
+      const nextIdentity = snapshotIdentity(snapshot);
+      const shouldClearScopedCaches =
+        previousIdentity !== nextIdentity ||
+        (previous.snapshot.auth.isAuthenticated && !snapshot.auth.isAuthenticated);
+
+      return {
+        ...previous,
+        isBootstrapping: false,
+        isReady: true,
+        snapshot,
+        teams: shouldClearScopedCaches ? [] : previous.teams,
+        teamMembersById: shouldClearScopedCaches ? {} : previous.teamMembersById,
+        teamInvitesById: shouldClearScopedCaches ? {} : previous.teamInvitesById,
+      };
+    });
     syncAnalyticsConsent(snapshot.analyticsEnabled);
+
+    if (!snapshot.sessionToken) {
+      memoryTokenRef.current = null;
+      return;
+    }
+
+    if (memoryTokenRef.current !== snapshot.sessionToken) {
+      try {
+        await syncMemoryClientToken(snapshot.sessionToken);
+        memoryTokenRef.current = snapshot.sessionToken;
+      } catch (error) {
+        console.warn('[core-state] memory client sync failed during refresh:', error);
+      }
+    }
   }, [commitState]);
 
   const refreshTeams = useCallback(async () => {
+    const requestId = ++teamsRequestIdRef.current;
+    const identityAtStart = snapshotIdentity(getCoreStateSnapshot().snapshot);
     const teams = await listTeams();
-    commitState(previous => ({ ...previous, teams }));
+    commitState(previous => {
+      if (requestId !== teamsRequestIdRef.current) {
+        return previous;
+      }
+
+      if (snapshotIdentity(previous.snapshot) !== identityAtStart) {
+        return previous;
+      }
+
+      return { ...previous, teams };
+    });
   }, [commitState]);
 
   const refreshTeamMembers = useCallback(
@@ -173,6 +229,12 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
   const storeSessionToken = useCallback(
     async (token: string, user?: object) => {
       await storeSession(token, user ?? {});
+      try {
+        await syncMemoryClientToken(token);
+        memoryTokenRef.current = token;
+      } catch (error) {
+        console.warn('[core-state] memory client sync failed after session store:', error);
+      }
       await refresh();
       await refreshTeams().catch(() => {});
     },
@@ -194,6 +256,7 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
         onboardingCompleted: false,
       },
     }));
+    memoryTokenRef.current = null;
   }, [commitState]);
 
   const value = useMemo<CoreStateContextValue>(

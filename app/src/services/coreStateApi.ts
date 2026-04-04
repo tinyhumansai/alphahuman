@@ -2,6 +2,21 @@ import type { User } from '../types/api';
 import type { TeamInvite, TeamMember, TeamWithRole } from '../types/team';
 import { callCoreRpc } from './coreRpcClient';
 
+export interface OnboardingTasks {
+  accessibilityPermissionGranted: boolean;
+  localModelConsentGiven: boolean;
+  localModelDownloadStarted: boolean;
+  enabledTools: string[];
+  connectedSources: string[];
+  updatedAtMs?: number;
+}
+
+export interface UpdateCoreLocalStateParams {
+  encryptionKey?: string | null;
+  primaryWalletAddress?: string | null;
+  onboardingTasks?: OnboardingTasks | null;
+}
+
 interface AppStateSnapshotResult {
   auth: {
     isAuthenticated: boolean;
@@ -16,58 +31,40 @@ interface AppStateSnapshotResult {
   localState: {
     encryptionKey?: string | null;
     primaryWalletAddress?: string | null;
-    onboardingTasks?: {
-      accessibilityPermissionGranted: boolean;
-      localModelConsentGiven: boolean;
-      localModelDownloadStarted: boolean;
-      enabledTools: string[];
-      connectedSources: string[];
-      updatedAtMs?: number;
-    } | null;
+    onboardingTasks?: OnboardingTasks | null;
   };
 }
 
-export async function fetchCoreAppSnapshot(): Promise<AppStateSnapshotResult> {
+export const fetchCoreAppSnapshot = async (): Promise<AppStateSnapshotResult> => {
   const response = await callCoreRpc<{ result: AppStateSnapshotResult }>({
     method: 'openhuman.app_state_snapshot',
   });
   return response.result;
-}
+};
 
-export async function updateCoreLocalState(params: {
-  encryptionKey?: string | null;
-  primaryWalletAddress?: string | null;
-  onboardingTasks?: {
-    accessibilityPermissionGranted: boolean;
-    localModelConsentGiven: boolean;
-    localModelDownloadStarted: boolean;
-    enabledTools: string[];
-    connectedSources: string[];
-    updatedAtMs?: number;
-  } | null;
-}): Promise<void> {
+export const updateCoreLocalState = async (params: UpdateCoreLocalStateParams): Promise<void> => {
   await callCoreRpc({ method: 'openhuman.app_state_update_local_state', params });
-}
+};
 
-export async function listTeams(): Promise<TeamWithRole[]> {
+export const listTeams = async (): Promise<TeamWithRole[]> => {
   const response = await callCoreRpc<{ result: TeamWithRole[] }>({
     method: 'openhuman.team_list_teams',
   });
   return response.result;
-}
+};
 
-export async function getTeamMembers(teamId: string): Promise<TeamMember[]> {
+export const getTeamMembers = async (teamId: string): Promise<TeamMember[]> => {
   const response = await callCoreRpc<{ result: TeamMember[] }>({
     method: 'openhuman.team_list_members',
     params: { teamId },
   });
   return response.result;
-}
+};
 
-export async function getTeamInvites(teamId: string): Promise<TeamInvite[]> {
+export const getTeamInvites = async (teamId: string): Promise<TeamInvite[]> => {
   const response = await callCoreRpc<{ result: TeamInvite[] }>({
     method: 'openhuman.team_list_invites',
     params: { teamId },
   });
   return response.result;
-}
+};

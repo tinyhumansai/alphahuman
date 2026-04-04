@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useCoreState } from '../providers/CoreStateProvider';
 import { socketService } from '../services/socketService';
@@ -22,22 +22,45 @@ export const useIntelligenceSocketManager = () => {
   const socketStatus = useAppSelector(selectSocketStatus);
   const isConnected = socketStatus === 'connected';
   const token = snapshot.sessionToken;
+  const previousTokenRef = useRef<string | null>(null);
 
-  const connect = useCallback(() => {
-    if (token && !isConnected) {
-      socketService.connect(token);
-    }
-  }, [isConnected, token]);
+  const connect = useCallback(
+    (nextToken?: string | null) => {
+      const tokenToUse = nextToken ?? token;
+      if (tokenToUse) {
+        socketService.connect(tokenToUse);
+      }
+    },
+    [token]
+  );
 
   const disconnect = useCallback(() => {
     socketService.disconnect();
   }, []);
 
   useEffect(() => {
-    if (token && !isConnected) {
+    const previousToken = previousTokenRef.current;
+
+    if (!token) {
+      if (previousToken || isConnected) {
+        disconnect();
+      }
+      previousTokenRef.current = null;
+      return;
+    }
+
+    if (previousToken && previousToken !== token) {
+      disconnect();
+      previousTokenRef.current = token;
+      connect(token);
+      return;
+    }
+
+    if (!isConnected) {
+      previousTokenRef.current = token;
       connect();
     }
-  }, [connect, isConnected, token]);
+  }, [connect, disconnect, isConnected, token]);
 
   return { connect, disconnect, isConnected, isReady: Boolean(token) && isConnected };
 };

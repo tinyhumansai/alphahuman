@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { useCoreState } from '../../../providers/CoreStateProvider';
@@ -10,6 +10,7 @@ const TeamManagementPanel = () => {
   const { teamId } = useParams<{ teamId: string }>();
   const { navigateBack, navigateToSettings } = useSettingsNavigation();
   const { teams, refreshTeams } = useCoreState();
+  const initialFetchAttemptedRef = useRef(false);
 
   const teamEntry = teams.find(t => t.team._id === teamId);
   const isAdmin = teamEntry?.role.toUpperCase() === 'ADMIN';
@@ -23,7 +24,13 @@ const TeamManagementPanel = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (teams.length === 0) {
+    if (teams.length > 0) {
+      initialFetchAttemptedRef.current = true;
+      return;
+    }
+
+    if (!initialFetchAttemptedRef.current) {
+      initialFetchAttemptedRef.current = true;
       void refreshTeams();
     }
   }, [refreshTeams, teams.length]);

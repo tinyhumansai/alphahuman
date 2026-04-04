@@ -4,11 +4,11 @@ import { useCoreState } from '../providers/CoreStateProvider';
  * Hook to access the current core-owned user snapshot.
  */
 export const useUser = () => {
-  const { snapshot, refresh } = useCoreState();
+  const { isBootstrapping, snapshot, refresh } = useCoreState();
 
   return {
     user: snapshot.currentUser,
-    isLoading: !snapshot.auth.isAuthenticated && !snapshot.sessionToken ? false : false,
+    isLoading: isBootstrapping,
     error: null,
     refetch: refresh,
   };

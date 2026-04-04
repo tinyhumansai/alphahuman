@@ -1,5 +1,4 @@
 import { useCoreState } from '../../../providers/CoreStateProvider';
-import { syncAnalyticsConsent } from '../../../services/analytics';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -10,8 +9,11 @@ const PrivacyPanel = () => {
 
   const handleToggleAnalytics = async () => {
     const newValue = !analyticsEnabled;
-    syncAnalyticsConsent(newValue);
-    await setAnalyticsEnabled(newValue);
+    try {
+      await setAnalyticsEnabled(newValue);
+    } catch (error) {
+      console.warn('[privacy] failed to persist analytics setting:', error);
+    }
   };
 
   return (

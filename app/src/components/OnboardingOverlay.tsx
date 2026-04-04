@@ -15,16 +15,12 @@ const OnboardingOverlay = () => {
   const { isBootstrapping, snapshot, setOnboardingCompletedFlag } = useCoreState();
   const token = snapshot.sessionToken;
   const user = snapshot.currentUser;
-
-  /** null = still loading, true/false = resolved from core config */
-  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
   const [userLoadTimedOut, setUserLoadTimedOut] = useState(false);
 
   // Reset local state on logout so re-login starts fresh.
   useEffect(() => {
     if (!token) {
       setUserLoadTimedOut(false);
-      setOnboardingCompleted(null);
     }
   }, [token]);
 
@@ -39,14 +35,9 @@ const OnboardingOverlay = () => {
 
   // User is ready when profile loaded or timeout elapsed.
   const userReady = !!user?._id || userLoadTimedOut;
-
-  useEffect(() => {
-    if (!token || isBootstrapping || !userReady) return;
-    setOnboardingCompleted(snapshot.onboardingCompleted);
-  }, [token, isBootstrapping, userReady, snapshot.onboardingCompleted]);
+  const onboardingCompleted = snapshot.onboardingCompleted;
 
   const handleDone = useCallback(async () => {
-    setOnboardingCompleted(true);
     try {
       await setOnboardingCompletedFlag(true);
     } catch {
@@ -56,9 +47,6 @@ const OnboardingOverlay = () => {
 
   // Don't show if not logged in, bootstrap not complete, or user not ready
   if (!token || isBootstrapping || !userReady) return null;
-
-  // Still loading the flag from core
-  if (onboardingCompleted === null) return null;
 
   const shouldShow = DEV_FORCE_ONBOARDING || !onboardingCompleted;
 
