@@ -7,10 +7,10 @@ import { apiClient } from '../apiClient';
 export const userApi = {
   /**
    * Get current authenticated user information
-   * GET /telegram/me
+   * GET /auth/me
    */
   getMe: async (): Promise<User> => {
-    const response = await apiClient.get<GetMeResponse>('/telegram/me');
+    const response = await apiClient.get<GetMeResponse>('/auth/me');
     if (!response.success) {
       throw new Error(response.error || 'Failed to fetch user data');
     }

@@ -198,7 +198,7 @@ describe('Logout -> re-login onboarding overlay', () => {
     expect(await textExists('Welcome')).toBe(true);
     expect(await textExists('Skip')).toBe(true);
 
-    const meCall = await waitForRequest(getRequestLog, 'GET', '/telegram/me', 10_000);
+    const meCall = await waitForRequest(getRequestLog, 'GET', '/auth/me', 10_000);
     expect(meCall).toBeDefined();
   });
 });

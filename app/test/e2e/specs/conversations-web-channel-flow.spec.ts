@@ -68,7 +68,7 @@ suiteRunner('Conversations web channel flow', () => {
     // triggerAuthDeepLinkBypass uses key=auth which sets the token directly
     // (no /telegram/login-tokens/ consume call). Wait for user profile instead.
     stepLog('wait for user profile request');
-    const profileCall = await waitForRequest('GET', '/telegram/me', 15_000);
+    const profileCall = await waitForRequest('GET', '/auth/me', 15_000);
     if (!profileCall) {
       stepLog('user profile call not found — bypass token may have been set without API call');
     }

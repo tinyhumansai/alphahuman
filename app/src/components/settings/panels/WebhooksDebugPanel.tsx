@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { buildWebhookIngressUrl } from '../../../lib/webhooks/urls';
 import { getCoreHttpBaseUrl } from '../../../services/coreRpcClient';
 import { BACKEND_URL } from '../../../utils/config';
 import {
@@ -241,7 +242,7 @@ const WebhooksDebugPanel = () => {
                     <div>
                       Target URL:{' '}
                       <span className="font-mono text-stone-900">
-                        {fallbackBackendUrl}/webhooks/{registration.tunnel_uuid}
+                        {buildWebhookIngressUrl(registration.tunnel_uuid, fallbackBackendUrl)}
                       </span>
                     </div>
                     {registration.backend_tunnel_id && (

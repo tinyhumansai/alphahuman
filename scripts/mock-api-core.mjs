@@ -247,7 +247,10 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (method === "GET" && /^\/telegram\/me\/?(\?.*)?$/.test(url)) {
+  if (
+    method === "GET" &&
+    (/^\/telegram\/me\/?(\?.*)?$/.test(url) || /^\/auth\/me\/?(\?.*)?$/.test(url))
+  ) {
     const delayMs = getDelayMs("telegramMeDelayMs");
     if (delayMs > 0) {
       await sleep(delayMs);

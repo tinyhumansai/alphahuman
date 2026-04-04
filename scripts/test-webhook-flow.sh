@@ -118,7 +118,7 @@ echo "Tunnel name: $TUNNEL_NAME"
 
 CREATE_BODY="$(jq -n --arg name "$TUNNEL_NAME" '{name: $name, description: "Live webhook echo flow test"}')"
 CREATE_RESP="$(
-  curl -fsS "${BACKEND_URL%/}/tunnels" \
+  curl -fsS "${BACKEND_URL%/}/webhooks/core" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $SESSION_TOKEN" \
     -d "$CREATE_BODY"
@@ -145,7 +145,7 @@ cleanup() {
     "$(jq -n --arg tunnel_uuid "$TUNNEL_UUID" '{tunnel_uuid: $tunnel_uuid}')" >/dev/null || true
 
   echo "Deleting backend tunnel..."
-  curl -fsS -X DELETE "${BACKEND_URL%/}/tunnels/${TUNNEL_ID}" \
+  curl -fsS -X DELETE "${BACKEND_URL%/}/webhooks/core/${TUNNEL_ID}" \
     -H "Authorization: Bearer $SESSION_TOKEN" >/dev/null || true
 }
 
