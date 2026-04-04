@@ -581,6 +581,15 @@ const CAPABILITIES: &[Capability] = &[
         status: CapabilityStatus::Beta,
     },
     Capability {
+        id: "settings.debug_webhooks",
+        name: "Debug Webhooks",
+        domain: "settings",
+        category: CapabilityCategory::Settings,
+        description: "Inspect registered webhook tunnels and captured request and response logs.",
+        how_to: "Settings > Developer Options > Webhooks",
+        status: CapabilityStatus::Beta,
+    },
+    Capability {
         id: "settings.manage_service",
         name: "Manage Desktop Service",
         domain: "settings",

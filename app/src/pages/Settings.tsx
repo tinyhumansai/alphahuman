@@ -23,6 +23,7 @@ import TeamInvitesPanel from '../components/settings/panels/TeamInvitesPanel';
 import TeamManagementPanel from '../components/settings/panels/TeamManagementPanel';
 import TeamMembersPanel from '../components/settings/panels/TeamMembersPanel';
 import TeamPanel from '../components/settings/panels/TeamPanel';
+import WebhooksDebugPanel from '../components/settings/panels/WebhooksDebugPanel';
 import SettingsHome from '../components/settings/SettingsHome';
 
 const Settings = () => {
@@ -56,6 +57,7 @@ const Settings = () => {
           <Route path="team/invites" element={<TeamInvitesPanel />} />
           <Route path="developer-options" element={<DeveloperOptionsPanel />} />
           <Route path="tauri-commands" element={<TauriCommandsPanel />} />
+          <Route path="webhooks-debug" element={<WebhooksDebugPanel />} />
           <Route path="memory-debug" element={<MemoryDebugPanel />} />
           <Route path="recovery-phrase" element={<RecoveryPhrasePanel />} />
         </Routes>
