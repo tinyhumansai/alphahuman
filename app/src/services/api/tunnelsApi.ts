@@ -1,6 +1,6 @@
 import { callCoreCommand } from '../coreCommandClient';
 
-const WEBHOOKS_CORE_BASE = '/webhooks/core';
+// const WEBHOOKS_CORE_BASE = '/webhooks/core';
 const WEBHOOKS_INGRESS_BASE = '/webhooks/ingress';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

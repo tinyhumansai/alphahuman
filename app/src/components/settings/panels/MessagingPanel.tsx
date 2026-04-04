@@ -4,8 +4,8 @@ import { useChannelDefinitions } from '../../../hooks/useChannelDefinitions';
 import { AUTH_MODE_LABELS } from '../../../lib/channels/definitions';
 import { resolvePreferredAuthModeForChannel } from '../../../lib/channels/routing';
 import { createChannelLinkToken } from '../../../services/api/authApi';
-import { callCoreRpc } from '../../../services/coreRpcClient';
 import { channelConnectionsApi } from '../../../services/api/channelConnectionsApi';
+import { callCoreRpc } from '../../../services/coreRpcClient';
 import {
   disconnectChannelConnection,
   setChannelConnectionStatus,
@@ -19,30 +19,12 @@ import type {
   ChannelConnectionStatus,
   ChannelType,
 } from '../../../types/channels';
-import { openUrl } from '../../../utils/openUrl';
 import { BACKEND_URL, TELEGRAM_BOT_USERNAME } from '../../../utils/config';
-import ChannelCapabilities from '../../channels/ChannelCapabilities';
+import { openUrl } from '../../../utils/openUrl';
 import ChannelFieldInput from '../../channels/ChannelFieldInput';
 import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
-
-const STATUS_STYLES: Record<ChannelConnectionStatus, { label: string; className: string }> = {
-  connected: { label: 'Connected', className: 'bg-sage-50 text-sage-700 border-sage-200' },
-  connecting: { label: 'Connecting', className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  disconnected: {
-    label: 'Disconnected',
-    className: 'bg-stone-100 text-stone-600 border-stone-200',
-  },
-  error: { label: 'Error', className: 'bg-coral-50 text-coral-600 border-coral-200' },
-};
-
-const AUTH_MODE_LABELS: Record<string, string> = {
-  managed_dm: 'Managed DM',
-  oauth: 'OAuth Sign-in',
-  bot_token: 'Bot Token',
-  api_key: 'API Key',
-};
 
 function normalizeBaseUrl(baseUrl?: string): string {
   return (baseUrl || 'https://api.tinyhumans.ai').trim().replace(/\/+$/, '');
@@ -85,97 +67,6 @@ function buildManagedChannelInstruction(
 
   return `Use this link token to continue: ${token}`;
 }
-
-/** Fallback definitions used when the core sidecar is unreachable. */
-const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
-  {
-    id: 'telegram',
-    display_name: 'Telegram',
-    description: 'Send and receive messages via Telegram.',
-    icon: 'telegram',
-    auth_modes: [
-      {
-        mode: 'bot_token',
-        description: 'Provide your own Telegram Bot token from @BotFather.',
-        fields: [
-          {
-            key: 'bot_token',
-            label: 'Bot Token',
-            field_type: 'secret',
-            required: true,
-            placeholder: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
-          },
-          {
-            key: 'allowed_users',
-            label: 'Allowed Users',
-            field_type: 'string',
-            required: false,
-            placeholder: 'Comma-separated Telegram usernames',
-          },
-        ],
-        auth_action: undefined,
-      },
-      {
-        mode: 'managed_dm',
-        description: 'Message the OpenHuman Telegram bot directly.',
-        fields: [],
-        auth_action: 'telegram_managed_dm',
-      },
-    ],
-    capabilities: ['send_text', 'receive_text', 'typing', 'draft_updates'],
-  },
-  {
-    id: 'discord',
-    display_name: 'Discord',
-    description: 'Send and receive messages via Discord.',
-    icon: 'discord',
-    auth_modes: [
-      {
-        mode: 'bot_token',
-        description: 'Provide your own Discord bot token.',
-        fields: [
-          {
-            key: 'bot_token',
-            label: 'Bot Token',
-            field_type: 'secret',
-            required: true,
-            placeholder: 'Your Discord bot token',
-          },
-          {
-            key: 'guild_id',
-            label: 'Server (Guild) ID',
-            field_type: 'string',
-            required: false,
-            placeholder: 'Optional: restrict to a specific server',
-          },
-        ],
-        auth_action: undefined,
-      },
-      {
-        mode: 'oauth',
-        description: 'Install the OpenHuman bot to your Discord server via OAuth.',
-        fields: [],
-        auth_action: 'discord_oauth',
-      },
-    ],
-    capabilities: ['send_text', 'receive_text', 'typing', 'threaded_replies'],
-  },
-  {
-    id: 'web',
-    display_name: 'Web',
-    description: 'Chat via the built-in web UI.',
-    icon: 'web',
-    auth_modes: [
-      {
-        mode: 'managed_dm',
-        description: 'Use the embedded web chat — no setup required.',
-        fields: [],
-        auth_action: undefined,
-      },
-    ],
-    capabilities: ['send_text', 'send_rich_text', 'receive_text'],
-  },
-];
 
 const MessagingPanel = () => {
   const { navigateBack } = useSettingsNavigation();
@@ -262,10 +153,7 @@ const MessagingPanel = () => {
             upsertChannelConnection({
               channel,
               authMode: spec.mode,
-              patch: {
-                status: 'connecting',
-                lastError: instruction,
-              },
+              patch: { status: 'connecting', lastError: instruction },
             })
           );
 
@@ -438,9 +326,8 @@ const MessagingPanel = () => {
                                 key={field.key}
                                 field={field}
                                 value={fieldValues[compositeKey]?.[field.key] ?? ''}
-                                onChange={e => updateField(compositeKey, field.key, e.target.value)}
-                                placeholder={field.placeholder || field.label}
-                                className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-primary-500/60"
+                                onChange={e => updateField(compositeKey, field.key, e)}
+                                // className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-primary-500/60"
                               />
                             ))}
                           </div>
