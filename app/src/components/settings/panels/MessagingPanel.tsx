@@ -25,6 +25,114 @@ import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
+const STATUS_STYLES: Record<ChannelConnectionStatus, { label: string; className: string }> = {
+  connected: { label: 'Connected', className: 'bg-sage-50 text-sage-700 border-sage-200' },
+  connecting: { label: 'Connecting', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  disconnected: {
+    label: 'Disconnected',
+    className: 'bg-stone-100 text-stone-600 border-stone-200',
+  },
+  error: { label: 'Error', className: 'bg-coral-50 text-coral-600 border-coral-200' },
+};
+
+const AUTH_MODE_LABELS: Record<string, string> = {
+  managed_dm: 'Managed DM',
+  oauth: 'OAuth Sign-in',
+  bot_token: 'Bot Token',
+  api_key: 'API Key',
+};
+
+/** Fallback definitions used when the core sidecar is unreachable. */
+const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
+  {
+    id: 'telegram',
+    display_name: 'Telegram',
+    description: 'Send and receive messages via Telegram.',
+    icon: 'telegram',
+    auth_modes: [
+      {
+        mode: 'bot_token',
+        description: 'Provide your own Telegram Bot token from @BotFather.',
+        fields: [
+          {
+            key: 'bot_token',
+            label: 'Bot Token',
+            field_type: 'secret',
+            required: true,
+            placeholder: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
+          },
+          {
+            key: 'allowed_users',
+            label: 'Allowed Users',
+            field_type: 'string',
+            required: false,
+            placeholder: 'Comma-separated Telegram usernames',
+          },
+        ],
+        auth_action: undefined,
+      },
+      {
+        mode: 'managed_dm',
+        description: 'Message the OpenHuman Telegram bot directly.',
+        fields: [],
+        auth_action: 'telegram_managed_dm',
+      },
+    ],
+    capabilities: ['send_text', 'receive_text', 'typing', 'draft_updates'],
+  },
+  {
+    id: 'discord',
+    display_name: 'Discord',
+    description: 'Send and receive messages via Discord.',
+    icon: 'discord',
+    auth_modes: [
+      {
+        mode: 'bot_token',
+        description: 'Provide your own Discord bot token.',
+        fields: [
+          {
+            key: 'bot_token',
+            label: 'Bot Token',
+            field_type: 'secret',
+            required: true,
+            placeholder: 'Your Discord bot token',
+          },
+          {
+            key: 'guild_id',
+            label: 'Server (Guild) ID',
+            field_type: 'string',
+            required: false,
+            placeholder: 'Optional: restrict to a specific server',
+          },
+        ],
+        auth_action: undefined,
+      },
+      {
+        mode: 'oauth',
+        description: 'Install the OpenHuman bot to your Discord server via OAuth.',
+        fields: [],
+        auth_action: 'discord_oauth',
+      },
+    ],
+    capabilities: ['send_text', 'receive_text', 'typing', 'threaded_replies'],
+  },
+  {
+    id: 'web',
+    display_name: 'Web',
+    description: 'Chat via the built-in web UI.',
+    icon: 'web',
+    auth_modes: [
+      {
+        mode: 'managed_dm',
+        description: 'Use the embedded web chat — no setup required.',
+        fields: [],
+        auth_action: undefined,
+      },
+    ],
+    capabilities: ['send_text', 'send_rich_text', 'receive_text'],
+  },
+];
+
 const MessagingPanel = () => {
   const { navigateBack } = useSettingsNavigation();
   const dispatch = useAppDispatch();
@@ -165,8 +273,8 @@ const MessagingPanel = () => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Default channel selector */}
-        <section className="rounded-xl border border-stone-800/60 bg-black/40 p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-white">Default Messaging Channel</h3>
+        <section className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-stone-900">Default Messaging Channel</h3>
           <div className="grid grid-cols-2 gap-2">
             {definitions.map(def => {
               const channelId = def.id as ChannelType;
@@ -180,8 +288,8 @@ const MessagingPanel = () => {
                   disabled={busyKeys[busyKey]}
                   className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
                     selected
-                      ? 'border-primary-500/60 bg-primary-500/20 text-primary-200'
-                      : 'border-stone-700 bg-stone-900/30 text-stone-300 hover:border-stone-500'
+                      ? 'border-primary-500/60 bg-primary-50 text-primary-600'
+                      : 'border-stone-200 bg-stone-50 text-stone-600 hover:border-stone-300'
                   }`}>
                   {def.display_name}
                 </button>
@@ -189,7 +297,7 @@ const MessagingPanel = () => {
             })}
           </div>
           <p className="text-xs text-stone-400">
-            Active route: <span className="text-primary-300">{recommendedRoute}</span>
+            Active route: <span className="text-primary-600">{recommendedRoute}</span>
           </p>
         </section>
 
@@ -200,7 +308,7 @@ const MessagingPanel = () => {
         )}
 
         {loading && (
-          <div className="rounded-xl border border-stone-800/60 bg-black/40 p-4 text-sm text-stone-400">
+          <div className="rounded-xl border border-stone-200 bg-white p-4 text-sm text-stone-400">
             Loading channel definitions...
           </div>
         )}
@@ -209,13 +317,21 @@ const MessagingPanel = () => {
           definitions.map(def => {
             const channelId = def.id as ChannelType;
             return (
-              <section
-                key={channelId}
-                className="rounded-xl border border-stone-800/60 bg-black/40 p-4">
+              <section key={channelId} className="rounded-xl border border-stone-200 bg-white p-4">
                 <div className="mb-4">
-                  <h3 className="text-base font-semibold text-white">{def.display_name}</h3>
+                  <h3 className="text-base font-semibold text-stone-900">{def.display_name}</h3>
                   <p className="text-xs text-stone-400">{def.description}</p>
-                  <ChannelCapabilities capabilities={def.capabilities} />
+                  {def.capabilities.length > 0 && (
+                    <div className="flex gap-1.5 mt-2">
+                      {def.capabilities.map(cap => (
+                        <span
+                          key={cap}
+                          className="px-1.5 py-0.5 text-[10px] rounded bg-stone-100 text-stone-500 border border-stone-200">
+                          {cap.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -227,13 +343,13 @@ const MessagingPanel = () => {
                     return (
                       <div
                         key={spec.mode}
-                        className="rounded-lg border border-stone-800 bg-stone-900/20 p-3">
+                        className="rounded-lg border border-stone-200 bg-stone-50 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium text-white">
+                            <p className="text-sm font-medium text-stone-900">
                               {AUTH_MODE_LABELS[spec.mode] ?? spec.mode}
                             </p>
-                            <p className="text-xs text-stone-400 mt-1">{spec.description}</p>
+                            <p className="text-xs text-stone-500 mt-1">{spec.description}</p>
                             {connection?.lastError && (
                               <p className="text-xs text-coral-300 mt-1">{connection.lastError}</p>
                             )}
@@ -248,7 +364,9 @@ const MessagingPanel = () => {
                                 key={field.key}
                                 field={field}
                                 value={fieldValues[compositeKey]?.[field.key] ?? ''}
-                                onChange={val => updateField(compositeKey, field.key, val)}
+                                onChange={e => updateField(compositeKey, field.key, e.target.value)}
+                                placeholder={field.placeholder || field.label}
+                                className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-primary-500/60"
                               />
                             ))}
                           </div>
@@ -266,7 +384,7 @@ const MessagingPanel = () => {
                             type="button"
                             disabled={busyKeys[compositeKey] || status === 'disconnected'}
                             onClick={() => handleDisconnect(channelId, spec.mode)}
-                            className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-300 hover:border-stone-500 disabled:opacity-50">
+                            className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:border-stone-300 disabled:opacity-50">
                             Disconnect
                           </button>
                         </div>
