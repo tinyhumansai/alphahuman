@@ -1,8 +1,9 @@
 import debug from 'debug';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUTH_MODE_LABELS } from '../../lib/channels/definitions';
 import { channelConnectionsApi } from '../../services/api/channelConnectionsApi';
+import { managedDmApi } from '../../services/api/managedDmApi';
 import { callCoreRpc } from '../../services/coreRpcClient';
 import {
   disconnectChannelConnection,
@@ -21,7 +22,8 @@ import ChannelFieldInput from './ChannelFieldInput';
 import ChannelStatusBadge from './ChannelStatusBadge';
 
 const log = debug('channels:telegram');
-const MANAGED_DM_FOLLOW_UP_MESSAGE = 'Managed DM setup will be enabled in a follow-up update.';
+const MANAGED_DM_CONNECTING_MESSAGE = 'Open Telegram and message the bot to complete setup.';
+const MANAGED_DM_TIMEOUT_MESSAGE = 'Managed DM verification timed out. Try connecting again.';
 
 interface TelegramConfigProps {
   definition: ChannelDefinition;
@@ -34,6 +36,7 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
   const [busyKeys, setBusyKeys] = useState<Record<string, boolean>>({});
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
+  const managedDmPollControllers = useRef<Record<string, AbortController>>({});
 
   const runBusy = useCallback(async (key: string, task: () => Promise<void>) => {
     setBusyKeys(prev => ({ ...prev, [key]: true }));
@@ -54,6 +57,86 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
       [compositeKey]: { ...(prev[compositeKey] ?? {}), [fieldKey]: value },
     }));
   }, []);
+
+  const stopManagedDmPolling = useCallback((key: string) => {
+    managedDmPollControllers.current[key]?.abort();
+    delete managedDmPollControllers.current[key];
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const controller of Object.values(managedDmPollControllers.current)) {
+        controller.abort();
+      }
+      managedDmPollControllers.current = {};
+    };
+  }, []);
+
+  const startManagedDmPolling = useCallback(
+    (key: string, token: string) => {
+      stopManagedDmPolling(key);
+      const controller = new AbortController();
+      managedDmPollControllers.current[key] = controller;
+
+      void (async () => {
+        log('polling managed dm status', { key, tokenLength: token.length });
+        try {
+          const status = await managedDmApi.pollManagedDmStatusUntilVerified(token, {
+            signal: controller.signal,
+          });
+
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          if (status?.verified) {
+            log('managed dm verified via polling', { key, telegramUsername: status.telegramUsername });
+            dispatch(
+              upsertChannelConnection({
+                channel: 'telegram',
+                authMode: 'managed_dm',
+                patch: {
+                  status: 'connected',
+                  lastError: undefined,
+                  capabilities: ['dm'],
+                },
+              })
+            );
+            return;
+          }
+
+          dispatch(
+            upsertChannelConnection({
+              channel: 'telegram',
+              authMode: 'managed_dm',
+              patch: { status: 'error', lastError: MANAGED_DM_TIMEOUT_MESSAGE },
+            })
+          );
+          setError(MANAGED_DM_TIMEOUT_MESSAGE);
+        } catch (pollError) {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          const msg = pollError instanceof Error ? pollError.message : String(pollError);
+          log('managed dm polling failed', { key, error: msg });
+          dispatch(
+            upsertChannelConnection({
+              channel: 'telegram',
+              authMode: 'managed_dm',
+              patch: { status: 'error', lastError: msg },
+            })
+          );
+          setError(msg);
+        } finally {
+          if (managedDmPollControllers.current[key] === controller) {
+            delete managedDmPollControllers.current[key];
+          }
+        }
+      })();
+    },
+    [dispatch, stopManagedDmPolling]
+  );
 
   const handleConnect = useCallback(
     (spec: AuthModeSpec) => {
@@ -94,17 +177,37 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
 
         if (result.status === 'pending_auth' && result.auth_action) {
           if (result.auth_action === 'telegram_managed_dm') {
-            log('managed dm connect requested before backend flow is enabled');
-            dispatch(
-              upsertChannelConnection({
-                channel: 'telegram',
-                authMode: spec.mode,
-                patch: {
-                  status: 'disconnected',
-                  lastError: result.message ?? MANAGED_DM_FOLLOW_UP_MESSAGE,
-                },
-              })
-            );
+            try {
+              const initiated = await managedDmApi.initiateManagedDm();
+              log('managed dm initiate success', {
+                key,
+                tokenLength: initiated.token.length,
+                expiresAt: initiated.expiresAt,
+              });
+              await openUrl(initiated.deepLink);
+              dispatch(
+                upsertChannelConnection({
+                  channel: 'telegram',
+                  authMode: spec.mode,
+                  patch: {
+                    status: 'connecting',
+                    lastError: MANAGED_DM_CONNECTING_MESSAGE,
+                  },
+                })
+              );
+              startManagedDmPolling(key, initiated.token);
+            } catch (managedDmError) {
+              const msg = managedDmError instanceof Error ? managedDmError.message : String(managedDmError);
+              log('managed dm initiate failed', { key, error: msg });
+              dispatch(
+                upsertChannelConnection({
+                  channel: 'telegram',
+                  authMode: spec.mode,
+                  patch: { status: 'error', lastError: msg },
+                })
+              );
+              setError(msg);
+            }
           } else if (result.auth_action.includes('oauth')) {
             dispatch(
               upsertChannelConnection({
@@ -142,7 +245,7 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
         }
       });
     },
-    [dispatch, fieldValues, runBusy]
+    [dispatch, fieldValues, runBusy, startManagedDmPolling]
   );
 
   const handleDisconnect = useCallback(
@@ -150,11 +253,12 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
       const key = `telegram:${authMode}`;
       void runBusy(key, async () => {
         log('disconnecting telegram via %s', authMode);
+        stopManagedDmPolling(`telegram:${authMode}`);
         await channelConnectionsApi.disconnectChannel('telegram', authMode);
         dispatch(disconnectChannelConnection({ channel: 'telegram', authMode }));
       });
     },
-    [dispatch, runBusy]
+    [dispatch, runBusy, stopManagedDmPolling]
   );
 
   return (

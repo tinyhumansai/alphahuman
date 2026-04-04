@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FALLBACK_DEFINITIONS } from '../../../lib/channels/definitions';
 import { channelConnectionsApi } from '../../../services/api/channelConnectionsApi';
+import { managedDmApi } from '../../../services/api/managedDmApi';
+import { openUrl } from '../../../utils/openUrl';
 import { renderWithProviders } from '../../../test/test-utils';
 import TelegramConfig from '../TelegramConfig';
 
@@ -15,6 +17,18 @@ vi.mock('../../../services/api/channelConnectionsApi', () => ({
     listDefinitions: vi.fn(),
     listStatus: vi.fn(),
   },
+}));
+
+vi.mock('../../../services/api/managedDmApi', () => ({
+  managedDmApi: {
+    initiateManagedDm: vi.fn(),
+    getManagedDmStatus: vi.fn(),
+    pollManagedDmStatusUntilVerified: vi.fn(),
+  },
+}));
+
+vi.mock('../../../utils/openUrl', () => ({
+  openUrl: vi.fn(),
 }));
 
 afterEach(() => {
@@ -55,11 +69,21 @@ describe('TelegramConfig', () => {
     });
   });
 
-  it('surfaces a follow-up message for managed dm without starting a missing rpc flow', async () => {
+  it('starts managed dm flow, opens the deep link, and marks the channel connected after verification', async () => {
     vi.mocked(channelConnectionsApi.connectChannel).mockResolvedValue({
       status: 'pending_auth',
       auth_action: 'telegram_managed_dm',
       restart_required: false,
+    });
+    vi.mocked(managedDmApi.initiateManagedDm).mockResolvedValue({
+      token: 'managed-dm-token',
+      deepLink: 'https://t.me/openhuman_bot?start=manageddm_managed-dm-token',
+      expiresAt: '2026-04-04T12:00:00.000Z',
+    });
+    vi.mocked(managedDmApi.pollManagedDmStatusUntilVerified).mockResolvedValue({
+      verified: true,
+      telegramUsername: 'telegram-user',
+      expiresAt: '2026-04-04T12:05:00.000Z',
     });
 
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
@@ -68,9 +92,19 @@ describe('TelegramConfig', () => {
     fireEvent.click(connectButtons[1]);
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Managed DM setup will be enabled in a follow-up update.')
-      ).toBeInTheDocument();
+      expect(managedDmApi.initiateManagedDm).toHaveBeenCalledTimes(1);
     });
+    await waitFor(() => {
+      expect(openUrl).toHaveBeenCalledWith('https://t.me/openhuman_bot?start=manageddm_managed-dm-token');
+    });
+    await waitFor(() => {
+      expect(managedDmApi.pollManagedDmStatusUntilVerified).toHaveBeenCalledWith(
+        'managed-dm-token',
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+        })
+      );
+    });
+    expect(await screen.findByText('Connected')).toBeInTheDocument();
   });
 });

@@ -210,6 +210,28 @@ class SocketService {
       );
     });
 
+    this.socket.on('channel:managed-dm-verified', data => {
+      const obj = data as Record<string, unknown> | null;
+      if (!obj || typeof obj !== 'object') return;
+      const token = typeof obj.token === 'string' ? obj.token : undefined;
+      const telegramUsername = typeof obj.telegramUsername === 'string' ? obj.telegramUsername : undefined;
+      const chatId = typeof obj.chatId === 'number' ? obj.chatId : undefined;
+      if (!token) return;
+
+      socketLog('Managed DM verified', { tokenLength: token.length, telegramUsername, chatId });
+      store.dispatch(
+        upsertChannelConnection({
+          channel: 'telegram',
+          authMode: 'managed_dm',
+          patch: {
+            status: 'connected',
+            lastError: undefined,
+            capabilities: ['dm'],
+          },
+        })
+      );
+    });
+
     this.socket.connect();
   }
 
