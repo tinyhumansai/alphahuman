@@ -7,6 +7,7 @@ pub mod preferences;
 pub mod qjs_engine;
 pub mod qjs_skill_instance;
 pub mod quickjs_libs;
+mod registry_cache;
 pub mod registry_ops;
 pub mod registry_types;
 mod schemas;
