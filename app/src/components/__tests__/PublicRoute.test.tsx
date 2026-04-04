@@ -6,9 +6,7 @@ import PublicRoute from '../PublicRoute';
 
 const mockUseCoreState = vi.fn();
 
-vi.mock('../../providers/CoreStateProvider', () => ({
-  useCoreState: () => mockUseCoreState(),
-}));
+vi.mock('../../providers/CoreStateProvider', () => ({ useCoreState: () => mockUseCoreState() }));
 
 function renderRoute(routes: React.ReactNode, initialEntries = ['/']) {
   return render(
@@ -20,10 +18,7 @@ function renderRoute(routes: React.ReactNode, initialEntries = ['/']) {
 
 describe('PublicRoute', () => {
   it('renders children when user is not authenticated', () => {
-    mockUseCoreState.mockReturnValue({
-      isBootstrapping: false,
-      snapshot: { sessionToken: null },
-    });
+    mockUseCoreState.mockReturnValue({ isBootstrapping: false, snapshot: { sessionToken: null } });
 
     renderRoute(
       <Route

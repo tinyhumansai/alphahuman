@@ -60,9 +60,7 @@ vi.mock('../src/lib/skills/manager', () => ({
   skillManager: { setWalletAddress: mockSetWalletAddress },
 }));
 
-vi.mock('../src/providers/CoreStateProvider', () => ({
-  useCoreState: () => mockUseCoreState(),
-}));
+vi.mock('../src/providers/CoreStateProvider', () => ({ useCoreState: () => mockUseCoreState() }));
 
 // LottieAnimation makes network calls; stub it out
 vi.mock('../src/components/LottieAnimation', () => ({
@@ -107,10 +105,7 @@ beforeEach(() => {
   mockSetWalletAddress.mockClear();
   mockSetEncryptionKey.mockClear();
   mockUseCoreState.mockReturnValue({
-    snapshot: {
-      currentUser: mockUser,
-      sessionToken: 'jwt-token',
-    },
+    snapshot: { currentUser: mockUser, sessionToken: 'jwt-token' },
     setEncryptionKey: mockSetEncryptionKey,
   });
 });
@@ -490,10 +485,7 @@ describe('Mnemonic — handleContinue: generate mode', () => {
 
   it('shows "User not loaded" error when user._id is missing', async () => {
     mockUseCoreState.mockReturnValue({
-      snapshot: {
-        currentUser: null,
-        sessionToken: 'jwt-token',
-      },
+      snapshot: { currentUser: null, sessionToken: 'jwt-token' },
       setEncryptionKey: mockSetEncryptionKey,
     });
     renderWithoutUser();
@@ -590,10 +582,7 @@ describe('Mnemonic — handleContinue: import mode', () => {
     mockValidateMnemonicPhrase.mockReturnValue(true);
 
     mockUseCoreState.mockReturnValue({
-      snapshot: {
-        currentUser: null,
-        sessionToken: 'jwt-token',
-      },
+      snapshot: { currentUser: null, sessionToken: 'jwt-token' },
       setEncryptionKey: mockSetEncryptionKey,
     });
     renderWithProviders(<Mnemonic />);
