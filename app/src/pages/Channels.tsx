@@ -29,10 +29,7 @@ const Channels = () => {
               selectedChannel={selectedChannel}
               onSelectChannel={setSelectedChannel}
             />
-            <ChannelConfigPanel
-              selectedChannel={selectedChannel}
-              definitions={definitions}
-            />
+            <ChannelConfigPanel selectedChannel={selectedChannel} definitions={definitions} />
           </>
         )}
       </div>

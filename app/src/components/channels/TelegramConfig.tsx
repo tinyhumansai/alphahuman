@@ -21,8 +21,7 @@ import ChannelFieldInput from './ChannelFieldInput';
 import ChannelStatusBadge from './ChannelStatusBadge';
 
 const log = debug('channels:telegram');
-const MANAGED_DM_FOLLOW_UP_MESSAGE =
-  'Managed DM setup will be enabled in a follow-up update.';
+const MANAGED_DM_FOLLOW_UP_MESSAGE = 'Managed DM setup will be enabled in a follow-up update.';
 
 interface TelegramConfigProps {
   definition: ChannelDefinition;
@@ -61,7 +60,11 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
       const key = `telegram:${spec.mode}`;
       void runBusy(key, async () => {
         dispatch(
-          setChannelConnectionStatus({ channel: 'telegram', authMode: spec.mode, status: 'connecting' })
+          setChannelConnectionStatus({
+            channel: 'telegram',
+            authMode: spec.mode,
+            status: 'connecting',
+          })
         );
         log('connecting telegram via %s', spec.mode);
 

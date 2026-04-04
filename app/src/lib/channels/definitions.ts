@@ -1,24 +1,19 @@
-import type {
-  ChannelConnectionStatus,
-  ChannelDefinition,
-} from '../../types/channels';
+import type { ChannelConnectionStatus, ChannelDefinition } from '../../types/channels';
 
 /** Status badge styles for channel connection states. */
-export const STATUS_STYLES: Record<
-  ChannelConnectionStatus,
-  { label: string; className: string }
-> = {
-  connected: { label: 'Connected', className: 'bg-sage-500/20 text-sage-300 border-sage-500/30' },
-  connecting: {
-    label: 'Connecting',
-    className: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  },
-  disconnected: {
-    label: 'Disconnected',
-    className: 'bg-stone-500/20 text-stone-300 border-stone-500/30',
-  },
-  error: { label: 'Error', className: 'bg-coral-500/20 text-coral-300 border-coral-500/30' },
-};
+export const STATUS_STYLES: Record<ChannelConnectionStatus, { label: string; className: string }> =
+  {
+    connected: { label: 'Connected', className: 'bg-sage-500/20 text-sage-300 border-sage-500/30' },
+    connecting: {
+      label: 'Connecting',
+      className: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    },
+    disconnected: {
+      label: 'Disconnected',
+      className: 'bg-stone-500/20 text-stone-300 border-stone-500/30',
+    },
+    error: { label: 'Error', className: 'bg-coral-500/20 text-coral-300 border-coral-500/30' },
+  };
 
 /** Human-readable labels for auth modes. */
 export const AUTH_MODE_LABELS: Record<string, string> = {

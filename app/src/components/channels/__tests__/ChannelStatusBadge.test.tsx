@@ -19,9 +19,7 @@ describe('ChannelStatusBadge', () => {
   });
 
   it('applies custom className', () => {
-    const { container } = render(
-      <ChannelStatusBadge status="connected" className="extra-class" />
-    );
+    const { container } = render(<ChannelStatusBadge status="connected" className="extra-class" />);
     expect(container.firstChild).toHaveClass('extra-class');
   });
 });

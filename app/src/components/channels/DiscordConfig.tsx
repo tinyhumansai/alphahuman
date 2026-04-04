@@ -59,7 +59,11 @@ const DiscordConfig = ({ definition }: DiscordConfigProps) => {
       const key = `discord:${spec.mode}`;
       void runBusy(key, async () => {
         dispatch(
-          setChannelConnectionStatus({ channel: 'discord', authMode: spec.mode, status: 'connecting' })
+          setChannelConnectionStatus({
+            channel: 'discord',
+            authMode: spec.mode,
+            status: 'connecting',
+          })
         );
         log('connecting discord via %s', spec.mode);
 

@@ -1,11 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 
-import ChannelCapabilities from '../../channels/ChannelCapabilities';
-import ChannelFieldInput from '../../channels/ChannelFieldInput';
-import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
+import { useChannelDefinitions } from '../../../hooks/useChannelDefinitions';
 import { AUTH_MODE_LABELS } from '../../../lib/channels/definitions';
 import { resolvePreferredAuthModeForChannel } from '../../../lib/channels/routing';
-import { useChannelDefinitions } from '../../../hooks/useChannelDefinitions';
 import { channelConnectionsApi } from '../../../services/api/channelConnectionsApi';
 import { callCoreRpc } from '../../../services/coreRpcClient';
 import {
@@ -22,6 +19,9 @@ import type {
   ChannelType,
 } from '../../../types/channels';
 import { openUrl } from '../../../utils/openUrl';
+import ChannelCapabilities from '../../channels/ChannelCapabilities';
+import ChannelFieldInput from '../../channels/ChannelFieldInput';
+import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 

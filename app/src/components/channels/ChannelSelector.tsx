@@ -47,9 +47,9 @@ const ChannelSelector = ({
           // Determine best connection status for this channel.
           const channelModes = channelConnections.connections[channelId];
           const bestStatus = channelModes
-            ? Object.values(channelModes).find(c => c?.status === 'connected')?.status ??
+            ? (Object.values(channelModes).find(c => c?.status === 'connected')?.status ??
               Object.values(channelModes).find(c => c?.status === 'connecting')?.status ??
-              'disconnected'
+              'disconnected')
             : 'disconnected';
 
           return (

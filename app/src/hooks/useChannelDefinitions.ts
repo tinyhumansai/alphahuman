@@ -8,11 +8,7 @@ import {
   upsertChannelConnection,
 } from '../store/channelConnectionsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import type {
-  ChannelAuthMode,
-  ChannelDefinition,
-  ChannelType,
-} from '../types/channels';
+import type { ChannelAuthMode, ChannelDefinition, ChannelType } from '../types/channels';
 
 const log = debug('channels:definitions');
 
