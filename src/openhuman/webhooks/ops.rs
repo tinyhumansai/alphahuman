@@ -168,7 +168,10 @@ pub async fn get_tunnel(config: &Config, id: &str) -> Result<RpcOutcome<Value>, 
     if id.is_empty() {
         return Err("id is required".to_string());
     }
-    let data = get_authed_value(config, Method::GET, &format!("/webhooks/core/{id}"), None).await?;
+    let encoded_id = urlencoding::encode(id);
+    let data =
+        get_authed_value(config, Method::GET, &format!("/webhooks/core/{encoded_id}"), None)
+            .await?;
     Ok(RpcOutcome::single_log(data, "webhook tunnel fetched"))
 }
 
@@ -181,10 +184,11 @@ pub async fn update_tunnel(
     if id.is_empty() {
         return Err("id is required".to_string());
     }
+    let encoded_id = urlencoding::encode(id);
     let data = get_authed_value(
         config,
         Method::PATCH,
-        &format!("/webhooks/core/{id}"),
+        &format!("/webhooks/core/{encoded_id}"),
         Some(payload),
     )
     .await?;
@@ -196,10 +200,11 @@ pub async fn delete_tunnel(config: &Config, id: &str) -> Result<RpcOutcome<Value
     if id.is_empty() {
         return Err("id is required".to_string());
     }
+    let encoded_id = urlencoding::encode(id);
     let data = get_authed_value(
         config,
         Method::DELETE,
-        &format!("/webhooks/core/{id}"),
+        &format!("/webhooks/core/{encoded_id}"),
         None,
     )
     .await?;

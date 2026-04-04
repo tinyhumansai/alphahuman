@@ -311,10 +311,11 @@ impl BackendOAuthClient {
     ) -> Result<Value> {
         let channel = channel.trim().trim_matches('/');
         anyhow::ensure!(!channel.is_empty(), "channel is required");
+        let encoded_channel = urlencoding::encode(channel);
 
         let url = self
             .base
-            .join(&format!("auth/channels/{channel}/link-token"))
+            .join(&format!("auth/channels/{encoded_channel}/link-token"))
             .context("build channel link-token URL")?;
 
         let resp = self
