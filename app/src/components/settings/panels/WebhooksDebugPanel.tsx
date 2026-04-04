@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { getCoreHttpBaseUrl } from '../../../services/coreRpcClient';
 import { tunnelsApi } from '../../../services/api/tunnelsApi';
+import { getCoreHttpBaseUrl } from '../../../services/coreRpcClient';
 import { BACKEND_URL } from '../../../utils/config';
 import {
   openhumanWebhooksClearLogs,

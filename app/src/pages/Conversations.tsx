@@ -1185,36 +1185,39 @@ const Conversations = () => {
         )}
 
         <div className="flex-shrink-0 border-t border-stone-200 px-4 py-3">
-          {teamUsage && (teamUsage.remainingUsd <= 0 || (teamUsage.fiveHourCapUsd > 0 && teamUsage.fiveHourSpendUsd >= teamUsage.fiveHourCapUsd)) && (
-            <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <svg
-                  className="w-4 h-4 text-coral-400 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                <p className="text-xs text-coral-600 truncate">
-                  {teamUsage.remainingUsd <= 0
-                    ? 'Weekly inference budget exhausted. Top up to continue.'
-                    : `5-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
-                </p>
+          {teamUsage &&
+            (teamUsage.remainingUsd <= 0 ||
+              (teamUsage.fiveHourCapUsd > 0 &&
+                teamUsage.fiveHourSpendUsd >= teamUsage.fiveHourCapUsd)) && (
+              <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg
+                    className="w-4 h-4 text-coral-400 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                  <p className="text-xs text-coral-600 truncate">
+                    {teamUsage.remainingUsd <= 0
+                      ? 'Weekly inference budget exhausted. Top up to continue.'
+                      : `5-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
+                  </p>
+                </div>
+                {teamUsage.remainingUsd <= 0 && (
+                  <button
+                    onClick={() => navigate('/settings/billing')}
+                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
+                    Top Up
+                  </button>
+                )}
               </div>
-              {teamUsage.remainingUsd <= 0 && (
-                <button
-                  onClick={() => navigate('/settings/billing')}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
-                  Top Up
-                </button>
-              )}
-            </div>
-          )}
+            )}
 
           <div className="flex items-center gap-2 mb-2">
             {isLoadingModels ? (
@@ -1297,15 +1300,23 @@ const Conversations = () => {
                   <div className="flex items-center gap-2">
                     <LimitPill
                       label="5h"
-                      usedPct={teamUsage.fiveHourCapUsd > 0
-                        ? Math.min(1, teamUsage.fiveHourSpendUsd / teamUsage.fiveHourCapUsd)
-                        : 0}
+                      usedPct={
+                        teamUsage.fiveHourCapUsd > 0
+                          ? Math.min(1, teamUsage.fiveHourSpendUsd / teamUsage.fiveHourCapUsd)
+                          : 0
+                      }
                     />
                     <LimitPill
                       label="7d"
-                      usedPct={teamUsage.cycleBudgetUsd > 0
-                        ? Math.min(1, (teamUsage.cycleBudgetUsd - teamUsage.remainingUsd) / teamUsage.cycleBudgetUsd)
-                        : 0}
+                      usedPct={
+                        teamUsage.cycleBudgetUsd > 0
+                          ? Math.min(
+                              1,
+                              (teamUsage.cycleBudgetUsd - teamUsage.remainingUsd) /
+                                teamUsage.cycleBudgetUsd
+                            )
+                          : 0
+                      }
                     />
                   </div>
                 ) : (
@@ -1317,7 +1328,8 @@ const Conversations = () => {
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-stone-400">5-hour limit</span>
                         <span>
-                          ${teamUsage.fiveHourSpendUsd.toFixed(2)} / ${teamUsage.fiveHourCapUsd.toFixed(2)}
+                          ${teamUsage.fiveHourSpendUsd.toFixed(2)} / $
+                          {teamUsage.fiveHourCapUsd.toFixed(2)}
                           {teamUsage.fiveHourResetsAt && (
                             <span className="text-stone-400 ml-1">
                               — resets {formatResetTime(teamUsage.fiveHourResetsAt)}
@@ -1328,7 +1340,8 @@ const Conversations = () => {
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-stone-400">Weekly limit</span>
                         <span>
-                          ${teamUsage.remainingUsd.toFixed(2)} / ${teamUsage.cycleBudgetUsd.toFixed(2)} left
+                          ${teamUsage.remainingUsd.toFixed(2)} / $
+                          {teamUsage.cycleBudgetUsd.toFixed(2)} left
                           {teamUsage.cycleEndsAt && (
                             <span className="text-stone-400 ml-1">
                               — resets {formatResetTime(teamUsage.cycleEndsAt)}
