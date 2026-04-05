@@ -10,8 +10,8 @@ use crate::openhuman::skills::types::{SkillConfig, SkillMessage, SkillSnapshot, 
 use super::event_loop::run_event_loop;
 use super::js_handlers::{call_lifecycle, handle_js_call};
 use super::js_helpers::{
-    drive_jobs, extract_tools, format_js_exception, restore_auth_credential,
-    restore_client_key, restore_oauth_credential,
+    drive_jobs, extract_tools, format_js_exception, restore_auth_credential, restore_client_key,
+    restore_oauth_credential,
 };
 use super::types::{BridgeDeps, QjsSkillInstance, SkillState};
 

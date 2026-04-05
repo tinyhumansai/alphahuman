@@ -150,9 +150,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     // 3. Notify the running skill of the OAuth credential, mark setup_complete,
     //    and activate (list tools, sync to backend).
     try {
-      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, {
-        clientKeyShare,
-      });
+      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, { clientKeyShare });
       console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
     } catch (runtimeErr) {
       console.warn('[DeepLink] Runtime notify failed:', runtimeErr);

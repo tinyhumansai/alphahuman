@@ -442,11 +442,7 @@ impl BackendOAuthClient {
     }
 
     /// `POST /auth/integrations/:id/client-key` — one-time handoff of client key share (deleted from Redis after retrieval).
-    pub async fn fetch_client_key(
-        &self,
-        integration_id: &str,
-        bearer_jwt: &str,
-    ) -> Result<String> {
+    pub async fn fetch_client_key(&self, integration_id: &str, bearer_jwt: &str) -> Result<String> {
         let id = integration_id.trim();
         anyhow::ensure!(
             !id.is_empty() && id.len() == 24,
@@ -472,7 +468,10 @@ impl BackendOAuthClient {
         let v: Value = serde_json::from_str(&text)
             .with_context(|| format!("parse client-key JSON: {text}"))?;
         let obj = v.as_object().context("expected JSON object")?;
-        let success = obj.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+        let success = obj
+            .get("success")
+            .and_then(|s| s.as_bool())
+            .unwrap_or(false);
         if !success {
             let msg = obj
                 .get("error")

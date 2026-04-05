@@ -296,10 +296,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 "integrationId",
                 "Integration id (24-char hex).",
             )],
-            outputs: vec![json_output(
-                "result",
-                "Client key share payload (base64).",
-            )],
+            outputs: vec![json_output("result", "Client key share payload (base64).")],
         },
         "auth_oauth_revoke_integration" => ControllerSchema {
             namespace: "auth",
