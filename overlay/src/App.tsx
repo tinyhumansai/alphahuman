@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -12,7 +12,20 @@ interface TranscribeResult {
   model_id: string;
 }
 
-function logOverlay(message: string, details?: Record<string, unknown>) {
+interface GlobeHotkeyStatus {
+  supported: boolean;
+  running: boolean;
+  input_monitoring_permission: string;
+  last_error: string | null;
+  events_pending: number;
+}
+
+interface GlobeHotkeyPollResult {
+  status: GlobeHotkeyStatus;
+  events: string[];
+}
+
+function logOverlay(message: string, details?: unknown) {
   if (details) {
     console.debug(`[overlay] ${message}`, details);
     return;
@@ -128,10 +141,100 @@ export function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const sessionIdRef = useRef(0);
+  const globePollInFlightRef = useRef(false);
 
   const [status, setStatus] = useState<OverlayStatus>("idle");
   const [message, setMessage] = useState("Click to start listening");
   const [transcript, setTranscript] = useState("");
+
+  useEffect(() => {
+    let disposed = false;
+
+    const showOverlayFallback = async (message: string) => {
+      if (disposed) {
+        return;
+      }
+      logOverlay("globe listener unavailable", { message });
+      setMessage(message);
+      await appWindow.show().catch(() => {});
+    };
+
+    const startGlobeListener = async () => {
+      try {
+        const result = await invoke<GlobeHotkeyStatus>("core_rpc", {
+          method: "openhuman.screen_intelligence_globe_listener_start",
+          params: {},
+        });
+        logOverlay("globe listener start result", result);
+
+        if (!result.supported) {
+          await showOverlayFallback("Globe/Fn hotkey is only supported on macOS");
+          return;
+        }
+
+        if (!result.running) {
+          await showOverlayFallback(
+            result.last_error ?? "Globe/Fn listener could not start. Check Input Monitoring.",
+          );
+        }
+      } catch (error) {
+        console.error("[overlay] failed to start globe listener", error);
+        await showOverlayFallback("Failed to start Globe/Fn listener");
+      }
+    };
+
+    const pollGlobeListener = async () => {
+      if (disposed || globePollInFlightRef.current) {
+        return;
+      }
+      globePollInFlightRef.current = true;
+
+      try {
+        const result = await invoke<GlobeHotkeyPollResult>("core_rpc", {
+          method: "openhuman.screen_intelligence_globe_listener_poll",
+          params: {},
+        });
+
+        if (disposed) {
+          return;
+        }
+
+        if (!result.status.running && result.status.last_error) {
+          setMessage(result.status.last_error);
+        }
+
+        if (result.events.includes("FN_UP")) {
+          const visible = await appWindow.isVisible();
+          logOverlay("received FN_UP", { visible });
+          if (visible) {
+            await appWindow.hide();
+          } else {
+            await appWindow.show();
+          }
+        }
+      } catch (error) {
+        if (!disposed) {
+          console.warn("[overlay] globe listener poll failed", error);
+        }
+      } finally {
+        globePollInFlightRef.current = false;
+      }
+    };
+
+    void startGlobeListener();
+    const intervalId = window.setInterval(() => {
+      void pollGlobeListener();
+    }, 175);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      void invoke("core_rpc", {
+        method: "openhuman.screen_intelligence_globe_listener_stop",
+        params: {},
+      }).catch(() => {});
+    };
+  }, [appWindow]);
 
   const insertTranscriptIntoFocusedField = useCallback(
     async (text: string) => {
