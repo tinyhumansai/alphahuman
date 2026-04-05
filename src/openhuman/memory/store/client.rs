@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::openhuman::memory::embeddings::{self, EmbeddingProvider};
-use crate::openhuman::memory::ingestion::{MemoryIngestionRequest, MemoryIngestionResult};
+use crate::openhuman::memory::ingestion::{
+    MemoryIngestionConfig, MemoryIngestionRequest, MemoryIngestionResult,
+};
+use crate::openhuman::memory::ingestion_queue::{self, IngestionJob, IngestionQueue};
 use crate::openhuman::memory::store::types::{
     NamespaceDocumentInput, NamespaceMemoryHit, NamespaceRetrievalContext,
 };
@@ -20,6 +23,7 @@ pub struct MemoryState(pub std::sync::Mutex<Option<MemoryClientRef>>);
 #[derive(Clone)]
 pub struct MemoryClient {
     inner: Arc<UnifiedMemory>,
+    ingestion_queue: IngestionQueue,
 }
 
 impl MemoryClient {
@@ -37,13 +41,27 @@ impl MemoryClient {
         let embedder: Arc<dyn EmbeddingProvider> = embeddings::default_local_embedding_provider();
         let memory =
             UnifiedMemory::new(&workspace_dir, embedder, None).map_err(|e| format!("{e}"))?;
+        let inner = Arc::new(memory);
+        let ingestion_queue = ingestion_queue::start_worker(Arc::clone(&inner));
         Ok(Self {
-            inner: Arc::new(memory),
+            inner,
+            ingestion_queue,
         })
     }
 
     pub async fn put_doc(&self, input: NamespaceDocumentInput) -> Result<String, String> {
-        self.inner.upsert_document(input).await
+        let document_id = self.inner.upsert_document(input.clone()).await?;
+
+        // Enqueue background graph extraction so entities/relations are
+        // extracted without blocking the caller. The document is already
+        // persisted — extract_graph will not upsert again.
+        self.ingestion_queue.submit(IngestionJob {
+            document_id: document_id.clone(),
+            document: input,
+            config: MemoryIngestionConfig::default(),
+        });
+
+        Ok(document_id)
     }
 
     pub async fn ingest_doc(
@@ -68,22 +86,30 @@ impl MemoryClient {
         document_id: Option<String>,
     ) -> Result<(), String> {
         let namespace = format!("skill-{}", skill_id.trim());
-        self.inner
-            .upsert_document(NamespaceDocumentInput {
-                namespace,
-                key: title.to_string(),
-                title: title.to_string(),
-                content: content.to_string(),
-                source_type: source_type.unwrap_or_else(|| "doc".to_string()),
-                priority: priority.unwrap_or_else(|| "medium".to_string()),
-                tags: Vec::new(),
-                metadata: metadata.unwrap_or_else(|| json!({})),
-                category: "core".to_string(),
-                session_id: None,
-                document_id,
-            })
-            .await
-            .map(|_| ())
+        let input = NamespaceDocumentInput {
+            namespace,
+            key: title.to_string(),
+            title: title.to_string(),
+            content: content.to_string(),
+            source_type: source_type.unwrap_or_else(|| "doc".to_string()),
+            priority: priority.unwrap_or_else(|| "medium".to_string()),
+            tags: Vec::new(),
+            metadata: metadata.unwrap_or_else(|| json!({})),
+            category: "core".to_string(),
+            session_id: None,
+            document_id,
+        };
+
+        let doc_id = self.inner.upsert_document(input.clone()).await?;
+
+        // Enqueue background graph extraction.
+        self.ingestion_queue.submit(IngestionJob {
+            document_id: doc_id,
+            document: input,
+            config: MemoryIngestionConfig::default(),
+        });
+
+        Ok(())
     }
 
     pub async fn list_documents(

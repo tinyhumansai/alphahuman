@@ -28,6 +28,9 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("vision_recent"),
         schemas("vision_flush"),
         schemas("capture_test"),
+        schemas("globe_listener_start"),
+        schemas("globe_listener_poll"),
+        schemas("globe_listener_stop"),
     ]
 }
 
@@ -81,6 +84,18 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
             schema: schemas("capture_test"),
             handler: handle_capture_test,
         },
+        RegisteredController {
+            schema: schemas("globe_listener_start"),
+            handler: handle_globe_listener_start,
+        },
+        RegisteredController {
+            schema: schemas("globe_listener_poll"),
+            handler: handle_globe_listener_poll,
+        },
+        RegisteredController {
+            schema: schemas("globe_listener_stop"),
+            handler: handle_globe_listener_stop,
+        },
     ]
 }
 
@@ -96,14 +111,15 @@ pub fn schemas(function: &str) -> ControllerSchema {
         "request_permissions" => ControllerSchema {
             namespace: "screen_intelligence",
             function: "request_permissions",
-            description: "Request required accessibility permissions.",
+            description:
+                "Request accessibility automation permissions without prompting for screen recording.",
             inputs: vec![],
             outputs: vec![json_output("permissions", "Permission status payload.")],
         },
         "request_permission" => ControllerSchema {
             namespace: "screen_intelligence",
             function: "request_permission",
-            description: "Request one accessibility permission.",
+            description: "Request one permission such as accessibility, input monitoring, or screen recording.",
             inputs: vec![FieldSchema {
                 name: "permission",
                 ty: TypeSchema::String,
@@ -206,6 +222,27 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 "result",
                 "Capture test result with diagnostics.",
             )],
+        },
+        "globe_listener_start" => ControllerSchema {
+            namespace: "screen_intelligence",
+            function: "globe_listener_start",
+            description: "Start the macOS Globe/Fn hotkey listener helper.",
+            inputs: vec![],
+            outputs: vec![json_output("result", "Globe hotkey listener status.")],
+        },
+        "globe_listener_poll" => ControllerSchema {
+            namespace: "screen_intelligence",
+            function: "globe_listener_poll",
+            description: "Drain pending Globe/Fn listener events and return listener status.",
+            inputs: vec![],
+            outputs: vec![json_output("result", "Globe hotkey listener poll result.")],
+        },
+        "globe_listener_stop" => ControllerSchema {
+            namespace: "screen_intelligence",
+            function: "globe_listener_stop",
+            description: "Stop the macOS Globe/Fn hotkey listener helper.",
+            inputs: vec![],
+            outputs: vec![json_output("result", "Globe hotkey listener status.")],
         },
         _ => ControllerSchema {
             namespace: "screen_intelligence",
@@ -315,6 +352,31 @@ fn handle_vision_flush(_params: Map<String, Value>) -> ControllerFuture {
 fn handle_capture_test(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async {
         to_json(crate::openhuman::screen_intelligence::rpc::accessibility_capture_test().await?)
+    })
+}
+
+fn handle_globe_listener_start(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async {
+        to_json(
+            crate::openhuman::screen_intelligence::rpc::accessibility_globe_listener_start()
+                .await?,
+        )
+    })
+}
+
+fn handle_globe_listener_poll(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async {
+        to_json(
+            crate::openhuman::screen_intelligence::rpc::accessibility_globe_listener_poll().await?,
+        )
+    })
+}
+
+fn handle_globe_listener_stop(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async {
+        to_json(
+            crate::openhuman::screen_intelligence::rpc::accessibility_globe_listener_stop().await?,
+        )
     })
 }
 

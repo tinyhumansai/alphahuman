@@ -505,11 +505,11 @@ export default function SkillSetupWizard({
               />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">
+          <h3 className="text-lg font-semibold text-stone-900 mb-2">
             Connected!
           </h3>
           {state.message && (
-            <p className="text-sm text-stone-400 mb-6">{state.message}</p>
+            <p className="text-sm text-stone-600 mb-6">{state.message}</p>
           )}
           <button
             onClick={onComplete}
@@ -538,14 +538,14 @@ export default function SkillSetupWizard({
               />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">
+          <h3 className="text-lg font-semibold text-stone-900 mb-2">
             Setup Failed
           </h3>
-          <p className="text-sm text-stone-400 mb-6">{state.message}</p>
+          <p className="text-sm text-stone-600 mb-6">{state.message}</p>
           <div className="flex space-x-3 justify-center">
             <button
               onClick={handleCancel}
-              className="px-6 py-2.5 text-sm font-medium text-stone-400 bg-stone-800/50 border border-stone-700 rounded-xl hover:bg-stone-800 transition-colors"
+              className="px-6 py-2.5 text-sm font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded-xl hover:bg-stone-200 transition-colors"
             >
               Close
             </button>
@@ -623,7 +623,7 @@ function LoadingView() {
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
         />
       </svg>
-      <span className="ml-3 text-sm text-stone-400">
+      <span className="ml-3 text-sm text-stone-600">
         Starting setup...
       </span>
     </div>
@@ -717,17 +717,17 @@ function OAuthLoginView({
     <div className="py-6">
       {/* Provider icon */}
       <div className="flex justify-center mb-5">
-        <div className="w-14 h-14 rounded-2xl bg-stone-800 border border-stone-700 flex items-center justify-center">
+        <div className="w-14 h-14 rounded-2xl bg-stone-50 border border-stone-200 flex items-center justify-center shadow-sm">
           <ProviderIcon provider={provider} />
         </div>
       </div>
 
       {/* Title and description */}
       <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold text-white mb-2">
+        <h3 className="text-lg font-semibold text-stone-900 mb-2">
           Connect to {providerName}
         </h3>
-        <p className="text-sm text-stone-400">
+        <p className="text-sm text-stone-600">
           {waiting
             ? "Waiting for authorization. Complete the login in your browser..."
             : `Sign in with your ${providerName} account to connect this skill.`}
@@ -737,9 +737,9 @@ function OAuthLoginView({
       {/* Login button or waiting state */}
       {waiting ? (
         <div className="flex flex-col items-center gap-4">
-          <div className="flex items-center gap-3 px-4 py-3 bg-stone-800/50 border border-stone-700 rounded-xl">
+          <div className="flex items-center gap-3 px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl">
             <svg
-              className="animate-spin h-4 w-4 text-primary-400"
+              className="animate-spin h-4 w-4 text-primary-500"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
@@ -758,14 +758,14 @@ function OAuthLoginView({
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
               />
             </svg>
-            <span className="text-sm text-stone-300">
+            <span className="text-sm text-stone-700">
               Waiting for {providerName} authorization...
             </span>
           </div>
 
           <button
             onClick={onLogin}
-            className="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+            className="text-xs text-primary-600 hover:text-primary-700 transition-colors"
           >
             Open login page again
           </button>
@@ -823,7 +823,7 @@ function OAuthLoginView({
       <div className="mt-4">
         <button
           onClick={onCancel}
-          className="w-full py-2.5 text-sm font-medium text-stone-400 bg-stone-800/50 border border-stone-700 rounded-xl hover:bg-stone-800 transition-colors"
+          className="w-full py-2.5 text-sm font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded-xl hover:bg-stone-200 transition-colors"
         >
           Cancel
         </button>
@@ -876,7 +876,7 @@ function ProviderIcon({ provider }: { provider: string }) {
       );
     case "github":
       return (
-        <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-7 h-7 text-stone-800" fill="currentColor" viewBox="0 0 24 24">
           <path
             fillRule="evenodd"
             clipRule="evenodd"
@@ -887,7 +887,7 @@ function ProviderIcon({ provider }: { provider: string }) {
     default:
       return (
         <svg
-          className="w-7 h-7 text-stone-400"
+          className="w-7 h-7 text-stone-500"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

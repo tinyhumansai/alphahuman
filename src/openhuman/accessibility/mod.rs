@@ -7,6 +7,7 @@
 
 mod capture;
 mod focus;
+mod globe;
 mod helper;
 mod keys;
 mod overlay;
@@ -20,6 +21,10 @@ pub use capture::{capture_screen_image_ref_for_context, CaptureMode, MAX_SCREENS
 pub use focus::{
     focused_text_context, focused_text_context_verbose, foreground_context,
     parse_foreground_output, validate_focused_target,
+};
+pub use globe::{
+    globe_listener_poll, globe_listener_start, globe_listener_stop, GlobeHotkeyPollResult,
+    GlobeHotkeyStatus,
 };
 pub use keys::{is_escape_key_down, is_tab_key_down};
 pub use overlay::{hide_overlay, quit_overlay, show_overlay};

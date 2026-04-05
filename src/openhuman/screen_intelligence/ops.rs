@@ -7,9 +7,9 @@ use serde_json::json;
 
 use crate::openhuman::screen_intelligence::{
     self, AccessibilityStatus, CaptureImageRefResult, CaptureNowResult, CaptureTestResult,
-    InputActionParams, InputActionResult, PermissionRequestParams, PermissionState,
-    PermissionStatus, SessionStatus, StartSessionParams, StopSessionParams, VisionFlushResult,
-    VisionRecentResult,
+    GlobeHotkeyPollResult, GlobeHotkeyStatus, InputActionParams, InputActionResult,
+    PermissionRequestParams, PermissionState, PermissionStatus, SessionStatus, StartSessionParams,
+    StopSessionParams, VisionFlushResult, VisionRecentResult,
 };
 use crate::rpc::RpcOutcome;
 
@@ -90,7 +90,7 @@ pub async fn accessibility_request_permissions() -> Result<RpcOutcome<Permission
         .await?;
     Ok(RpcOutcome::single_log(
         permissions,
-        "accessibility permissions requested",
+        "accessibility automation permissions requested",
     ))
 }
 
@@ -212,5 +212,32 @@ pub async fn accessibility_capture_test() -> Result<RpcOutcome<CaptureTestResult
     Ok(RpcOutcome::single_log(
         result,
         "screen intelligence capture test completed",
+    ))
+}
+
+pub async fn accessibility_globe_listener_start() -> Result<RpcOutcome<GlobeHotkeyStatus>, String> {
+    log::info!("[screen_intelligence] globe_listener_start requested");
+    let result = crate::openhuman::accessibility::globe_listener_start()?;
+    Ok(RpcOutcome::single_log(
+        result,
+        "globe listener start processed",
+    ))
+}
+
+pub async fn accessibility_globe_listener_poll() -> Result<RpcOutcome<GlobeHotkeyPollResult>, String>
+{
+    let result = crate::openhuman::accessibility::globe_listener_poll()?;
+    Ok(RpcOutcome::single_log(
+        result,
+        "globe listener poll processed",
+    ))
+}
+
+pub async fn accessibility_globe_listener_stop() -> Result<RpcOutcome<GlobeHotkeyStatus>, String> {
+    log::info!("[screen_intelligence] globe_listener_stop requested");
+    let result = crate::openhuman::accessibility::globe_listener_stop()?;
+    Ok(RpcOutcome::single_log(
+        result,
+        "globe listener stop processed",
     ))
 }

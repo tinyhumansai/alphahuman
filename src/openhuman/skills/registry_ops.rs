@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
 use super::registry_cache::{
-    cache_path, is_cache_fresh, is_local_path, local_skills_dir, read_cache, read_local_file,
-    registry_url, tag_categories, write_cache,
+    is_cache_fresh, is_local_path, local_skills_dir, read_cache, read_local_file, registry_url,
+    tag_categories, write_cache,
 };
 use super::registry_types::{
     AvailableSkillEntry, InstalledSkillInfo, RegistrySkillEntry, RemoteSkillRegistry,

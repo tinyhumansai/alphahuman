@@ -40,8 +40,7 @@
     "format": "prettier --write . && cargo fmt --manifest-path ../Cargo.toml --all",
     "format:check": "prettier --check . && cargo fmt --manifest-path ../Cargo.toml --all --check",
     "lint": "eslint . --ext .ts,.tsx",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "prepare": "husky"
+    "lint:fix": "eslint . --ext .ts,.tsx --fix"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

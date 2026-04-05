@@ -417,9 +417,7 @@ fn run_skills_test(args: &[String]) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn build_skills_only_router() -> axum::Router {
-    use axum::response::IntoResponse;
     use axum::routing::{get, post};
-    use axum::Json;
 
     axum::Router::new()
         .route("/health", get(health))

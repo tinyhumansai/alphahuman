@@ -2,6 +2,7 @@ use crate::openhuman::config::ScreenIntelligenceConfig;
 use serde::{Deserialize, Serialize};
 
 // Permission types are defined in the accessibility middleware; re-export for compatibility.
+pub use crate::openhuman::accessibility::{GlobeHotkeyPollResult, GlobeHotkeyStatus};
 pub use crate::openhuman::accessibility::{PermissionKind, PermissionState, PermissionStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,9 +21,11 @@ pub struct SessionStatus {
     pub ttl_secs: u64,
     pub panic_hotkey: String,
     pub stop_reason: Option<String>,
+    pub capture_count: u64,
     pub frames_in_memory: usize,
     pub last_capture_at_ms: Option<i64>,
     pub last_context: Option<String>,
+    pub last_window_title: Option<String>,
     pub vision_enabled: bool,
     pub vision_state: String,
     pub vision_queue_depth: usize,
@@ -42,6 +45,7 @@ pub struct AccessibilityStatus {
     pub permissions: PermissionStatus,
     pub features: AccessibilityFeatures,
     pub session: SessionStatus,
+    pub foreground_context: Option<AppContextInfo>,
     pub config: ScreenIntelligenceConfig,
     pub denylist: Vec<String>,
     pub is_context_blocked: bool,

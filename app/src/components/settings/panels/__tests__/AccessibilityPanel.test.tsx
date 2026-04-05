@@ -95,6 +95,7 @@ describe('AccessibilityPanel', () => {
     expect(screen.getByText('Accessibility Automation')).toBeInTheDocument();
     expect(screen.getByText('Permissions')).toBeInTheDocument();
     expect(screen.getByText('Session')).toBeInTheDocument();
+    expect(screen.queryByText('Screen Recording')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Session' })).toBeInTheDocument();
   });
 });

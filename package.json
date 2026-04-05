@@ -17,12 +17,17 @@
     "format:check": "yarn workspace openhuman-app format:check",
     "lint": "yarn workspace openhuman-app lint",
     "lint:fix": "yarn workspace openhuman-app lint:fix",
+    "prepare": "husky",
+    "postinstall": "husky",
     "tauri": "yarn workspace openhuman-app tauri",
     "test": "yarn workspace openhuman-app test",
     "test:coverage": "yarn workspace openhuman-app test:coverage",
     "test:rust": "yarn workspace openhuman-app test:rust",
     "mock:api": "node scripts/mock-api-server.mjs",
     "typecheck": "yarn workspace openhuman-app compile"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1"

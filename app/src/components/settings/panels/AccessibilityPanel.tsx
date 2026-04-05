@@ -85,7 +85,6 @@ const AccessibilityPanel = () => {
   }, [dispatch]);
 
   const anyPermissionDenied =
-    status?.permissions.screen_recording === 'denied' ||
     status?.permissions.accessibility === 'denied' ||
     status?.permissions.input_monitoring === 'denied';
 
@@ -120,10 +119,6 @@ const AccessibilityPanel = () => {
         <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
           <h3 className="text-sm font-semibold text-stone-900">Permissions</h3>
           <PermissionBadge
-            label="Screen Recording"
-            value={status?.permissions.screen_recording ?? 'unknown'}
-          />
-          <PermissionBadge
             label="Accessibility"
             value={status?.permissions.accessibility ?? 'unknown'}
           />
@@ -156,16 +151,9 @@ const AccessibilityPanel = () => {
 
           <button
             type="button"
-            onClick={() => void dispatch(requestAccessibilityPermission('screen_recording'))}
-            disabled={isRequestingPermissions || isRestartingCore}
-            className="mt-1 rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600 disabled:opacity-50">
-            {isRequestingPermissions ? 'Requesting…' : 'Request Screen Recording'}
-          </button>
-          <button
-            type="button"
             onClick={() => void dispatch(requestAccessibilityPermission('accessibility'))}
             disabled={isRequestingPermissions || isRestartingCore}
-            className="rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600 disabled:opacity-50">
+            className="mt-1 rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600 disabled:opacity-50">
             {isRequestingPermissions ? 'Requesting…' : 'Request Accessibility'}
           </button>
           <button
