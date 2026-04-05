@@ -37,9 +37,9 @@ where
 
         if writer.has_ansi_escapes() {
             let time_styled = Style::new().dimmed().paint(time.to_string());
-            write!(writer, "{time_styled} ")?;
+            write!(writer, "{time_styled}:")?;
 
-            let tag = format!("<{level}>");
+            let tag = format!("{level}");
             let level_styled = match *meta.level() {
                 Level::ERROR => Style::new().fg(Color::Red).bold().paint(tag),
                 Level::WARN => Style::new().fg(Color::Yellow).bold().paint(tag),
@@ -47,13 +47,13 @@ where
                 Level::DEBUG => Style::new().fg(Color::Cyan).paint(tag),
                 Level::TRACE => Style::new().fg(Color::Magenta).dimmed().paint(tag),
             };
-            write!(writer, "{level_styled} ")?;
+            write!(writer, "{level_styled}:")?;
 
-            let scope = format!("({target})");
+            let scope = format!("{target}");
             let scope_styled = Style::new().fg(Color::Fixed(247)).paint(scope);
             write!(writer, "{scope_styled} ")?;
         } else {
-            write!(writer, "{time} <{level}> ({target}) ")?;
+            write!(writer, "{time}:{level}:{target} ")?;
         }
 
         ctx.field_format().format_fields(writer.by_ref(), event)?;
@@ -63,11 +63,11 @@ where
 
 fn level_tag(level: &Level) -> &'static str {
     match *level {
-        Level::ERROR => "ERROR",
-        Level::WARN => "WARN",
-        Level::INFO => "INFO",
-        Level::DEBUG => "DEBUG",
-        Level::TRACE => "TRACE",
+        Level::ERROR => "ERR",
+        Level::WARN => "WRN",
+        Level::INFO => "INF",
+        Level::DEBUG => "DBG",
+        Level::TRACE => "TRC",
     }
 }
 

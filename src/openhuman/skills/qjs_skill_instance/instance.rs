@@ -238,24 +238,22 @@ impl QjsSkillInstance {
             }
             drive_jobs(&rt).await;
 
-            // If the skill has persisted credentials, trigger an initial sync so
-            // data is available immediately rather than waiting for the cron cycle.
+            // If the skill has persisted credentials, kick off an initial sync.
+            // We call onSync() but intentionally skip drive_jobs() after it so the
+            // event loop (which calls drive_jobs on every tick) drains the sync
+            // promises incrementally alongside tool calls — no startup blocking.
             let has_credential = data_dir.join("oauth_credential.json").exists()
                 || data_dir.join("auth_credential.json").exists();
             if has_credential {
                 log::info!(
-                    "[skill:{}] Credentials present at startup — triggering initial sync",
+                    "[skill:{}] Credentials present at startup — triggering initial sync (non-blocking)",
                     config.skill_id
                 );
                 match handle_js_call(&rt, &ctx, "onSync", "{}").await {
-                    Ok(_) => {
-                        log::info!("[skill:{}] Initial sync completed", config.skill_id);
-                    }
-                    Err(e) => {
-                        log::warn!("[skill:{}] Initial sync failed (non-fatal): {e}", config.skill_id);
-                    }
+                    Ok(_) => log::info!("[skill:{}] Initial sync dispatched", config.skill_id),
+                    Err(e) => log::warn!("[skill:{}] Initial sync dispatch failed (non-fatal): {e}", config.skill_id),
                 }
-                drive_jobs(&rt).await;
+                // NOTE: no drive_jobs() here — promises will be drained by the event loop.
             }
 
             // Run the event loop
