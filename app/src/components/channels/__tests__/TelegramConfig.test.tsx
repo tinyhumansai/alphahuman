@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FALLBACK_DEFINITIONS } from '../../../lib/channels/definitions';
 import { channelConnectionsApi } from '../../../services/api/channelConnectionsApi';
-import { managedDmApi } from '../../../services/api/managedDmApi';
 import { renderWithProviders } from '../../../test/test-utils';
 import { openUrl } from '../../../utils/openUrl';
 import TelegramConfig from '../TelegramConfig';
@@ -16,14 +15,8 @@ vi.mock('../../../services/api/channelConnectionsApi', () => ({
     disconnectChannel: vi.fn(),
     listDefinitions: vi.fn(),
     listStatus: vi.fn(),
-  },
-}));
-
-vi.mock('../../../services/api/managedDmApi', () => ({
-  managedDmApi: {
-    initiateManagedDm: vi.fn(),
-    getManagedDmStatus: vi.fn(),
-    pollManagedDmStatusUntilVerified: vi.fn(),
+    telegramLoginStart: vi.fn(),
+    telegramLoginCheck: vi.fn(),
   },
 }));
 
@@ -67,21 +60,20 @@ describe('TelegramConfig', () => {
     });
   });
 
-  it('starts managed dm flow, opens the deep link, and marks the channel connected after verification', async () => {
+  it('starts managed dm flow via core RPC, opens the deep link, and marks connected after polling', async () => {
     vi.mocked(channelConnectionsApi.connectChannel).mockResolvedValue({
       status: 'pending_auth',
       auth_action: 'telegram_managed_dm',
       restart_required: false,
     });
-    vi.mocked(managedDmApi.initiateManagedDm).mockResolvedValue({
-      token: 'managed-dm-token',
-      deepLink: 'https://t.me/openhuman_bot?start=manageddm_managed-dm-token',
-      expiresAt: '2026-04-04T12:00:00.000Z',
+    vi.mocked(channelConnectionsApi.telegramLoginStart).mockResolvedValue({
+      linkToken: 'link-token-abc',
+      telegramUrl: 'https://t.me/openhuman_bot?start=link-token-abc',
+      botUsername: 'openhuman_bot',
     });
-    vi.mocked(managedDmApi.pollManagedDmStatusUntilVerified).mockResolvedValue({
-      verified: true,
-      telegramUsername: 'telegram-user',
-      expiresAt: '2026-04-04T12:05:00.000Z',
+    vi.mocked(channelConnectionsApi.telegramLoginCheck).mockResolvedValue({
+      linked: true,
+      details: { telegramUserId: '12345' },
     });
 
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
@@ -90,18 +82,15 @@ describe('TelegramConfig', () => {
     fireEvent.click(connectButtons[1]);
 
     await waitFor(() => {
-      expect(managedDmApi.initiateManagedDm).toHaveBeenCalledTimes(1);
+      expect(channelConnectionsApi.telegramLoginStart).toHaveBeenCalledTimes(1);
     });
     await waitFor(() => {
       expect(openUrl).toHaveBeenCalledWith(
-        'https://t.me/openhuman_bot?start=manageddm_managed-dm-token'
+        'https://t.me/openhuman_bot?start=link-token-abc'
       );
     });
     await waitFor(() => {
-      expect(managedDmApi.pollManagedDmStatusUntilVerified).toHaveBeenCalledWith(
-        'managed-dm-token',
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
-      );
+      expect(channelConnectionsApi.telegramLoginCheck).toHaveBeenCalledWith('link-token-abc');
     });
     expect(await screen.findByText('Connected')).toBeInTheDocument();
   });

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUTH_MODE_LABELS } from '../../lib/channels/definitions';
 import { channelConnectionsApi } from '../../services/api/channelConnectionsApi';
-import { managedDmApi } from '../../services/api/managedDmApi';
 import { callCoreRpc } from '../../services/coreRpcClient';
 import {
   disconnectChannelConnection,
@@ -73,36 +72,50 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
   }, []);
 
   const startManagedDmPolling = useCallback(
-    (key: string, token: string) => {
+    (key: string, linkToken: string) => {
       stopManagedDmPolling(key);
       const controller = new AbortController();
       managedDmPollControllers.current[key] = controller;
 
+      const POLL_INTERVAL_MS = 3_000;
+      const POLL_TIMEOUT_MS = 5 * 60 * 1_000;
+
       void (async () => {
-        log('polling managed dm status', { key, tokenLength: token.length });
+        log('polling telegram link status via core RPC', { key, tokenLength: linkToken.length });
+        const startedAt = Date.now();
+
         try {
-          const status = await managedDmApi.pollManagedDmStatusUntilVerified(token, {
-            signal: controller.signal,
-          });
+          while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+            if (controller.signal.aborted) return;
 
-          if (controller.signal.aborted) {
-            return;
-          }
+            try {
+              const check = await channelConnectionsApi.telegramLoginCheck(linkToken);
+              if (check.linked) {
+                log('telegram managed dm linked via core RPC', { key, details: check.details });
+                dispatch(
+                  upsertChannelConnection({
+                    channel: 'telegram',
+                    authMode: 'managed_dm',
+                    patch: { status: 'connected', lastError: undefined, capabilities: ['dm'] },
+                  })
+                );
+                return;
+              }
+            } catch {
+              // Best-effort polling: keep trying until timeout or cancellation.
+            }
 
-          if (status?.verified) {
-            log('managed dm verified via polling', {
-              key,
-              telegramUsername: status.telegramUsername,
+            await new Promise<void>(resolve => {
+              const timer = window.setTimeout(resolve, POLL_INTERVAL_MS);
+              const onAbort = () => {
+                window.clearTimeout(timer);
+                resolve();
+              };
+              controller.signal.addEventListener('abort', onAbort, { once: true });
             });
-            dispatch(
-              upsertChannelConnection({
-                channel: 'telegram',
-                authMode: 'managed_dm',
-                patch: { status: 'connected', lastError: undefined, capabilities: ['dm'] },
-              })
-            );
-            return;
           }
+
+          if (controller.signal.aborted) return;
 
           dispatch(
             upsertChannelConnection({
@@ -113,9 +126,7 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
           );
           setError(MANAGED_DM_TIMEOUT_MESSAGE);
         } catch (pollError) {
-          if (controller.signal.aborted) {
-            return;
-          }
+          if (controller.signal.aborted) return;
 
           const msg = pollError instanceof Error ? pollError.message : String(pollError);
           log('managed dm polling failed', { key, error: msg });
@@ -177,13 +188,13 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
         if (result.status === 'pending_auth' && result.auth_action) {
           if (result.auth_action === 'telegram_managed_dm') {
             try {
-              const initiated = await managedDmApi.initiateManagedDm();
-              log('managed dm initiate success', {
+              const loginStart = await channelConnectionsApi.telegramLoginStart();
+              log('telegram login start success', {
                 key,
-                tokenLength: initiated.token.length,
-                expiresAt: initiated.expiresAt,
+                tokenLength: loginStart.linkToken.length,
+                botUsername: loginStart.botUsername,
               });
-              await openUrl(initiated.deepLink);
+              await openUrl(loginStart.telegramUrl);
               dispatch(
                 upsertChannelConnection({
                   channel: 'telegram',
@@ -191,11 +202,13 @@ const TelegramConfig = ({ definition }: TelegramConfigProps) => {
                   patch: { status: 'connecting', lastError: MANAGED_DM_CONNECTING_MESSAGE },
                 })
               );
-              startManagedDmPolling(key, initiated.token);
-            } catch (managedDmError) {
+              startManagedDmPolling(key, loginStart.linkToken);
+            } catch (loginStartError) {
               const msg =
-                managedDmError instanceof Error ? managedDmError.message : String(managedDmError);
-              log('managed dm initiate failed', { key, error: msg });
+                loginStartError instanceof Error
+                  ? loginStartError.message
+                  : String(loginStartError);
+              log('telegram login start failed', { key, error: msg });
               dispatch(
                 upsertChannelConnection({
                   channel: 'telegram',

@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
+import debug from 'debug';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useChannelDefinitions } from '../../../hooks/useChannelDefinitions';
 import { AUTH_MODE_LABELS } from '../../../lib/channels/definitions';
@@ -19,53 +20,22 @@ import type {
   ChannelConnectionStatus,
   ChannelType,
 } from '../../../types/channels';
-import { BACKEND_URL, TELEGRAM_BOT_USERNAME } from '../../../utils/config';
+import { BACKEND_URL } from '../../../utils/config';
 import { openUrl } from '../../../utils/openUrl';
 import ChannelFieldInput from '../../channels/ChannelFieldInput';
 import ChannelStatusBadge from '../../channels/ChannelStatusBadge';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
+const log = debug('settings:messaging');
+
 function normalizeBaseUrl(baseUrl?: string): string {
   return (baseUrl || 'https://api.tinyhumans.ai').trim().replace(/\/+$/, '');
 }
 
-function buildManagedChannelLaunchUrl(
-  channel: ChannelType,
-  token: string,
-  launchUrl?: string
-): string | undefined {
+function buildDiscordLaunchUrl(token: string, launchUrl?: string): string | undefined {
   if (launchUrl) return launchUrl;
-
-  if (channel === 'telegram') {
-    return `https://t.me/${encodeURIComponent(TELEGRAM_BOT_USERNAME)}?start=${encodeURIComponent(token)}`;
-  }
-
-  if (channel === 'discord') {
-    return `${normalizeBaseUrl(BACKEND_URL)}/auth/discord/connect?linkToken=${encodeURIComponent(token)}`;
-  }
-
-  return undefined;
-}
-
-function buildManagedChannelInstruction(
-  channel: ChannelType,
-  token: string,
-  launchUrl?: string
-): string {
-  if (channel === 'telegram') {
-    return launchUrl
-      ? 'Continue in Telegram to finish linking your account.'
-      : `Open Telegram and message @${TELEGRAM_BOT_USERNAME} with this link token: ${token}`;
-  }
-
-  if (channel === 'discord') {
-    return launchUrl
-      ? 'Continue in Discord to finish linking your account.'
-      : `Use this Discord link token to continue linking your account: ${token}`;
-  }
-
-  return `Use this link token to continue: ${token}`;
+  return `${normalizeBaseUrl(BACKEND_URL)}/auth/discord/connect?linkToken=${encodeURIComponent(token)}`;
 }
 
 const MessagingPanel = () => {
@@ -78,6 +48,79 @@ const MessagingPanel = () => {
   const [busyKeys, setBusyKeys] = useState<Record<string, boolean>>({});
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [pendingInstruction, setPendingInstruction] = useState<Record<string, string>>({});
+  const pollControllers = useRef<Record<string, AbortController>>({});
+
+  useEffect(() => {
+    return () => {
+      for (const c of Object.values(pollControllers.current)) c.abort();
+      pollControllers.current = {};
+    };
+  }, []);
+
+  const stopPolling = useCallback((key: string) => {
+    pollControllers.current[key]?.abort();
+    delete pollControllers.current[key];
+  }, []);
+
+  const startTelegramPolling = useCallback(
+    (key: string, linkToken: string) => {
+      stopPolling(key);
+      const controller = new AbortController();
+      pollControllers.current[key] = controller;
+
+      const POLL_INTERVAL = 3_000;
+      const POLL_TIMEOUT = 5 * 60 * 1_000;
+
+      void (async () => {
+        const startedAt = Date.now();
+        try {
+          while (Date.now() - startedAt < POLL_TIMEOUT) {
+            if (controller.signal.aborted) return;
+            try {
+              const check = await channelConnectionsApi.telegramLoginCheck(linkToken);
+              if (check.linked) {
+                log('telegram managed dm linked', { key });
+                dispatch(
+                  upsertChannelConnection({
+                    channel: 'telegram',
+                    authMode: 'managed_dm',
+                    patch: { status: 'connected', lastError: undefined, capabilities: ['dm'] },
+                  })
+                );
+                setPendingInstruction(prev => {
+                  const next = { ...prev };
+                  delete next[key];
+                  return next;
+                });
+                return;
+              }
+            } catch {
+              // best-effort
+            }
+            await new Promise<void>(resolve => {
+              const t = window.setTimeout(resolve, POLL_INTERVAL);
+              const onAbort = () => {
+                window.clearTimeout(t);
+                resolve();
+              };
+              controller.signal.addEventListener('abort', onAbort, { once: true });
+            });
+          }
+          if (controller.signal.aborted) return;
+          dispatch(
+            upsertChannelConnection({
+              channel: 'telegram',
+              authMode: 'managed_dm',
+              patch: { status: 'error', lastError: 'Verification timed out. Try again.' },
+            })
+          );
+        } finally {
+          if (pollControllers.current[key] === controller) delete pollControllers.current[key];
+        }
+      })();
+    },
+    [dispatch, stopPolling]
+  );
 
   const recommendedRoute = useMemo(() => {
     const channel = channelConnections.defaultMessagingChannel;
@@ -141,15 +184,56 @@ const MessagingPanel = () => {
           if (val) credentials[field.key] = val;
         }
 
-        const isManagedLinkFlow =
-          (channel === 'telegram' && spec.mode === 'managed_dm') ||
-          (channel === 'discord' && spec.mode === 'oauth');
+        // Telegram managed DM: use core RPC for link token + polling.
+        if (channel === 'telegram' && spec.mode === 'managed_dm') {
+          try {
+            const loginStart = await channelConnectionsApi.telegramLoginStart();
+            log('telegram login start', { token: loginStart.linkToken.slice(0, 8), bot: loginStart.botUsername });
 
-        if (isManagedLinkFlow) {
+            dispatch(
+              upsertChannelConnection({
+                channel: 'telegram',
+                authMode: 'managed_dm',
+                patch: { status: 'connecting' },
+              })
+            );
+
+            const instruction = 'Continue in Telegram to finish linking your account.';
+            setPendingInstruction(prev => ({ ...prev, [key]: instruction }));
+
+            try {
+              await openUrl(loginStart.telegramUrl);
+            } catch {
+              setPendingInstruction(prev => ({
+                ...prev,
+                [key]: `${instruction} (URL: ${loginStart.telegramUrl})`,
+              }));
+            }
+
+            startTelegramPolling(key, loginStart.linkToken);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            dispatch(
+              setChannelConnectionStatus({
+                channel: 'telegram',
+                authMode: 'managed_dm',
+                status: 'error',
+                lastError: msg,
+              })
+            );
+            throw e;
+          }
+          return;
+        }
+
+        // Discord OAuth: use existing link token flow.
+        if (channel === 'discord' && spec.mode === 'oauth') {
           try {
             const link = await createChannelLinkToken(channel);
-            const launchUrl = buildManagedChannelLaunchUrl(channel, link.token, link.launchUrl);
-            const instruction = buildManagedChannelInstruction(channel, link.token, launchUrl);
+            const launchUrl = buildDiscordLaunchUrl(link.token, link.launchUrl);
+            const instruction = launchUrl
+              ? 'Continue in Discord to finish linking your account.'
+              : `Use this Discord link token to continue: ${link.token}`;
 
             dispatch(
               upsertChannelConnection({
@@ -165,7 +249,6 @@ const MessagingPanel = () => {
               try {
                 await openUrl(launchUrl);
               } catch {
-                // Opening the URL failed — include the URL so the user can copy it manually.
                 setPendingInstruction(prev => ({
                   ...prev,
                   [key]: `${instruction} (URL: ${launchUrl})`,
@@ -240,18 +323,19 @@ const MessagingPanel = () => {
         }
       });
     },
-    [dispatch, fieldValues, runBusy]
+    [dispatch, fieldValues, runBusy, startTelegramPolling]
   );
 
   const handleDisconnect = useCallback(
     (channel: ChannelType, authMode: ChannelAuthMode) => {
       const key = `${channel}:${authMode}`;
+      stopPolling(key);
       void runBusy(key, async () => {
         await channelConnectionsApi.disconnectChannel(channel, authMode);
         dispatch(disconnectChannelConnection({ channel, authMode }));
       });
     },
-    [dispatch, runBusy]
+    [dispatch, runBusy, stopPolling]
   );
 
   const displayError = error || loadError;
