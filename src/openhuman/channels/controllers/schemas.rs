@@ -53,6 +53,12 @@ struct TestParams {
     credentials: serde_json::Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TelegramLoginCheckParams {
+    link_token: String,
+}
+
 // ---------------------------------------------------------------------------
 // Public registry exports
 // ---------------------------------------------------------------------------
@@ -65,6 +71,8 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("disconnect"),
         schemas("status"),
         schemas("test"),
+        schemas("telegram_login_start"),
+        schemas("telegram_login_check"),
     ]
 }
 
@@ -93,6 +101,14 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("test"),
             handler: handle_test,
+        },
+        RegisteredController {
+            schema: schemas("telegram_login_start"),
+            handler: handle_telegram_login_start,
+        },
+        RegisteredController {
+            schema: schemas("telegram_login_check"),
+            handler: handle_telegram_login_check,
         },
     ]
 }
@@ -172,6 +188,30 @@ pub fn schemas(function: &str) -> ControllerSchema {
             outputs: vec![json_output(
                 "result",
                 "Test result with success flag and message.",
+            )],
+        },
+        "telegram_login_start" => ControllerSchema {
+            namespace: "channels",
+            function: "telegram_login_start",
+            description:
+                "Create a Telegram link token and return the deep link URL for managed DM login.",
+            inputs: vec![],
+            outputs: vec![json_output(
+                "result",
+                "Object with linkToken, telegramUrl, and botUsername.",
+            )],
+        },
+        "telegram_login_check" => ControllerSchema {
+            namespace: "channels",
+            function: "telegram_login_check",
+            description: "Check whether the Telegram managed DM link has been completed.",
+            inputs: vec![required_string(
+                "linkToken",
+                "The link token returned by telegram_login_start.",
+            )],
+            outputs: vec![json_output(
+                "result",
+                "Object with linked (bool) and optional details.",
             )],
         },
         _ => ControllerSchema {
@@ -255,6 +295,21 @@ fn handle_test(params: Map<String, Value>) -> ControllerFuture {
             .parse()
             .map_err(|e: String| format!("invalid authMode: {e}"))?;
         to_json(ops::test_channel(&config, p.channel.trim(), mode, p.credentials).await?)
+    })
+}
+
+fn handle_telegram_login_start(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let config = config_rpc::load_config_with_timeout().await?;
+        to_json(ops::telegram_login_start(&config).await?)
+    })
+}
+
+fn handle_telegram_login_check(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let config = config_rpc::load_config_with_timeout().await?;
+        let p = deserialize_params::<TelegramLoginCheckParams>(params)?;
+        to_json(ops::telegram_login_check(&config, p.link_token.trim()).await?)
     })
 }
 

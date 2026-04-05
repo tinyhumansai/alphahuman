@@ -333,6 +333,51 @@ impl BackendOAuthClient {
         parse_api_response_json(&text)
     }
 
+    /// `GET /auth/channels/:channel/link-tokens/:token/status` — check whether a
+    /// channel link token has been consumed (i.e. the user clicked /start in Telegram).
+    pub async fn check_channel_link_status(
+        &self,
+        channel: &str,
+        link_token: &str,
+        bearer_jwt: &str,
+    ) -> Result<Value> {
+        let channel = channel.trim().trim_matches('/');
+        anyhow::ensure!(!channel.is_empty(), "channel is required");
+        let token = link_token.trim();
+        anyhow::ensure!(!token.is_empty(), "link token is required");
+
+        let encoded_channel = urlencoding::encode(channel);
+        let encoded_token = urlencoding::encode(token);
+
+        let url = self
+            .base
+            .join(&format!(
+                "auth/channels/{encoded_channel}/link-tokens/{encoded_token}/status"
+            ))
+            .context("build channel link-token status URL")?;
+
+        log::debug!(
+            "[telegram-login] checking link status: GET {}",
+            url.as_str()
+        );
+
+        let resp = self
+            .client
+            .get(url)
+            .header(AUTHORIZATION, bearer_authorization_value(bearer_jwt))
+            .send()
+            .await
+            .context("check channel link token status")?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("check channel link token status failed ({status}): {text}");
+        }
+
+        parse_api_response_json(&text)
+    }
+
     /// Generic authenticated JSON request helper for backend API routes that
     /// follow the standard `{ success, data, message }` envelope.
     pub async fn authed_json(
