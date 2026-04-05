@@ -13,6 +13,10 @@ html, body, #root {
   user-select: none;
 }
 
+body {
+  font-family: "Inter", system-ui, sans-serif;
+}
+
 /* Scrollbar styling for log viewer */
 .log-scroll::-webkit-scrollbar {
   width: 6px;
