@@ -403,12 +403,13 @@ export default function Skills() {
             {/* Main card */}
             <div className="bg-white rounded-2xl shadow-soft border border-stone-200 p-6 animate-fade-up">
               {/* Header */}
-              <div className="mb-5">
-                <h1 className="text-xl font-bold text-stone-900">Skills</h1>
-              </div>
-
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-stone-900">Connected Skills</h2>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-stone-900">Connected Skills</h2>
+                  <p className="mt-1 text-xs text-stone-500">
+                    Third-party integrations and external data sources.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => navigate('/settings/skills')}
