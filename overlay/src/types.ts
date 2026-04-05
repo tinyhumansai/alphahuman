@@ -7,17 +7,35 @@ export interface LogEntry {
   message: string;
 }
 
-/** Known module names for filtering. */
+/** Known module names for filtering.
+ *  As new apps/domains emit logs, they auto-appear in the filter bar.
+ *  This map provides friendly labels for known modules. */
 export const MODULE_LABELS: Record<string, string> = {
   all: "All",
+  // ── Core domains ──
   skills: "Skills",
   rpc: "RPC",
-  core_server: "Core Server",
+  core: "Core",
+  core_server: "Server",
   config: "Config",
   cron: "Cron",
   memory: "Memory",
   channels: "Channels",
   overlay: "Overlay",
+  about_app: "About",
+  subconscious: "Subconscious",
+  // ── Apps / subsystems ──
+  screen_recorder: "Screen Rec",
+  autocomplete: "Autocomplete",
+  agent: "Agent",
+  search: "Search",
+  // ── Infra ──
+  axum: "HTTP",
+  tower_http: "HTTP",
+  socketioxide: "Socket.IO",
+  hyper: "Hyper",
+  reqwest: "Reqwest",
+  rusqlite: "SQLite",
 };
 
 /** Level colors for the log viewer. */

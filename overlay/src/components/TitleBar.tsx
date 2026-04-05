@@ -1,11 +1,27 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
+
+interface TitleBarProps {
+  clickThrough: boolean;
+  onClickThroughToggle: () => void;
+}
 
 /**
  * Custom title bar for the frameless overlay window.
- * Supports dragging and window controls (minimize, close).
+ * Supports dragging, window controls, and click-through toggle.
  */
-export function TitleBar() {
+export function TitleBar({ clickThrough, onClickThroughToggle }: TitleBarProps) {
   const appWindow = getCurrentWindow();
+
+  const handleClickThrough = async () => {
+    const next = !clickThrough;
+    try {
+      await invoke("set_click_through", { enabled: next });
+      onClickThroughToggle();
+    } catch (e) {
+      console.error("Failed to set click-through:", e);
+    }
+  };
 
   return (
     <div
@@ -16,7 +32,20 @@ export function TitleBar() {
         OpenHuman
       </span>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
+        {/* Click-through toggle */}
+        <button
+          onClick={handleClickThrough}
+          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+            clickThrough
+              ? "bg-blue-500/30 text-blue-400 border border-blue-500/40"
+              : "text-white/30 hover:text-white/50"
+          }`}
+          title={clickThrough ? "Click-through ON (clicks pass through)" : "Click-through OFF"}
+        >
+          {clickThrough ? "CT" : "CT"}
+        </button>
+
         {/* Minimize */}
         <button
           onClick={() => appWindow.minimize()}
