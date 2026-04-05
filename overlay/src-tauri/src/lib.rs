@@ -4,6 +4,8 @@ use log_bridge::{LogBuffer, LogEntry, TauriLogLayer};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -79,6 +81,12 @@ pub fn run() {
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            #[cfg(target_os = "macos")]
+            {
+                app.set_activation_policy(ActivationPolicy::Accessory);
+                log::debug!("[overlay] macOS: activation policy set to accessory");
+            }
 
             // ── Tracing subscriber with Tauri bridge layer ──────────────
             let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
