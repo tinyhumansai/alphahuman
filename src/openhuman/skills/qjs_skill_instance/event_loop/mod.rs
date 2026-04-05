@@ -737,6 +737,7 @@ async fn handle_message(
                     handle_js_call(rt, ctx, "onRpc", &args.to_string()).await
                 }
             };
+
             let _ = reply.send(result);
         }
     }

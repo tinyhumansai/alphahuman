@@ -239,6 +239,8 @@ impl QjsSkillInstance {
             drive_jobs(&rt).await;
 
             // Run the event loop
+            // Sync is triggered by cron schedules or manually from the frontend,
+            // not automatically at startup or after auth.
             run_event_loop(
                 &rt,
                 &ctx,
