@@ -41,6 +41,18 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const goBackWithFallback = useCallback(
+    (fallbackPath: string) => {
+      const historyState = window.history.state as { idx?: number } | null;
+      if (typeof historyState?.idx === 'number' && historyState.idx > 0) {
+        navigate(-1);
+        return;
+      }
+      navigate(fallbackPath);
+    },
+    [navigate]
+  );
+
   // Determine current settings route from URL
   const getCurrentRoute = (): SettingsRoute => {
     const path = location.pathname;
@@ -97,71 +109,17 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     [navigate]
   );
 
-  const developerSubRoutes: SettingsRoute[] = [
-    'developer-options',
-    'skills',
-    'ai',
-    'tauri-commands',
-    'memory-debug',
-    'webhooks-debug',
-    'agent-chat',
-  ];
-
-  const routeParents: Partial<Record<SettingsRoute, SettingsRoute>> = {
-    billing: 'account',
-    'recovery-phrase': 'account',
-    team: 'account',
-    'team-members': 'account',
-    'team-invites': 'account',
-    connections: 'account',
-    accessibility: 'automation',
-    'screen-intelligence': 'automation',
-    autocomplete: 'automation',
-    messaging: 'automation',
-    'cron-jobs': 'automation',
-    'local-model': 'ai-tools',
-    ai: 'ai-tools',
-    skills: 'ai-tools',
-    advanced: 'developer-options',
-    'tauri-commands': 'developer-options',
-    'memory-debug': 'developer-options',
-    'webhooks-debug': 'developer-options',
-    'agent-chat': 'developer-options',
-  };
-
   const navigateBack = useCallback(() => {
     if (currentRoute === 'home') {
-      navigate('/home');
-    } else if (
-      currentRoute === 'account' ||
-      currentRoute === 'automation' ||
-      currentRoute === 'ai-tools' ||
-      currentRoute === 'developer-options'
-    ) {
-      navigate('/settings');
-    } else if (currentRoute === 'team-members' || currentRoute === 'team-invites') {
-      // Check if we're in team management context (has teamId in URL)
-      const teamManageMatch = location.pathname.match(/\/team\/manage\/([^/]+)/);
-      if (teamManageMatch) {
-        const teamId = teamManageMatch[1];
-        navigate(`/settings/team/manage/${teamId}`);
-      } else {
-        navigate('/settings/team');
-      }
-    } else if (location.pathname.includes('/team/manage/')) {
-      navigate('/settings/team');
-    } else if (routeParents[currentRoute]) {
-      navigate(`/settings/${routeParents[currentRoute]}`);
-    } else if (developerSubRoutes.includes(currentRoute as SettingsRoute)) {
-      navigate('/settings/developer-options');
-    } else {
-      navigate('/settings');
+      goBackWithFallback('/home');
+      return;
     }
-  }, [navigate, currentRoute, location.pathname]);
+    goBackWithFallback('/settings');
+  }, [currentRoute, goBackWithFallback]);
 
   const closeSettings = useCallback(() => {
-    navigate('/home');
-  }, [navigate]);
+    goBackWithFallback('/home');
+  }, [goBackWithFallback]);
 
   return {
     currentRoute,
