@@ -152,6 +152,13 @@
     @apply card hover:shadow-medium;
   }
 
+  .app-dotted-canvas {
+    background-color: #f8f7f2;
+    background-image: radial-gradient(circle at center, #cdcdcd 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: 0 0;
+  }
+
   /* Input components with consistent styling */
   .input-primary {
     @apply w-full px-4 py-3 rounded-lg;

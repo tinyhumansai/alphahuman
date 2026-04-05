@@ -29,8 +29,8 @@ function App() {
             <SocketProvider>
               <Router>
                 <ServiceBlockingGate>
-                  <div className="relative h-screen flex flex-col overflow-hidden bg-[#F5F5F5]">
-                    <div className="flex-1 overflow-y-auto">
+                  <div className="app-dotted-canvas relative h-screen flex flex-col overflow-hidden">
+                    <div className="flex-1 overflow-y-auto pb-16">
                       <AppRoutes />
                     </div>
                     <BottomTabBar />

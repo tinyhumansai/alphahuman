@@ -74,7 +74,7 @@ const tabs = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.8}
-          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a2 2 0 01-2-2v-4a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2z"
+          d="M12 8v8m0-8l-3-3m3 3l3-3M8 14H6a2 2 0 01-2-2V7a2 2 0 012-2h2m8 9h2a2 2 0 002-2V7a2 2 0 00-2-2h-2M7 19h10"
         />
       </svg>
     ),
@@ -142,8 +142,8 @@ const BottomTabBar = () => {
   };
 
   return (
-    <div className="flex-shrink-0 flex justify-center pb-4 pt-2 z-50">
-      <nav className="inline-flex items-center gap-6 bg-white rounded-full border border-stone-200 shadow-soft px-4 py-2.5">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4 pt-2 z-50">
+      <nav className="pointer-events-auto inline-flex items-center gap-2 rounded-sm border border-stone-300 bg-stone-200 shadow-soft px-1 py-1">
         {tabs.map(tab => {
           const active = isActive(tab.path);
           const showBadge = tab.id === 'chat' && conversationsUnreadCount > 0;
@@ -151,10 +151,10 @@ const BottomTabBar = () => {
             <button
               key={tab.id}
               onClick={() => navigate(tab.path)}
-              className={`relative flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-colors duration-150 cursor-pointer ${
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-sm text-sm transition-colors duration-150 cursor-pointer ${
                 active
-                  ? 'bg-stone-100 text-stone-900 font-semibold'
-                  : 'text-stone-400 hover:text-stone-600'
+                  ? 'bg-white text-stone-900 font-semibold shadow-sm'
+                  : 'bg-transparent text-stone-500 hover:bg-stone-300/50 hover:text-stone-700'
               }`}
               aria-label={tab.label}>
               {tab.icon}

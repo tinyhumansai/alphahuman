@@ -245,7 +245,7 @@ export default function Intelligence() {
   ];
 
   return (
-    <div className="min-h-full bg-[#F5F5F5] p-4 pt-6">
+    <div className="min-h-full p-4 pt-6">
       <div className="max-w-2xl mx-auto">
         <div className="bg-white rounded-2xl shadow-soft border border-stone-200 p-6">
           <div>
