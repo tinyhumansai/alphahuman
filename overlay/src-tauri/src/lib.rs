@@ -72,7 +72,7 @@ pub fn run() {
 
             // ── Start openhuman_core in-process (background task) ───────
             let _handle = app_handle.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 log::info!("[overlay] starting openhuman_core server in-process...");
                 // TODO: call openhuman_core's server entry point here, e.g.:
                 // openhuman_core::core_server::start(config).await;
