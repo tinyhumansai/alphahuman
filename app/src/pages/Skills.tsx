@@ -147,7 +147,7 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-stone-900 truncate">{skill.name}</span>
+          <span className="text-sm font-semibold text-stone-900 truncate">{skill.name}</span>
           <div
             className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotClass(connectionStatus)}`}
           />
@@ -155,8 +155,13 @@ function SkillCard({ skill, onSetup }: SkillCardProps) {
             {statusDisplay.text}
           </span>
         </div>
+        {skill.description && (
+          <p className="mt-1 text-xs leading-relaxed text-stone-600 line-clamp-2">
+            {skill.description}
+          </p>
+        )}
         {syncSummaryText && (
-          <p className="text-[11px] text-stone-500 truncate mt-0.5">{syncSummaryText}</p>
+          <p className="text-[11px] text-stone-500 truncate mt-1">{syncSummaryText}</p>
         )}
         {isSyncing && (
           <div className="mt-1.5">
