@@ -25,8 +25,8 @@ const SettingsSectionPage = ({ title, description, items }: SettingsSectionPageP
     <div className="z-10 relative">
       <SettingsHeader title={title} showBackButton={true} onBack={navigateBack} />
 
-      <div className="p-4 space-y-4">
-        {description && <p className="text-sm text-stone-500 px-1">{description}</p>}
+      <div className="py-4 space-y-4">
+        {description && <p className="text-sm text-stone-500 px-5">{description}</p>}
 
         <div>
           {items.map((item, index) => (
