@@ -331,7 +331,7 @@ const TeamPanel = () => {
           {teamToLeave && (
             <div className="fixed inset-0 bg-stone-900/50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl p-6 w-full max-w-md border border-stone-200">
-                <h3 className="text-lg font-semibold text-stone-900 mb-4">Leave Team</h3>
+                <h3 className="text-sm font-semibold text-stone-900 mb-4">Leave Team</h3>
 
                 {error && (
                   <div className="rounded-xl bg-coral-500/10 border border-coral-500/20 p-3 mb-4">

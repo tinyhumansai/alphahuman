@@ -308,8 +308,8 @@ const CronJobsPanel = () => {
       <SettingsHeader title="Cron Jobs" showBackButton={true} onBack={navigateBack} />
 
       <div className="p-4 space-y-4">
-        <section className="rounded-xl border border-stone-200 bg-white p-4 space-y-2">
-          <h3 className="text-lg font-semibold text-stone-900">Scheduled Jobs</h3>
+        <section className="space-y-1">
+          <h3 className="text-sm font-semibold text-stone-900">Scheduled Jobs</h3>
           <p className="text-xs text-stone-400">
             Manage cron jobs from both the core scheduler and runtime skills.
           </p>
