@@ -75,11 +75,6 @@ const SettingsHome = () => {
   //   console.log('View encryption key');
   // };
 
-  const handleDeleteAllData = () => {
-    // TODO: Show confirmation dialog and delete all data
-    console.log('Delete all data');
-  };
-
   const groupedMenuItems = [
     {
       id: 'account',
@@ -154,26 +149,9 @@ const SettingsHome = () => {
   // Destructive actions menu items
   const destructiveMenuItems = [
     {
-      id: 'delete',
-      title: 'Delete All Data',
-      description: 'Permanently delete all your data and reset your account',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-          />
-        </svg>
-      ),
-      onClick: handleDeleteAllData,
-      dangerous: true,
-    },
-    {
       id: 'logout-and-clear',
-      title: 'Log Out & Clear App Data',
-      description: 'Sign out and permanently clear all local data',
+      title: 'Clear App Data',
+      description: 'Sign out and permanently clear all local app data',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -266,15 +244,15 @@ const SettingsHome = () => {
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-stone-900">Log Out & Clear App Data</h3>
+                <h3 className="text-lg font-semibold text-stone-900">Clear App Data</h3>
               </div>
             </div>
 
             <div className="mb-6">
               <p className="text-stone-700 text-sm leading-relaxed">
-                This will sign you out and permanently delete ALL data including: • App settings and
-                conversations • Email data from Gmail • Chat history from Telegram • Cached files
-                from Notion • All other skills data
+                This will sign you out and permanently delete local app data including: • App
+                settings and conversations • Email data from Gmail • Chat history from Telegram •
+                Cached files from Notion • All other skills data
                 <br />
                 <br />
                 This action cannot be undone and may take a few moments to complete.
@@ -318,7 +296,7 @@ const SettingsHome = () => {
                     />
                   </svg>
                 )}
-                {isLoading ? 'Clearing All Data...' : 'Log Out & Clear Everything'}
+                {isLoading ? 'Clearing App Data...' : 'Clear App Data'}
               </button>
             </div>
           </div>

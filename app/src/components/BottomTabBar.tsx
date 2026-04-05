@@ -142,8 +142,8 @@ const BottomTabBar = () => {
   };
 
   return (
-    <div className="flex-shrink-0 flex justify-center pb-4 pt-2 z-50">
-      <nav className="inline-flex items-center gap-2 rounded-sm border border-stone-300 bg-stone-200/95 shadow-soft px-1 py-1">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4 pb-4 pt-2 z-50">
+      <nav className="pointer-events-auto inline-flex items-center gap-2 rounded-sm border border-stone-300 bg-stone-200 shadow-soft px-1 py-1">
         {tabs.map(tab => {
           const active = isActive(tab.path);
           const showBadge = tab.id === 'chat' && conversationsUnreadCount > 0;
