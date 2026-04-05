@@ -2,8 +2,8 @@ use crate::openhuman::config::ScreenIntelligenceConfig;
 use serde::{Deserialize, Serialize};
 
 // Permission types are defined in the accessibility middleware; re-export for compatibility.
-pub use crate::openhuman::accessibility::{PermissionKind, PermissionState, PermissionStatus};
 pub use crate::openhuman::accessibility::{GlobeHotkeyPollResult, GlobeHotkeyStatus};
+pub use crate::openhuman::accessibility::{PermissionKind, PermissionState, PermissionStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessibilityFeatures {

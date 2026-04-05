@@ -357,7 +357,8 @@ fn handle_capture_test(_params: Map<String, Value>) -> ControllerFuture {
 fn handle_globe_listener_start(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async {
         to_json(
-            crate::openhuman::screen_intelligence::rpc::accessibility_globe_listener_start().await?,
+            crate::openhuman::screen_intelligence::rpc::accessibility_globe_listener_start()
+                .await?,
         )
     })
 }

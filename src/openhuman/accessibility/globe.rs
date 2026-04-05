@@ -406,7 +406,10 @@ pub fn globe_listener_stop() -> Result<GlobeHotkeyStatus, String> {
         let _ = process.child.kill();
         let _ = process.child.wait();
         let events = drain_events(&process.event_queue);
-        log::debug!("{LOG_PREFIX} drained {} queued events on stop", events.len());
+        log::debug!(
+            "{LOG_PREFIX} drained {} queued events on stop",
+            events.len()
+        );
     }
 
     Ok(GlobeHotkeyStatus {
@@ -476,6 +479,9 @@ mod tests {
         assert_eq!(queue.len(), MAX_PENDING_EVENTS);
         assert_eq!(queue.front().map(String::as_str), Some("event-5"));
         let expected_last = format!("event-{}", MAX_PENDING_EVENTS + 4);
-        assert_eq!(queue.back().map(String::as_str), Some(expected_last.as_str()));
+        assert_eq!(
+            queue.back().map(String::as_str),
+            Some(expected_last.as_str())
+        );
     }
 }

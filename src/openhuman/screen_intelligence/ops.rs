@@ -224,8 +224,8 @@ pub async fn accessibility_globe_listener_start() -> Result<RpcOutcome<GlobeHotk
     ))
 }
 
-pub async fn accessibility_globe_listener_poll(
-) -> Result<RpcOutcome<GlobeHotkeyPollResult>, String> {
+pub async fn accessibility_globe_listener_poll() -> Result<RpcOutcome<GlobeHotkeyPollResult>, String>
+{
     let result = crate::openhuman::accessibility::globe_listener_poll()?;
     Ok(RpcOutcome::single_log(
         result,
