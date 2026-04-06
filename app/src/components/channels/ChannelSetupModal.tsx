@@ -71,7 +71,7 @@ export default function ChannelSetupModal({ definition, onClose }: ChannelSetupM
       aria-labelledby="channel-setup-title">
       <div
         ref={modalRef}
-        className="bg-stone-950 border border-stone-800 rounded-3xl shadow-large w-full max-w-[500px] overflow-hidden animate-fade-up focus:outline-none focus:ring-0"
+        className="bg-white border border-stone-200 rounded-3xl shadow-large w-full max-w-[500px] overflow-hidden animate-fade-up focus:outline-none focus:ring-0"
         style={{
           animationDuration: '200ms',
           animationTimingFunction: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
@@ -80,23 +80,23 @@ export default function ChannelSetupModal({ definition, onClose }: ChannelSetupM
         tabIndex={-1}
         onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-stone-800">
+        <div className="px-5 pt-5 pb-4 border-b border-stone-200">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0 pr-2">
               <div className="flex items-center gap-2">
                 {icon && <span className="text-base">{icon}</span>}
-                <h2 id="channel-setup-title" className="text-base font-semibold text-white">
+                <h2 id="channel-setup-title" className="text-base font-semibold text-stone-900">
                   {definition.display_name}
                 </h2>
-                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-primary-500/15 text-primary-400">
+                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-primary-500/15 text-primary-600">
                   channel
                 </span>
               </div>
-              <p className="text-xs text-stone-400 mt-1.5">{definition.description}</p>
+              <p className="text-xs text-stone-500 mt-1.5">{definition.description}</p>
             </div>
             <button
               onClick={onClose}
-              className="p-1 text-stone-500 hover:text-white transition-colors rounded-lg hover:bg-stone-800 flex-shrink-0">
+              className="p-1 text-stone-400 hover:text-stone-900 transition-colors rounded-lg hover:bg-stone-100 flex-shrink-0">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -109,7 +109,7 @@ export default function ChannelSetupModal({ definition, onClose }: ChannelSetupM
           </div>
         </div>
 
-        {/* Content — channel config components use dark theme natively */}
+        {/* Content */}
         <div className="p-4 max-h-[70vh] overflow-y-auto">
           <ChannelConfigContent definition={definition} />
         </div>
