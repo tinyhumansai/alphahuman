@@ -330,12 +330,20 @@ impl Agent {
             .unwrap_or(crate::openhuman::config::DEFAULT_MODEL)
             .to_string();
 
-        let provider: Box<dyn Provider> = providers::create_routed_provider(
+        let provider_runtime_options = providers::ProviderRuntimeOptions {
+            auth_profile_override: None,
+            openhuman_dir: config.config_path.parent().map(std::path::PathBuf::from),
+            secrets_encrypt: config.secrets.encrypt,
+            reasoning_enabled: config.runtime.reasoning_enabled,
+        };
+
+        let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
             config.api_key.as_deref(),
             config.api_url.as_deref(),
             &config.reliability,
             &config.model_routes,
             &model_name,
+            &provider_runtime_options,
         )?;
 
         let dispatcher_choice = config.agent.tool_dispatcher.as_str();

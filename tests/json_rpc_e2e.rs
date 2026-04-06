@@ -54,10 +54,12 @@ impl Drop for EnvVarGuard {
 static JSON_RPC_E2E_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn json_rpc_e2e_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    JSON_RPC_E2E_ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("json_rpc_e2e env lock poisoned")
+    let mutex = JSON_RPC_E2E_ENV_LOCK.get_or_init(|| Mutex::new(()));
+    // Recover from poison so that a panic in one test does not cascade to all others.
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 fn mock_upstream_router() -> Router {
@@ -560,6 +562,12 @@ async fn json_rpc_protocol_auth_and_agent_hello() {
     let mock_origin = format!("http://{}", mock_addr);
 
     write_min_config(&openhuman_home, &mock_origin);
+
+    // Pre-create the user-scoped config directory so that when store_session
+    // activates user "e2e-user" and reloads config, it finds the correct
+    // api_url and secrets.encrypt=false (rather than defaults).
+    let user_scoped_dir = openhuman_home.join("users").join("e2e-user");
+    write_min_config(&user_scoped_dir, &mock_origin);
 
     let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let rpc_base = format!("http://{}", rpc_addr);
@@ -1853,6 +1861,10 @@ async fn billing_rpc_e2e() {
     let mock_origin = format!("http://{}", mock_addr);
     write_min_config(&openhuman_home, &mock_origin);
 
+    // Pre-create the user-scoped config so store_session finds correct settings.
+    let user_scoped_dir = openhuman_home.join("users").join("e2e-user");
+    write_min_config(&user_scoped_dir, &mock_origin);
+
     let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let rpc_base = format!("http://{}", rpc_addr);
 
@@ -1998,6 +2010,10 @@ async fn team_rpc_e2e() {
     let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
     let mock_origin = format!("http://{}", mock_addr);
     write_min_config(&openhuman_home, &mock_origin);
+
+    // Pre-create the user-scoped config so store_session finds correct settings.
+    let user_scoped_dir = openhuman_home.join("users").join("e2e-user");
+    write_min_config(&user_scoped_dir, &mock_origin);
 
     let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let rpc_base = format!("http://{}", rpc_addr);
