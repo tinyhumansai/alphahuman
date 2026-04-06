@@ -1,8 +1,8 @@
 //! JSON-RPC schemas and handlers for the OpenHuman Skills system.
 //!
 //! This module defines the interface between the frontend/RPC clients and the
-//! skills registry and runtime. It includes schemas for socket management,
-//! skill installation, and runtime control (start, stop, tool calls, etc.).
+//! skills registry and runtime: skill installation, and runtime control
+//! (start, stop, tool calls, etc.).
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -14,18 +14,9 @@ use crate::openhuman::config::rpc as config_rpc;
 use super::qjs_engine::require_engine;
 use super::registry_ops;
 
-const SOCKET_UNAVAILABLE_MSG: &str =
-    "native skill runtime and socket manager are not available in this build";
-
 /// Returns all controller schemas defined in this module.
-///
-/// These schemas describe the expected inputs and outputs for each JSON-RPC function.
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
-        socket_schema("connect"),
-        socket_schema("disconnect"),
-        socket_schema("state"),
-        socket_schema("emit"),
         skills_schema("registry_fetch"),
         skills_schema("search"),
         skills_schema("install"),

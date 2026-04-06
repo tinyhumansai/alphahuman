@@ -37,7 +37,7 @@ use crate::openhuman::skills::ping_scheduler::PingScheduler;
 use crate::openhuman::skills::preferences::PreferencesStore;
 use crate::openhuman::skills::qjs_skill_instance::{BridgeDeps, QjsSkillInstance};
 use crate::openhuman::skills::skill_registry::SkillRegistry;
-use crate::openhuman::skills::socket_manager::SocketManager;
+use crate::openhuman::socket::SocketManager;
 use crate::openhuman::skills::types::{SkillSnapshot, SkillStatus, ToolCallOrigin, ToolResult};
 use crate::openhuman::webhooks::WebhookRouter;
 
