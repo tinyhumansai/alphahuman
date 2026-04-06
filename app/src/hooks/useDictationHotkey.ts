@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 
 import { callCoreRpc } from '../services/coreRpcClient';
-import socketService from '../services/socketService';
+import { socketService } from '../services/socketService';
 
 interface DictationSettings {
   enabled: boolean;
