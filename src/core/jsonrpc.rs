@@ -614,7 +614,8 @@ pub async fn run_server(
     }
 
     // Optional background bootstrap for local AI services.
-    tokio::spawn(async {
+    let parent_core_rpc_url = format!("http://{host}:{port}/rpc");
+    tokio::spawn(async move {
         match crate::openhuman::config::Config::load_or_init().await {
             Ok(config) => {
                 if config.local_ai.enabled {
@@ -624,7 +625,7 @@ pub async fn run_server(
 
                 // Launch the overlay Tauri app (transparent debug/voice panel) as a child process.
                 if config.overlay_enabled {
-                    crate::openhuman::overlay::spawn_overlay();
+                    crate::openhuman::overlay::spawn_overlay(parent_core_rpc_url.as_str());
                 } else {
                     log::info!("[overlay] overlay disabled by config (overlay_enabled = false)");
                 }

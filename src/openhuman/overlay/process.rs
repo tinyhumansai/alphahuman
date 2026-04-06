@@ -10,22 +10,40 @@ use std::process::{Command, Stdio};
 
 /// Attempt to find and spawn the overlay binary.
 ///
+/// `parent_core_rpc_url` must be the JSON-RPC URL of the **same** core process
+/// that spawned the overlay (e.g. `http://127.0.0.1:7788/rpc`) so the overlay
+/// UI can query autocomplete, screen intelligence, and voice state from the
+/// desktop sidecar instead of a separate in-process core instance.
+///
 /// This is best-effort: if the binary is not found or fails to launch, a
 /// warning is logged and the core continues normally.
-pub fn spawn_overlay() {
+pub fn spawn_overlay(parent_core_rpc_url: &str) {
     let Some(overlay_bin) = find_overlay_binary() else {
-        log::debug!("[overlay] openhuman-overlay binary not found — skipping overlay launch");
+        log::warn!(
+            "[overlay] openhuman-overlay binary not found — skipping overlay launch (set OPENHUMAN_OVERLAY_BIN or build overlay/src-tauri)"
+        );
         return;
     };
 
-    log::info!("[overlay] launching overlay: {}", overlay_bin.display());
+    log::info!(
+        "[overlay] launching overlay: {} (parent RPC {})",
+        overlay_bin.display(),
+        parent_core_rpc_url
+    );
 
-    match Command::new(&overlay_bin)
-        .stdin(Stdio::null())
+    let mut cmd = Command::new(&overlay_bin);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-    {
+        .env(
+            "OPENHUMAN_OVERLAY_PARENT_RPC_URL",
+            parent_core_rpc_url.trim(),
+        )
+        // The desktop core sets OPENHUMAN_CORE_PORT; the overlay must not inherit it or its
+        // optional embedded JSON-RPC server will try to bind the same port as the parent.
+        .env_remove("OPENHUMAN_CORE_PORT");
+
+    match cmd.spawn() {
         Ok(child) => {
             log::info!("[overlay] overlay process spawned (pid={})", child.id());
         }
