@@ -635,6 +635,18 @@ pub async fn run_server(
         }
     });
 
+    // Periodic self-update checker (default: every 1 hour).
+    tokio::spawn(async {
+        match crate::openhuman::config::Config::load_or_init().await {
+            Ok(config) => {
+                crate::openhuman::update::scheduler::run(config.update).await;
+            }
+            Err(err) => {
+                log::warn!("[core] config load failed, skipping update scheduler: {err}");
+            }
+        }
+    });
+
     axum::serve(listener, app).await?;
     Ok(())
 }

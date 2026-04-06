@@ -71,6 +71,7 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::voice::all_voice_registered_controllers());
     controllers.extend(crate::openhuman::subconscious::all_subconscious_registered_controllers());
     controllers.extend(crate::openhuman::webhooks::all_webhooks_registered_controllers());
+    controllers.extend(crate::openhuman::update::all_update_registered_controllers());
     controllers
 }
 
@@ -107,6 +108,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::voice::all_voice_controller_schemas());
     schemas.extend(crate::openhuman::subconscious::all_subconscious_controller_schemas());
     schemas.extend(crate::openhuman::webhooks::all_webhooks_controller_schemas());
+    schemas.extend(crate::openhuman::update::all_update_controller_schemas());
     schemas
 }
 
@@ -149,6 +151,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "subconscious" => Some("Periodic local-model background awareness loop."),
         "webhooks" => {
             Some("Webhook tunnel registrations and captured request/response debug logs.")
+        }
+        "update" => {
+            Some("Self-update: check GitHub Releases for newer core binary and stage updates.")
         }
         _ => None,
     }

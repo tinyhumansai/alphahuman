@@ -47,6 +47,7 @@ pub mod subconscious;
 pub mod team;
 pub mod tool_timeout;
 pub mod tools;
+pub mod update;
 pub mod util;
 pub mod voice;
 pub mod webhooks;

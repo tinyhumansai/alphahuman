@@ -26,6 +26,7 @@ mod routes;
 mod runtime;
 mod storage_memory;
 mod tools;
+mod update;
 
 pub use accessibility::ScreenIntelligenceConfig;
 pub use agent::{AgentConfig, DelegateAgentConfig};
@@ -62,5 +63,6 @@ pub use tools::{
     BrowserComputerUseConfig, BrowserConfig, ComposioConfig, HttpRequestConfig, MultimodalConfig,
     SecretsConfig, WebSearchConfig,
 };
+pub use update::UpdateConfig;
 mod types;
 pub use types::*;

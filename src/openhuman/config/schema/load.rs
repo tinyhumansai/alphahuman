@@ -761,6 +761,21 @@ impl Config {
             }
         }
 
+        // Auto-update overrides
+        if let Ok(flag) = std::env::var("OPENHUMAN_AUTO_UPDATE_ENABLED") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.update.enabled = true,
+                "0" | "false" | "no" | "off" => self.update.enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(val) = std::env::var("OPENHUMAN_AUTO_UPDATE_INTERVAL_MINUTES") {
+            if let Ok(minutes) = val.trim().parse::<u32>() {
+                self.update.interval_minutes = minutes;
+            }
+        }
+
         if let Ok(flag) = std::env::var("OPENHUMAN_OVERLAY_ENABLED") {
             let normalized = flag.trim().to_ascii_lowercase();
             match normalized.as_str() {

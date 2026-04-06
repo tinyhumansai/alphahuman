@@ -34,7 +34,7 @@ pub use schema::{
     ReflectionSource, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend,
     SandboxConfig, SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig, SecurityConfig,
     SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
-    TelegramConfig, WebSearchConfig, WebhookConfig, DEFAULT_MODEL, MODEL_AGENTIC_V1,
+    TelegramConfig, UpdateConfig, WebSearchConfig, WebhookConfig, DEFAULT_MODEL, MODEL_AGENTIC_V1,
     MODEL_CODING_V1, MODEL_REASONING_V1,
 };
 pub use schema::{
