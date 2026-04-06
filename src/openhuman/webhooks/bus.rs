@@ -102,8 +102,7 @@ impl EventHandler for WebhookRequestSubscriber {
                 let sid = reg.skill_id.clone();
                 tracing::debug!("[webhook] request routed to skill '{}'", sid);
 
-                let registry = crate::openhuman::skills::global_engine()
-                    .map(|e| e.registry());
+                let registry = crate::openhuman::skills::global_engine().map(|e| e.registry());
                 match registry {
                     Some(registry) => {
                         let result = registry
@@ -129,9 +128,7 @@ impl EventHandler for WebhookRequestSubscriber {
                                         correlation_id: correlation_id.clone(),
                                         status_code: 500,
                                         headers: std::collections::HashMap::new(),
-                                        body: error_body(&format!(
-                                            "Skill handler error: {}", e
-                                        )),
+                                        body: error_body(&format!("Skill handler error: {}", e)),
                                     },
                                     Some(sid),
                                     Some(e),
@@ -160,17 +157,15 @@ impl EventHandler for WebhookRequestSubscriber {
                     status_code: 400,
                     headers: std::collections::HashMap::new(),
                     body: error_body(&format!(
-                        "unknown webhook target kind '{}'", reg.target_kind
+                        "unknown webhook target kind '{}'",
+                        reg.target_kind
                     )),
                 },
                 Some(reg.skill_id.clone()),
                 Some("unknown webhook target kind".to_string()),
             ),
             None => {
-                tracing::debug!(
-                    "[webhook] no handler registered for tunnel {}",
-                    tunnel_uuid,
-                );
+                tracing::debug!("[webhook] no handler registered for tunnel {}", tunnel_uuid,);
                 (
                     crate::openhuman::webhooks::WebhookResponseData {
                         correlation_id: correlation_id.clone(),
