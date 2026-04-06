@@ -332,6 +332,11 @@ pub fn focused_text_context_verbose() -> Result<FocusedTextContext, String> {
 /// Validate that the currently focused element still matches the target we generated the
 /// suggestion for. Returns Ok if it matches or if validation is inconclusive.
 #[cfg(target_os = "macos")]
+fn is_text_editable_role(role: &str) -> bool {
+    matches!(role, "AXTextArea" | "AXTextField")
+}
+
+#[cfg(target_os = "macos")]
 pub fn validate_focused_target(
     expected_app: Option<&str>,
     expected_role: Option<&str>,
@@ -352,10 +357,18 @@ pub fn validate_focused_target(
             }
             if let (Some(expected), Some(actual)) = (expected_role, ctx.role.as_deref()) {
                 if expected != actual {
-                    return Err(format!(
-                        "target role changed from '{}' to '{}', aborting insertion",
-                        expected, actual
-                    ));
+                    if is_text_editable_role(expected) && is_text_editable_role(actual) {
+                        log::debug!(
+                            "[accessibility] validate_focused_target: role changed '{}' -> '{}'; proceeding",
+                            expected,
+                            actual
+                        );
+                    } else {
+                        return Err(format!(
+                            "focus role changed from '{}' to '{}', aborting insertion",
+                            expected, actual
+                        ));
+                    }
                 }
             }
             Ok(())

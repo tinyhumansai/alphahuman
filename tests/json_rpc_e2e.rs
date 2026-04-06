@@ -520,6 +520,27 @@ encrypt = false
         toml::from_str(&cfg).expect("config toml must match Config schema");
 }
 
+#[cfg(target_os = "macos")]
+fn write_min_config_with_local_ai_disabled(openhuman_dir: &Path, api_origin: &str) {
+    let cfg = format!(
+        r#"api_url = "{api_origin}"
+default_model = "e2e-mock-model"
+default_temperature = 0.7
+
+[secrets]
+encrypt = false
+
+[local_ai]
+enabled = false
+"#
+    );
+    std::fs::create_dir_all(openhuman_dir).expect("mkdir openhuman");
+    let path = openhuman_dir.join("config.toml");
+    std::fs::write(&path, &cfg).expect("write config");
+    let _: openhuman_core::openhuman::config::Config =
+        toml::from_str(&cfg).expect("config toml must match Config schema");
+}
+
 #[tokio::test]
 async fn json_rpc_protocol_auth_and_agent_hello() {
     let _env_lock = json_rpc_e2e_env_lock();
@@ -763,6 +784,242 @@ async fn json_rpc_screen_intelligence_capture_test_returns_stable_shape() {
             "failed capture should include an error message"
         );
     }
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn json_rpc_autocomplete_runtime_settings_and_logs_flow() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config_with_local_ai_disabled(&openhuman_home, &mock_origin);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let set_style = post_json_rpc(
+        &rpc_base,
+        2001,
+        "openhuman.autocomplete_set_style",
+        json!({
+            "enabled": true,
+            "debounce_ms": 180,
+            "max_chars": 160,
+            "accept_with_tab": false,
+            "style_preset": "balanced",
+            "style_examples": ["[mail] ...Can you share an update? → Can you share a quick update?"],
+            "disabled_apps": []
+        }),
+    )
+    .await;
+    let set_style_outer = assert_no_jsonrpc_error(&set_style, "autocomplete_set_style");
+    let set_style_payload = set_style_outer.get("result").unwrap_or(set_style_outer);
+    let set_style_logs = set_style_outer
+        .get("logs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        set_style_payload
+            .get("config")
+            .and_then(|v| v.get("debounce_ms"))
+            .and_then(Value::as_u64),
+        Some(180)
+    );
+    assert_eq!(
+        set_style_payload
+            .get("config")
+            .and_then(|v| v.get("max_chars"))
+            .and_then(Value::as_u64),
+        Some(160)
+    );
+    assert!(
+        set_style_logs.iter().any(|entry| {
+            entry
+                .as_str()
+                .map(|s| s.contains("[autocomplete] set_style"))
+                .unwrap_or(false)
+        }),
+        "expected structured set_style log line: {set_style_outer}"
+    );
+
+    let cfg = post_json_rpc(&rpc_base, 2002, "openhuman.config_get", json!({})).await;
+    let cfg_outer = assert_no_jsonrpc_error(&cfg, "get_config");
+    let cfg_payload = cfg_outer.get("result").unwrap_or(cfg_outer);
+    let cfg_autocomplete = cfg_payload
+        .get("config")
+        .and_then(|v| v.get("autocomplete"))
+        .expect("autocomplete config should exist");
+    assert_eq!(
+        cfg_autocomplete.get("debounce_ms").and_then(Value::as_u64),
+        Some(180)
+    );
+    assert_eq!(
+        cfg_autocomplete.get("max_chars").and_then(Value::as_u64),
+        Some(160)
+    );
+    assert_eq!(
+        cfg_autocomplete
+            .get("accept_with_tab")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+
+    let start = post_json_rpc(
+        &rpc_base,
+        2003,
+        "openhuman.autocomplete_start",
+        json!({ "debounce_ms": 180 }),
+    )
+    .await;
+    let start_outer = assert_no_jsonrpc_error(&start, "autocomplete_start");
+    let start_payload = start_outer.get("result").unwrap_or(start_outer);
+    let start_logs = start_outer
+        .get("logs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        start_payload.get("started").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(
+        start_logs.iter().any(|entry| {
+            entry
+                .as_str()
+                .map(|s| s.contains("[autocomplete] start"))
+                .unwrap_or(false)
+        }),
+        "expected structured start log line: {start_outer}"
+    );
+
+    let status_running =
+        post_json_rpc(&rpc_base, 2004, "openhuman.autocomplete_status", json!({})).await;
+    let status_running_outer = assert_no_jsonrpc_error(&status_running, "autocomplete_status");
+    let status_running_payload = status_running_outer
+        .get("result")
+        .unwrap_or(status_running_outer);
+    assert_eq!(
+        status_running_payload
+            .get("running")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        status_running_payload
+            .get("enabled")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        status_running_payload
+            .get("debounce_ms")
+            .and_then(Value::as_u64),
+        Some(180)
+    );
+
+    let current = post_json_rpc(
+        &rpc_base,
+        2005,
+        "openhuman.autocomplete_current",
+        json!({ "context": "Please review this changeset and" }),
+    )
+    .await;
+    let current_outer = assert_no_jsonrpc_error(&current, "autocomplete_current");
+    let current_payload = current_outer.get("result").unwrap_or(current_outer);
+    let current_logs = current_outer
+        .get("logs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        current_payload.get("context").and_then(Value::as_str),
+        Some("Please review this changeset and")
+    );
+    assert!(
+        current_logs.iter().any(|entry| {
+            entry
+                .as_str()
+                .map(|s| s.contains("[autocomplete] current"))
+                .unwrap_or(false)
+        }),
+        "expected structured current log line: {current_outer}"
+    );
+
+    let accept = post_json_rpc(
+        &rpc_base,
+        2006,
+        "openhuman.autocomplete_accept",
+        json!({
+            "suggestion": " share your thoughts.",
+            "skip_apply": true
+        }),
+    )
+    .await;
+    let accept_outer = assert_no_jsonrpc_error(&accept, "autocomplete_accept");
+    let accept_payload = accept_outer.get("result").unwrap_or(accept_outer);
+    let accept_logs = accept_outer
+        .get("logs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        accept_payload.get("accepted").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        accept_payload.get("applied").and_then(Value::as_bool),
+        Some(false)
+    );
+    assert!(
+        accept_logs.iter().any(|entry| {
+            entry
+                .as_str()
+                .map(|s| s.contains("[autocomplete] accept"))
+                .unwrap_or(false)
+        }),
+        "expected structured accept log line: {accept_outer}"
+    );
+
+    let stop = post_json_rpc(
+        &rpc_base,
+        2007,
+        "openhuman.autocomplete_stop",
+        json!({ "reason": "json_rpc_e2e" }),
+    )
+    .await;
+    let stop_outer = assert_no_jsonrpc_error(&stop, "autocomplete_stop");
+    let stop_payload = stop_outer.get("result").unwrap_or(stop_outer);
+    assert_eq!(
+        stop_payload.get("stopped").and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let status_stopped =
+        post_json_rpc(&rpc_base, 2008, "openhuman.autocomplete_status", json!({})).await;
+    let status_stopped_outer = assert_no_jsonrpc_error(&status_stopped, "autocomplete_status");
+    let status_stopped_payload = status_stopped_outer
+        .get("result")
+        .unwrap_or(status_stopped_outer);
+    assert_eq!(
+        status_stopped_payload
+            .get("running")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
 
     mock_join.abort();
     rpc_join.abort();
