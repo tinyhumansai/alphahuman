@@ -95,17 +95,29 @@ pub fn is_outdated(running: &str, minimum: &str) -> bool {
 /// Build the platform triple for asset matching.
 fn platform_triple() -> &'static str {
     #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-    { "x86_64-apple-darwin" }
+    {
+        "x86_64-apple-darwin"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    { "aarch64-apple-darwin" }
+    {
+        "aarch64-apple-darwin"
+    }
     #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-    { "x86_64-unknown-linux-gnu" }
+    {
+        "x86_64-unknown-linux-gnu"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-    { "aarch64-unknown-linux-gnu" }
+    {
+        "aarch64-unknown-linux-gnu"
+    }
     #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
-    { "x86_64-pc-windows-msvc" }
+    {
+        "x86_64-pc-windows-msvc"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "windows"))]
-    { "aarch64-pc-windows-msvc" }
+    {
+        "aarch64-pc-windows-msvc"
+    }
 }
 
 /// Find the right asset for this platform.
@@ -120,9 +132,7 @@ fn find_platform_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
 
 /// Fetch the latest release from GitHub.
 async fn fetch_latest_release() -> Result<GitHubRelease, String> {
-    let url = format!(
-        "https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-    );
+    let url = format!("https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest");
 
     let client = reqwest::Client::builder()
         .user_agent("openhuman-tauri-updater")
@@ -177,8 +187,7 @@ async fn download_binary(url: &str, dest: &PathBuf) -> Result<(), String> {
 
     let tmp = dest.with_extension("tmp");
     {
-        let mut file =
-            std::fs::File::create(&tmp).map_err(|e| format!("create temp file: {e}"))?;
+        let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create temp file: {e}"))?;
         file.write_all(&bytes)
             .map_err(|e| format!("write temp file: {e}"))?;
     }
@@ -190,8 +199,7 @@ async fn download_binary(url: &str, dest: &PathBuf) -> Result<(), String> {
             .map_err(|e| format!("set permissions: {e}"))?;
     }
 
-    std::fs::rename(&tmp, dest)
-        .map_err(|e| format!("rename staged binary: {e}"))?;
+    std::fs::rename(&tmp, dest).map_err(|e| format!("rename staged binary: {e}"))?;
 
     Ok(())
 }
@@ -268,8 +276,7 @@ pub async fn check_and_update_core(
     let staging_dir = resolve_staging_dir();
     if let Some(ref dir) = staging_dir {
         if !dir.exists() {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| format!("create staging dir: {e}"))?;
+            std::fs::create_dir_all(dir).map_err(|e| format!("create staging dir: {e}"))?;
         }
     }
 
@@ -319,8 +326,7 @@ fn resolve_staging_dir() -> Option<PathBuf> {
     // Dev: src-tauri/binaries/
     #[cfg(debug_assertions)]
     {
-        let binaries_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
+        let binaries_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
         if binaries_dir.exists() {
             return Some(binaries_dir);
         }

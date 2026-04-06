@@ -4,9 +4,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::openhuman::update::types::{
-    GitHubAsset, GitHubRelease, UpdateApplyResult, UpdateInfo,
-};
+use crate::openhuman::update::types::{GitHubAsset, GitHubRelease, UpdateApplyResult, UpdateInfo};
 
 /// GitHub owner/repo for the core binary releases.
 const GITHUB_OWNER: &str = "tinyhumansai";
@@ -21,17 +19,29 @@ pub fn current_version() -> &'static str {
 /// E.g. `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`.
 fn platform_triple() -> &'static str {
     #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-    { "x86_64-apple-darwin" }
+    {
+        "x86_64-apple-darwin"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    { "aarch64-apple-darwin" }
+    {
+        "aarch64-apple-darwin"
+    }
     #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-    { "x86_64-unknown-linux-gnu" }
+    {
+        "x86_64-unknown-linux-gnu"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-    { "aarch64-unknown-linux-gnu" }
+    {
+        "aarch64-unknown-linux-gnu"
+    }
     #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
-    { "x86_64-pc-windows-msvc" }
+    {
+        "x86_64-pc-windows-msvc"
+    }
     #[cfg(all(target_arch = "aarch64", target_os = "windows"))]
-    { "aarch64-pc-windows-msvc" }
+    {
+        "aarch64-pc-windows-msvc"
+    }
 }
 
 /// Find the right asset for this platform from a list of release assets.
@@ -51,11 +61,7 @@ fn find_platform_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
     assets
         .iter()
         .find(|a| a.name == expected_name || a.name == format!("{expected_name}.exe"))
-        .or_else(|| {
-            assets
-                .iter()
-                .find(|a| a.name.starts_with(&expected_name))
-        })
+        .or_else(|| assets.iter().find(|a| a.name.starts_with(&expected_name)))
 }
 
 /// Compare two semver-ish version strings.
@@ -80,9 +86,7 @@ pub async fn check_available() -> Result<UpdateInfo, String> {
         current
     );
 
-    let url = format!(
-        "https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-    );
+    let url = format!("https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest");
 
     let client = reqwest::Client::builder()
         .user_agent("openhuman-core-updater")
@@ -99,10 +103,7 @@ pub async fn check_available() -> Result<UpdateInfo, String> {
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "(no body)".into());
+        let body = response.text().await.unwrap_or_else(|_| "(no body)".into());
         log::warn!(
             "[update] GitHub API returned {}: {}",
             status,
@@ -174,10 +175,7 @@ pub async fn download_and_stage(
         .map_err(|e| format!("failed to download update: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!(
-            "download failed with status {}",
-            response.status()
-        ));
+        return Err(format!("download failed with status {}", response.status()));
     }
 
     let bytes = response
@@ -225,21 +223,14 @@ pub async fn download_and_stage(
     }
 
     // Atomic rename (same filesystem).
-    std::fs::rename(&tmp_path, &staged_path).map_err(|e| {
-        format!(
-            "failed to move update to {}: {e}",
-            staged_path.display()
-        )
-    })?;
+    std::fs::rename(&tmp_path, &staged_path)
+        .map_err(|e| format!("failed to move update to {}: {e}", staged_path.display()))?;
 
     // Parse version from the asset name (best-effort).
     // The caller already knows the target version, but we confirm staging succeeded.
     let installed_version = current_version().to_string();
 
-    log::info!(
-        "[update] staged update binary at {}",
-        staged_path.display()
-    );
+    log::info!("[update] staged update binary at {}", staged_path.display());
 
     Ok(UpdateApplyResult {
         installed_version,

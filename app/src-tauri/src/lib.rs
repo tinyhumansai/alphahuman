@@ -396,11 +396,9 @@ pub fn run() {
 
                 // Check if the running core is outdated and auto-update if needed.
                 let update_handle = core_handle.clone();
-                if let Err(err) = core_update::check_and_update_core(
-                    update_handle,
-                    Some(app_handle_for_update),
-                )
-                .await
+                if let Err(err) =
+                    core_update::check_and_update_core(update_handle, Some(app_handle_for_update))
+                        .await
                 {
                     log::warn!("[core-update] auto-update check failed (non-fatal): {err}");
                 }

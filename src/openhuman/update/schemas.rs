@@ -26,8 +26,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
         "check" => ControllerSchema {
             namespace: "update",
             function: "check",
-            description:
-                "Check GitHub Releases for a newer version of the core binary.",
+            description: "Check GitHub Releases for a newer version of the core binary.",
             inputs: vec![],
             outputs: vec![FieldSchema {
                 name: "update_info",
@@ -85,9 +84,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
 }
 
 fn handle_check(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async {
-        to_json(crate::openhuman::update::rpc::update_check().await)
-    })
+    Box::pin(async { to_json(crate::openhuman::update::rpc::update_check().await) })
 }
 
 fn handle_apply(params: Map<String, Value>) -> ControllerFuture {
