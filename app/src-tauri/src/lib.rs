@@ -2,6 +2,7 @@
 compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supported.");
 
 mod core_process;
+mod core_update;
 
 use std::sync::Mutex;
 
@@ -128,6 +129,33 @@ async fn service_status_direct() -> Result<String, String> {
 #[tauri::command]
 async fn service_uninstall_direct() -> Result<String, String> {
     run_core_cli(vec!["service".into(), "uninstall".into()]).await
+}
+
+/// Check if the core sidecar is outdated compared to the app's expected version.
+/// Returns JSON with version info and update availability.
+#[tauri::command]
+async fn check_core_update(
+    state: tauri::State<'_, core_process::CoreProcessHandle>,
+) -> Result<serde_json::Value, String> {
+    let rpc_url = state.inner().rpc_url();
+    let running = core_update::query_core_version(&rpc_url).await?;
+    let minimum = core_update::MINIMUM_CORE_VERSION;
+    let outdated = core_update::is_outdated(&running, minimum);
+    Ok(serde_json::json!({
+        "running_version": running,
+        "minimum_version": minimum,
+        "outdated": outdated,
+    }))
+}
+
+/// Trigger a full core update: download latest from GitHub, stage, kill old, restart.
+#[tauri::command]
+async fn apply_core_update(
+    state: tauri::State<'_, core_process::CoreProcessHandle>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    log::info!("[core-update] manual apply_core_update invoked from frontend");
+    core_update::check_and_update_core(state.inner().clone(), Some(app)).await
 }
 
 #[tauri::command]
@@ -358,11 +386,23 @@ pub fn run() {
             );
             std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
             app.manage(core_handle.clone());
+            let app_handle_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(err) = core_handle.ensure_running().await {
                     log::error!("[core] failed to start core process: {err}");
-                } else {
-                    log::info!("[core] core process ready");
+                    return;
+                }
+                log::info!("[core] core process ready");
+
+                // Check if the running core is outdated and auto-update if needed.
+                let update_handle = core_handle.clone();
+                if let Err(err) = core_update::check_and_update_core(
+                    update_handle,
+                    Some(app_handle_for_update),
+                )
+                .await
+                {
+                    log::warn!("[core-update] auto-update check failed (non-fatal): {err}");
                 }
             });
 
@@ -381,6 +421,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             core_rpc_url,
+            check_core_update,
+            apply_core_update,
             restart_core_process,
             service_install_direct,
             service_start_direct,

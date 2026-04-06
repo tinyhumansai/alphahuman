@@ -39,6 +39,10 @@ impl CoreProcessHandle {
         format!("http://127.0.0.1:{}/rpc", self.port)
     }
 
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
     /// Acquire the restart lock to serialize overlapping restart requests.
     pub async fn restart_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.restart_lock.lock().await

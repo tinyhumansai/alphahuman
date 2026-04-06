@@ -200,6 +200,42 @@ export async function restartCoreProcess(): Promise<void> {
   console.debug('[core] restartCoreProcess: done');
 }
 
+// --- Core Update Commands ---
+
+export interface CoreUpdateStatus {
+  running_version: string;
+  minimum_version: string;
+  outdated: boolean;
+}
+
+/**
+ * Check if the running core sidecar is outdated compared to what the app expects.
+ */
+export async function checkCoreUpdate(): Promise<CoreUpdateStatus | null> {
+  if (!isTauri()) {
+    console.debug('[core-update] checkCoreUpdate: skipped — not running in Tauri');
+    return null;
+  }
+  console.debug('[core-update] checkCoreUpdate: invoking check_core_update');
+  const result = await invoke<CoreUpdateStatus>('check_core_update');
+  console.debug('[core-update] checkCoreUpdate: result', result);
+  return result;
+}
+
+/**
+ * Trigger a full core update: download latest from GitHub, stage, kill old, restart.
+ * The Tauri shell emits `core-update:status` events with progress.
+ */
+export async function applyCoreUpdate(): Promise<void> {
+  if (!isTauri()) {
+    console.debug('[core-update] applyCoreUpdate: skipped — not running in Tauri');
+    return;
+  }
+  console.debug('[core-update] applyCoreUpdate: invoking apply_core_update');
+  await invoke<void>('apply_core_update');
+  console.debug('[core-update] applyCoreUpdate: done');
+}
+
 export async function resetOpenHumanDataAndRestartCore(): Promise<void> {
   if (!isTauri()) {
     console.debug('[core] resetOpenHumanDataAndRestartCore: skipped — not running in Tauri');
