@@ -768,6 +768,133 @@ async fn json_rpc_screen_intelligence_capture_test_returns_stable_shape() {
     rpc_join.abort();
 }
 
+#[tokio::test]
+async fn json_rpc_screen_intelligence_status_returns_stable_shape() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let status = post_json_rpc(
+        &rpc_base,
+        1003,
+        "openhuman.screen_intelligence_status",
+        json!({}),
+    )
+    .await;
+    let result = assert_no_jsonrpc_error(&status, "screen_intelligence_status");
+    let status_result = result.get("result").unwrap_or(result);
+
+    // Required top-level fields
+    assert!(
+        status_result
+            .get("platform_supported")
+            .and_then(Value::as_bool)
+            .is_some(),
+        "expected bool platform_supported: {status_result}"
+    );
+    assert!(
+        status_result
+            .get("is_context_blocked")
+            .and_then(Value::as_bool)
+            .is_some(),
+        "expected bool is_context_blocked: {status_result}"
+    );
+
+    // session block
+    let session = status_result
+        .get("session")
+        .expect("expected session object");
+    assert!(
+        session.get("active").and_then(Value::as_bool).is_some(),
+        "expected bool session.active: {status_result}"
+    );
+    assert_eq!(
+        session.get("active").and_then(Value::as_bool),
+        Some(false),
+        "session should not be active without start_session: {status_result}"
+    );
+    assert!(
+        session
+            .get("capture_count")
+            .and_then(Value::as_u64)
+            .is_some(),
+        "expected u64 session.capture_count: {status_result}"
+    );
+
+    // permissions block
+    let perms = status_result
+        .get("permissions")
+        .expect("expected permissions object");
+    assert!(
+        perms
+            .get("screen_recording")
+            .and_then(Value::as_str)
+            .is_some(),
+        "expected string permissions.screen_recording: {status_result}"
+    );
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
+#[tokio::test]
+async fn json_rpc_screen_intelligence_vision_recent_returns_empty_without_session() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::unset("OPENHUMAN_WORKSPACE");
+    let _backend_url_guard = EnvVarGuard::unset("BACKEND_URL");
+    let _vite_backend_guard = EnvVarGuard::unset("VITE_BACKEND_URL");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let recent = post_json_rpc(
+        &rpc_base,
+        1004,
+        "openhuman.screen_intelligence_vision_recent",
+        json!({ "limit": 10 }),
+    )
+    .await;
+    let result = assert_no_jsonrpc_error(&recent, "screen_intelligence_vision_recent");
+    let recent_result = result.get("result").unwrap_or(result);
+
+    let summaries = recent_result
+        .get("summaries")
+        .and_then(Value::as_array)
+        .expect("expected summaries array: {recent_result}");
+    assert!(
+        summaries.is_empty(),
+        "vision_recent should return empty list without an active session, got {} items",
+        summaries.len()
+    );
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
 // ---------------------------------------------------------------------------
 // Skills registry E2E: fetch, search, install, list, uninstall
 // ---------------------------------------------------------------------------

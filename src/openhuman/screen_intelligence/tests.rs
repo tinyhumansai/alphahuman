@@ -548,3 +548,78 @@ async fn capture_now_without_session_is_rejected_without_hanging() {
         "capture_now should not produce a frame without a session"
     );
 }
+
+// ── save_screenshot_to_disk ─────────────────────────────────────────────
+
+#[test]
+fn save_screenshot_to_disk_writes_png_to_workspace() {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use image::codecs::png::PngEncoder;
+    use image::{ImageBuffer, Rgb, RgbImage};
+    use tempfile::tempdir;
+
+    let tmp = tempdir().expect("tempdir");
+
+    // Build a tiny 4x4 solid-colour PNG as data URI
+    let img: RgbImage = ImageBuffer::from_fn(4, 4, |_, _| Rgb([100u8, 149u8, 237u8]));
+    let mut png_bytes: Vec<u8> = Vec::new();
+    img.write_with_encoder(PngEncoder::new(&mut png_bytes))
+        .expect("PNG encode");
+    let image_ref = format!("data:image/png;base64,{}", B64.encode(&png_bytes));
+
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000200,
+        reason: "unit_test_save".to_string(),
+        app_name: Some("UnitTestApp".to_string()),
+        window_title: Some("Test Window".to_string()),
+        image_ref: Some(image_ref),
+    };
+
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+    assert!(
+        result.is_ok(),
+        "save_screenshot_to_disk should succeed: {:?}",
+        result
+    );
+
+    let path = result.unwrap();
+    assert!(
+        path.exists(),
+        "[screen_intelligence] saved PNG file should exist at {}",
+        path.display()
+    );
+    assert_eq!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("png"),
+        "saved file should have .png extension"
+    );
+    let metadata = std::fs::metadata(&path).expect("file metadata");
+    assert!(metadata.len() > 0, "saved PNG should not be empty");
+    assert!(
+        path.to_string_lossy().contains("1700000000200"),
+        "filename should include capture timestamp"
+    );
+}
+
+#[test]
+fn save_screenshot_to_disk_rejects_frame_without_image_ref() {
+    use tempfile::tempdir;
+
+    let tmp = tempdir().expect("tempdir");
+
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000201,
+        reason: "unit_test_no_image".to_string(),
+        app_name: Some("TestApp".to_string()),
+        window_title: None,
+        image_ref: None, // no image payload
+    };
+
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+    assert!(
+        result.is_err(),
+        "[screen_intelligence] save_screenshot_to_disk should return Err when frame has no image_ref"
+    );
+    let err = result.unwrap_err();
+    assert!(!err.is_empty(), "error message should not be empty");
+}
