@@ -1,9 +1,12 @@
-//! IndexedDB Storage Layer (SQLite-backed)
+//! IndexedDB Storage Layer (SQLite-backed).
 //!
-//! Provides persistent storage for:
-//! - IndexedDB API
-//! - Skill databases (db bridge)
-//! - Skill key-value store (store bridge)
+//! This module provides a persistent storage implementation for skills,
+//! designed to be compatible with the browser's IndexedDB API.
+//! It uses SQLite as the underlying storage engine and provides:
+//! - IndexedDB API emulation.
+//! - Skill-specific database access (SQL bridge).
+//! - Skill key-value storage (KV bridge).
+//! - Skill-specific object stores.
 
 use parking_lot::RwLock;
 use rusqlite::{params, Connection, OpenFlags};
@@ -12,31 +15,37 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Result of opening an IndexedDB database.
-/// Used by the IndexedDB emulation layer.
+/// Used by the IndexedDB emulation layer to communicate the state of the database to the JavaScript runtime.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct IdbOpenResult {
-    /// Whether a version upgrade is needed.
+    /// Whether a version upgrade is needed (requested version > current version).
     pub needs_upgrade: bool,
     /// The previous version (0 if new database).
     pub old_version: u32,
-    /// List of existing object store names.
+    /// List of existing object store names in the database.
     pub object_stores: Vec<String>,
 }
 
 /// IndexedDB-compatible storage backed by SQLite.
+///
+/// Manages multiple SQLite databases, typically one per skill or per logical IndexedDB instance.
 #[derive(Clone)]
 pub struct IdbStorage {
-    /// Base directory for all databases.
+    /// Base directory where SQLite database files are stored.
     data_dir: PathBuf,
-    /// Open database connections (db_name -> connection).
+    /// Cache of open database connections, keyed by database name.
+    /// Connections are wrapped in Mutex for thread-safe access to SQLite.
     connections: Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Connection>>>>>,
-    /// Database version info (used by IndexedDB emulation).
+    /// Tracks the current version of open databases.
     #[allow(dead_code)]
     versions: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 impl IdbStorage {
-    /// Create a new IdbStorage instance.
+    /// Creates a new `IdbStorage` instance using the specified directory for data.
+    ///
+    /// # Errors
+    /// Returns an error string if the data directory cannot be created.
     pub fn new(data_dir: &Path) -> Result<Self, String> {
         std::fs::create_dir_all(data_dir)
             .map_err(|e| format!("Failed to create data directory: {e}"))?;
@@ -48,14 +57,18 @@ impl IdbStorage {
         })
     }
 
-    /// Get or create a database connection.
+    /// Gets an existing database connection or opens a new one if not already cached.
+    ///
+    /// This method also initializes the internal metadata tables (`_idb_meta`, `_idb_stores`)
+    /// if they don't exist.
     fn get_connection(&self, db_name: &str) -> Result<Arc<parking_lot::Mutex<Connection>>, String> {
         // Check if already open
         if let Some(conn) = self.connections.read().get(db_name) {
             return Ok(conn.clone());
         }
 
-        // Open/create the database
+        // Open/create the database file. We use SQLITE_OPEN_NO_MUTEX because we
+        // handle synchronization via parking_lot::Mutex.
         let db_path = self.data_dir.join(format!("{}.sqlite", db_name));
         let conn = Connection::open_with_flags(
             &db_path,
@@ -65,7 +78,7 @@ impl IdbStorage {
         )
         .map_err(|e| format!("Failed to open database '{}': {}", db_name, e))?;
 
-        // Initialize schema
+        // Initialize schema for IndexedDB emulation
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS _idb_meta (
@@ -89,12 +102,15 @@ impl IdbStorage {
         Ok(conn)
     }
 
-    /// Open or create an IndexedDB database.
+    /// Opens or creates an IndexedDB-style database.
+    ///
+    /// Checks the current version and determines if an upgrade is necessary.
+    /// Returns metadata about the database including existing object stores.
     pub fn open_database(&self, name: &str, version: u32) -> Result<IdbOpenResult, String> {
         let conn = self.get_connection(name)?;
         let conn_guard = conn.lock();
 
-        // Get current version
+        // Get current version from metadata table
         let current_version: u32 = conn_guard
             .query_row(
                 "SELECT value FROM _idb_meta WHERE key = 'version'",
@@ -109,7 +125,7 @@ impl IdbStorage {
         let needs_upgrade = version > current_version;
 
         if needs_upgrade {
-            // Update version
+            // Update version in metadata
             conn_guard
                 .execute(
                     "INSERT OR REPLACE INTO _idb_meta (key, value) VALUES ('version', ?)",
@@ -118,7 +134,7 @@ impl IdbStorage {
                 .map_err(|e| format!("Failed to update version: {e}"))?;
         }
 
-        // Get object store names
+        // Get object store names from the registry
         let mut stmt = conn_guard
             .prepare("SELECT name FROM _idb_stores")
             .map_err(|e| format!("Failed to query object stores: {e}"))?;
@@ -138,13 +154,16 @@ impl IdbStorage {
         })
     }
 
-    /// Close a database connection.
+    /// Closes a database connection and removes it from the internal cache.
     pub fn close_database(&self, name: &str) {
         self.connections.write().remove(name);
         self.versions.write().remove(name);
     }
 
-    /// Delete a database.
+    /// Deletes a database file and its associated connection.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be removed.
     pub fn delete_database(&self, name: &str) -> Result<(), String> {
         self.close_database(name);
         let db_path = self.data_dir.join(format!("{}.sqlite", name));
@@ -155,7 +174,9 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Create an object store.
+    /// Creates a new object store within a database.
+    ///
+    /// This registers the store in `_idb_stores` and creates a corresponding SQLite table.
     pub fn create_object_store(
         &self,
         db_name: &str,
@@ -166,7 +187,7 @@ impl IdbStorage {
         let conn = self.get_connection(db_name)?;
         let conn_guard = conn.lock();
 
-        // Register the store
+        // Register the store in the metadata table
         conn_guard
             .execute(
                 "INSERT OR REPLACE INTO _idb_stores (name, key_path, auto_increment) VALUES (?, ?, ?)",
@@ -174,7 +195,7 @@ impl IdbStorage {
             )
             .map_err(|e| format!("Failed to create object store: {e}"))?;
 
-        // Create the data table
+        // Create the data table for this specific object store
         let table_name = format!("store_{}", sanitize_name(store_name));
         conn_guard
             .execute(
@@ -194,12 +215,12 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Delete an object store.
+    /// Deletes an object store and its associated data table.
     pub fn delete_object_store(&self, db_name: &str, store_name: &str) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
         let conn_guard = conn.lock();
 
-        // Remove from registry
+        // Remove from the object store registry
         conn_guard
             .execute(
                 "DELETE FROM _idb_stores WHERE name = ?",
@@ -207,7 +228,7 @@ impl IdbStorage {
             )
             .map_err(|e| format!("Failed to delete object store: {e}"))?;
 
-        // Drop the table
+        // Drop the actual data table
         let table_name = format!("store_{}", sanitize_name(store_name));
         conn_guard
             .execute(&format!("DROP TABLE IF EXISTS \"{}\"", table_name), [])
@@ -216,7 +237,9 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Get a value from an object store.
+    /// Retrieves a value from an object store by its key.
+    ///
+    /// Keys and values are handled as JSON strings in the underlying SQLite table.
     pub fn get(
         &self,
         db_name: &str,
@@ -247,7 +270,7 @@ impl IdbStorage {
         }
     }
 
-    /// Put a value into an object store.
+    /// Inserts or updates a value in an object store.
     pub fn put(
         &self,
         db_name: &str,
@@ -275,7 +298,7 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Delete a value from an object store.
+    /// Deletes a value from an object store by its key.
     pub fn delete(
         &self,
         db_name: &str,
@@ -298,7 +321,7 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Clear all values from an object store.
+    /// Clears all values from an object store.
     pub fn clear(&self, db_name: &str, store_name: &str) -> Result<(), String> {
         let conn = self.get_connection(db_name)?;
         let conn_guard = conn.lock();
@@ -312,7 +335,7 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// Get all values from an object store.
+    /// Retrieves all values from an object store, optionally limited by `count`.
     pub fn get_all(
         &self,
         db_name: &str,
@@ -339,7 +362,7 @@ impl IdbStorage {
         Ok(values)
     }
 
-    /// Get all keys from an object store.
+    /// Retrieves all keys from an object store, optionally limited by `count`.
     pub fn get_all_keys(
         &self,
         db_name: &str,
@@ -366,7 +389,7 @@ impl IdbStorage {
         Ok(keys)
     }
 
-    /// Count values in an object store.
+    /// Counts the number of values in an object store.
     pub fn count(&self, db_name: &str, store_name: &str) -> Result<u32, String> {
         let conn = self.get_connection(db_name)?;
         let conn_guard = conn.lock();
@@ -388,7 +411,9 @@ impl IdbStorage {
     // Skill Database Bridge Methods
     // ========================================================================
 
-    /// Execute SQL and return affected row count.
+    /// Executes a SQL statement for a specific skill and returns the number of affected rows.
+    ///
+    /// This is used by the skill's database bridge to perform direct SQL operations.
     pub fn skill_db_exec(
         &self,
         skill_id: &str,
@@ -399,6 +424,7 @@ impl IdbStorage {
         let conn = self.get_connection(&db_name)?;
         let conn_guard = conn.lock();
 
+        // Convert JSON parameters to SQLite-compatible types
         let params: Vec<Box<dyn rusqlite::ToSql>> = params
             .iter()
             .map(|v| -> Box<dyn rusqlite::ToSql> { Box::new(json_to_sql(v)) })
@@ -411,7 +437,9 @@ impl IdbStorage {
             .map_err(|e| format!("SQL exec failed: {e}"))
     }
 
-    /// Execute SQL and return a single row.
+    /// Executes a SQL query for a specific skill and returns a single row as a JSON object.
+    ///
+    /// Returns `null` if no rows match the query.
     pub fn skill_db_get(
         &self,
         skill_id: &str,
@@ -434,7 +462,7 @@ impl IdbStorage {
             .map_err(|e| format!("SQL prepare failed: {e}"))?;
 
         let column_count = stmt.column_count();
-        // Capture column names before the closure to avoid borrow checker issues
+        // Capture column names before iterating over rows
         let column_names: Vec<String> = (0..column_count)
             .map(|i| stmt.column_name(i).unwrap_or("?").to_string())
             .collect();
@@ -455,7 +483,7 @@ impl IdbStorage {
         }
     }
 
-    /// Execute SQL and return all rows.
+    /// Executes a SQL query for a specific skill and returns all matching rows as a JSON array.
     pub fn skill_db_all(
         &self,
         skill_id: &str,
@@ -498,7 +526,9 @@ impl IdbStorage {
         Ok(serde_json::Value::Array(rows))
     }
 
-    /// Get a key-value pair.
+    /// Gets a value from the skill's key-value store.
+    ///
+    /// The KV store is implemented as a specialized `_kv` table in the skill's database.
     pub fn skill_kv_get(&self, skill_id: &str, key: &str) -> Result<serde_json::Value, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
@@ -524,7 +554,7 @@ impl IdbStorage {
         }
     }
 
-    /// Set a key-value pair.
+    /// Sets a value in the skill's key-value store.
     pub fn skill_kv_set(
         &self,
         skill_id: &str,
@@ -559,12 +589,12 @@ impl IdbStorage {
     // Skill Store Bridge Methods (same as KV but different namespace)
     // ========================================================================
 
-    /// Get a store value.
+    /// Gets a value from the skill's "store" (a logical namespace within the KV store).
     pub fn skill_store_get(&self, skill_id: &str, key: &str) -> Result<serde_json::Value, String> {
         self.skill_kv_get(skill_id, &format!("_store_{}", key))
     }
 
-    /// Set a store value.
+    /// Sets a value in the skill's "store".
     pub fn skill_store_set(
         &self,
         skill_id: &str,
@@ -574,7 +604,7 @@ impl IdbStorage {
         self.skill_kv_set(skill_id, &format!("_store_{}", key), value)
     }
 
-    /// Delete a store value.
+    /// Deletes a value from the skill's "store".
     pub fn skill_store_delete(&self, skill_id: &str, key: &str) -> Result<(), String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
@@ -590,7 +620,7 @@ impl IdbStorage {
         Ok(())
     }
 
-    /// List all store keys.
+    /// Lists all keys currently present in the skill's "store".
     pub fn skill_store_keys(&self, skill_id: &str) -> Result<Vec<String>, String> {
         let db_name = format!("skill_{}", skill_id);
         let conn = self.get_connection(&db_name)?;
@@ -619,7 +649,8 @@ impl IdbStorage {
     }
 }
 
-/// Sanitize a name for use as a table name.
+/// Sanitize a name for use as a SQLite table name.
+/// Replaces non-alphanumeric characters with underscores.
 fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -632,7 +663,7 @@ fn sanitize_name(name: &str) -> String {
         .collect()
 }
 
-/// Convert a JSON value to a SQLite value.
+/// Convert a JSON value to a SQLite-compatible `rusqlite::types::Value`.
 fn json_to_sql(v: &serde_json::Value) -> rusqlite::types::Value {
     match v {
         serde_json::Value::Null => rusqlite::types::Value::Null,
@@ -653,7 +684,8 @@ fn json_to_sql(v: &serde_json::Value) -> rusqlite::types::Value {
     }
 }
 
-/// Convert a SQLite row value to JSON.
+/// Convert a value from a SQLite row to a `serde_json::Value`.
+/// Attempts to parse strings as JSON if possible.
 fn sql_to_json(row: &rusqlite::Row, idx: usize) -> serde_json::Value {
     use rusqlite::types::ValueRef;
 
@@ -663,7 +695,7 @@ fn sql_to_json(row: &rusqlite::Row, idx: usize) -> serde_json::Value {
         Ok(ValueRef::Real(f)) => serde_json::json!(f),
         Ok(ValueRef::Text(s)) => {
             let s = String::from_utf8_lossy(s).to_string();
-            // Try to parse as JSON
+            // Try to parse as JSON, otherwise treat as a raw string
             serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!(s))
         }
         Ok(ValueRef::Blob(b)) => {

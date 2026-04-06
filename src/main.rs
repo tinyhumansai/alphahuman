@@ -1,6 +1,18 @@
+//! The entry point for the OpenHuman core application.
+//!
+//! This file is responsible for:
+//! - Initializing error tracking with Sentry.
+//! - Setting up secret scrubbing for outgoing error reports.
+//! - Dispatching command-line arguments to the core logic in `openhuman_core`.
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+/// Main application entry point.
+///
+/// It initializes the Sentry SDK for error monitoring, ensuring that sensitive
+/// information is redacted before being sent to the server. After setup, it
+/// delegates execution to the core library based on CLI arguments.
 fn main() {
     // Initialize Sentry as the very first operation so the guard outlives everything.
     // If OPENHUMAN_SENTRY_DSN is unset or empty, sentry::init returns a no-op guard.
@@ -35,7 +47,10 @@ fn main() {
         ..sentry::ClientOptions::default()
     });
 
+    // Collect command-line arguments, skipping the binary name.
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Delegate to the core library to handle the command.
     if let Err(err) = openhuman_core::run_core_from_args(&args) {
         eprintln!("{err}");
         std::process::exit(1);
@@ -46,22 +61,39 @@ fn main() {
 // Secret scrubbing
 // ---------------------------------------------------------------------------
 
+/// A static list of regular expression patterns used to identify and redact
+/// sensitive information such as API keys and bearer tokens.
 static SECRET_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
     vec![
+        // Matches "Bearer <token>" and redacts the token.
         (Regex::new(r"(?i)(bearer\s+)\S+").unwrap(), "${1}[REDACTED]"),
+        // Matches "api-key: <key>" or "api_key=<key>" and redacts the key.
         (
             Regex::new(r"(?i)(api[_-]?key[=:\s]+)\S+").unwrap(),
             "${1}[REDACTED]",
         ),
+        // Matches "token: <token>" or "token=<token>" and redacts the token.
         (
             Regex::new(r"(?i)(token[=:\s]+)\S+").unwrap(),
             "${1}[REDACTED]",
         ),
+        // Matches OpenAI-style secret keys (sk-...) and redacts them.
         (Regex::new(r"sk-[a-zA-Z0-9]{20,}").unwrap(), "[REDACTED]"),
     ]
 });
 
-/// Replace patterns that look like secrets with `[REDACTED]`.
+/// Replaces patterns that look like secrets with `[REDACTED]`.
+///
+/// This function iterates through a predefined list of sensitive data patterns
+/// and applies them to the input string.
+///
+/// # Arguments
+///
+/// * `input` - A string slice that potentially contains sensitive information.
+///
+/// # Returns
+///
+/// A new `String` with sensitive patterns replaced by `[REDACTED]`.
 fn scrub_secrets(input: &str) -> String {
     let mut result = input.to_string();
     for (re, replacement) in SECRET_PATTERNS.iter() {

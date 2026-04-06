@@ -1,14 +1,17 @@
-//! OpenHuman — lightweight agent runtime for OpenHuman.
+//! OpenHuman — a lightweight agent runtime for human-AI collaboration.
 //!
-//! Provides:
-//! - Health registry for component monitoring
-//! - Security policy, secrets, audit, channel pairing, and sandboxing
-//! - Daemon supervisor with exponential backoff
-//! - Agent runtime (dispatcher, loop, prompt, etc.)
-//! - Providers, tools, memory, approval, and skills
+//! The `openhuman` module is the heart of the agent-specific logic within the core.
+//! It provides a comprehensive set of features for building and running AI agents,
+//! including:
+//! - **Configuration & Credentials**: Management of user settings and secure storage.
+//! - **Agent Runtime**: Dispatchers, loops, and prompt management for agent execution.
+//! - **Memory & Knowledge**: Systems for persistent storage and retrieval of information.
+//! - **Channels & Providers**: Integrations with external platforms (Telegram, Discord, etc.).
+//! - **Skills & Tools**: Extensible runtime for adding custom capabilities to agents.
+//! - **Security & Monitoring**: Sandboxing, health checks, and audit logging.
 
-// These modules define the public API surface for future agent features.
-// Many types/functions are not yet consumed but are intentionally exported.
+// These modules define the public API surface for agent features.
+// Many types/functions are intended for future use or integration with the frontend.
 #![allow(dead_code)]
 
 pub mod about_app;

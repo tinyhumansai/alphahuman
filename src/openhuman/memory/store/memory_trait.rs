@@ -1,3 +1,14 @@
+//! # Memory Trait Implementation
+//!
+//! This module implements the core `Memory` trait for the `UnifiedMemory`
+//! struct. This allows `UnifiedMemory` to be used as a generic memory backend
+//! within the OpenHuman system.
+//!
+//! It handles the mapping between the generic memory interface (which uses
+//! keys and categories) and the unified namespace-based storage (which uses
+//! documents and namespaces). It primarily uses the `GLOBAL_NAMESPACE` for
+//! these operations.
+
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use rusqlite::{params, OptionalExtension};
@@ -10,7 +21,10 @@ use anyhow::Context;
 
 use super::unified::UnifiedMemory;
 
-/// Convert a UNIX timestamp (f64) to RFC3339 string, falling back to the raw number.
+/// Convert a UNIX timestamp (f64) to RFC3339 string.
+///
+/// Handles fractional seconds and ensures the result is a valid timestamp.
+/// If conversion fails, it returns a string representation of the raw number.
 fn timestamp_to_rfc3339(ts: f64) -> String {
     let secs = ts.trunc() as i64;
     let nanos = ((ts.fract()) * 1_000_000_000.0).round() as u32;
@@ -20,6 +34,7 @@ fn timestamp_to_rfc3339(ts: f64) -> String {
         .unwrap_or_else(|| format!("{ts}"))
 }
 
+/// Helper to convert a raw string category from the database into a `MemoryCategory`.
 fn memory_category_from_stored(raw: &str) -> MemoryCategory {
     match raw {
         "core" => MemoryCategory::Core,
@@ -31,10 +46,15 @@ fn memory_category_from_stored(raw: &str) -> MemoryCategory {
 
 #[async_trait]
 impl Memory for UnifiedMemory {
+    /// Returns the name of this memory implementation ("namespace").
     fn name(&self) -> &str {
         "namespace"
     }
 
+    /// Store a piece of information in the global namespace.
+    ///
+    /// Maps the provided key and content to a standard document in the
+    /// `GLOBAL_NAMESPACE`.
     async fn store(
         &self,
         key: &str,
@@ -60,12 +80,18 @@ impl Memory for UnifiedMemory {
         .map_err(anyhow::Error::msg)
     }
 
+    /// Recall relevant information based on a query string.
+    ///
+    /// Performs a ranked search in the global namespace. If a `session_id` is
+    /// provided, it also searches for episodic entries (conversation history)
+    /// and merges them with the results.
     async fn recall(
         &self,
         query: &str,
         limit: usize,
         session_id: Option<&str>,
     ) -> anyhow::Result<Vec<MemoryEntry>> {
+        // 1. Query the global document namespace.
         let ranked = self
             .query_namespace_ranked(GLOBAL_NAMESPACE, query, limit as u32)
             .await
@@ -85,7 +111,7 @@ impl Memory for UnifiedMemory {
             })
             .collect();
 
-        // When session_id is provided, also search episodic entries for that session.
+        // 2. Search episodic (chat) history if a session_id is present.
         if let Some(sid) = session_id {
             let episodic_entries = match fts5::episodic_session_entries(&self.conn, sid) {
                 Ok(entries) => {
@@ -102,12 +128,10 @@ impl Memory for UnifiedMemory {
                     Vec::new()
                 }
             };
+
+            // Simple keyword-based filtering for episodic matches.
             let query_lower = query.to_lowercase();
             let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
-            tracing::debug!(
-                "[memory-trait] filtering episodic entries with terms: {:?}",
-                query_terms
-            );
             for entry in episodic_entries {
                 let content_lower = entry.content.to_lowercase();
                 let matched_count = query_terms
@@ -120,11 +144,7 @@ impl Memory for UnifiedMemory {
                 // Score based on proportion of query terms matched.
                 let match_score = matched_count as f64 / query_terms.len().max(1) as f64;
                 let ts_rfc3339 = timestamp_to_rfc3339(entry.timestamp);
-                tracing::debug!(
-                    "[memory-trait] episodic match: id={:?} session={} score={match_score:.2}",
-                    entry.id,
-                    entry.session_id,
-                );
+
                 out.push(MemoryEntry {
                     id: format!("episodic:{}", entry.id.unwrap_or(0)),
                     key: format!("{}:{}", entry.session_id, entry.role),
@@ -136,7 +156,8 @@ impl Memory for UnifiedMemory {
                     score: Some(match_score),
                 });
             }
-            // Re-sort by score descending and truncate.
+
+            // 3. Re-sort the combined results by score.
             out.sort_by(|a, b| {
                 b.score
                     .unwrap_or(0.0)
@@ -149,6 +170,7 @@ impl Memory for UnifiedMemory {
         Ok(out)
     }
 
+    /// Retrieve a specific memory entry by its key from the global namespace.
     async fn get(&self, key: &str) -> anyhow::Result<Option<MemoryEntry>> {
         let conn = self.conn.lock();
         let row: Option<(String, String, String, f64, String)> = conn
@@ -181,6 +203,7 @@ impl Memory for UnifiedMemory {
         )
     }
 
+    /// List all memories in the global namespace, optionally filtered by category.
     async fn list(
         &self,
         category: Option<&MemoryCategory>,
@@ -224,6 +247,7 @@ impl Memory for UnifiedMemory {
         Ok(out)
     }
 
+    /// Delete a memory entry by its key from the global namespace.
     async fn forget(&self, key: &str) -> anyhow::Result<bool> {
         let row: Option<String> = {
             let conn = self.conn.lock();
@@ -243,6 +267,7 @@ impl Memory for UnifiedMemory {
         Ok(true)
     }
 
+    /// Count the total number of entries in the global namespace.
     async fn count(&self) -> anyhow::Result<usize> {
         let conn = self.conn.lock();
         let count: i64 = conn.query_row(
@@ -253,6 +278,7 @@ impl Memory for UnifiedMemory {
         usize::try_from(count).context("negative count")
     }
 
+    /// Verify the health of the memory store by checking file existence.
     async fn health_check(&self) -> bool {
         self.workspace_dir.exists() && self.db_path.exists()
     }

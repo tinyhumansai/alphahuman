@@ -1,3 +1,12 @@
+//! Configuration management for the OpenHuman core.
+//!
+//! This module serves as the primary gateway for all configuration-related functionality.
+//! It re-exports types and functions from submodules to provide a unified API for:
+//! - Loading and saving user settings (`Config`).
+//! - Managing the core daemon's lifecycle and options (`DaemonConfig`).
+//! - Defining the RPC surface for configuration management.
+//! - Handling the schema definitions for all agent and system settings.
+
 pub mod daemon;
 pub mod ops;
 pub mod schema;
@@ -7,8 +16,10 @@ pub mod settings_cli;
 #[allow(unused_imports)]
 pub use daemon::DaemonConfig;
 
+/// RPC operations for configuration.
 pub use ops as rpc;
 pub use ops::*;
+
 #[allow(unused_imports)]
 pub use schema::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,
