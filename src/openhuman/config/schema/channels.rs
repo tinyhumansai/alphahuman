@@ -82,6 +82,7 @@ pub struct TelegramConfig {
 pub struct DiscordConfig {
     pub bot_token: String,
     pub guild_id: Option<String>,
+    pub channel_id: Option<String>,
     #[serde(default)]
     pub allowed_users: Vec<String>,
     #[serde(default)]
