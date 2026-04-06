@@ -151,10 +151,22 @@ pub async fn check_available() -> Result<UpdateInfo, String> {
 /// `staging_dir` — directory where the new binary should be placed (e.g.
 /// the `binaries/` dir next to the Tauri app, or the Resources dir).
 /// If `None`, uses the directory of the currently running executable.
+///
+/// `target_version` — the version of the release being staged, used in the
+/// returned `UpdateApplyResult`. If `None`, falls back to `current_version()`.
 pub async fn download_and_stage(
     download_url: &str,
     asset_name: &str,
     staging_dir: Option<PathBuf>,
+) -> Result<UpdateApplyResult, String> {
+    download_and_stage_with_version(download_url, asset_name, staging_dir, None).await
+}
+
+pub async fn download_and_stage_with_version(
+    download_url: &str,
+    asset_name: &str,
+    staging_dir: Option<PathBuf>,
+    target_version: Option<&str>,
 ) -> Result<UpdateApplyResult, String> {
     log::info!(
         "[update] downloading update from {} (asset: {})",
@@ -226,9 +238,9 @@ pub async fn download_and_stage(
     std::fs::rename(&tmp_path, &staged_path)
         .map_err(|e| format!("failed to move update to {}: {e}", staged_path.display()))?;
 
-    // Parse version from the asset name (best-effort).
-    // The caller already knows the target version, but we confirm staging succeeded.
-    let installed_version = current_version().to_string();
+    let installed_version = target_version
+        .unwrap_or_else(|| current_version())
+        .to_string();
 
     log::info!("[update] staged update binary at {}", staged_path.display());
 

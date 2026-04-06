@@ -131,31 +131,27 @@ async fn service_uninstall_direct() -> Result<String, String> {
     run_core_cli(vec!["service".into(), "uninstall".into()]).await
 }
 
-/// Check if the core sidecar is outdated compared to the app's expected version.
-/// Returns JSON with version info and update availability.
+/// Check if the core sidecar is outdated and whether a newer version is available on GitHub.
+/// Returns version info, compatibility status, and update availability.
 #[tauri::command]
 async fn check_core_update(
     state: tauri::State<'_, core_process::CoreProcessHandle>,
 ) -> Result<serde_json::Value, String> {
     let rpc_url = state.inner().rpc_url();
-    let running = core_update::query_core_version(&rpc_url).await?;
-    let minimum = core_update::MINIMUM_CORE_VERSION;
-    let outdated = core_update::is_outdated(&running, minimum);
-    Ok(serde_json::json!({
-        "running_version": running,
-        "minimum_version": minimum,
-        "outdated": outdated,
-    }))
+    let info = core_update::check_full(&rpc_url).await?;
+    serde_json::to_value(&info).map_err(|e| format!("serialize error: {e}"))
 }
 
 /// Trigger a full core update: download latest from GitHub, stage, kill old, restart.
+/// Uses `force=true` so it updates to the latest release even if the running core
+/// meets the minimum version requirement.
 #[tauri::command]
 async fn apply_core_update(
     state: tauri::State<'_, core_process::CoreProcessHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     log::info!("[core-update] manual apply_core_update invoked from frontend");
-    core_update::check_and_update_core(state.inner().clone(), Some(app)).await
+    core_update::check_and_update_core(state.inner().clone(), Some(app), true).await
 }
 
 #[tauri::command]
@@ -397,7 +393,7 @@ pub fn run() {
                 // Check if the running core is outdated and auto-update if needed.
                 let update_handle = core_handle.clone();
                 if let Err(err) =
-                    core_update::check_and_update_core(update_handle, Some(app_handle_for_update))
+                    core_update::check_and_update_core(update_handle, Some(app_handle_for_update), false)
                         .await
                 {
                     log::warn!("[core-update] auto-update check failed (non-fatal): {err}");

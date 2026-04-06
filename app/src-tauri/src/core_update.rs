@@ -8,7 +8,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core_process::CoreProcessHandle;
 
@@ -36,6 +36,19 @@ struct GitHubRelease {
 struct GitHubAsset {
     name: String,
     browser_download_url: String,
+}
+
+/// Returned by `check_core_update` Tauri command.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreUpdateInfo {
+    pub running_version: String,
+    pub minimum_version: String,
+    /// True if running < minimum (compatibility issue).
+    pub outdated: bool,
+    /// Latest version on GitHub Releases (if fetch succeeded).
+    pub latest_version: Option<String>,
+    /// True if running < latest (newer release available).
+    pub update_available: bool,
 }
 
 /// Query the running core's version via JSON-RPC.
@@ -76,20 +89,48 @@ pub async fn query_core_version(rpc_url: &str) -> Result<String, String> {
     Ok(version)
 }
 
-/// Compare two version strings. Returns true if `running` is older than `minimum`.
-pub fn is_outdated(running: &str, minimum: &str) -> bool {
+/// Compare two version strings. Returns true if `running` is older than `target`.
+pub fn is_outdated(running: &str, target: &str) -> bool {
     let parse = |v: &str| -> Option<semver::Version> {
         semver::Version::parse(v.trim_start_matches('v')).ok()
     };
-    match (parse(running), parse(minimum)) {
-        (Some(r), Some(m)) => r < m,
+    match (parse(running), parse(target)) {
+        (Some(r), Some(t)) => r < t,
         _ => {
             log::warn!(
-                "[core-update] could not parse versions running={running} minimum={minimum}"
+                "[core-update] could not parse versions running={running} target={target}"
             );
             false
         }
     }
+}
+
+/// Full check: query running version, compare against minimum AND latest GitHub release.
+pub async fn check_full(rpc_url: &str) -> Result<CoreUpdateInfo, String> {
+    let running = query_core_version(rpc_url).await?;
+    let minimum = MINIMUM_CORE_VERSION;
+    let outdated = is_outdated(&running, minimum);
+
+    // Best-effort fetch of latest release — don't fail the whole check if GitHub is unreachable.
+    let (latest_version, update_available) = match fetch_latest_release().await {
+        Ok(release) => {
+            let latest = release.tag_name.trim_start_matches('v').to_string();
+            let available = is_outdated(&running, &latest);
+            (Some(latest), available)
+        }
+        Err(e) => {
+            log::warn!("[core-update] could not fetch latest release: {e}");
+            (None, false)
+        }
+    };
+
+    Ok(CoreUpdateInfo {
+        running_version: running,
+        minimum_version: minimum.to_string(),
+        outdated,
+        latest_version,
+        update_available,
+    })
 }
 
 /// Build the platform triple for asset matching.
@@ -156,7 +197,10 @@ async fn fetch_latest_release() -> Result<GitHubRelease, String> {
         .map_err(|e| format!("failed to parse release: {e}"))
 }
 
-/// Download a binary from `url` and write it to `dest`.
+/// Download a binary from `url` and stage it at `dest`.
+///
+/// Uses a unique temp file (UUID-based) to avoid conflicts from concurrent downloads.
+/// Sets executable permissions on Unix before the atomic rename.
 async fn download_binary(url: &str, dest: &PathBuf) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .user_agent("openhuman-tauri-updater")
@@ -185,11 +229,25 @@ async fn download_binary(url: &str, dest: &PathBuf) -> Result<(), String> {
         dest.display()
     );
 
-    let tmp = dest.with_extension("tmp");
+    // Use a unique temp filename to avoid collisions from concurrent writes.
+    let tmp_name = format!(
+        ".openhuman-update-{}.tmp",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let tmp = dest
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join(tmp_name);
+
     {
         let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create temp file: {e}"))?;
         file.write_all(&bytes)
             .map_err(|e| format!("write temp file: {e}"))?;
+        file.flush()
+            .map_err(|e| format!("flush temp file: {e}"))?;
     }
 
     #[cfg(unix)]
@@ -199,31 +257,36 @@ async fn download_binary(url: &str, dest: &PathBuf) -> Result<(), String> {
             .map_err(|e| format!("set permissions: {e}"))?;
     }
 
-    std::fs::rename(&tmp, dest).map_err(|e| format!("rename staged binary: {e}"))?;
+    std::fs::rename(&tmp, dest).map_err(|e| {
+        // Best-effort cleanup of temp file on rename failure.
+        let _ = std::fs::remove_file(&tmp);
+        format!("rename staged binary: {e}")
+    })?;
 
     Ok(())
 }
 
 /// The main auto-update flow, called after the core process starts.
 ///
-/// 1. Query the running core's version
-/// 2. If outdated, fetch the latest GitHub release
-/// 3. Download the new binary to the staging directory
-/// 4. Kill the old core process and restart with the new binary
+/// When `force` is false (startup auto-check), only updates if the running core
+/// is older than `MINIMUM_CORE_VERSION`. When `force` is true (manual trigger),
+/// updates whenever GitHub has a newer version than what's currently running.
 ///
 /// Emits Tauri events so the frontend can show progress.
 pub async fn check_and_update_core(
     handle: CoreProcessHandle,
     app: Option<tauri::AppHandle>,
+    force: bool,
 ) -> Result<(), String> {
     let rpc_url = handle.rpc_url();
     log::info!(
-        "[core-update] checking core version at {} (minimum: {})",
+        "[core-update] checking core version at {} (minimum: {}, force: {})",
         rpc_url,
-        MINIMUM_CORE_VERSION
+        MINIMUM_CORE_VERSION,
+        force
     );
 
-    // Step 1: Query version.
+    // Step 1: Query running version.
     let running_version = match query_core_version(&rpc_url).await {
         Ok(v) => v,
         Err(e) => {
@@ -238,23 +301,34 @@ pub async fn check_and_update_core(
         MINIMUM_CORE_VERSION
     );
 
-    if !is_outdated(&running_version, MINIMUM_CORE_VERSION) {
-        log::info!("[core-update] core is up to date — no action needed");
+    // Step 2: Fetch latest release from GitHub.
+    emit_event(&app, "core-update:status", "checking");
+
+    let release = fetch_latest_release().await?;
+    let latest_version = release.tag_name.trim_start_matches('v').to_string();
+    log::info!("[core-update] latest release: {latest_version}");
+
+    // Decide whether to proceed with the update.
+    let needs_update = if force {
+        // Manual trigger: update if GitHub has anything newer than what's running.
+        is_outdated(&running_version, &latest_version)
+    } else {
+        // Auto-check: only update if running is below the minimum the app requires.
+        is_outdated(&running_version, MINIMUM_CORE_VERSION)
+    };
+
+    if !needs_update {
+        log::info!("[core-update] no update needed (running: {running_version}, latest: {latest_version}, force: {force})");
+        emit_event(&app, "core-update:status", "up_to_date");
         return Ok(());
     }
 
     log::warn!(
-        "[core-update] core {} is outdated (minimum: {}) — starting update",
+        "[core-update] updating core {} → {} (force: {})",
         running_version,
-        MINIMUM_CORE_VERSION
+        latest_version,
+        force
     );
-
-    emit_event(&app, "core-update:status", "checking");
-
-    // Step 2: Fetch latest release.
-    let release = fetch_latest_release().await?;
-    let latest_version = release.tag_name.trim_start_matches('v').to_string();
-    log::info!("[core-update] latest release: {latest_version}");
 
     let asset = find_platform_asset(&release.assets).ok_or_else(|| {
         format!(
@@ -272,7 +346,7 @@ pub async fn check_and_update_core(
 
     emit_event(&app, "core-update:status", "downloading");
 
-    // Step 3: Determine staging directory and download.
+    // Step 3: Determine staging directory.
     let staging_dir = resolve_staging_dir();
     if let Some(ref dir) = staging_dir {
         if !dir.exists() {
@@ -285,14 +359,13 @@ pub async fn check_and_update_core(
         .map(|d| d.join(&asset.name))
         .unwrap_or_else(|| PathBuf::from(&asset.name));
 
-    download_binary(&asset.browser_download_url, &dest).await?;
-    log::info!("[core-update] staged new binary at {}", dest.display());
-
-    emit_event(&app, "core-update:status", "restarting");
-
-    // Step 4: Kill old process and restart.
+    // Step 4: Acquire restart lock, shutdown old process, download, stage, restart.
+    // Hold the lock across download + staging + restart to prevent concurrent updates.
     {
         let _guard = handle.restart_lock().await;
+        log::debug!("[core-update] acquired restart lock");
+
+        // Shutdown old process first so the binary isn't in use during staging.
         handle.shutdown().await;
 
         // Wait for port to free.
@@ -305,7 +378,16 @@ pub async fn check_and_update_core(
             waited += 50;
         }
 
-        // Now ensure_running will pick up the new binary from the staging dir.
+        // Download and stage the new binary.
+        download_binary(&asset.browser_download_url, &dest).await?;
+        log::info!("[core-update] staged new binary at {}", dest.display());
+
+        // Point the handle at the new binary so ensure_running launches it.
+        handle.set_core_bin(dest).await;
+
+        emit_event(&app, "core-update:status", "restarting");
+
+        // Restart with the new binary.
         handle.ensure_running().await?;
     }
 
