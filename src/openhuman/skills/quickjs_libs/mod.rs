@@ -1,8 +1,9 @@
-//! QuickJS Runtime Support Module
+//! QuickJS Runtime Support Module.
 //!
-//! Provides a QuickJS JavaScript runtime (via rquickjs) for running
-//! skill JavaScript code and supporting browser-like shims.
-//! environment for skill execution.
+//! This module provides a QuickJS JavaScript runtime (via the `rquickjs` crate)
+//! for executing skill JavaScript code. it includes supporting shims and
+//! environment bindings to provide a browser-like or Node-like environment
+//! for skills.
 
 pub mod qjs_ops;
 pub mod storage;
