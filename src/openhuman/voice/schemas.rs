@@ -54,6 +54,9 @@ pub fn all_voice_controller_schemas() -> Vec<ControllerSchema> {
         voice_schemas("voice_transcribe"),
         voice_schemas("voice_transcribe_bytes"),
         voice_schemas("voice_tts"),
+        voice_schemas("voice_server_start"),
+        voice_schemas("voice_server_stop"),
+        voice_schemas("voice_server_status"),
     ]
 }
 
@@ -74,6 +77,18 @@ pub fn all_voice_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: voice_schemas("voice_tts"),
             handler: handle_voice_tts,
+        },
+        RegisteredController {
+            schema: voice_schemas("voice_server_start"),
+            handler: handle_voice_server_start,
+        },
+        RegisteredController {
+            schema: voice_schemas("voice_server_stop"),
+            handler: handle_voice_server_stop,
+        },
+        RegisteredController {
+            schema: voice_schemas("voice_server_status"),
+            handler: handle_voice_server_status,
         },
     ]
 }
@@ -138,6 +153,35 @@ pub fn voice_schemas(function: &str) -> ControllerSchema {
                 optional_string("output_path", "Optional output file path."),
             ],
             outputs: vec![json_output("tts", "TTS result with output path.")],
+        },
+        "voice_server_start" => ControllerSchema {
+            namespace: "voice",
+            function: "server_start",
+            description:
+                "Start the voice dictation server (hotkey → record → transcribe → insert text).",
+            inputs: vec![
+                optional_string("hotkey", "Hotkey combination (default: ctrl+shift+space)."),
+                optional_string(
+                    "activation_mode",
+                    "Activation mode: tap or push (default: tap).",
+                ),
+                optional_bool("skip_cleanup", "Skip LLM post-processing."),
+            ],
+            outputs: vec![json_output("status", "Voice server status after start.")],
+        },
+        "voice_server_stop" => ControllerSchema {
+            namespace: "voice",
+            function: "server_stop",
+            description: "Stop the voice dictation server.",
+            inputs: vec![],
+            outputs: vec![json_output("status", "Voice server status after stop.")],
+        },
+        "voice_server_status" => ControllerSchema {
+            namespace: "voice",
+            function: "server_status",
+            description: "Get the current voice dictation server status.",
+            inputs: vec![],
+            outputs: vec![json_output("status", "Current voice server status.")],
         },
         _ => ControllerSchema {
             namespace: "voice",
@@ -205,6 +249,93 @@ fn handle_voice_tts(params: Map<String, Value>) -> ControllerFuture {
         to_json(
             crate::openhuman::voice::voice_tts(&config, &p.text, p.output_path.as_deref()).await?,
         )
+    })
+}
+
+fn handle_voice_server_start(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        use crate::openhuman::voice::hotkey::ActivationMode;
+        use crate::openhuman::voice::server::{global_server, VoiceServerConfig};
+
+        let config = config_rpc::load_config_with_timeout().await?;
+
+        let hotkey = params
+            .get("hotkey")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&config.voice_server.hotkey)
+            .to_string();
+
+        let mode_str = params
+            .get("activation_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&config.voice_server.activation_mode);
+
+        let activation_mode = match mode_str {
+            "push" => ActivationMode::Push,
+            _ => ActivationMode::Tap,
+        };
+
+        let skip_cleanup = params
+            .get("skip_cleanup")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(config.voice_server.skip_cleanup);
+
+        let server_config = VoiceServerConfig {
+            hotkey,
+            activation_mode,
+            skip_cleanup,
+            context: None,
+        };
+
+        let server = global_server(server_config);
+        let config_clone = config.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = server.run(&config_clone).await {
+                log::error!("[voice_server] server exited with error: {e}");
+            }
+        });
+
+        // Give the server a moment to start.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        if let Some(s) = crate::openhuman::voice::server::try_global_server() {
+            let status = s.status().await;
+            serde_json::to_value(status).map_err(|e| format!("serialize error: {e}"))
+        } else {
+            Err("voice server failed to initialize".to_string())
+        }
+    })
+}
+
+fn handle_voice_server_stop(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        if let Some(server) = crate::openhuman::voice::server::try_global_server() {
+            server.stop().await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let status = server.status().await;
+            serde_json::to_value(status).map_err(|e| format!("serialize error: {e}"))
+        } else {
+            Err("voice server is not running".to_string())
+        }
+    })
+}
+
+fn handle_voice_server_status(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        if let Some(server) = crate::openhuman::voice::server::try_global_server() {
+            let status = server.status().await;
+            serde_json::to_value(status).map_err(|e| format!("serialize error: {e}"))
+        } else {
+            let status = crate::openhuman::voice::server::VoiceServerStatus {
+                state: crate::openhuman::voice::server::ServerState::Stopped,
+                hotkey: String::new(),
+                activation_mode: crate::openhuman::voice::hotkey::ActivationMode::Tap,
+                transcription_count: 0,
+                last_error: None,
+            };
+            serde_json::to_value(status).map_err(|e| format!("serialize error: {e}"))
+        }
     })
 }
 

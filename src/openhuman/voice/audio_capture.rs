@@ -1,0 +1,359 @@
+//! Microphone audio capture using cpal.
+//!
+//! Records audio from the default input device and produces 16-kHz mono WAV
+//! bytes suitable for whisper transcription.
+
+use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{SampleFormat, SampleRate, StreamConfig};
+use hound::{SampleFormat as HoundFormat, WavSpec, WavWriter};
+use log::{debug, error, info, warn};
+use tokio::sync::oneshot;
+
+const LOG_PREFIX: &str = "[voice_capture]";
+
+/// Target sample rate for whisper (16 kHz mono).
+const TARGET_SAMPLE_RATE: u32 = 16_000;
+
+/// Result of a completed recording.
+#[derive(Debug, Clone)]
+pub struct RecordingResult {
+    /// WAV-encoded audio bytes (16 kHz, mono, 16-bit PCM).
+    pub wav_bytes: Vec<u8>,
+    /// Duration of the recording in seconds.
+    pub duration_secs: f32,
+    /// Number of samples captured.
+    pub sample_count: usize,
+}
+
+/// Handle to a recording in progress. Drop or call `stop()` to end recording.
+pub struct RecordingHandle {
+    stop_flag: Arc<AtomicBool>,
+    result_rx: Option<oneshot::Receiver<Result<RecordingResult, String>>>,
+}
+
+impl RecordingHandle {
+    /// Signal the recording to stop and return the captured audio.
+    pub async fn stop(mut self) -> Result<RecordingResult, String> {
+        self.stop_flag.store(true, Ordering::SeqCst);
+        debug!("{LOG_PREFIX} stop signal sent");
+
+        match self.result_rx.take() {
+            Some(rx) => rx
+                .await
+                .map_err(|_| "recording task dropped before completing".to_string())?,
+            None => Err("recording already stopped".to_string()),
+        }
+    }
+}
+
+/// Start recording from the default microphone.
+///
+/// Returns a `RecordingHandle` that must be `.stop().await`-ed to get
+/// the captured audio. Recording runs on a background thread (cpal
+/// requires a real OS thread for the audio callback).
+pub fn start_recording() -> Result<RecordingHandle, String> {
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| "no default audio input device found".to_string())?;
+
+    let device_name = device.name().unwrap_or_else(|_| "<unknown>".into());
+    info!("{LOG_PREFIX} using input device: {device_name}");
+
+    let supported_configs = device
+        .supported_input_configs()
+        .map_err(|e| format!("failed to query input configs: {e}"))?;
+
+    // Try to find a config that supports our target sample rate, else pick default.
+    let config = find_best_config(supported_configs)?;
+    let source_sample_rate = config.sample_rate().0;
+    let source_channels = config.channels() as usize;
+
+    debug!(
+        "{LOG_PREFIX} recording config: rate={source_sample_rate} channels={source_channels} format={:?}",
+        config.sample_format
+    );
+
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_flag_clone = stop_flag.clone();
+    let (result_tx, result_rx) = oneshot::channel();
+
+    // Collect raw f32 samples on the audio thread.
+    let samples: Arc<parking_lot::Mutex<Vec<f32>>> =
+        Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
+            TARGET_SAMPLE_RATE as usize * 30, // pre-alloc ~30s
+        )));
+    let samples_writer = samples.clone();
+
+    let sample_format = config.sample_format;
+    let stream_config: StreamConfig = config.into();
+
+    // Build the cpal stream.
+    let stream = match sample_format {
+        SampleFormat::F32 => device
+            .build_input_stream(
+                &stream_config,
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    let mono = to_mono(data, source_channels);
+                    samples_writer.lock().extend_from_slice(&mono);
+                },
+                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                None,
+            )
+            .map_err(|e| format!("failed to build f32 input stream: {e}"))?,
+        SampleFormat::I16 => device
+            .build_input_stream(
+                &stream_config,
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    let floats: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
+                    let mono = to_mono(&floats, source_channels);
+                    samples_writer.lock().extend_from_slice(&mono);
+                },
+                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                None,
+            )
+            .map_err(|e| format!("failed to build i16 input stream: {e}"))?,
+        SampleFormat::U16 => device
+            .build_input_stream(
+                &stream_config,
+                move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                    let floats: Vec<f32> =
+                        data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
+                    let mono = to_mono(&floats, source_channels);
+                    samples_writer.lock().extend_from_slice(&mono);
+                },
+                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                None,
+            )
+            .map_err(|e| format!("failed to build u16 input stream: {e}"))?,
+        other => return Err(format!("unsupported sample format: {other:?}")),
+    };
+
+    stream
+        .play()
+        .map_err(|e| format!("failed to start audio stream: {e}"))?;
+
+    info!("{LOG_PREFIX} recording started");
+
+    // Spin a background thread to poll the stop flag and finalize.
+    std::thread::Builder::new()
+        .name("voice-capture".into())
+        .spawn(move || {
+            // Keep stream alive on this thread.
+            let _stream = stream;
+
+            while !stop_flag_clone.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            debug!("{LOG_PREFIX} stop flag detected, finalizing recording");
+
+            let raw_samples = samples.lock().clone();
+            let result = finalize_recording(raw_samples, source_sample_rate);
+            let _ = result_tx.send(result);
+        })
+        .map_err(|e| format!("failed to spawn capture thread: {e}"))?;
+
+    Ok(RecordingHandle {
+        stop_flag,
+        result_rx: Some(result_rx),
+    })
+}
+
+/// List available input devices.
+pub fn list_input_devices() -> Result<Vec<String>, String> {
+    let host = cpal::default_host();
+    let devices = host
+        .input_devices()
+        .map_err(|e| format!("failed to enumerate input devices: {e}"))?;
+
+    let names: Vec<String> = devices
+        .filter_map(|d| d.name().ok())
+        .collect();
+
+    debug!("{LOG_PREFIX} found {} input devices", names.len());
+    Ok(names)
+}
+
+/// Convert interleaved multi-channel samples to mono by averaging channels.
+fn to_mono(samples: &[f32], channels: usize) -> Vec<f32> {
+    if channels <= 1 {
+        return samples.to_vec();
+    }
+
+    samples
+        .chunks_exact(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect()
+}
+
+/// Resample mono f32 samples from `source_rate` to `TARGET_SAMPLE_RATE` using
+/// linear interpolation. Good enough for voice dictation quality.
+fn resample(samples: &[f32], source_rate: u32) -> Vec<f32> {
+    if source_rate == TARGET_SAMPLE_RATE {
+        return samples.to_vec();
+    }
+
+    let ratio = source_rate as f64 / TARGET_SAMPLE_RATE as f64;
+    let output_len = (samples.len() as f64 / ratio).ceil() as usize;
+    let mut output = Vec::with_capacity(output_len);
+
+    for i in 0..output_len {
+        let src_idx = i as f64 * ratio;
+        let idx0 = src_idx.floor() as usize;
+        let idx1 = (idx0 + 1).min(samples.len().saturating_sub(1));
+        let frac = (src_idx - idx0 as f64) as f32;
+        output.push(samples[idx0] * (1.0 - frac) + samples[idx1] * frac);
+    }
+
+    output
+}
+
+/// Finalize recorded samples into a 16-kHz mono WAV.
+fn finalize_recording(
+    raw_samples: Vec<f32>,
+    source_sample_rate: u32,
+) -> Result<RecordingResult, String> {
+    if raw_samples.is_empty() {
+        warn!("{LOG_PREFIX} no audio samples captured");
+        return Err("no audio samples captured".to_string());
+    }
+
+    let resampled = resample(&raw_samples, source_sample_rate);
+    let sample_count = resampled.len();
+    let duration_secs = sample_count as f32 / TARGET_SAMPLE_RATE as f32;
+
+    debug!(
+        "{LOG_PREFIX} finalizing: {sample_count} samples, {duration_secs:.1}s, \
+         resampled from {source_sample_rate} to {TARGET_SAMPLE_RATE}"
+    );
+
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: TARGET_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: HoundFormat::Int,
+    };
+
+    let mut buf = Cursor::new(Vec::new());
+    {
+        let mut writer =
+            WavWriter::new(&mut buf, spec).map_err(|e| format!("WAV writer error: {e}"))?;
+
+        for &sample in &resampled {
+            let clamped = sample.clamp(-1.0, 1.0);
+            let i16_sample = (clamped * 32767.0) as i16;
+            writer
+                .write_sample(i16_sample)
+                .map_err(|e| format!("WAV write error: {e}"))?;
+        }
+
+        writer
+            .finalize()
+            .map_err(|e| format!("WAV finalize error: {e}"))?;
+    }
+
+    let wav_bytes = buf.into_inner();
+    info!(
+        "{LOG_PREFIX} recording finalized: {duration_secs:.1}s, {} bytes WAV",
+        wav_bytes.len()
+    );
+
+    Ok(RecordingResult {
+        wav_bytes,
+        duration_secs,
+        sample_count,
+    })
+}
+
+/// Find the best input config — prefer 16 kHz mono, else closest match.
+fn find_best_config(
+    configs: impl Iterator<Item = cpal::SupportedStreamConfigRange>,
+) -> Result<cpal::SupportedStreamConfig, String> {
+    let mut configs_vec: Vec<cpal::SupportedStreamConfigRange> = configs.collect();
+    if configs_vec.is_empty() {
+        return Err("no supported audio input configurations found".to_string());
+    }
+
+    // Sort: prefer configs whose range includes 16kHz, then by fewer channels.
+    configs_vec.sort_by(|a, b| {
+        let a_has_target =
+            a.min_sample_rate().0 <= TARGET_SAMPLE_RATE && a.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
+        let b_has_target =
+            b.min_sample_rate().0 <= TARGET_SAMPLE_RATE && b.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
+
+        b_has_target
+            .cmp(&a_has_target)
+            .then(a.channels().cmp(&b.channels()))
+    });
+
+    let best = &configs_vec[0];
+    let rate = if best.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+        && best.max_sample_rate().0 >= TARGET_SAMPLE_RATE
+    {
+        SampleRate(TARGET_SAMPLE_RATE)
+    } else {
+        // Use the maximum supported rate and resample later.
+        best.max_sample_rate()
+    };
+
+    Ok(best.clone().with_sample_rate(rate))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_mono_passthrough_single_channel() {
+        let input = vec![0.1, 0.2, 0.3];
+        assert_eq!(to_mono(&input, 1), input);
+    }
+
+    #[test]
+    fn to_mono_averages_stereo() {
+        let input = vec![0.0, 1.0, 0.5, 0.5];
+        let mono = to_mono(&input, 2);
+        assert_eq!(mono.len(), 2);
+        assert!((mono[0] - 0.5).abs() < 1e-6);
+        assert!((mono[1] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn resample_same_rate_passthrough() {
+        let input = vec![0.1, 0.2, 0.3];
+        let output = resample(&input, TARGET_SAMPLE_RATE);
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn resample_downsamples() {
+        // 32kHz -> 16kHz should roughly halve the samples.
+        let input: Vec<f32> = (0..3200).map(|i| (i as f32 / 3200.0).sin()).collect();
+        let output = resample(&input, 32_000);
+        // Should be approximately 1600 samples.
+        assert!(output.len() >= 1590 && output.len() <= 1610);
+    }
+
+    #[test]
+    fn finalize_produces_valid_wav() {
+        let samples: Vec<f32> = (0..16000)
+            .map(|i| (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 16000.0).sin())
+            .collect();
+        let result = finalize_recording(samples, 16_000).unwrap();
+        assert!(result.wav_bytes.len() > 44); // WAV header is 44 bytes
+        assert!((result.duration_secs - 1.0).abs() < 0.1);
+        // Check WAV magic bytes.
+        assert_eq!(&result.wav_bytes[..4], b"RIFF");
+    }
+
+    #[test]
+    fn finalize_empty_samples_errors() {
+        let result = finalize_recording(vec![], 16_000);
+        assert!(result.is_err());
+    }
+}

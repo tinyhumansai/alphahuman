@@ -58,5 +58,7 @@ pub use tools::{
     BrowserComputerUseConfig, BrowserConfig, ComposioConfig, HttpRequestConfig, MultimodalConfig,
     SecretsConfig, WebSearchConfig,
 };
+mod voice_server;
+pub use voice_server::VoiceServerConfig;
 mod types;
 pub use types::*;
