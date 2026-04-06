@@ -330,13 +330,7 @@ pub async fn telegram_login_start(
             telegram_url,
             bot_username,
         },
-        vec![
-            format!(
-                "link token created via POST /auth/channels/telegram/link-token on {}",
-                api_url.trim_end_matches('/')
-            ),
-            "open the telegramUrl in a browser or Telegram to complete linking".to_string(),
-        ],
+        vec![],
     ))
 }
 
@@ -419,10 +413,7 @@ pub async fn telegram_login_check(
             linked,
             details: if linked { Some(status_payload) } else { None },
         },
-        vec![format!(
-            "link status checked via GET /auth/channels/telegram/link-tokens/.../status on {}",
-            api_url.trim_end_matches('/')
-        )],
+        vec![],
     ))
 }
 
