@@ -36,6 +36,13 @@ pub enum DomainEvent {
     MemoryRecalled { query: String, hit_count: usize },
 
     // ── Channels ────────────────────────────────────────────────────────
+    /// An inbound channel message from the transport layer, ready for processing.
+    ChannelInboundMessage {
+        event_name: String,
+        channel: String,
+        message: String,
+        raw_data: serde_json::Value,
+    },
     /// A message was received on a channel.
     ChannelMessageReceived {
         channel: String,
@@ -105,6 +112,11 @@ pub enum DomainEvent {
     },
 
     // ── Webhooks ────────────────────────────────────────────────────────
+    /// An incoming webhook request from the transport layer, ready for routing.
+    WebhookIncomingRequest {
+        request: crate::openhuman::webhooks::WebhookRequest,
+        raw_data: serde_json::Value,
+    },
     /// A webhook was received and routed to a skill.
     WebhookReceived {
         tunnel_id: String,
@@ -155,7 +167,8 @@ impl DomainEvent {
 
             Self::MemoryStored { .. } | Self::MemoryRecalled { .. } => "memory",
 
-            Self::ChannelMessageReceived { .. }
+            Self::ChannelInboundMessage { .. }
+            | Self::ChannelMessageReceived { .. }
             | Self::ChannelMessageProcessed { .. }
             | Self::ChannelConnected { .. }
             | Self::ChannelDisconnected { .. } => "channel",
@@ -171,7 +184,8 @@ impl DomainEvent {
 
             Self::ToolExecutionStarted { .. } | Self::ToolExecutionCompleted { .. } => "tool",
 
-            Self::WebhookReceived { .. }
+            Self::WebhookIncomingRequest { .. }
+            | Self::WebhookReceived { .. }
             | Self::WebhookRegistered { .. }
             | Self::WebhookUnregistered { .. }
             | Self::WebhookProcessed { .. } => "webhook",
@@ -198,6 +212,7 @@ mod tests {
             (DomainEvent::MemoryStored { key: "k".into(), category: "c".into(), namespace: "n".into() }, "memory"),
             (DomainEvent::MemoryRecalled { query: "q".into(), hit_count: 0 }, "memory"),
             // Channel
+            (DomainEvent::ChannelInboundMessage { event_name: "telegram:message".into(), channel: "telegram".into(), message: "hi".into(), raw_data: serde_json::Value::Null }, "channel"),
             (DomainEvent::ChannelMessageReceived { channel: "c".into(), sender: "s".into(), content: "hi".into(), thread_ts: None }, "channel"),
             (DomainEvent::ChannelMessageProcessed { channel: "c".into(), sender: "s".into(), content: "hi".into(), response: "hello".into(), elapsed_ms: 0, success: true }, "channel"),
             (DomainEvent::ChannelConnected { channel: "c".into() }, "channel"),
@@ -215,6 +230,14 @@ mod tests {
             (DomainEvent::ToolExecutionStarted { tool_name: "t".into(), session_id: "s".into() }, "tool"),
             (DomainEvent::ToolExecutionCompleted { tool_name: "t".into(), session_id: "s".into(), success: true, elapsed_ms: 0 }, "tool"),
             // Webhook
+            (DomainEvent::WebhookIncomingRequest {
+                request: crate::openhuman::webhooks::WebhookRequest {
+                    correlation_id: "c".into(), tunnel_id: "t".into(), tunnel_uuid: "u".into(),
+                    tunnel_name: "n".into(), method: "GET".into(), path: "/".into(),
+                    headers: Default::default(), query: Default::default(), body: String::new(),
+                },
+                raw_data: serde_json::Value::Null,
+            }, "webhook"),
             (DomainEvent::WebhookReceived { tunnel_id: "t".into(), skill_id: "s".into(), method: "GET".into(), path: "/".into(), correlation_id: "c".into() }, "webhook"),
             (DomainEvent::WebhookRegistered { tunnel_id: "t".into(), skill_id: "s".into(), tunnel_name: None }, "webhook"),
             (DomainEvent::WebhookUnregistered { tunnel_id: "t".into(), skill_id: "s".into() }, "webhook"),
