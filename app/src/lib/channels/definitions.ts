@@ -17,10 +17,10 @@ export const STATUS_STYLES: Record<ChannelConnectionStatus, { label: string; cla
 
 /** Human-readable labels for auth modes. */
 export const AUTH_MODE_LABELS: Record<string, string> = {
-  managed_dm: 'Managed DM',
+  managed_dm: 'Login with OpenHuman',
   oauth: 'OAuth Sign-in',
-  bot_token: 'Bot Token',
-  api_key: 'API Key',
+  bot_token: 'Use your own Bot Token',
+  api_key: 'Use your own API Key',
 };
 
 /** Fallback definitions used when the core sidecar is unreachable. */

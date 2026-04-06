@@ -29,14 +29,13 @@ afterEach(() => {
 describe('TelegramConfig', () => {
   it('renders auth mode labels', () => {
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
-    expect(screen.getByText('Managed DM')).toBeInTheDocument();
+    expect(screen.getByText('Login with OpenHuman')).toBeInTheDocument();
   });
 
   it('renders both auth modes', () => {
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
-    // "Bot Token" appears as both a heading and a field label, so use getAllByText.
-    expect(screen.getAllByText('Bot Token').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Managed DM')).toBeInTheDocument();
+    expect(screen.getAllByText(/Bot Token/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Login with OpenHuman')).toBeInTheDocument();
   });
 
   it('shows credential fields for bot_token mode', () => {

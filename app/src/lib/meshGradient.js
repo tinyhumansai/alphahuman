@@ -21,7 +21,9 @@ class MiniGl {
     const _miniGl = this,
       debug_output = -1 !== document.location.search.toLowerCase().indexOf('debug=webgl');
     ((_miniGl.canvas = canvas),
-      (_miniGl.gl = _miniGl.canvas.getContext('webgl', { antialias: true })),
+      (_miniGl.gl =
+        _miniGl.canvas.getContext('webgl', { antialias: true }) ||
+        _miniGl.canvas.getContext('webgl2', { antialias: true })),
       (_miniGl.meshes = []));
     const context = _miniGl.gl;
     (width && height && this.setSize(width, height),
@@ -475,7 +477,10 @@ class Gradient {
           console.warn('[MeshGradient] Element is not a canvas:', selector);
           return this;
         }
-        if (!this.el.getContext('webgl') && !this.el.getContext('webgl2')) {
+        // Probe WebGL support on a throwaway canvas so we don't permanently
+        // bind this.el to a context type that MiniGl may not request.
+        const probe = document.createElement('canvas');
+        if (!probe.getContext('webgl') && !probe.getContext('webgl2')) {
           console.warn('[MeshGradient] WebGL not available');
           return this;
         }
