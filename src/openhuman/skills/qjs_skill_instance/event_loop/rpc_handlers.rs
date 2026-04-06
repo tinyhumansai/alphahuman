@@ -385,13 +385,16 @@ pub(crate) async fn handle_sync(
 ) -> Result<serde_json::Value, String> {
     let result = handle_js_call(rt, ctx, "onSync", "{}").await;
     if result.is_ok() {
-        // Only persist to memory if the JS sync was successful
+        // Only persist to memory if the JS sync was successful; set
+        // extract_working_memory=true so this explicit sync payload derives
+        // working.user.* documents.
         persist_state_to_memory(
             skill_id,
             "periodic sync",
             ops_state,
             memory_client,
             memory_write_tx,
+            true,
         );
     }
     result

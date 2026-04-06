@@ -1103,6 +1103,9 @@ async fn json_rpc_skills_runtime_start_tools_call_stop() {
 
     let _home_guard = EnvVarGuard::set_to_path("HOME", home);
     let _workspace_guard = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", &workspace);
+    // Ensure working-memory extraction is not disabled by an ambient env var so
+    // the assertions below are deterministic regardless of the host environment.
+    let _wm_guard = EnvVarGuard::unset("OPENHUMAN_SKILLS_WORKING_MEMORY_ENABLED");
 
     // Write a minimal skill to the workspace
     write_test_skill(&workspace, "e2e-runtime");
@@ -1244,24 +1247,37 @@ async fn json_rpc_skills_runtime_start_tools_call_stop() {
     .await;
     let _sync_result = assert_no_jsonrpc_error(&sync, "skills_sync");
 
-    // Wait for async memory worker to persist sync snapshots + working-memory docs.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // 5a. Verify working-memory docs were written into global namespace.
-    let docs = post_json_rpc(
-        &rpc_base,
-        241,
-        "openhuman.memory_list_documents",
-        json!({"namespace":"global"}),
-    )
-    .await;
-    let docs_result = assert_no_jsonrpc_error(&docs, "memory_list_documents");
-    let docs_arr = docs_result
-        .get("documents")
-        .or_else(|| docs_result.get("data").and_then(|d| d.get("documents")))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    // 5a. Poll until the async memory worker has written working-memory docs into
+    // the global namespace, instead of relying on a fixed sleep.
+    let poll_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let (docs_result, docs_arr) = loop {
+        let docs = post_json_rpc(
+            &rpc_base,
+            241,
+            "openhuman.memory_list_documents",
+            json!({"namespace":"global"}),
+        )
+        .await;
+        let result = assert_no_jsonrpc_error(&docs, "memory_list_documents");
+        let arr = result
+            .get("documents")
+            .or_else(|| result.get("data").and_then(|d| d.get("documents")))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let has_summary = arr.iter().any(|doc| {
+            doc.get("key").and_then(Value::as_str)
+                == Some("working.user.e2e-runtime.summary")
+        });
+        if has_summary {
+            break (result, arr);
+        }
+        assert!(
+            tokio::time::Instant::now() < poll_deadline,
+            "Timeout waiting for working.user.e2e-runtime.summary to appear. docs={result}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
 
     let wm_keys: Vec<String> = docs_arr
         .iter()

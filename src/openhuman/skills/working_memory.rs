@@ -118,8 +118,11 @@ pub(crate) fn working_memory_documents_from_sync(
             continue;
         }
 
+        // Redact PII on the full normalized text first, then clip, so that a
+        // PII pattern spanning the clip boundary is never partially preserved.
         let sanitized = redact_common_pii(&normalized);
-        classify_into_buckets(&path, &sanitized, &mut buckets);
+        let clipped = clip(&sanitized, MAX_ITEM_CHARS);
+        classify_into_buckets(&path, &clipped, &mut buckets);
     }
 
     cap_set(&mut buckets.preferences, MAX_DOC_ITEMS_PER_BUCKET);
@@ -221,7 +224,7 @@ fn collect_scalar_fields(
                 collect_scalar_fields(item, &format!("{path}[]"), out, sensitive_skipped);
             }
         }
-        Value::String(s) => out.push((path.to_string(), clip(s, MAX_ITEM_CHARS))),
+        Value::String(s) => out.push((path.to_string(), s.clone())),
         Value::Bool(b) => out.push((path.to_string(), b.to_string())),
         Value::Number(n) => out.push((path.to_string(), n.to_string())),
         Value::Null => {}
@@ -370,10 +373,33 @@ fn is_sensitive_value(value: &str) -> bool {
     if value_l.contains("bearer ") || value_l.contains("api_key") {
         return true;
     }
-    // Heuristic for opaque secrets/tokens.
-    value
-        .split_whitespace()
-        .any(|token| token.len() >= 32 && token.chars().all(|ch| ch.is_ascii_alphanumeric()))
+    // Heuristic for opaque secrets/tokens: a whitespace-separated token of
+    // 32+ chars where every character is alphanumeric or a common separator
+    // used in API keys, UUIDs, and similar credentials ('-', '_', '.').
+    for token in value.split_whitespace() {
+        if token.len() < 32 {
+            continue;
+        }
+        if token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        {
+            return true;
+        }
+        // JWT-like: three dot-delimited segments of base64url-safe characters.
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() == 3
+            && parts.iter().all(|seg| {
+                !seg.is_empty()
+                    && seg
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '='))
+            })
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn looks_like_preference(path: &str, value: &str) -> bool {

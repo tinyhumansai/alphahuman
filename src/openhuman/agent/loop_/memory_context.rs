@@ -2,8 +2,8 @@ use crate::openhuman::memory::Memory;
 use std::collections::HashSet;
 use std::fmt::Write;
 
-const WORKING_MEMORY_KEY_PREFIX: &str = "working.user.";
-const WORKING_MEMORY_LIMIT: usize = 3;
+pub(crate) const WORKING_MEMORY_KEY_PREFIX: &str = "working.user.";
+pub(crate) const WORKING_MEMORY_LIMIT: usize = 3;
 
 /// Build context preamble by searching memory for relevant entries.
 /// Entries with a hybrid score below `min_relevance_score` are dropped to
