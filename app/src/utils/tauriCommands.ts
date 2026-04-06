@@ -2328,10 +2328,7 @@ export interface VoiceStatus {
 }
 
 export async function openhumanVoiceStatus(): Promise<VoiceStatus> {
-  return await callCoreRpc<VoiceStatus>({
-    method: 'openhuman.voice_status',
-    params: {},
-  });
+  return await callCoreRpc<VoiceStatus>({ method: 'openhuman.voice_status', params: {} });
 }
 
 export async function openhumanVoiceTranscribe(

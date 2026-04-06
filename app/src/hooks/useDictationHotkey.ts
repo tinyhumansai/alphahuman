@@ -69,7 +69,9 @@ export function useDictationHotkey(): DictationHotkeyState {
         }
 
         // Handle RpcOutcome wrapper — the result may be nested in .result
-        const s = ('result' in settings ? (settings as Record<string, unknown>).result : settings) as DictationSettings;
+        const s = (
+          'result' in settings ? (settings as Record<string, unknown>).result : settings
+        ) as DictationSettings;
 
         setDictationEnabled(s.enabled);
         setActivationMode(s.activation_mode ?? 'toggle');
@@ -98,8 +100,8 @@ export function useDictationHotkey(): DictationHotkeyState {
       disposed = true;
       if (registeredRef.current) {
         registeredRef.current = false;
-        unregisterDictationHotkey().catch((err) =>
-          console.warn('[dictation] cleanup unregister failed', err),
+        unregisterDictationHotkey().catch(err =>
+          console.warn('[dictation] cleanup unregister failed', err)
         );
       }
     };
@@ -113,12 +115,12 @@ export function useDictationHotkey(): DictationHotkeyState {
 
     listen('dictation://toggle', () => {
       console.debug('[dictation] hotkey toggle event received');
-      setToggleCount((c) => c + 1);
+      setToggleCount(c => c + 1);
     })
-      .then((fn) => {
+      .then(fn => {
         unlisten = fn;
       })
-      .catch((err) => {
+      .catch(err => {
         console.warn('[dictation] failed to listen for dictation toggle', err);
       });
 

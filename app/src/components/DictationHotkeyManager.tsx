@@ -14,9 +14,7 @@ export default function DictationHotkeyManager() {
 
   useEffect(() => {
     if (toggleCount === 0) return;
-    console.debug(
-      `[dictation] toggle #${toggleCount} — dictation overlay should show/hide`,
-    );
+    console.debug(`[dictation] toggle #${toggleCount} — dictation overlay should show/hide`);
   }, [toggleCount]);
 
   useEffect(() => {
