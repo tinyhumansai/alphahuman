@@ -1,3 +1,9 @@
+//! Command-line interface for the OpenHuman core binary.
+//!
+//! This module handles argument parsing, subcommand dispatching, and help printing
+//! for the CLI. It supports commands for running the server, making RPC calls,
+//! starting a REPL, and invoking domain-specific functionality across various namespaces.
+
 use anyhow::Result;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -7,6 +13,7 @@ use crate::core::jsonrpc::{default_state, invoke_method, parse_json_params};
 use crate::core::{ControllerSchema, TypeSchema};
 use crate::openhuman::autocomplete::ops::{autocomplete_start_cli, AutocompleteStartCliOptions};
 
+/// The ASCII banner displayed when the CLI starts.
 const CLI_BANNER: &str = r#"
 
  ▗▄▖ ▄▄▄▄  ▗▞▀▚▖▄▄▄▄  ▗▖ ▗▖█  ▐▌▄▄▄▄  ▗▞▀▜▌▄▄▄▄
@@ -19,7 +26,21 @@ Contribute & Star us on GitHub: https://github.com/tinyhumansai/openhuman
 
 "#;
 
+/// Dispatches CLI commands based on arguments.
+///
+/// This is the entry point for CLI argument handling. It prints the banner,
+/// checks for help requests, and dispatches to specific command handlers
+/// like `run`, `call`, `repl`, `skills`, or namespace-based commands.
+///
+/// # Arguments
+///
+/// * `args` - A slice of strings containing the command-line arguments (excluding the binary name).
+///
+/// # Errors
+///
+/// Returns an error if the command fails or if an unknown command is provided.
 pub fn run_from_cli_args(args: &[String]) -> Result<()> {
+    // Print the welcome banner to stderr to keep stdout clean for JSON output.
     eprint!("{CLI_BANNER}");
 
     let grouped = grouped_schemas();
@@ -28,6 +49,7 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
+    // Match on the first argument to determine the subcommand.
     match args[0].as_str() {
         "run" | "serve" => run_server_command(&args[1..]),
         "call" => run_call_command(&args[1..]),
@@ -37,12 +59,21 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     }
 }
 
+/// Handles the `run` subcommand to start the core HTTP/JSON-RPC server.
+///
+/// Parses flags for port, host, and optional Socket.IO support.
+///
+/// # Arguments
+///
+/// * `args` - Command-line arguments for the `run` command.
 fn run_server_command(args: &[String]) -> Result<()> {
     let mut port: Option<u16> = None;
     let mut host: Option<String> = None;
     let mut socketio_enabled = true;
     let mut verbose = false;
     let mut i = 0usize;
+
+    // Manual argument parsing loop for specific flags.
     while i < args.len() {
         match args[i].as_str() {
             "--port" => {
@@ -92,6 +123,7 @@ fn run_server_command(args: &[String]) -> Result<()> {
 
     crate::core::logging::init_for_cli_run(verbose);
 
+    // Initialize the Tokio runtime and start the server.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -101,6 +133,13 @@ fn run_server_command(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Handles the `call` subcommand to invoke a JSON-RPC method directly from the CLI.
+///
+/// Useful for testing and automation.
+///
+/// # Arguments
+///
+/// * `args` - Command-line arguments specifying the method and parameters.
 fn run_call_command(args: &[String]) -> Result<()> {
     let mut method: Option<String> = None;
     let mut params = "{}".to_string();
@@ -141,10 +180,20 @@ fn run_call_command(args: &[String]) -> Result<()> {
         .block_on(async { invoke_method(default_state(), &method, params).await })
         .map_err(anyhow::Error::msg)?;
 
+    // Output the result as pretty-printed JSON.
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
 
+/// Dispatches commands that fall under a specific namespace (e.g., `openhuman <namespace> <function>`).
+///
+/// It looks up the function schema for validation and executes the request.
+///
+/// # Arguments
+///
+/// * `namespace` - The namespace for the command.
+/// * `args` - Arguments for the function within the namespace.
+/// * `grouped` - A map of available schemas grouped by namespace.
 fn run_namespace_command(
     namespace: &str,
     args: &[String],
@@ -168,6 +217,7 @@ fn run_namespace_command(
         ));
     };
 
+    // Special case for autocomplete start command which has its own CLI options.
     if namespace == "autocomplete" && function == "start" {
         if args.len() > 1 && is_help(&args[1]) {
             print_autocomplete_start_help();
@@ -189,6 +239,7 @@ fn run_namespace_command(
         return Ok(());
     }
 
+    // Generic parameter parsing and validation based on schema.
     let params = parse_function_params(&schema, &args[1..]).map_err(anyhow::Error::msg)?;
     let method = all::rpc_method_from_parts(namespace, function)
         .ok_or_else(|| anyhow::anyhow!("unregistered controller '{namespace}.{function}'"))?;
@@ -204,6 +255,11 @@ fn run_namespace_command(
     Ok(())
 }
 
+/// Parses CLI options specific to the `autocomplete start` command.
+///
+/// # Arguments
+///
+/// * `args` - CLI arguments for the autocomplete start command.
 fn parse_autocomplete_start_cli_options(args: &[String]) -> Result<AutocompleteStartCliOptions> {
     let mut debounce_ms: Option<u64> = None;
     let mut serve = false;
@@ -234,6 +290,7 @@ fn parse_autocomplete_start_cli_options(args: &[String]) -> Result<AutocompleteS
         }
     }
 
+    // Ensure the user doesn't try to both foreground and background the process.
     if serve && spawn {
         return Err(anyhow::anyhow!(
             "--serve and --spawn are mutually exclusive"
@@ -247,6 +304,7 @@ fn parse_autocomplete_start_cli_options(args: &[String]) -> Result<AutocompleteS
     })
 }
 
+/// Prints help information for the `autocomplete start` command.
 fn print_autocomplete_start_help() {
     println!("Usage: openhuman autocomplete start [--debounce-ms <u64>] [--serve|--spawn]");
     println!();
@@ -255,6 +313,16 @@ fn print_autocomplete_start_help() {
     println!("  --spawn              Spawn autocomplete loop as a background process.");
 }
 
+/// Parses command-line arguments into a JSON map based on a function's schema.
+///
+/// # Arguments
+///
+/// * `schema` - The schema defining expected inputs.
+/// * `args` - The command-line arguments to parse.
+///
+/// # Errors
+///
+/// Returns an error if arguments are malformed, unknown, or fail validation.
 fn parse_function_params(
     schema: &ControllerSchema,
     args: &[String],
@@ -286,11 +354,20 @@ fn parse_function_params(
     Ok(out)
 }
 
-/// Public alias for REPL param parsing (same logic, no duplication).
+/// Re-exported alias for parsing input values, used by the REPL.
 pub fn parse_input_value_for_repl(ty: &TypeSchema, raw: &str) -> Result<Value, String> {
     parse_input_value(ty, raw)
 }
 
+/// Parses a raw string value into a JSON `Value` based on the target `TypeSchema`.
+///
+/// Supports basic types like string, bool, and numbers, as well as complex JSON
+/// structures for advanced types.
+///
+/// # Arguments
+///
+/// * `ty` - The expected type schema.
+/// * `raw` - The raw string value from the command line.
 fn parse_input_value(ty: &TypeSchema, raw: &str) -> Result<Value, String> {
     match ty {
         TypeSchema::String => Ok(Value::String(raw.to_string())),
@@ -325,6 +402,7 @@ fn parse_input_value(ty: &TypeSchema, raw: &str) -> Result<Value, String> {
     }
 }
 
+/// Aggregates all registered controller schemas and groups them by namespace.
 fn grouped_schemas() -> BTreeMap<String, Vec<ControllerSchema>> {
     let mut grouped: BTreeMap<String, Vec<ControllerSchema>> = BTreeMap::new();
     for schema in all::all_controller_schemas() {
@@ -333,12 +411,14 @@ fn grouped_schemas() -> BTreeMap<String, Vec<ControllerSchema>> {
             .or_default()
             .push(schema);
     }
+    // Sort functions within each namespace for consistent help output.
     for schemas in grouped.values_mut() {
         schemas.sort_by_key(|s| s.function);
     }
     grouped
 }
 
+/// Prints the general help message listing available commands and namespaces.
 fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("OpenHuman core CLI\n");
     println!("Usage:");
@@ -356,6 +436,7 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("\nUse `openhuman <namespace> --help` to see functions.");
 }
 
+/// Prints help for a specific namespace, listing its functions.
 fn print_namespace_help(namespace: &str, schemas: &[ControllerSchema]) {
     println!("Namespace: {namespace}\n");
     if let Some(description) = all::namespace_description(namespace) {
@@ -368,6 +449,7 @@ fn print_namespace_help(namespace: &str, schemas: &[ControllerSchema]) {
     println!("\nUse `openhuman {namespace} <function> --help` for parameters.");
 }
 
+/// Prints detailed help for a specific function, including its parameters and description.
 fn print_function_help(namespace: &str, schema: &ControllerSchema) {
     println!("{} {}\n", namespace, schema.function);
     println!("{}", schema.description);
@@ -386,6 +468,7 @@ fn print_function_help(namespace: &str, schema: &ControllerSchema) {
     }
 }
 
+/// Checks if a string represents a help flag.
 fn is_help(value: &str) -> bool {
     matches!(value, "-h" | "--help" | "help")
 }
