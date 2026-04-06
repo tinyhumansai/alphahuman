@@ -18,10 +18,7 @@ pub fn spawn_overlay() {
         return;
     };
 
-    log::info!(
-        "[overlay] launching overlay: {}",
-        overlay_bin.display()
-    );
+    log::info!("[overlay] launching overlay: {}", overlay_bin.display());
 
     match Command::new(&overlay_bin)
         .stdin(Stdio::null())
@@ -30,10 +27,7 @@ pub fn spawn_overlay() {
         .spawn()
     {
         Ok(child) => {
-            log::info!(
-                "[overlay] overlay process spawned (pid={})",
-                child.id()
-            );
+            log::info!("[overlay] overlay process spawned (pid={})", child.id());
         }
         Err(err) => {
             log::warn!(
@@ -56,12 +50,13 @@ fn find_overlay_binary() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("OPENHUMAN_OVERLAY_BIN") {
         let candidate = PathBuf::from(&path);
         if candidate.exists() {
-            log::debug!("[overlay] found via OPENHUMAN_OVERLAY_BIN: {}", candidate.display());
+            log::debug!(
+                "[overlay] found via OPENHUMAN_OVERLAY_BIN: {}",
+                candidate.display()
+            );
             return Some(candidate);
         }
-        log::debug!(
-            "[overlay] OPENHUMAN_OVERLAY_BIN set but path does not exist: {path}"
-        );
+        log::debug!("[overlay] OPENHUMAN_OVERLAY_BIN set but path does not exist: {path}");
     }
 
     let exe = std::env::current_exe().ok()?;
@@ -115,7 +110,10 @@ fn find_overlay_binary() -> Option<PathBuf> {
                 .join("MacOS")
                 .join("openhuman-overlay");
             if dev_app_path.exists() {
-                log::debug!("[overlay] found dev .app bundle: {}", dev_app_path.display());
+                log::debug!(
+                    "[overlay] found dev .app bundle: {}",
+                    dev_app_path.display()
+                );
                 return Some(dev_app_path);
             }
         }

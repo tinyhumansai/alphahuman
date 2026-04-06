@@ -359,7 +359,9 @@ impl RuntimeEngine {
         let mut manifest_path = skill_dir.join("manifest.json");
         log::debug!(
             "[runtime] start_skill '{}': source dir={:?}, manifest exists={}",
-            skill_id, manifest_path, manifest_path.exists()
+            skill_id,
+            manifest_path,
+            manifest_path.exists()
         );
 
         if !manifest_path.exists() {
@@ -369,7 +371,9 @@ impl RuntimeEngine {
                 let ws_manifest = ws_skill_dir.join("manifest.json");
                 log::debug!(
                     "[runtime] start_skill '{}': workspace check {:?}, exists={}",
-                    skill_id, ws_manifest, ws_manifest.exists()
+                    skill_id,
+                    ws_manifest,
+                    ws_manifest.exists()
                 );
                 if ws_manifest.exists() {
                     log::info!("[runtime] Found skill '{}' in workspace dir", skill_id);
@@ -377,7 +381,10 @@ impl RuntimeEngine {
                     manifest_path = ws_manifest;
                 }
             } else {
-                log::warn!("[runtime] start_skill '{}': workspace_dir is not set", skill_id);
+                log::warn!(
+                    "[runtime] start_skill '{}': workspace_dir is not set",
+                    skill_id
+                );
             }
         }
 

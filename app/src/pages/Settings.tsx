@@ -229,8 +229,7 @@ const aiSettingsItems = [
 const Settings = () => {
   return (
     <div className="p-4 pt-6">
-      <div
-        className="max-w-lg mx-auto bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden">
+      <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden">
         <Routes>
           <Route index element={<SettingsHome />} />
           <Route

@@ -206,7 +206,9 @@ const MemoryDebugPanel = () => {
                   key={`${doc.namespace}:${doc.documentId}`}
                   className="flex items-start justify-between gap-2 rounded-lg border border-stone-200 bg-stone-50 p-2">
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-stone-900 break-all">{doc.documentId}</div>
+                    <div className="text-xs font-medium text-stone-900 break-all">
+                      {doc.documentId}
+                    </div>
                     <div className="text-[11px] text-stone-500 break-all">{doc.namespace}</div>
                     {doc.title && <div className="text-[11px] text-stone-400">{doc.title}</div>}
                   </div>
@@ -249,7 +251,9 @@ const MemoryDebugPanel = () => {
           {namespaces.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {namespaces.map(ns => (
-                <span key={ns} className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-600">
+                <span
+                  key={ns}
+                  className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-600">
                   {ns}
                 </span>
               ))}
@@ -299,12 +303,8 @@ const MemoryDebugPanel = () => {
               {recallLoading ? '...' : 'Recall'}
             </button>
           </div>
-          {queryError && (
-            <div className="text-xs text-coral-600">Query: {queryError}</div>
-          )}
-          {recallError && (
-            <div className="text-xs text-coral-600">Recall: {recallError}</div>
-          )}
+          {queryError && <div className="text-xs text-coral-600">Query: {queryError}</div>}
+          {recallError && <div className="text-xs text-coral-600">Recall: {recallError}</div>}
           {(queryResult || recallResult) && (
             <div className="space-y-2">
               {queryResult && (
@@ -334,7 +334,9 @@ const MemoryDebugPanel = () => {
         {/* Clear Namespace */}
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-stone-900">Clear Namespace</h3>
-          <p className="text-xs text-stone-400">Permanently delete all documents within a namespace.</p>
+          <p className="text-xs text-stone-400">
+            Permanently delete all documents within a namespace.
+          </p>
           <div className="flex gap-2">
             {namespaces.length > 0 ? (
               <select
@@ -343,7 +345,9 @@ const MemoryDebugPanel = () => {
                 className="flex-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700">
                 <option value="">Select namespace...</option>
                 {namespaces.map(ns => (
-                  <option key={ns} value={ns}>{ns}</option>
+                  <option key={ns} value={ns}>
+                    {ns}
+                  </option>
                 ))}
               </select>
             ) : (

@@ -234,12 +234,11 @@ const WebhooksDebugPanel = () => {
                     <span className="text-xs font-semibold text-stone-900">
                       {entry.method} {entry.path}
                     </span>
-                    <span className="text-[10px] text-stone-500">
-                      {entry.status_code ?? '...'}
-                    </span>
+                    <span className="text-[10px] text-stone-500">{entry.status_code ?? '...'}</span>
                   </div>
                   <div className="mt-1 text-[11px] text-stone-500">
-                    {entry.tunnel_name} {entry.skill_id ? `· ${entry.skill_id}` : '· unrouted'} · {formatDateTime(entry.updated_at)}
+                    {entry.tunnel_name} {entry.skill_id ? `· ${entry.skill_id}` : '· unrouted'} ·{' '}
+                    {formatDateTime(entry.updated_at)}
                   </div>
                 </button>
               ))}
@@ -250,7 +249,9 @@ const WebhooksDebugPanel = () => {
                     <div className="text-xs font-semibold text-stone-900">
                       {selectedLog.method} {selectedLog.path}
                     </div>
-                    <div className="text-[10px] text-stone-400 font-mono">{selectedLog.correlation_id}</div>
+                    <div className="text-[10px] text-stone-400 font-mono">
+                      {selectedLog.correlation_id}
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-1 text-[10px]">
@@ -271,11 +272,26 @@ const WebhooksDebugPanel = () => {
                     </div>
                   )}
 
-                  <PayloadBlock title="Request Headers" value={prettyJson(selectedLog.request_headers)} />
-                  <PayloadBlock title="Query Params" value={prettyJson(selectedLog.request_query)} />
-                  <PayloadBlock title="Request Body" value={decodeBase64Preview(selectedLog.request_body) || '[empty]'} />
-                  <PayloadBlock title="Response Headers" value={prettyJson(selectedLog.response_headers)} />
-                  <PayloadBlock title="Response Body" value={decodeBase64Preview(selectedLog.response_body) || '[empty]'} />
+                  <PayloadBlock
+                    title="Request Headers"
+                    value={prettyJson(selectedLog.request_headers)}
+                  />
+                  <PayloadBlock
+                    title="Query Params"
+                    value={prettyJson(selectedLog.request_query)}
+                  />
+                  <PayloadBlock
+                    title="Request Body"
+                    value={decodeBase64Preview(selectedLog.request_body) || '[empty]'}
+                  />
+                  <PayloadBlock
+                    title="Response Headers"
+                    value={prettyJson(selectedLog.response_headers)}
+                  />
+                  <PayloadBlock
+                    title="Response Body"
+                    value={decodeBase64Preview(selectedLog.response_body) || '[empty]'}
+                  />
                   {selectedLog.raw_payload != null && (
                     <PayloadBlock title="Raw Payload" value={prettyJson(selectedLog.raw_payload)} />
                   )}
