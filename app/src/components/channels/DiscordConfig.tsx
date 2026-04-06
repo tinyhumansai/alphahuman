@@ -19,6 +19,7 @@ import type {
 import { openUrl } from '../../utils/openUrl';
 import ChannelFieldInput from './ChannelFieldInput';
 import ChannelStatusBadge from './ChannelStatusBadge';
+import DiscordServerChannelPicker from './DiscordServerChannelPicker';
 
 const log = debug('channels:discord');
 
@@ -206,6 +207,16 @@ const DiscordConfig = ({ definition }: DiscordConfigProps) => {
                 Disconnect
               </button>
             </div>
+
+            {/* Server + Channel picker — shown after successful bot_token connection */}
+            {spec.mode === 'bot_token' && status === 'connected' && (
+              <DiscordServerChannelPicker
+                onGuildSelected={guildId => updateField(compositeKey, 'guild_id', guildId)}
+                onChannelSelected={channelId =>
+                  updateField(compositeKey, 'channel_id', channelId)
+                }
+              />
+            )}
           </div>
         );
       })}
