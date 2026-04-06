@@ -2327,8 +2327,8 @@ export interface VoiceStatus {
   llm_cleanup_enabled: boolean;
 }
 
-export async function openhumanVoiceStatus(): Promise<CommandResponse<VoiceStatus>> {
-  return await callCoreRpc<CommandResponse<VoiceStatus>>({
+export async function openhumanVoiceStatus(): Promise<VoiceStatus> {
+  return await callCoreRpc<VoiceStatus>({
     method: 'openhuman.voice_status',
     params: {},
   });
@@ -2338,8 +2338,8 @@ export async function openhumanVoiceTranscribe(
   audioPath: string,
   context?: string,
   skipCleanup?: boolean
-): Promise<CommandResponse<VoiceSpeechResult>> {
-  return await callCoreRpc<CommandResponse<VoiceSpeechResult>>({
+): Promise<VoiceSpeechResult> {
+  return await callCoreRpc<VoiceSpeechResult>({
     method: 'openhuman.voice_transcribe',
     params: { audio_path: audioPath, context, skip_cleanup: skipCleanup },
   });
@@ -2350,8 +2350,8 @@ export async function openhumanVoiceTranscribeBytes(
   extension?: string,
   context?: string,
   skipCleanup?: boolean
-): Promise<CommandResponse<VoiceSpeechResult>> {
-  return await callCoreRpc<CommandResponse<VoiceSpeechResult>>({
+): Promise<VoiceSpeechResult> {
+  return await callCoreRpc<VoiceSpeechResult>({
     method: 'openhuman.voice_transcribe_bytes',
     params: { audio_bytes: audioBytes, extension, context, skip_cleanup: skipCleanup },
   });
@@ -2360,8 +2360,8 @@ export async function openhumanVoiceTranscribeBytes(
 export async function openhumanVoiceTts(
   text: string,
   outputPath?: string
-): Promise<CommandResponse<VoiceTtsResult>> {
-  return await callCoreRpc<CommandResponse<VoiceTtsResult>>({
+): Promise<VoiceTtsResult> {
+  return await callCoreRpc<VoiceTtsResult>({
     method: 'openhuman.voice_tts',
     params: { text, output_path: outputPath },
   });

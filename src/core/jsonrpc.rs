@@ -6,7 +6,9 @@
 //! - SSE (Server-Sent Events) for real-time event streaming.
 //! - Helper routes for health checks, schema discovery, and Telegram authentication.
 
-use axum::extract::{Query, State};
+use std::sync::Arc;
+
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -326,6 +328,21 @@ async fn telegram_auth_handler(Query(query): Query<TelegramAuthQuery>) -> impl I
     html_response(StatusCode::OK, success_html())
 }
 
+/// WebSocket upgrade handler for streaming voice dictation.
+async fn dictation_ws_handler(ws: WebSocketUpgrade) -> Response {
+    log::info!("[ws] dictation WebSocket upgrade requested");
+    ws.on_upgrade(|socket| async move {
+        let config = match crate::openhuman::config::rpc::load_config_with_timeout().await {
+            Ok(c) => Arc::new(c),
+            Err(e) => {
+                log::error!("[ws] failed to load config for dictation: {e}");
+                return;
+            }
+        };
+        crate::openhuman::voice::streaming::handle_dictation_ws(socket, config).await;
+    })
+}
+
 /// Builds the main Axum router for the core HTTP server.
 ///
 /// Includes routes for health, schema, SSE events, JSON-RPC, and Telegram auth.
@@ -338,6 +355,7 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         .route("/events", get(events_handler))
         .route("/events/webhooks", get(webhook_events_handler))
         .route("/rpc", post(rpc_handler))
+        .route("/ws/dictation", get(dictation_ws_handler))
         .route("/auth/telegram", get(telegram_auth_handler))
         .fallback(not_found_handler)
         .layer(middleware::from_fn(http_request_log_middleware))

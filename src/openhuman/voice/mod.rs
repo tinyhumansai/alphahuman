@@ -6,6 +6,7 @@
 mod ops;
 mod postprocess;
 mod schemas;
+pub mod streaming;
 mod types;
 
 pub use ops::*;
