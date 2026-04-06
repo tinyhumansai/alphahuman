@@ -16,19 +16,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 
-// ── Tool scope ───────────────��──────────────────────────────────────
-
-/// Controls where an integration tool is available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolScope {
-    /// Available in agent loop, CLI, and RPC.
-    All,
-    /// Only available in the autonomous agent loop.
-    #[allow(dead_code)]
-    AgentOnly,
-    /// Only available via explicit CLI/RPC invocation (not autonomous agent).
-    CliRpcOnly,
-}
+// Re-export ToolScope from the canonical definition in tools::traits.
+pub use crate::openhuman::tools::traits::ToolScope;
 
 // ── Pricing types (fetched from backend) ────────────────────────────
 
@@ -117,12 +106,22 @@ impl IntegrationClient {
 
         let status = resp.status();
         if !status.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            tracing::debug!("[integrations] POST {} → {} {}", url, status, body_text);
-            anyhow::bail!("Backend returned {}: {}", status, body_text);
+            let _body_text = resp.text().await.unwrap_or_default();
+            tracing::debug!(
+                "[integrations] POST {} → {} <redacted-response>",
+                url,
+                status
+            );
+            anyhow::bail!("Backend returned {} for POST {}", status, url);
         }
 
         let envelope: BackendResponse<T> = resp.json().await?;
+        if !envelope.success {
+            let msg = envelope
+                .error
+                .unwrap_or_else(|| "unknown backend error".into());
+            anyhow::bail!("Backend error for POST {}: {}", url, msg);
+        }
         Ok(envelope.data)
     }
 
@@ -140,12 +139,22 @@ impl IntegrationClient {
 
         let status = resp.status();
         if !status.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            tracing::debug!("[integrations] GET {} → {} {}", url, status, body_text);
-            anyhow::bail!("Backend returned {}: {}", status, body_text);
+            let _body_text = resp.text().await.unwrap_or_default();
+            tracing::debug!(
+                "[integrations] GET {} → {} <redacted-response>",
+                url,
+                status
+            );
+            anyhow::bail!("Backend returned {} for GET {}", status, url);
         }
 
         let envelope: BackendResponse<T> = resp.json().await?;
+        if !envelope.success {
+            let msg = envelope
+                .error
+                .unwrap_or_else(|| "unknown backend error".into());
+            anyhow::bail!("Backend error for GET {}: {}", url, msg);
+        }
         Ok(envelope.data)
     }
 

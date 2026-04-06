@@ -19,6 +19,14 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
+/// UTF-8 safe truncation: returns the truncated slice and whether it was truncated.
+fn truncate_chars(s: &str, max_chars: usize) -> (&str, bool) {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => (&s[..byte_idx], true),
+        None => (s, false),
+    }
+}
+
 // ── Response types ──────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -168,12 +176,21 @@ impl Tool for ParallelSearchTool {
             ));
         }
 
-        let queries: Vec<&str> = search_queries.iter().filter_map(|v| v.as_str()).collect();
-
-        if queries.is_empty() {
-            return Ok(ToolResult::error(
-                "search_queries must contain string values",
-            ));
+        let mut queries: Vec<&str> = Vec::with_capacity(search_queries.len());
+        for (i, v) in search_queries.iter().enumerate() {
+            match v.as_str() {
+                Some(s) if !s.trim().is_empty() => queries.push(s),
+                Some(_) => {
+                    return Ok(ToolResult::error(format!(
+                        "search_queries[{i}] is an empty string"
+                    )));
+                }
+                None => {
+                    return Ok(ToolResult::error(format!(
+                        "search_queries[{i}] is not a string"
+                    )));
+                }
+            }
         }
 
         let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("fast");
@@ -201,11 +218,8 @@ impl Tool for ParallelSearchTool {
             body["excerpts"] = excerpts;
         }
 
-        tracing::info!(
-            "[parallel_search] objective={:?} queries={}",
-            objective,
-            queries.len()
-        );
+        tracing::info!("[parallel_search] queries={}", queries.len());
+        tracing::debug!("[parallel_search] objective={:?}", objective);
 
         match self
             .client
@@ -231,10 +245,11 @@ impl Tool for ParallelSearchTool {
                     if let Some(excerpt) = item.excerpts.first() {
                         let text = excerpt.trim();
                         if !text.is_empty() {
-                            let truncated = if text.len() > 500 {
-                                format!("{}...", &text[..500])
+                            let (slice, was_truncated) = truncate_chars(text, 500);
+                            let truncated = if was_truncated {
+                                format!("{slice}...")
                             } else {
-                                text.to_string()
+                                slice.to_string()
                             };
                             lines.push(format!("   {}", truncated));
                         }
@@ -322,10 +337,17 @@ impl Tool for ParallelExtractTool {
             return Ok(ToolResult::error("urls must contain at least one URL"));
         }
 
-        let url_strings: Vec<&str> = urls.iter().filter_map(|v| v.as_str()).collect();
-
-        if url_strings.is_empty() {
-            return Ok(ToolResult::error("urls must contain string values"));
+        let mut url_strings: Vec<&str> = Vec::with_capacity(urls.len());
+        for (i, v) in urls.iter().enumerate() {
+            match v.as_str() {
+                Some(s) if !s.trim().is_empty() => url_strings.push(s),
+                Some(_) => {
+                    return Ok(ToolResult::error(format!("urls[{i}] is an empty string")));
+                }
+                None => {
+                    return Ok(ToolResult::error(format!("urls[{i}] is not a string")));
+                }
+            }
         }
 
         let objective = args.get("objective").and_then(|v| v.as_str());
@@ -365,10 +387,11 @@ impl Tool for ParallelExtractTool {
                     for excerpt in &item.excerpts {
                         let text = excerpt.trim();
                         if !text.is_empty() {
-                            let truncated = if text.len() > 500 {
-                                format!("{}...", &text[..500])
+                            let (slice, was_truncated) = truncate_chars(text, 500);
+                            let truncated = if was_truncated {
+                                format!("{slice}...")
                             } else {
-                                text.to_string()
+                                slice.to_string()
                             };
                             lines.push(format!("   {}", truncated));
                         }
@@ -377,14 +400,16 @@ impl Tool for ParallelExtractTool {
                     if let Some(ref content) = item.full_content {
                         let content = content.trim();
                         if !content.is_empty() {
-                            let truncated = if content.len() > MAX_CONTENT_CHARS {
+                            let (slice, was_truncated) =
+                                truncate_chars(content, MAX_CONTENT_CHARS);
+                            let truncated = if was_truncated {
                                 format!(
                                     "{}... [truncated, {} chars total]",
-                                    &content[..MAX_CONTENT_CHARS],
-                                    content.len()
+                                    slice,
+                                    content.chars().count()
                                 )
                             } else {
-                                content.to_string()
+                                slice.to_string()
                             };
                             lines.push(format!("   Content:\n   {}", truncated));
                         }
@@ -398,13 +423,13 @@ impl Tool for ParallelExtractTool {
                     }
                 }
 
-                lines.push(format!("\nCost: ${:.4}", resp.cost_usd));
-
                 if lines.is_empty() {
-                    Ok(ToolResult::success(
-                        "No content extracted from the provided URLs.".to_string(),
-                    ))
+                    Ok(ToolResult::success(format!(
+                        "No content extracted from the provided URLs.\nCost: ${:.4}",
+                        resp.cost_usd
+                    )))
                 } else {
+                    lines.push(format!("\nCost: ${:.4}", resp.cost_usd));
                     Ok(ToolResult::success(lines.join("\n")))
                 }
             }

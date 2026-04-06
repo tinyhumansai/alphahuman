@@ -153,7 +153,7 @@ impl Tool for GooglePlacesSearchTool {
             "maxResults": max_results
         });
 
-        tracing::info!("[google_places_search] query={:?}", query);
+        tracing::debug!("[google_places_search] query={:?}", query);
 
         match self
             .client
@@ -251,7 +251,7 @@ impl Tool for GooglePlacesDetailsTool {
 
         let body = json!({ "placeId": place_id });
 
-        tracing::info!("[google_places_details] placeId={}", place_id);
+        tracing::debug!("[google_places_details] placeId={}", place_id);
 
         match self
             .client

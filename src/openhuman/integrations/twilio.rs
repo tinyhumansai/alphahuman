@@ -83,6 +83,10 @@ impl Tool for TwilioCallTool {
         PermissionLevel::Execute
     }
 
+    fn scope(&self) -> crate::openhuman::tools::traits::ToolScope {
+        crate::openhuman::tools::traits::ToolScope::CliRpcOnly
+    }
+
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let to = args
             .get("to")
@@ -114,7 +118,13 @@ impl Tool for TwilioCallTool {
             body["url"] = json!(u);
         }
 
-        tracing::info!("[twilio_call] calling {}", to);
+        let redacted = if to.len() > 4 {
+            format!("{}***{}", &to[..to.char_indices().nth(2).map_or(2, |(i, _)| i)],
+                    &to[to.char_indices().rev().nth(3).map_or(to.len().saturating_sub(4), |(i, _)| i)..])
+        } else {
+            "****".to_string()
+        };
+        tracing::info!("[twilio_call] calling {}", redacted);
 
         match self
             .client
