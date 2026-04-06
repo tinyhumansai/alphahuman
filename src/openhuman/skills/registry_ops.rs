@@ -409,7 +409,7 @@ pub async fn skills_list_available(
 
 #[cfg(test)]
 mod tests {
-    use super::super::registry_cache::{cache_path, is_cache_fresh, write_cache};
+    use super::super::registry_cache::{is_cache_fresh, write_cache};
     use super::super::registry_types::{CachedRegistry, RegistrySkillCategories, SkillCategory};
     use super::*;
 

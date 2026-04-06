@@ -59,14 +59,15 @@ pub(super) fn show_overflow_badge(
                     width: 0,
                     height: 0,
                 };
-                let bounds = if anchor_bounds.is_some() {
-                    anchor_bounds.unwrap()
-                } else {
-                    log::debug!(
-                        "[autocomplete] overlay: no anchor bounds, falling back to zero bounds (mouse cursor); suggestion={:?}",
-                        truncate_tail(suggestion_text, 40)
-                    );
-                    &fallback_bounds
+                let bounds: &ElementBounds = match anchor_bounds {
+                    Some(b) => b,
+                    None => {
+                        log::debug!(
+                            "[autocomplete] overlay: no anchor bounds, falling back to zero bounds (mouse cursor); suggestion={:?}",
+                            truncate_tail(suggestion_text, 40)
+                        );
+                        &fallback_bounds
+                    }
                 };
                 let tab_hint = if show_tab_hint { "Tab ↵" } else { "" };
                 if accessibility::show_overlay(bounds, suggestion_text, ttl_ms, tab_hint).is_ok() {
