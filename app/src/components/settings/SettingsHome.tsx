@@ -238,13 +238,16 @@ const SettingsHome = () => {
             </div>
 
             <div className="mb-6">
-              <p className="text-stone-700 text-sm leading-relaxed">
-                This will sign you out and permanently delete local app data including: App settings
-                and conversations, All other skills data, Workspace data, and all other local data.
-                <br />
-                <br />
-                This action cannot be undone and may take a few moments to complete.
-              </p>
+              <div className="text-stone-700 text-sm leading-relaxed">
+                <p>This will sign you out and permanently delete local app data including:</p>
+                <ul className="list-disc pl-5 mt-2 space-y-1">
+                  <li>App settings and conversations</li>
+                  <li>All skills data</li>
+                  <li>Workspace data</li>
+                  <li>All other local data</li>
+                </ul>
+                <p className="mt-3">This action cannot be undone.</p>
+              </div>
 
               {error && (
                 <div className="mt-3 p-3 rounded-lg bg-coral-100 border border-coral-500/20">

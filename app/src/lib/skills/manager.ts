@@ -434,9 +434,17 @@ class SkillManager {
       // Stop the frontend-side runtime (if any)
       await this.stopSkill(skillId);
       // Stop the core sidecar skill process
-      await rpcStopSkill(skillId).catch((err) => {
-        console.debug("[SkillManager] core skills_stop failed:", err);
-      });
+      try {
+        await rpcStopSkill(skillId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("not found") || msg.includes("not registered")) {
+          console.debug("[SkillManager] core skills_stop: already stopped");
+        } else {
+          console.error("[SkillManager] core skills_stop failed:", err);
+          throw err;
+        }
+      }
     } finally {
       // Host-side fallback cleanup if RPC revoke failed
       if (!oauthRevokeSucceeded) {

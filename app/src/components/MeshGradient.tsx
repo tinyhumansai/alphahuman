@@ -14,6 +14,7 @@ export default function MeshGradient() {
     gradient.initGradient('#mesh-gradient');
 
     return () => {
+      gradient.disconnect();
       gradient.pause();
       // Release WebGL context on unmount
       if (canvasRef.current) {

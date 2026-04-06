@@ -358,7 +358,7 @@ impl RuntimeEngine {
         let mut skill_dir = skills_dir.join(skill_id);
         let mut manifest_path = skill_dir.join("manifest.json");
         log::debug!(
-            "[runtime] start_skill '{}': source dir={:?}, manifest exists={}",
+            "[runtime] start_skill '{}': manifest_path={:?}, exists={}",
             skill_id,
             manifest_path,
             manifest_path.exists()

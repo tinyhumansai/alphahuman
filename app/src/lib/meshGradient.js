@@ -424,6 +424,7 @@ class Gradient {
       }),
       e(this, 'resize', () => {
         ((this.width = window.innerWidth),
+          (this.height = window.innerHeight),
           this.minigl.setSize(this.width, this.height),
           this.minigl.setOrthographicCamera(),
           (this.xSegCount = Math.ceil(this.width * this.conf.density[0])),
@@ -469,6 +470,14 @@ class Gradient {
       }),
       e(this, 'initGradient', selector => {
         this.el = document.querySelector(selector);
+        if (!(this.el instanceof HTMLCanvasElement)) {
+          console.warn('[MeshGradient] Element is not a canvas:', selector);
+          return this;
+        }
+        if (!this.el.getContext('webgl') && !this.el.getContext('webgl2')) {
+          console.warn('[MeshGradient] WebGL not available');
+          return this;
+        }
         this.connect();
         return this;
       }));
@@ -589,6 +598,9 @@ class Gradient {
   }
   updateFrequency(e) {
     ((this.freqX += e), (this.freqY += e));
+    if (this.uniforms && this.uniforms.u_global) {
+      this.uniforms.u_global.value.noiseFreq.value = [this.freqX, this.freqY];
+    }
   }
   toggleColor(index) {
     this.activeColors[index] = 0 === this.activeColors[index] ? 1 : 0;
