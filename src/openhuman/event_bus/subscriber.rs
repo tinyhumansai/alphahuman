@@ -43,10 +43,7 @@ impl SubscriptionHandle {
 
     /// Explicitly cancel the subscriber.
     pub fn cancel(self) {
-        tracing::debug!(
-            subscriber = self.name,
-            "[event_bus] cancelling subscriber"
-        );
+        tracing::debug!(subscriber = self.name, "[event_bus] cancelling subscriber");
         self.task.abort();
     }
 }

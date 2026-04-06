@@ -10,10 +10,7 @@
 pub enum DomainEvent {
     // ── Agent ───────────────────────────────────────────────────────────
     /// An agent turn has started processing.
-    AgentTurnStarted {
-        session_id: String,
-        channel: String,
-    },
+    AgentTurnStarted { session_id: String, channel: String },
     /// An agent turn completed with a final response.
     AgentTurnCompleted {
         session_id: String,
@@ -35,38 +32,21 @@ pub enum DomainEvent {
         namespace: String,
     },
     /// A memory recall query completed.
-    MemoryRecalled {
-        query: String,
-        hit_count: usize,
-    },
+    MemoryRecalled { query: String, hit_count: usize },
 
     // ── Channels ────────────────────────────────────────────────────────
     /// A message was received on a channel.
-    ChannelMessageReceived {
-        channel: String,
-        sender: String,
-    },
+    ChannelMessageReceived { channel: String, sender: String },
     /// A channel connected successfully.
-    ChannelConnected {
-        channel: String,
-    },
+    ChannelConnected { channel: String },
     /// A channel disconnected.
-    ChannelDisconnected {
-        channel: String,
-        reason: String,
-    },
+    ChannelDisconnected { channel: String, reason: String },
 
     // ── Cron ────────────────────────────────────────────────────────────
     /// A cron job was triggered for execution.
-    CronJobTriggered {
-        job_id: String,
-        job_type: String,
-    },
+    CronJobTriggered { job_id: String, job_type: String },
     /// A cron job completed execution.
-    CronJobCompleted {
-        job_id: String,
-        success: bool,
-    },
+    CronJobCompleted { job_id: String, success: bool },
     /// A cron job requests delivery of its output to a channel.
     CronDeliveryRequested {
         job_id: String,
@@ -77,9 +57,7 @@ pub enum DomainEvent {
 
     // ── Skills ──────────────────────────────────────────────────────────
     /// A skill was loaded into the runtime.
-    SkillLoaded {
-        skill_id: String,
-    },
+    SkillLoaded { skill_id: String },
     /// A skill tool was executed.
     SkillExecuted {
         skill_id: String,
@@ -104,25 +82,15 @@ pub enum DomainEvent {
 
     // ── Webhooks ────────────────────────────────────────────────────────
     /// A webhook was received and routed to a skill.
-    WebhookReceived {
-        tunnel_id: String,
-        skill_id: String,
-    },
+    WebhookReceived { tunnel_id: String, skill_id: String },
 
     // ── System lifecycle ────────────────────────────────────────────────
     /// A system component started up.
-    SystemStartup {
-        component: String,
-    },
+    SystemStartup { component: String },
     /// A system component is shutting down.
-    SystemShutdown {
-        component: String,
-    },
+    SystemShutdown { component: String },
     /// A component's health status changed.
-    HealthChanged {
-        component: String,
-        healthy: bool,
-    },
+    HealthChanged { component: String, healthy: bool },
 }
 
 impl DomainEvent {

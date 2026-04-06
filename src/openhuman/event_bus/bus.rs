@@ -18,10 +18,7 @@ static GLOBAL_BUS: OnceLock<EventBus> = OnceLock::new();
 pub fn init_global(capacity: usize) -> EventBus {
     GLOBAL_BUS
         .get_or_init(|| {
-            tracing::debug!(
-                capacity,
-                "[event_bus] initializing global EventBus"
-            );
+            tracing::debug!(capacity, "[event_bus] initializing global EventBus");
             EventBus::new(capacity)
         })
         .clone()
@@ -40,9 +37,7 @@ pub fn publish_global(event: DomainEvent) {
     if let Some(bus) = GLOBAL_BUS.get() {
         bus.publish(event);
     } else {
-        tracing::trace!(
-            "[event_bus] global bus not initialized, dropping event"
-        );
+        tracing::trace!("[event_bus] global bus not initialized, dropping event");
     }
 }
 
@@ -155,10 +150,7 @@ impl EventBus {
     /// [`EventHandler`] implementation for domain-filtered subscriptions.
     pub fn on<F>(&self, name: &str, handler: F) -> SubscriptionHandle
     where
-        F: Fn(
-                &DomainEvent,
-            )
-                -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>
+        F: Fn(&DomainEvent) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>
             + Send
             + Sync
             + 'static,

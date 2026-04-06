@@ -421,9 +421,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // Register the cron delivery subscriber so cron jobs can deliver output
     // to channels via events instead of directly constructing channel instances.
     let _cron_delivery_handle = event_bus.subscribe(Arc::new(
-        crate::openhuman::cron::bus::CronDeliverySubscriber::new(
-            Arc::clone(&channels_by_name),
-        ),
+        crate::openhuman::cron::bus::CronDeliverySubscriber::new(Arc::clone(&channels_by_name)),
     ));
 
     let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
