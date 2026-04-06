@@ -311,6 +311,44 @@ A typed pub/sub event bus for **decoupled cross-module communication**. The bus 
 | `event_bus::subscribe_global(handler)` | Subscribe from anywhere (returns `None` if not yet initialized) |
 | `event_bus::global()` | Get `Option<&'static EventBus>` for advanced use |
 
+**Current `DomainEvent` variants** (all carry rich payloads — subscribers get full context):
+
+| Domain | Event | Key fields | Published from |
+|--------|-------|------------|----------------|
+| `agent` | `AgentTurnStarted` | session_id, channel | agent loop |
+| `agent` | `AgentTurnCompleted` | session_id, text_chars, iterations | agent loop |
+| `agent` | `AgentError` | session_id, message, recoverable | agent loop |
+| `memory` | `MemoryStored` | key, category, namespace | memory backends |
+| `memory` | `MemoryRecalled` | query, hit_count | memory backends |
+| `channel` | `ChannelMessageReceived` | channel, sender, content, thread_ts | `channels/runtime/dispatch.rs` |
+| `channel` | `ChannelMessageProcessed` | channel, sender, content, response, elapsed_ms, success | `channels/runtime/dispatch.rs` |
+| `channel` | `ChannelConnected` | channel | `channels/runtime/supervision.rs` |
+| `channel` | `ChannelDisconnected` | channel, reason | `channels/runtime/supervision.rs` |
+| `cron` | `CronJobTriggered` | job_id, job_type | cron scheduler |
+| `cron` | `CronJobCompleted` | job_id, success | cron scheduler |
+| `cron` | `CronDeliveryRequested` | job_id, channel, target, output | cron scheduler |
+| `skill` | `SkillLoaded` | skill_id, runtime | `skills/qjs_engine.rs` |
+| `skill` | `SkillStopped` | skill_id | `skills/qjs_engine.rs` |
+| `skill` | `SkillStartFailed` | skill_id, error | `skills/qjs_engine.rs` |
+| `skill` | `SkillExecuted` | skill_id, tool_name, arguments, result, success, elapsed_ms | `skills/qjs_engine.rs` |
+| `tool` | `ToolExecutionStarted` | tool_name, session_id | tool runner |
+| `tool` | `ToolExecutionCompleted` | tool_name, session_id, success, elapsed_ms | tool runner |
+| `webhook` | `WebhookReceived` | tunnel_id, skill_id, method, path, correlation_id | `socket/event_handlers.rs` |
+| `webhook` | `WebhookRegistered` | tunnel_id, skill_id, tunnel_name | `webhooks/router.rs` |
+| `webhook` | `WebhookUnregistered` | tunnel_id, skill_id | `webhooks/router.rs` |
+| `webhook` | `WebhookProcessed` | tunnel_id, skill_id, method, path, correlation_id, status_code, elapsed_ms, error | `socket/event_handlers.rs` |
+| `system` | `SystemStartup` | component | `channels/runtime/startup.rs` |
+| `system` | `SystemShutdown` | component | shutdown paths |
+| `system` | `HealthChanged` | component, healthy | health module |
+
+**Domain subscriber files** — each domain owns its event handlers:
+
+| Domain | File | Active subscribers |
+|--------|------|--------------------|
+| cron | `src/openhuman/cron/bus.rs` | `CronDeliverySubscriber` — dispatches job output to channels |
+| webhooks | `src/openhuman/webhooks/bus.rs` | (stub — ready for future subscribers) |
+| skills | `src/openhuman/skills/bus.rs` | (stub — ready for future subscribers) |
+
 **Adding events for a new domain:**
 
 1. Add variants to `DomainEvent` in `events.rs` (prefix with domain name, e.g. `BillingInvoiceCreated { ... }`).

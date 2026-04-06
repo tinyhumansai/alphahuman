@@ -4,11 +4,13 @@
 //! webhook tunnel requests, channel inbound messages, or generic event logging.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::api::models::socket::ConnectionStatus;
+use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::webhooks::WebhookRequest;
 
 use super::manager::{emit_server_event, emit_state_change, SharedState};
@@ -89,6 +91,8 @@ async fn handle_webhook_request(
     data: serde_json::Value,
     emit_tx: &mpsc::UnboundedSender<String>,
 ) {
+    let started_at = Instant::now();
+
     let request: WebhookRequest = match serde_json::from_value(data.clone()) {
         Ok(r) => r,
         Err(e) => {
@@ -269,6 +273,27 @@ async fn handle_webhook_request(
             response_error.clone(),
         );
     }
+
+    // Publish event bus notifications (fire-and-forget)
+    if let Some(ref sid) = resolved_skill_id {
+        publish_global(DomainEvent::WebhookReceived {
+            tunnel_id: tunnel_uuid.clone(),
+            skill_id: sid.clone(),
+            method: method.clone(),
+            path: path.clone(),
+            correlation_id: correlation_id.clone(),
+        });
+    }
+    publish_global(DomainEvent::WebhookProcessed {
+        tunnel_id: tunnel_uuid.clone(),
+        skill_id: resolved_skill_id.clone().unwrap_or_default(),
+        method: method.clone(),
+        path: path.clone(),
+        correlation_id: correlation_id.clone(),
+        status_code: response.status_code,
+        elapsed_ms: started_at.elapsed().as_millis() as u64,
+        error: response_error.clone(),
+    });
 
     emit_via_channel(
         emit_tx,
