@@ -75,16 +75,16 @@ export default function RotatingTetrahedronCanvas() {
 
     const geometry = new ConvexGeometry(bluntedTetrahedronPoints(0.98, 0.11));
     const fillMaterial = new THREE.MeshLambertMaterial({
-      color: '#b8e986',
+      color: '#8e86e9',
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.2,
       emissive: '#0c1208',
-      emissiveIntensity: 0.08,
+      emissiveIntensity: 1,
     });
     const fillMesh = new THREE.Mesh(geometry, fillMaterial);
 
     const edgeGeometry = new THREE.EdgesGeometry(geometry);
-    const edgeMaterial = new THREE.LineBasicMaterial({ color: '#b8e986' });
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: '#868ee9' });
 
     const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
     fillMesh.rotation.x = 0.35;
@@ -118,11 +118,12 @@ export default function RotatingTetrahedronCanvas() {
     if (canvas.parentElement) observer.observe(canvas.parentElement);
     resize();
 
+    const speed = 2;
     const animate = () => {
-      fillMesh.rotation.y += 0.0038;
-      fillMesh.rotation.x += 0.0002;
-      edges.rotation.y += 0.0038;
-      edges.rotation.x += 0.0002;
+      fillMesh.rotation.y += 0.0038 * speed;
+      fillMesh.rotation.x += 0.0002 * speed;
+      edges.rotation.y += 0.0038 * speed;
+      edges.rotation.x += 0.0002 * speed;
 
       renderer.render(scene, camera);
       animationFrame = window.requestAnimationFrame(animate);

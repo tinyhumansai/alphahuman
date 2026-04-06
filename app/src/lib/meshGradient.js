@@ -26,6 +26,10 @@ class MiniGl {
         _miniGl.canvas.getContext('webgl2', { antialias: true })),
       (_miniGl.meshes = []));
     const context = _miniGl.gl;
+    if (!context) {
+      console.warn('[MeshGradient] Failed to obtain WebGL context');
+      return;
+    }
     (width && height && this.setSize(width, height),
       _miniGl.lastDebugMsg,
       (_miniGl.debug =
@@ -48,6 +52,10 @@ class MiniGl {
               const material = this;
               function getShaderByType(type, source) {
                 const shader = context.createShader(type);
+                if (!shader) {
+                  console.warn('[MeshGradient] createShader returned null — WebGL context may be lost');
+                  return null;
+                }
                 return (
                   context.shaderSource(shader, source),
                   context.compileShader(shader),
@@ -74,8 +82,13 @@ class MiniGl {
                 (material.fragmentShader = getShaderByType(
                   context.FRAGMENT_SHADER,
                   material.Source
-                )),
-                (material.program = context.createProgram()),
+                )));
+              if (!material.vertexShader || !material.fragmentShader) {
+                console.warn('[MeshGradient] Shader compilation failed — skipping program link');
+                material.program = null;
+                return;
+              }
+              ((material.program = context.createProgram()),
                 context.attachShader(material.program, material.vertexShader),
                 context.attachShader(material.program, material.fragmentShader),
                 context.linkProgram(material.program),
@@ -480,10 +493,13 @@ class Gradient {
         // Probe WebGL support on a throwaway canvas so we don't permanently
         // bind this.el to a context type that MiniGl may not request.
         const probe = document.createElement('canvas');
-        if (!probe.getContext('webgl') && !probe.getContext('webgl2')) {
+        const probeCtx = probe.getContext('webgl') || probe.getContext('webgl2');
+        if (!probeCtx) {
           console.warn('[MeshGradient] WebGL not available');
           return this;
         }
+        // Release the probe context so it doesn't count against the browser limit.
+        probeCtx.getExtension('WEBGL_lose_context')?.loseContext();
         this.connect();
         return this;
       }));
@@ -510,10 +526,12 @@ class Gradient {
       document.querySelectorAll('canvas').length < 1
         ? console.log('DID NOT LOAD HERO STRIPE CANVAS')
         : ((this.minigl = new MiniGl(this.el, null, null, !0)),
-          requestAnimationFrame(() => {
-            this.el &&
-              ((this.computedCanvasStyle = getComputedStyle(this.el)), this.waitForCssVars());
-          })));
+          this.minigl.gl
+            ? requestAnimationFrame(() => {
+                this.el &&
+                  ((this.computedCanvasStyle = getComputedStyle(this.el)), this.waitForCssVars());
+              })
+            : console.warn('[MeshGradient] MiniGl has no GL context — gradient disabled')));
     /*
         this.scrollObserver = await s.create(.1, !1),
         this.scrollObserver.observe(this.el),
