@@ -20,7 +20,10 @@ pub fn paste_text(text: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    info!("{LOG_PREFIX} pasting {} chars into active field", text.len());
+    info!(
+        "{LOG_PREFIX} pasting {} chars into active field",
+        text.len()
+    );
 
     // Save current clipboard, set our text, paste, then restore.
     // For simplicity we just overwrite — restoring clipboard is fragile
@@ -45,10 +48,7 @@ pub fn type_text(text: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    info!(
-        "{LOG_PREFIX} typing {} chars into active field",
-        text.len()
-    );
+    info!("{LOG_PREFIX} typing {} chars into active field", text.len());
 
     let mut enigo = Enigo::new(&Settings::default())
         .map_err(|e| format!("failed to create enigo instance: {e}"))?;

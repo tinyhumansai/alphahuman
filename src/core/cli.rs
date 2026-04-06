@@ -233,7 +233,9 @@ fn run_voice_server_command(args: &[String]) -> Result<()> {
                 println!("Usage: openhuman voice [--hotkey <combo>] [--mode <tap|push>] [--skip-cleanup] [-v]");
                 println!();
                 println!("  --hotkey <combo>   Key combination (default: ctrl+shift+space)");
-                println!("  --mode <tap|push>  Activation: tap to toggle, push to hold (default: tap)");
+                println!(
+                    "  --mode <tap|push>  Activation: tap to toggle, push to hold (default: tap)"
+                );
                 println!("  --skip-cleanup     Skip LLM post-processing on transcriptions");
                 println!("  -v, --verbose      Enable debug logging");
                 println!();

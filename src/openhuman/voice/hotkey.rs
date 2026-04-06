@@ -102,10 +102,7 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
         modifiers, trigger
     );
 
-    Ok(HotkeyCombination {
-        modifiers,
-        trigger,
-    })
+    Ok(HotkeyCombination { modifiers, trigger })
 }
 
 /// Start the global hotkey listener.

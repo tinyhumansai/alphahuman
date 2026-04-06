@@ -113,10 +113,9 @@ fn record_on_thread(
         config.sample_format()
     );
 
-    let samples: Arc<parking_lot::Mutex<Vec<f32>>> =
-        Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
-            TARGET_SAMPLE_RATE as usize * 30,
-        )));
+    let samples: Arc<parking_lot::Mutex<Vec<f32>>> = Arc::new(parking_lot::Mutex::new(
+        Vec::with_capacity(TARGET_SAMPLE_RATE as usize * 30),
+    ));
 
     let sample_format = config.sample_format();
     let stream_config: StreamConfig = config.into();
@@ -151,8 +150,10 @@ fn record_on_thread(
                 .build_input_stream(
                     &stream_config,
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                        let floats: Vec<f32> =
-                            data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
+                        let floats: Vec<f32> = data
+                            .iter()
+                            .map(|&s| (s as f32 - 32768.0) / 32768.0)
+                            .collect();
                         let mono = to_mono(&floats, source_channels);
                         samples_writer.lock().extend_from_slice(&mono);
                     },
@@ -200,9 +201,7 @@ pub fn list_input_devices() -> Result<Vec<String>, String> {
         .input_devices()
         .map_err(|e| format!("failed to enumerate input devices: {e}"))?;
 
-    let names: Vec<String> = devices
-        .filter_map(|d| d.name().ok())
-        .collect();
+    let names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
 
     debug!("{LOG_PREFIX} found {} input devices", names.len());
     Ok(names)
@@ -310,10 +309,10 @@ fn find_best_config(
 
     // Sort: prefer configs whose range includes 16kHz, then by fewer channels.
     configs_vec.sort_by(|a, b| {
-        let a_has_target =
-            a.min_sample_rate().0 <= TARGET_SAMPLE_RATE && a.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
-        let b_has_target =
-            b.min_sample_rate().0 <= TARGET_SAMPLE_RATE && b.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
+        let a_has_target = a.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+            && a.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
+        let b_has_target = b.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+            && b.max_sample_rate().0 >= TARGET_SAMPLE_RATE;
 
         b_has_target
             .cmp(&a_has_target)

@@ -192,7 +192,10 @@ impl VoiceServer {
 
                 // Minimum recording duration threshold (300ms).
                 if result.duration_secs < 0.3 {
-                    warn!("{LOG_PREFIX} recording too short ({:.1}s), skipping", result.duration_secs);
+                    warn!(
+                        "{LOG_PREFIX} recording too short ({:.1}s), skipping",
+                        result.duration_secs
+                    );
                     *self.state.lock().await = ServerState::Idle;
                     return;
                 }
@@ -243,8 +246,7 @@ impl VoiceServer {
 }
 
 /// Global voice server instance, lazily initialized.
-static VOICE_SERVER: once_cell::sync::OnceCell<Arc<VoiceServer>> =
-    once_cell::sync::OnceCell::new();
+static VOICE_SERVER: once_cell::sync::OnceCell<Arc<VoiceServer>> = once_cell::sync::OnceCell::new();
 
 /// Get or initialize the global voice server instance.
 pub fn global_server(config: VoiceServerConfig) -> Arc<VoiceServer> {
@@ -259,7 +261,10 @@ pub fn try_global_server() -> Option<Arc<VoiceServer>> {
 }
 
 /// Run the voice server standalone (blocking). Intended for CLI usage.
-pub async fn run_standalone(app_config: Config, server_config: VoiceServerConfig) -> Result<(), String> {
+pub async fn run_standalone(
+    app_config: Config,
+    server_config: VoiceServerConfig,
+) -> Result<(), String> {
     info!("{LOG_PREFIX} starting standalone voice server");
     info!("{LOG_PREFIX} hotkey: {}", server_config.hotkey);
     info!("{LOG_PREFIX} mode: {:?}", server_config.activation_mode);
