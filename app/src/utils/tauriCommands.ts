@@ -200,6 +200,48 @@ export async function restartCoreProcess(): Promise<void> {
   console.debug('[core] restartCoreProcess: done');
 }
 
+// --- Core Update Commands ---
+
+export interface CoreUpdateStatus {
+  running_version: string;
+  minimum_version: string;
+  /** True if running < minimum (compatibility issue). */
+  outdated: boolean;
+  /** Latest version on GitHub Releases (if fetch succeeded). */
+  latest_version: string | null;
+  /** True if running < latest (newer release available). */
+  update_available: boolean;
+}
+
+/**
+ * Check if the running core sidecar is outdated compared to what the app expects.
+ * Also queries GitHub for the latest available release.
+ */
+export const checkCoreUpdate = async (): Promise<CoreUpdateStatus | null> => {
+  if (!isTauri()) {
+    console.debug('[core-update] checkCoreUpdate: skipped — not running in Tauri');
+    return null;
+  }
+  console.debug('[core-update] checkCoreUpdate: invoking check_core_update');
+  const result = await invoke<CoreUpdateStatus>('check_core_update');
+  console.debug('[core-update] checkCoreUpdate: result', result);
+  return result;
+};
+
+/**
+ * Trigger a full core update: download latest from GitHub, stage, kill old, restart.
+ * The Tauri shell emits `core-update:status` events with progress.
+ */
+export const applyCoreUpdate = async (): Promise<void> => {
+  if (!isTauri()) {
+    console.debug('[core-update] applyCoreUpdate: skipped — not running in Tauri');
+    return;
+  }
+  console.debug('[core-update] applyCoreUpdate: invoking apply_core_update');
+  await invoke<void>('apply_core_update');
+  console.debug('[core-update] applyCoreUpdate: done');
+};
+
 export async function resetOpenHumanDataAndRestartCore(): Promise<void> {
   if (!isTauri()) {
     console.debug('[core] resetOpenHumanDataAndRestartCore: skipped — not running in Tauri');
@@ -520,6 +562,10 @@ export async function memoryGraphQuery(
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === 'object' && 'result' in raw && Array.isArray(raw.result))
     return raw.result;
+  console.debug(
+    '[memoryGraphQuery] unexpected response shape, returning empty array. Raw response:',
+    raw
+  );
   return [];
 }
 
@@ -1606,6 +1652,89 @@ export async function openhumanLocalAiShouldReact(
   return await callCoreRpc<CommandResponse<ReactionDecision>>({
     method: 'openhuman.local_ai_should_react',
     params: { message, channel_type: channelType },
+  });
+}
+
+// --- Sentiment analysis (local model) ---
+
+export interface SentimentResult {
+  emotion: string;
+  valence: string;
+  confidence: number;
+}
+
+/**
+ * Classify the emotion and sentiment of a user message via the local model.
+ * Designed to be called periodically (~every hour), not on every message.
+ */
+export async function openhumanLocalAiAnalyzeSentiment(
+  message: string
+): Promise<CommandResponse<SentimentResult>> {
+  return await callCoreRpc<CommandResponse<SentimentResult>>({
+    method: 'openhuman.local_ai_analyze_sentiment',
+    params: { message },
+  });
+}
+
+// --- GIF decision (local model) + Tenor search ---
+
+export interface GifDecision {
+  should_send_gif: boolean;
+  search_query: string | null;
+}
+
+export interface TenorMediaFormat {
+  url: string;
+  dims: [number, number];
+  size: number;
+  duration?: number;
+}
+
+export interface TenorGifResult {
+  id: string;
+  title: string;
+  contentDescription: string;
+  url: string;
+  media: {
+    gif?: TenorMediaFormat;
+    tinygif?: TenorMediaFormat;
+    mediumgif?: TenorMediaFormat;
+    mp4?: TenorMediaFormat;
+    tinymp4?: TenorMediaFormat;
+  };
+  created: number;
+}
+
+export interface TenorSearchResult {
+  results: TenorGifResult[];
+  next: string;
+}
+
+/**
+ * Ask the local model whether a GIF response is appropriate for this message.
+ * Designed to be called every ~5-10 messages, not on every message.
+ */
+export async function openhumanLocalAiShouldSendGif(
+  message: string,
+  channelType: string
+): Promise<CommandResponse<GifDecision>> {
+  return await callCoreRpc<CommandResponse<GifDecision>>({
+    method: 'openhuman.local_ai_should_send_gif',
+    params: { message, channel_type: channelType },
+  });
+}
+
+/**
+ * Search for GIFs via the backend Tenor proxy.
+ * Requires a valid session (charges against user budget).
+ */
+export async function openhumanLocalAiTenorSearch(
+  query: string,
+  limit?: number
+): Promise<CommandResponse<TenorSearchResult>> {
+  return await callCoreRpc<CommandResponse<TenorSearchResult>>({
+    method: 'openhuman.local_ai_tenor_search',
+    params: { query, limit },
   });
 }
 

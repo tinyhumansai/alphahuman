@@ -20,6 +20,8 @@ pub struct CoreProcessHandle {
     restart_lock: Arc<Mutex<()>>,
     port: u16,
     core_bin: Option<PathBuf>,
+    /// Override path set by the auto-updater after staging a new binary.
+    core_bin_override: Arc<Mutex<Option<PathBuf>>>,
     run_mode: CoreRunMode,
 }
 
@@ -31,12 +33,39 @@ impl CoreProcessHandle {
             restart_lock: Arc::new(Mutex::new(())),
             port,
             core_bin,
+            core_bin_override: Arc::new(Mutex::new(None)),
             run_mode,
         }
     }
 
     pub fn rpc_url(&self) -> String {
         format!("http://127.0.0.1:{}/rpc", self.port)
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Replace the core binary path so that the next `ensure_running()` launches
+    /// the new binary instead of the original one captured at construction time.
+    pub async fn set_core_bin(&self, new_bin: PathBuf) {
+        // We store it via a second field; but since core_bin is not behind a lock,
+        // we work around this by swapping the entire handle's notion of what to launch.
+        // For now, mutate through an interior-mutable wrapper.
+        log::info!(
+            "[core] set_core_bin: updating core binary path to {}",
+            new_bin.display()
+        );
+        *self.core_bin_override.lock().await = Some(new_bin);
+    }
+
+    /// Resolve which binary to launch: override (set by `set_core_bin`) > original.
+    async fn effective_core_bin(&self) -> Option<PathBuf> {
+        let override_guard = self.core_bin_override.lock().await;
+        if let Some(ref path) = *override_guard {
+            return Some(path.clone());
+        }
+        self.core_bin.clone()
     }
 
     /// Acquire the restart lock to serialize overlapping restart requests.
@@ -64,6 +93,8 @@ impl CoreProcessHandle {
             return Ok(());
         }
 
+        let effective_bin = self.effective_core_bin().await;
+
         match self.run_mode {
             CoreRunMode::InProcess => {
                 log::warn!(
@@ -71,7 +102,7 @@ impl CoreProcessHandle {
                 );
                 let mut guard = self.child.lock().await;
                 if guard.is_none() {
-                    let mut cmd = if let Some(core_bin) = &self.core_bin {
+                    let mut cmd = if let Some(core_bin) = &effective_bin {
                         let mut cmd = Command::new(core_bin);
                         if is_current_exe_path(core_bin) {
                             cmd.arg("core");
@@ -97,7 +128,7 @@ impl CoreProcessHandle {
             CoreRunMode::ChildProcess => {
                 let mut guard = self.child.lock().await;
                 if guard.is_none() {
-                    let mut cmd = if let Some(core_bin) = &self.core_bin {
+                    let mut cmd = if let Some(core_bin) = &effective_bin {
                         let mut cmd = Command::new(core_bin);
                         if is_current_exe_path(core_bin) {
                             // Safety: if core_bin resolves to this GUI executable, force the

@@ -46,6 +46,9 @@ struct SessionRuntime {
     vision_queue_depth: usize,
     last_vision_at_ms: Option<i64>,
     last_vision_summary: Option<String>,
+    vision_persist_count: u64,
+    last_vision_persisted_key: Option<String>,
+    last_vision_persist_error: Option<String>,
     vision_summaries: VecDeque<VisionSummary>,
     vision_task: Option<JoinHandle<()>>,
     vision_tx: Option<tokio::sync::mpsc::UnboundedSender<CaptureFrame>>,
@@ -154,6 +157,9 @@ impl AccessibilityEngine {
                     vision_queue_depth: 0,
                     last_vision_at_ms: None,
                     last_vision_summary: None,
+                    vision_persist_count: 0,
+                    last_vision_persisted_key: None,
+                    last_vision_persist_error: None,
                     vision_summaries: VecDeque::new(),
                     vision_task: None,
                     vision_tx: None,
@@ -241,6 +247,9 @@ impl AccessibilityEngine {
                     vision_queue_depth: session.vision_queue_depth,
                     last_vision_at_ms: session.last_vision_at_ms,
                     last_vision_summary: session.last_vision_summary.clone(),
+                    vision_persist_count: session.vision_persist_count,
+                    last_vision_persisted_key: session.last_vision_persisted_key.clone(),
+                    last_vision_persist_error: session.last_vision_persist_error.clone(),
                 },
                 None => SessionStatus {
                     active: false,
@@ -260,6 +269,9 @@ impl AccessibilityEngine {
                     vision_queue_depth: 0,
                     last_vision_at_ms: None,
                     last_vision_summary: None,
+                    vision_persist_count: 0,
+                    last_vision_persisted_key: None,
+                    last_vision_persist_error: None,
                 },
             };
 
@@ -373,9 +385,16 @@ impl AccessibilityEngine {
                 return Err("accessibility permission is not granted".to_string());
             }
 
+            let screen_monitoring_requested = params.screen_monitoring.unwrap_or(true);
+            if screen_monitoring_requested
+                && state.permissions.screen_recording != PermissionState::Granted
+            {
+                return Err("screen recording permission is not granted".to_string());
+            }
+
             let now = now_ms();
             let expires_at_ms = now + (ttl_secs as i64 * 1000);
-            state.features.screen_monitoring = params.screen_monitoring.unwrap_or(true);
+            state.features.screen_monitoring = screen_monitoring_requested;
             state.features.device_control = params.device_control.unwrap_or(true);
             state.features.predictive_input = params
                 .predictive_input
@@ -392,11 +411,14 @@ impl AccessibilityEngine {
                 frames: VecDeque::new(),
                 last_context: None,
                 task: None,
-                vision_enabled: true,
+                vision_enabled: state.config.vision_enabled,
                 vision_state: "idle".to_string(),
                 vision_queue_depth: 0,
                 last_vision_at_ms: None,
                 last_vision_summary: None,
+                vision_persist_count: 0,
+                last_vision_persisted_key: None,
+                last_vision_persist_error: None,
                 vision_summaries: VecDeque::new(),
                 vision_task: None,
                 vision_tx: None,
@@ -664,14 +686,73 @@ impl AccessibilityEngine {
             });
         };
 
-        let summary = self
-            .analyze_frame_with_vision(frame)
+        let summary = match self.analyze_frame_with_vision(frame).await {
+            Ok(summary) => summary,
+            Err(err) => {
+                let mut state = self.inner.lock().await;
+                if let Some(session) = state.session.as_mut() {
+                    session.vision_queue_depth = session.vision_queue_depth.saturating_sub(1);
+                    session.vision_state = "error".to_string();
+                }
+                state.last_error = Some(format!("vision_flush_analysis_failed: {err}"));
+                return Err(format!("vision flush failed: {err}"));
+            }
+        };
+
+        let persist = persist_vision_summary(summary.clone())
             .await
-            .map_err(|e| format!("vision flush failed: {e}"))?;
+            .map_err(|err| format!("vision summary persistence failed: {err}"));
+
+        {
+            let mut state = self.inner.lock().await;
+            if let Some(session) = state.session.as_mut() {
+                session.vision_queue_depth = session.vision_queue_depth.saturating_sub(1);
+                push_ephemeral_vision_summary(&mut session.vision_summaries, summary.clone());
+                session.last_vision_at_ms = Some(summary.captured_at_ms);
+                session.last_vision_summary = Some(summary.actionable_notes.clone());
+                match &persist {
+                    Ok(result) => {
+                        session.vision_state = "ready".to_string();
+                        session.vision_persist_count =
+                            session.vision_persist_count.saturating_add(1);
+                        session.last_vision_persisted_key = Some(result.key.clone());
+                        session.last_vision_persist_error = None;
+                    }
+                    Err(err) => {
+                        session.vision_state = "error".to_string();
+                        session.last_vision_persist_error = Some(err.clone());
+                        state.last_error = Some(format!("vision_flush_persist_failed: {err}"));
+                    }
+                }
+            }
+        }
+
+        if let Err(err) = persist {
+            return Err(format!("vision flush failed: {err}"));
+        }
+
         Ok(VisionFlushResult {
             accepted: true,
             summary: Some(summary),
         })
+    }
+
+    /// Deterministic pipeline hook used by tests and diagnostics:
+    /// analyze one frame with the local vision model and persist the summary to memory.
+    pub async fn analyze_and_persist_frame(
+        &self,
+        frame: CaptureFrame,
+    ) -> Result<VisionSummary, String> {
+        let summary = self.analyze_frame_with_vision(frame).await?;
+        let persisted = persist_vision_summary(summary.clone())
+            .await
+            .map_err(|err| format!("vision summary persistence failed: {err}"))?;
+        tracing::debug!(
+            "[screen_intelligence] analyze_and_persist_frame completed (namespace={} key={})",
+            persisted.namespace,
+            persisted.key
+        );
+        Ok(summary)
     }
 
     /// Standalone capture test — works without an active session.
@@ -949,31 +1030,59 @@ impl AccessibilityEngine {
                 }
             }
 
-            let mut state = self.inner.lock().await;
-            let Some(session) = state.session.as_mut() else {
-                break;
-            };
-            session.vision_queue_depth = session.vision_queue_depth.saturating_sub(1);
-            match result {
-                Ok(summary) => {
-                    tracing::debug!(
-                        "[screen_intelligence] vision analysis complete: confidence={:.2} notes={}",
-                        summary.confidence,
-                        &summary.actionable_notes[..summary.actionable_notes.len().min(80)]
-                    );
-                    push_ephemeral_vision_summary(&mut session.vision_summaries, summary.clone());
-                    session.last_vision_at_ms = Some(summary.captured_at_ms);
-                    session.last_vision_summary = Some(summary.actionable_notes.clone());
-                    session.vision_state = "ready".to_string();
-                    let summary_for_store = summary.clone();
-                    tokio::spawn(async move {
-                        persist_vision_summary(summary_for_store).await;
-                    });
+            let mut summary_to_persist: Option<VisionSummary> = None;
+            {
+                let mut state = self.inner.lock().await;
+                let Some(session) = state.session.as_mut() else {
+                    break;
+                };
+                session.vision_queue_depth = session.vision_queue_depth.saturating_sub(1);
+                match result {
+                    Ok(summary) => {
+                        tracing::debug!(
+                            "[screen_intelligence] vision analysis complete (summary_id={} confidence={:.2})",
+                            summary.id,
+                            summary.confidence
+                        );
+                        push_ephemeral_vision_summary(
+                            &mut session.vision_summaries,
+                            summary.clone(),
+                        );
+                        session.last_vision_at_ms = Some(summary.captured_at_ms);
+                        session.last_vision_summary = Some(summary.actionable_notes.clone());
+                        session.vision_state = "ready".to_string();
+                        summary_to_persist = Some(summary);
+                    }
+                    Err(err) => {
+                        tracing::debug!("[screen_intelligence] vision analysis failed: {err}");
+                        session.vision_state = "error".to_string();
+                        state.last_error = Some(err);
+                    }
                 }
-                Err(err) => {
-                    tracing::debug!("[screen_intelligence] vision analysis failed: {err}");
-                    session.vision_state = "error".to_string();
-                    state.last_error = Some(err);
+            }
+
+            if let Some(summary_for_store) = summary_to_persist {
+                match persist_vision_summary(summary_for_store).await {
+                    Ok(persisted) => {
+                        let mut state = self.inner.lock().await;
+                        if let Some(session) = state.session.as_mut() {
+                            session.vision_persist_count =
+                                session.vision_persist_count.saturating_add(1);
+                            session.last_vision_persisted_key = Some(persisted.key.clone());
+                            session.last_vision_persist_error = None;
+                        }
+                    }
+                    Err(err) => {
+                        tracing::debug!(
+                            "[screen_intelligence] vision summary persistence failed: {err}"
+                        );
+                        let mut state = self.inner.lock().await;
+                        if let Some(session) = state.session.as_mut() {
+                            session.vision_state = "error".to_string();
+                            session.last_vision_persist_error = Some(err.clone());
+                        }
+                        state.last_error = Some(format!("vision_summary_persist_failed: {err}"));
+                    }
                 }
             }
         }
@@ -1010,6 +1119,33 @@ impl AccessibilityEngine {
         let config = Config::load_or_init()
             .await
             .map_err(|e| format!("failed to load config: {e}"))?;
+        if !config.local_ai.enabled {
+            return Err(
+                "screen intelligence vision requires local_ai.enabled=true in config".to_string(),
+            );
+        }
+        let provider = config.local_ai.provider.trim().to_ascii_lowercase();
+        if provider != "ollama" {
+            return Err(format!(
+                "screen intelligence vision requires local provider 'ollama' (found '{}')",
+                config.local_ai.provider
+            ));
+        }
+        if let Ok(mock_raw) = std::env::var("OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON") {
+            if !mock_raw.trim().is_empty() {
+                tracing::debug!(
+                    "[screen_intelligence] using mocked vision output from OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON"
+                );
+                return Ok(parse_vision_summary_output(frame, &mock_raw));
+            }
+        }
+
+        tracing::debug!(
+            "[screen_intelligence] running local vision inference (provider={} model={} compressed_bytes={})",
+            provider,
+            config.local_ai.vision_model_id,
+            compressed.compressed_bytes
+        );
         let service = local_ai::global(&config);
         let prompt = "Analyze this UI screenshot. Return strict JSON with keys: ui_state, key_text, actionable_notes, confidence (0..1). Keep actionable_notes concise.";
         let raw = service
@@ -1091,6 +1227,9 @@ mod tests {
                 vision_queue_depth: 0,
                 last_vision_at_ms: None,
                 last_vision_summary: None,
+                vision_persist_count: 0,
+                last_vision_persisted_key: None,
+                last_vision_persist_error: None,
                 vision_summaries: VecDeque::new(),
                 vision_task: None,
                 vision_tx: None,

@@ -115,7 +115,7 @@ const TeamManagementPanel = () => {
       <SettingsHeader title={`Manage ${team.name}`} showBackButton={true} onBack={navigateBack} />
 
       <div>
-        <div className="max-w-md mx-auto p-4 space-y-4">
+        <div className="p-4 space-y-4">
           {/* Team Info */}
           <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
             <div className="flex items-center gap-3 mb-3">

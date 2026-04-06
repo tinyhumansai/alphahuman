@@ -146,12 +146,20 @@ pub fn schemas(function: &str) -> ControllerSchema {
             namespace: "autocomplete",
             function: "accept",
             description: "Accept and apply current or provided autocomplete suggestion.",
-            inputs: vec![FieldSchema {
-                name: "suggestion",
-                ty: TypeSchema::Option(Box::new(TypeSchema::String)),
-                comment: "Optional explicit suggestion value to apply.",
-                required: false,
-            }],
+            inputs: vec![
+                FieldSchema {
+                    name: "suggestion",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Optional explicit suggestion value to apply.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "skip_apply",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::Bool)),
+                    comment: "When true, mark suggestion accepted without accessibility insertion.",
+                    required: false,
+                },
+            ],
             outputs: vec![FieldSchema {
                 name: "result",
                 ty: TypeSchema::Ref("AutocompleteAcceptResult"),

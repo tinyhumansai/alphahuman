@@ -374,73 +374,69 @@ const BillingPanel = () => {
       />
 
       <div className="overflow-y-auto">
-        <div className="space-y-2">
-          <div className="max-w-md mt-4 mx-auto px-4 space-y-3">
-            {/* ── Current Plan Header ───────────────────────────────── */}
-            <div className="rounded-2xl border border-stone-200 bg-white p-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-sm font-semibold text-stone-900">
-                  Current Plan — {currentTier}
-                </h3>
-                {hasActive && (
-                  <button
-                    onClick={handleManageSubscription}
-                    className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors">
-                    Manage
-                  </button>
-                )}
-              </div>
-              {planExpiry && (
-                <p className="text-xs text-stone-400 mb-1.5">
-                  Renews{' '}
-                  {new Date(planExpiry).toLocaleDateString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </p>
-              )}
-              <p className="text-xs text-stone-500">
-                Your subscription includes premium usage each cycle. Pay-as-you-go credits cover
-                overage after the included budget is consumed.
-              </p>
-              {currentPlan && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                    Included monthly value: {formatUsdAmount(currentPlan.monthlyBudgetUsd)}
-                  </span>
-                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                    7-day cycle budget: {formatUsdAmount(currentPlan.weeklyBudgetUsd)}
-                  </span>
-                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                    5-hour cap: {formatUsdAmount(currentPlan.fiveHourCapUsd)}
-                  </span>
-                  {currentPlanMeta && (
-                    <>
-                      <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                        Premium-usage discount: {currentPlanMeta.discountPercent}%
-                      </span>
-                      <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                        Storage: {formatStorageLimit(currentPlanMeta.storageLimitBytes)}
-                      </span>
-                    </>
-                  )}
-                </div>
+        <div className="p-4 space-y-3">
+          {/* ── Current Plan Header ───────────────────────────────── */}
+          <div className="rounded-2xl border border-stone-200 bg-white p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <h3 className="text-sm font-semibold text-stone-900">Current Plan — {currentTier}</h3>
+              {hasActive && (
+                <button
+                  onClick={handleManageSubscription}
+                  className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors">
+                  Manage
+                </button>
               )}
             </div>
-
-            {/* ── Pay as You Go ── PROMOTED TO TOP ─────────────────── */}
-            <PayAsYouGoCard
-              creditBalance={creditBalance}
-              isLoadingCredits={isLoadingCredits}
-              isToppingUp={isToppingUp}
-              onTopUp={handleTopUp}
-              onBalanceRefresh={handleBalanceRefresh}
-            />
+            {planExpiry && (
+              <p className="text-xs text-stone-400 mb-1.5">
+                Renews{' '}
+                {new Date(planExpiry).toLocaleDateString('en-US', {
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+              </p>
+            )}
+            <p className="text-xs text-stone-500">
+              Your subscription includes premium usage each cycle. Pay-as-you-go credits cover
+              overage after the included budget is consumed.
+            </p>
+            {currentPlan && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
+                  Included monthly value: {formatUsdAmount(currentPlan.monthlyBudgetUsd)}
+                </span>
+                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
+                  7-day cycle budget: {formatUsdAmount(currentPlan.weeklyBudgetUsd)}
+                </span>
+                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
+                  5-hour cap: {formatUsdAmount(currentPlan.fiveHourCapUsd)}
+                </span>
+                {currentPlanMeta && (
+                  <>
+                    <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
+                      Premium-usage discount: {currentPlanMeta.discountPercent}%
+                    </span>
+                    <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
+                      Storage: {formatStorageLimit(currentPlanMeta.storageLimitBytes)}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
+          {/* ── Pay as You Go ── PROMOTED TO TOP ─────────────────── */}
+          <PayAsYouGoCard
+            creditBalance={creditBalance}
+            isLoadingCredits={isLoadingCredits}
+            isToppingUp={isToppingUp}
+            onTopUp={handleTopUp}
+            onBalanceRefresh={handleBalanceRefresh}
+          />
+
           {/* ── Divider ──────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 px-4 py-2 max-w-md mx-auto">
+          <div className="flex items-center gap-3 py-2">
             <div className="flex-1 h-px bg-stone-200" />
             <span className="text-xs text-stone-400 whitespace-nowrap">
               Or subscribe for included usage + discounts
@@ -448,57 +444,74 @@ const BillingPanel = () => {
             <div className="flex-1 h-px bg-stone-200" />
           </div>
 
-          <div className="max-w-md mx-auto">
-            {/* ── Subscription Plans ──────────────────────────────── */}
-            <SubscriptionPlans
-              currentTier={currentTier}
-              billingInterval={billingInterval}
-              setBillingInterval={setBillingInterval}
-              paymentMethod={paymentMethod}
-              setPaymentMethod={setPaymentMethod}
-              isPurchasing={isPurchasing}
-              purchasingTier={purchasingTier}
-              paymentConfirmed={paymentConfirmed}
-              onUpgrade={handleUpgrade}
-            />
+          {/* ── Subscription Plans ──────────────────────────────── */}
+          <SubscriptionPlans
+            currentTier={currentTier}
+            billingInterval={billingInterval}
+            setBillingInterval={setBillingInterval}
+            paymentMethod={paymentMethod}
+            setPaymentMethod={setPaymentMethod}
+            isPurchasing={isPurchasing}
+            purchasingTier={purchasingTier}
+            paymentConfirmed={paymentConfirmed}
+            onUpgrade={handleUpgrade}
+          />
 
-            {/* ── Inference Budget ────────────────────────────────── */}
-            <div className="px-4 pt-2">
-              <InferenceBudget teamUsage={teamUsage} isLoadingCredits={isLoadingCredits} />
-            </div>
+          {/* ── Inference Budget ────────────────────────────────── */}
+          <div className="pt-2">
+            <InferenceBudget teamUsage={teamUsage} isLoadingCredits={isLoadingCredits} />
+          </div>
 
-            {/* ── Auto-Recharge + Payment Methods ────────────────── */}
-            <AutoRechargeSection
-              arSettings={arSettings}
-              arLoading={arLoading}
-              arError={arError}
-              arSaving={arSaving}
-              arThreshold={arThreshold}
-              arAmount={arAmount}
-              arWeeklyLimit={arWeeklyLimit}
-              arDirty={arDirty}
-              setArThreshold={setArThreshold}
-              setArAmount={setArAmount}
-              setArWeeklyLimit={setArWeeklyLimit}
-              setArError={setArError}
-              onArToggle={handleArToggle}
-              onArSave={handleArSave}
-              cards={cards}
-              cardsLoading={cardsLoading}
-              confirmDeleteId={confirmDeleteId}
-              deletingCardId={deletingCardId}
-              settingDefaultId={settingDefaultId}
-              setConfirmDeleteId={setConfirmDeleteId}
-              onSetDefault={handleSetDefault}
-              onDeleteCard={handleDeleteCard}
-              onAddCard={handleAddCard}
-            />
+          {/* ── Auto-Recharge + Payment Methods ────────────────── */}
+          <AutoRechargeSection
+            arSettings={arSettings}
+            arLoading={arLoading}
+            arError={arError}
+            arSaving={arSaving}
+            arThreshold={arThreshold}
+            arAmount={arAmount}
+            arWeeklyLimit={arWeeklyLimit}
+            arDirty={arDirty}
+            setArThreshold={setArThreshold}
+            setArAmount={setArAmount}
+            setArWeeklyLimit={setArWeeklyLimit}
+            setArError={setArError}
+            onArToggle={handleArToggle}
+            onArSave={handleArSave}
+            cards={cards}
+            cardsLoading={cardsLoading}
+            confirmDeleteId={confirmDeleteId}
+            deletingCardId={deletingCardId}
+            settingDefaultId={settingDefaultId}
+            setConfirmDeleteId={setConfirmDeleteId}
+            onSetDefault={handleSetDefault}
+            onDeleteCard={handleDeleteCard}
+            onAddCard={handleAddCard}
+          />
 
-            {/* ── Why upgrade? ───────────────────────────────────── */}
-            <div className="px-4 pb-4 pt-2">
-              <div className="rounded-xl bg-gradient-to-br from-primary-500/10 to-sage-500/10 border border-primary-500/20 p-4">
-                <h3 className="text-sm font-semibold text-stone-900 mb-2">Why upgrade?</h3>
-                <ul className="space-y-1.5 text-xs text-stone-600">
+          {/* ── Why upgrade? ───────────────────────────────────── */}
+          <div className="pt-2">
+            <div className="rounded-xl bg-gradient-to-br from-primary-500/10 to-sage-500/10 border border-primary-500/20 p-4">
+              <h3 className="text-sm font-semibold text-stone-900 mb-2">Why upgrade?</h3>
+              <ul className="space-y-1.5 text-xs text-stone-600">
+                <li className="flex items-start gap-2">
+                  <svg
+                    className="w-4 h-4 text-sage-400 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  <span>
+                    Higher tiers increase your premium-usage discount and included usage every cycle
+                  </span>
+                </li>
+                {currentTier === 'FREE' && (
                   <li className="flex items-start gap-2">
                     <svg
                       className="w-4 h-4 text-sage-400 flex-shrink-0 mt-0.5"
@@ -513,32 +526,12 @@ const BillingPanel = () => {
                       />
                     </svg>
                     <span>
-                      Higher tiers increase your premium-usage discount and included usage every
-                      cycle
+                      Annual billing lowers the effective monthly price, and top-ups let you keep
+                      going when usage spikes
                     </span>
                   </li>
-                  {currentTier === 'FREE' && (
-                    <li className="flex items-start gap-2">
-                      <svg
-                        className="w-4 h-4 text-sage-400 flex-shrink-0 mt-0.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
-                      <span>
-                        Annual billing lowers the effective monthly price, and top-ups let you keep
-                        going when usage spikes
-                      </span>
-                    </li>
-                  )}
-                </ul>
-              </div>
+                )}
+              </ul>
             </div>
           </div>
         </div>

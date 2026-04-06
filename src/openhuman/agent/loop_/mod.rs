@@ -4,7 +4,7 @@ pub(crate) mod context_guard;
 mod credentials;
 mod history;
 mod instructions;
-mod memory_context;
+pub(crate) mod memory_context;
 mod parse;
 mod session;
 mod tool_loop;

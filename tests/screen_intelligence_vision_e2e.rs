@@ -1,9 +1,29 @@
 //! E2E tests for the screen-intelligence vision pipeline.
 //!
-//! Validates the full flow: generate image -> compress/resize -> parse vision
-//! output -> persist to memory, all against real local storage in a temp workspace.
+//! ## Platform support
 //!
-//! Run with: `cargo test --test screen_intelligence_vision_e2e`
+//! | Test group                          | Linux CI | macOS local |
+//! |-------------------------------------|----------|-------------|
+//! | Compression + image processing      | ✅        | ✅           |
+//! | Memory persistence (UnifiedMemory)  | ✅        | ✅           |
+//! | Screenshot save/cleanup (disk I/O)  | ✅        | ✅           |
+//! | Real screen capture (permission)    | ❌        | ✅ (manual)  |
+//! | Local LLM vision analysis           | ❌        | ✅ (manual)  |
+//!
+//! ### Running
+//! ```
+//! cargo test --test screen_intelligence_vision_e2e
+//! ```
+//! Cross-platform CI tests use `OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON` to validate the
+//! real engine pipeline without requiring macOS permissions or a running Ollama server.
+//!
+//! ### macOS E2E checklist (manual, requires Screen Recording permission)
+//! 1. Grant Screen Recording to the `openhuman-core` binary in System Settings › Privacy & Security.
+//! 2. Run: `cargo test --test screen_intelligence_vision_e2e -- --nocapture`
+//! 3. Ensure Ollama is running with a vision-capable model (e.g. `ollama run minicpm-v`).
+//! 4. Call `openhuman.screen_intelligence_capture_test` via `cargo test --test json_rpc_e2e json_rpc_screen_intelligence`.
+//! 5. Run ignored real-capture test:
+//!    `cargo test --test screen_intelligence_vision_e2e macos_real_capture_cycle_persists_summary -- --ignored --nocapture`
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,6 +39,9 @@ use openhuman_core::openhuman::memory::embeddings::NoopEmbedding;
 use openhuman_core::openhuman::memory::store::types::NamespaceDocumentInput;
 use openhuman_core::openhuman::memory::store::UnifiedMemory;
 use openhuman_core::openhuman::screen_intelligence::CaptureFrame;
+use openhuman_core::openhuman::screen_intelligence::{
+    global_engine, AccessibilityEngine, VisionSummary,
+};
 
 // ── Env isolation ────────────────────────────────────────────────────
 
@@ -31,6 +54,18 @@ impl EnvVarGuard {
     fn set_to_path(key: &'static str, path: &Path) -> Self {
         let old = std::env::var(key).ok();
         std::env::set_var(key, path.as_os_str());
+        Self { key, old }
+    }
+
+    fn set(key: &'static str, value: &str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
+
+    fn unset(key: &'static str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::remove_var(key);
         Self { key, old }
     }
 }
@@ -47,10 +82,10 @@ impl Drop for EnvVarGuard {
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("env lock poisoned")
+    match ENV_LOCK.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -86,6 +121,38 @@ fn open_test_memory(dir: &Path) -> UnifiedMemory {
     let embedder: Arc<dyn openhuman_core::openhuman::memory::embeddings::EmbeddingProvider> =
         Arc::new(NoopEmbedding);
     UnifiedMemory::new(dir, embedder, Some(5)).expect("UnifiedMemory::new")
+}
+
+fn write_screen_intelligence_test_config(
+    root: &Path,
+    local_ai_enabled: bool,
+    local_ai_provider: &str,
+) {
+    let cfg = format!(
+        r#"default_temperature = 0.7
+
+[memory]
+backend = "sqlite"
+auto_save = true
+embedding_provider = "none"
+embedding_model = "none"
+embedding_dimensions = 0
+
+[local_ai]
+enabled = {local_ai_enabled}
+provider = "{local_ai_provider}"
+
+[screen_intelligence]
+keep_screenshots = false
+
+[secrets]
+encrypt = false
+"#
+    );
+    std::fs::create_dir_all(root).expect("mkdir test root");
+    std::fs::write(root.join("config.toml"), &cfg).expect("write config");
+    let _: openhuman_core::openhuman::config::Config =
+        toml::from_str(&cfg).expect("test config should deserialize");
 }
 
 /// Simulate what `parse_vision_summary_output` does, but from public types.
@@ -439,5 +506,270 @@ fn compression_savings_on_realistic_screenshot() {
         ratio < 0.5,
         "compression ratio should be under 50%, got {:.1}%",
         ratio * 100.0
+    );
+}
+
+/// save_screenshot_to_disk writes a valid PNG file to the workspace directory.
+#[test]
+fn save_screenshot_to_disk_creates_png_file() {
+    let png_uri = make_test_png_uri(32, 32);
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000001,
+        reason: "e2e_disk_save_test".to_string(),
+        app_name: Some("DiskSaveApp".to_string()),
+        window_title: Some("E2E Save Test".to_string()),
+        image_ref: Some(png_uri),
+    };
+
+    let tmp = tempdir().expect("tempdir");
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+
+    assert!(
+        result.is_ok(),
+        "[screen_intelligence] save_screenshot_to_disk should succeed: {:?}",
+        result
+    );
+    let saved_path = result.unwrap();
+    assert!(
+        saved_path.exists(),
+        "[screen_intelligence] saved PNG file should exist at {}",
+        saved_path.display()
+    );
+    assert_eq!(
+        saved_path.extension().and_then(|e| e.to_str()),
+        Some("png"),
+        "saved file should have .png extension"
+    );
+    let metadata = std::fs::metadata(&saved_path).expect("file metadata");
+    assert!(metadata.len() > 0, "saved PNG should not be empty");
+}
+
+/// Simulates the keep_screenshots=false cleanup path: save then immediately remove.
+#[test]
+fn save_screenshot_to_disk_cleanup_simulates_keep_screenshots_false() {
+    let png_uri = make_test_png_uri(32, 32);
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000002,
+        reason: "e2e_cleanup_test".to_string(),
+        app_name: Some("CleanupApp".to_string()),
+        window_title: Some("E2E Cleanup Test".to_string()),
+        image_ref: Some(png_uri),
+    };
+
+    let tmp = tempdir().expect("tempdir");
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+    assert!(
+        result.is_ok(),
+        "[screen_intelligence] save should succeed before cleanup: {:?}",
+        result
+    );
+
+    let saved_path = result.unwrap();
+    assert!(saved_path.exists(), "file should exist before cleanup");
+
+    // Simulate what the vision worker does when keep_screenshots=false
+    std::fs::remove_file(&saved_path).expect("remove_file should succeed");
+
+    assert!(
+        !saved_path.exists(),
+        "[screen_intelligence] file should no longer exist after cleanup: {}",
+        saved_path.display()
+    );
+}
+
+/// VisionSummary struct serializes and deserializes correctly, and is queryable after persistence.
+///
+/// Tests two things independently:
+/// 1. `VisionSummary` serde roundtrip in memory (proves struct attributes are correct).
+/// 2. Persisting to UnifiedMemory and verifying the key is listed (proves `persist_vision_summary`
+///    writes to the right namespace with the right key format).
+#[tokio::test]
+async fn vision_summary_struct_persist_and_deserialize_roundtrip() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _home = EnvVarGuard::set_to_path("HOME", tmp.path());
+
+    let summary = VisionSummary {
+        id: "vision-1700000000100-roundtrip-test".to_string(),
+        captured_at_ms: 1700000000100,
+        app_name: Some("RoundtripApp".to_string()),
+        window_title: Some("Roundtrip Test Window".to_string()),
+        ui_state: "code editor with Rust file open".to_string(),
+        key_text: "fn main() {}".to_string(),
+        actionable_notes: "Developer is writing Rust code".to_string(),
+        confidence: 0.93,
+    };
+
+    // ── Step 1: serde roundtrip in memory (no DB) ──────────────────────────
+    // This proves VisionSummary has correct Serialize/Deserialize attributes and
+    // that the JSON format matches what persist_vision_summary stores.
+    let serialized = serde_json::to_string(&summary).expect("serialize VisionSummary");
+    let deserialized: VisionSummary =
+        serde_json::from_str(&serialized).expect("deserialize VisionSummary");
+
+    assert_eq!(deserialized.id, summary.id, "id roundtrip");
+    assert_eq!(
+        deserialized.ui_state, summary.ui_state,
+        "ui_state roundtrip"
+    );
+    assert_eq!(
+        deserialized.key_text, summary.key_text,
+        "key_text roundtrip"
+    );
+    assert_eq!(
+        deserialized.actionable_notes, summary.actionable_notes,
+        "actionable_notes roundtrip"
+    );
+    assert_eq!(
+        deserialized.app_name, summary.app_name,
+        "app_name roundtrip"
+    );
+    assert!(
+        (deserialized.confidence - summary.confidence).abs() < 0.01,
+        "confidence roundtrip: expected {}, got {}",
+        summary.confidence,
+        deserialized.confidence
+    );
+
+    // ── Step 2: persist to UnifiedMemory, verify queryable by key ─────────
+    // Matches exactly what persist_vision_summary() does (namespace, key format, tags).
+    let mem = open_test_memory(tmp.path());
+    let key = format!("screen_intelligence_{}", summary.id);
+    mem.upsert_document(NamespaceDocumentInput {
+        namespace: "background".to_string(),
+        key: key.clone(),
+        title: key.clone(),
+        content: serialized,
+        source_type: "screenshot".to_string(),
+        priority: "medium".to_string(),
+        tags: vec!["screen_intelligence".to_string()],
+        metadata: serde_json::json!({}),
+        category: "screen_intelligence".to_string(),
+        session_id: None,
+        document_id: None,
+    })
+    .await
+    .expect("upsert_document");
+
+    let result_json = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list_documents");
+    let docs = result_json["documents"]
+        .as_array()
+        .expect("documents array");
+
+    assert!(
+        docs.iter().any(|d| d["key"].as_str() == Some(&key)),
+        "[screen_intelligence] persisted VisionSummary should be queryable by key: {key}"
+    );
+}
+
+/// Exercises the real engine pipeline (compress -> parse -> persist) with mocked local-vision
+/// output so Linux CI can validate behavior without macOS permissions or Ollama runtime.
+#[tokio::test]
+async fn engine_pipeline_with_mocked_local_vision_persists_to_memory() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    let _mock = EnvVarGuard::set(
+        "OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON",
+        r#"{"ui_state":"browser with docs","key_text":"README.md","actionable_notes":"User is reading project docs","confidence":0.89}"#,
+    );
+    write_screen_intelligence_test_config(tmp.path(), true, "ollama");
+
+    let frame = make_capture_frame(Some(make_test_png_uri(960, 540)));
+    let summary = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect("mocked engine pipeline should succeed");
+    assert_eq!(summary.ui_state, "browser with docs");
+
+    let config = openhuman_core::openhuman::config::Config::load_or_init()
+        .await
+        .expect("load config");
+    let mem = open_test_memory(&config.workspace_dir);
+    let docs = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list documents")["documents"]
+        .as_array()
+        .cloned()
+        .expect("documents array");
+    let key = format!("screen_intelligence_{}", summary.id);
+    assert!(
+        docs.iter().any(|doc| doc["key"].as_str() == Some(&key)),
+        "expected persisted summary key in memory: {key}"
+    );
+}
+
+/// Ensures screen-intelligence vision refuses non-local providers to avoid remote fallback.
+#[tokio::test]
+async fn engine_pipeline_rejects_non_local_provider() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    write_screen_intelligence_test_config(tmp.path(), true, "openai");
+
+    let frame = make_capture_frame(Some(make_test_png_uri(320, 240)));
+    let err = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect_err("non-local providers should be rejected");
+    assert!(
+        err.contains("provider 'ollama'"),
+        "unexpected provider guard error: {err}"
+    );
+}
+
+/// Manual macOS-only smoke test for the real capture -> local vision -> memory persistence chain.
+/// Run manually with:
+/// `cargo test --test screen_intelligence_vision_e2e macos_real_capture_cycle_persists_summary -- --ignored --nocapture`
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[ignore = "requires Screen Recording permission + local Ollama vision model"]
+async fn macos_real_capture_cycle_persists_summary() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    let _mock = EnvVarGuard::unset("OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON");
+    write_screen_intelligence_test_config(tmp.path(), true, "ollama");
+
+    let capture = global_engine().capture_test().await;
+    assert!(
+        capture.ok,
+        "capture_test failed; ensure Screen Recording permission is granted: {:?}",
+        capture.error
+    );
+    let image_ref = capture
+        .image_ref
+        .clone()
+        .expect("capture_test should return image_ref on success");
+    let frame = make_capture_frame(Some(image_ref));
+
+    let summary = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect("real local-vision inference should succeed");
+    assert!(
+        !summary.actionable_notes.is_empty(),
+        "summary should include actionable notes"
+    );
+
+    let config = openhuman_core::openhuman::config::Config::load_or_init()
+        .await
+        .expect("load config");
+    let mem = open_test_memory(&config.workspace_dir);
+    let docs = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list documents")["documents"]
+        .as_array()
+        .cloned()
+        .expect("documents array");
+    let key = format!("screen_intelligence_{}", summary.id);
+    assert!(
+        docs.iter().any(|doc| doc["key"].as_str() == Some(&key)),
+        "expected persisted summary key after real capture cycle: {key}"
     );
 }

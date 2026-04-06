@@ -10,6 +10,7 @@ import ConnectionsPanel from '../components/settings/panels/ConnectionsPanel';
 import CronJobsPanel from '../components/settings/panels/CronJobsPanel';
 import DeveloperOptionsPanel from '../components/settings/panels/DeveloperOptionsPanel';
 import LocalModelPanel from '../components/settings/panels/LocalModelPanel';
+import MemoryDataPanel from '../components/settings/panels/MemoryDataPanel';
 import MemoryDebugPanel from '../components/settings/panels/MemoryDebugPanel';
 import MessagingPanel from '../components/settings/panels/MessagingPanel';
 import PrivacyPanel from '../components/settings/panels/PrivacyPanel';
@@ -284,6 +285,7 @@ const Settings = () => {
           <Route path="team/invites" element={<TeamInvitesPanel />} />
           <Route path="developer-options" element={<DeveloperOptionsPanel />} />
           <Route path="webhooks-debug" element={<WebhooksDebugPanel />} />
+          <Route path="memory-data" element={<MemoryDataPanel />} />
           <Route path="memory-debug" element={<MemoryDebugPanel />} />
           <Route path="recovery-phrase" element={<RecoveryPhrasePanel />} />
         </Routes>

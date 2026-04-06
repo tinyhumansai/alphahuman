@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ActionableCard } from '../components/intelligence/ActionableCard';
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
-import { MemoryWorkspace } from '../components/intelligence/MemoryWorkspace';
 import { ToastContainer } from '../components/intelligence/Toast';
 import { filterItems, getItemStats, groupItemsByTime } from '../components/intelligence/utils';
 import { useConsciousItems } from '../hooks/useConsciousItems';
@@ -315,10 +314,8 @@ export default function Intelligence() {
             {/* Tab content */}
             {activeTab === 'memory' && (
               <>
-                <MemoryWorkspace onToast={addToast} />
-
                 {/* Filters */}
-                <div className="flex items-center gap-3 mt-6 mb-6 animate-fade-up">
+                <div className="flex items-center gap-3 mb-6 animate-fade-up">
                   <div className="flex-1">
                     <input
                       type="text"

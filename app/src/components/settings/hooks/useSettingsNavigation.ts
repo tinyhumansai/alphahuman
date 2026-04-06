@@ -23,6 +23,7 @@ export type SettingsRoute =
   | 'skills'
   | 'ai'
   | 'local-model'
+  | 'memory-data'
   | 'memory-debug'
   | 'recovery-phrase'
   | 'webhooks-debug'
@@ -80,6 +81,7 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     if (path.includes('/settings/skills')) return 'skills';
     if (path.includes('/settings/ai')) return 'ai';
     if (path.includes('/settings/local-model')) return 'local-model';
+    if (path.includes('/settings/memory-data')) return 'memory-data';
     if (path.includes('/settings/memory-debug')) return 'memory-debug';
     if (path.includes('/settings/webhooks-debug')) return 'webhooks-debug';
     if (path.includes('/settings/recovery-phrase')) return 'recovery-phrase';

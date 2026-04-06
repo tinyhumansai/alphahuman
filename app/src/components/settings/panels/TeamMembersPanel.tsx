@@ -117,7 +117,7 @@ const TeamMembersPanel = () => {
       <SettingsHeader title="Members" showBackButton={true} onBack={navigateBack} />
 
       <div>
-        <div className="max-w-md mx-auto p-4 space-y-3">
+        <div className="p-4 space-y-3">
           {error && (
             <div className="rounded-xl bg-coral-500/10 border border-coral-500/20 p-3">
               <p className="text-xs text-coral-400">{error}</p>

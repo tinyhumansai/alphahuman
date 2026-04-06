@@ -8,10 +8,9 @@ use crate::openhuman::config::rpc as config_rpc;
 use crate::rpc::RpcOutcome;
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct AuthStoreSessionParams {
     token: String,
-    #[serde(default)]
+    #[serde(default, alias = "userId")]
     user_id: Option<String>,
     #[serde(default)]
     user: Option<serde_json::Value>,

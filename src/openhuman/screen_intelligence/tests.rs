@@ -1,6 +1,12 @@
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use tokio::time::{self, Duration};
+
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use image::codecs::png::PngEncoder;
+use image::{ImageBuffer, Rgb, RgbImage};
+use tempfile::tempdir;
 
 use super::engine::{AccessibilityEngine, EngineState};
 use super::helpers::{
@@ -8,7 +14,88 @@ use super::helpers::{
 };
 use super::types::{CaptureFrame, InputActionParams, StartSessionParams};
 use crate::openhuman::accessibility::{parse_foreground_output, AppContext};
-use crate::openhuman::config::ScreenIntelligenceConfig;
+use crate::openhuman::config::{Config, ScreenIntelligenceConfig};
+use crate::openhuman::memory::embeddings::NoopEmbedding;
+use crate::openhuman::memory::store::UnifiedMemory;
+
+struct EnvVarGuard {
+    key: &'static str,
+    old: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set_to_path(key: &'static str, path: &Path) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::set_var(key, path.as_os_str());
+        Self { key, old }
+    }
+
+    fn set(key: &'static str, value: &str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        match &self.old {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+static SCREEN_INTELLIGENCE_ENV_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+
+fn screen_intelligence_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    match SCREEN_INTELLIGENCE_ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+    {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn write_screen_intelligence_test_config(
+    workspace_root: &Path,
+    local_ai_enabled: bool,
+    local_ai_provider: &str,
+) {
+    let cfg = format!(
+        r#"default_temperature = 0.7
+
+[memory]
+backend = "sqlite"
+auto_save = true
+embedding_provider = "none"
+embedding_model = "none"
+embedding_dimensions = 0
+
+[local_ai]
+enabled = {local_ai_enabled}
+provider = "{local_ai_provider}"
+
+[secrets]
+encrypt = false
+"#
+    );
+    std::fs::create_dir_all(workspace_root).expect("mkdir test workspace root");
+    let config_path = workspace_root.join("config.toml");
+    std::fs::write(&config_path, &cfg).expect("write test config");
+    let _: Config = toml::from_str(&cfg).expect("test config should deserialize");
+}
+
+fn make_test_png_uri(width: u32, height: u32) -> String {
+    let img: RgbImage = ImageBuffer::from_fn(width, height, |x, y| {
+        Rgb([(x % 255) as u8, (y % 255) as u8, ((x + y) % 255) as u8])
+    });
+    let mut png_bytes: Vec<u8> = Vec::new();
+    img.write_with_encoder(PngEncoder::new(&mut png_bytes))
+        .expect("PNG encode");
+    format!("data:image/png;base64,{}", B64.encode(&png_bytes))
+}
 
 // ── parse_foreground_output ─────────────────────────────────────────────
 
@@ -546,5 +633,189 @@ async fn capture_now_without_session_is_rejected_without_hanging() {
     assert!(
         result.frame.is_none(),
         "capture_now should not produce a frame without a session"
+    );
+}
+
+// ── save_screenshot_to_disk ─────────────────────────────────────────────
+
+#[test]
+fn save_screenshot_to_disk_writes_png_to_workspace() {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use image::codecs::png::PngEncoder;
+    use image::{ImageBuffer, Rgb, RgbImage};
+    use tempfile::tempdir;
+
+    let tmp = tempdir().expect("tempdir");
+
+    // Build a tiny 4x4 solid-colour PNG as data URI
+    let img: RgbImage = ImageBuffer::from_fn(4, 4, |_, _| Rgb([100u8, 149u8, 237u8]));
+    let mut png_bytes: Vec<u8> = Vec::new();
+    img.write_with_encoder(PngEncoder::new(&mut png_bytes))
+        .expect("PNG encode");
+    let image_ref = format!("data:image/png;base64,{}", B64.encode(&png_bytes));
+
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000200,
+        reason: "unit_test_save".to_string(),
+        app_name: Some("UnitTestApp".to_string()),
+        window_title: Some("Test Window".to_string()),
+        image_ref: Some(image_ref),
+    };
+
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+    assert!(
+        result.is_ok(),
+        "save_screenshot_to_disk should succeed: {:?}",
+        result
+    );
+
+    let path = result.unwrap();
+    assert!(
+        path.exists(),
+        "[screen_intelligence] saved PNG file should exist at {}",
+        path.display()
+    );
+    assert_eq!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("png"),
+        "saved file should have .png extension"
+    );
+    let metadata = std::fs::metadata(&path).expect("file metadata");
+    assert!(metadata.len() > 0, "saved PNG should not be empty");
+    assert!(
+        path.to_string_lossy().contains("1700000000200"),
+        "filename should include capture timestamp"
+    );
+}
+
+#[test]
+fn save_screenshot_to_disk_rejects_frame_without_image_ref() {
+    use tempfile::tempdir;
+
+    let tmp = tempdir().expect("tempdir");
+
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000201,
+        reason: "unit_test_no_image".to_string(),
+        app_name: Some("TestApp".to_string()),
+        window_title: None,
+        image_ref: None, // no image payload
+    };
+
+    let result = AccessibilityEngine::save_screenshot_to_disk(tmp.path(), &frame);
+    assert!(
+        result.is_err(),
+        "[screen_intelligence] save_screenshot_to_disk should return Err when frame has no image_ref"
+    );
+    let err = result.unwrap_err();
+    assert!(!err.is_empty(), "error message should not be empty");
+}
+
+// ── deterministic vision pipeline (mocked local output) ────────────────────
+
+#[tokio::test]
+async fn analyze_and_persist_frame_writes_unified_memory_document() {
+    let _env_lock = screen_intelligence_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    let _mock = EnvVarGuard::set(
+        "OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON",
+        r#"{"ui_state":"editor","key_text":"fn main() {}","actionable_notes":"Rust source is open","confidence":0.93}"#,
+    );
+    write_screen_intelligence_test_config(tmp.path(), true, "ollama");
+
+    let engine = Arc::new(AccessibilityEngine {
+        inner: Mutex::new(EngineState::new(ScreenIntelligenceConfig::default())),
+    });
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000300,
+        reason: "pipeline_test".to_string(),
+        app_name: Some("PipelineApp".to_string()),
+        window_title: Some("Main.rs".to_string()),
+        image_ref: Some(make_test_png_uri(320, 200)),
+    };
+    let summary = engine
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect("analyze_and_persist_frame should succeed with mocked vision output");
+    assert_eq!(summary.ui_state, "editor");
+    assert_eq!(summary.actionable_notes, "Rust source is open");
+
+    let config = Config::load_or_init().await.expect("load config");
+    let mem = UnifiedMemory::new(
+        &config.workspace_dir,
+        Arc::new(NoopEmbedding),
+        config.memory.sqlite_open_timeout_secs,
+    )
+    .expect("memory init");
+    let list = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list documents");
+    let documents = list["documents"]
+        .as_array()
+        .expect("documents array should exist");
+    let key = format!("screen_intelligence_{}", summary.id);
+    assert!(
+        documents
+            .iter()
+            .any(|doc| doc["key"].as_str() == Some(&key)),
+        "expected persisted vision summary key in background namespace: {key}"
+    );
+}
+
+#[tokio::test]
+async fn analyze_and_persist_frame_rejects_non_local_provider() {
+    let _env_lock = screen_intelligence_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    write_screen_intelligence_test_config(tmp.path(), true, "openai");
+
+    let engine = Arc::new(AccessibilityEngine {
+        inner: Mutex::new(EngineState::new(ScreenIntelligenceConfig::default())),
+    });
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000301,
+        reason: "provider_guard_test".to_string(),
+        app_name: Some("PipelineApp".to_string()),
+        window_title: Some("Guard".to_string()),
+        image_ref: Some(make_test_png_uri(160, 120)),
+    };
+
+    let err = engine
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect_err("non-local providers should be rejected");
+    assert!(
+        err.contains("provider 'ollama'"),
+        "unexpected error for non-local provider: {err}"
+    );
+}
+
+#[tokio::test]
+async fn analyze_and_persist_frame_rejects_disabled_local_ai() {
+    let _env_lock = screen_intelligence_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    write_screen_intelligence_test_config(tmp.path(), false, "ollama");
+
+    let engine = Arc::new(AccessibilityEngine {
+        inner: Mutex::new(EngineState::new(ScreenIntelligenceConfig::default())),
+    });
+    let frame = CaptureFrame {
+        captured_at_ms: 1700000000302,
+        reason: "local_ai_disabled_test".to_string(),
+        app_name: Some("PipelineApp".to_string()),
+        window_title: Some("Guard".to_string()),
+        image_ref: Some(make_test_png_uri(160, 120)),
+    };
+
+    let err = engine
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect_err("disabled local ai should be rejected");
+    assert!(
+        err.contains("local_ai.enabled=true"),
+        "unexpected error when local ai is disabled: {err}"
     );
 }

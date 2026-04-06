@@ -4,13 +4,14 @@ import Markdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
-import { useLocalModelStatus } from '../hooks/useLocalModelStatus';
 import { creditsApi, type TeamUsage } from '../services/api/creditsApi';
 import {
   chatCancel,
+  type ChatSegmentEvent,
   chatSend,
   type ChatToolCallEvent,
   type ChatToolResultEvent,
+  segmentText,
   subscribeChatEvents,
   useRustChat,
 } from '../services/chatService';
@@ -28,14 +29,13 @@ import {
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
-import { getSegmentDelay, segmentMessage } from '../utils/messageSegmentation';
 import {
   isTauri,
-  type LocalAiChatMessage,
   openhumanAutocompleteAccept,
   openhumanAutocompleteCurrent,
-  openhumanLocalAiChat,
-  openhumanLocalAiShouldReact,
+  openhumanLocalAiAnalyzeSentiment,
+  openhumanLocalAiShouldSendGif,
+  openhumanLocalAiTenorSearch,
   openhumanVoiceStatus,
   openhumanVoiceTranscribeBytes,
   openhumanVoiceTts,
@@ -141,26 +141,25 @@ const Conversations = () => {
     Record<string, ToolTimelineEntry[]>
   >({});
   const rustChat = useRustChat();
-  const isLocalModelActive = useLocalModelStatus();
-  const isLocalModelActiveRef = useRef(isLocalModelActive);
-  const [isDelivering, setIsDelivering] = useState(false);
-  const deliveryActiveRef = useRef(false);
-  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
   const defaultChannelType = useAppSelector(
     state => state.channelConnections?.defaultMessagingChannel ?? 'web'
   );
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
   const pendingReactionRef = useRef<
     Map<string, { msgId: string; content: string; threadId: string }>
   >(new Map());
+
+  /** Message counter for GIF cadence — check every ~7 messages. */
+  const gifCadenceCountRef = useRef(0);
+  const GIF_CADENCE_MESSAGES = 7;
+  /** Timestamp (ms) of last sentiment analysis — run roughly every hour. */
+  const lastSentimentAtRef = useRef(0);
+  const SENTIMENT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
   const selectedThreadIdRef = useRef(selectedThreadId);
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
-
-  useEffect(() => {
-    isLocalModelActiveRef.current = isLocalModelActive;
-  }, [isLocalModelActive]);
 
   const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
   const [isLoadingBudget, setIsLoadingBudget] = useState(false);
@@ -305,7 +304,6 @@ const Conversations = () => {
 
   useEffect(() => {
     return () => {
-      deliveryActiveRef.current = false;
       mediaRecorderRef.current?.stop();
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
       replyAudioRef.current?.pause();
@@ -398,16 +396,24 @@ const Conversations = () => {
           return { ...prev, [event.thread_id]: nextEntries };
         });
       },
-      onDone: event => {
-        const currentState = store.getState() as {
-          thread: { messagesByThreadId: Record<string, ThreadMessage[]> };
-        };
-        const threadMessages = currentState.thread.messagesByThreadId[event.thread_id] || [];
-        const lastMsg = threadMessages[threadMessages.length - 1];
-        if (lastMsg?.sender === 'agent' && lastMsg?.content === event.full_response) {
-          return;
+      onSegment: (event: ChatSegmentEvent) => {
+        // Rust delivers segments with delays already applied — just dispatch.
+        if (event.reaction_emoji) {
+          const pending = pendingReactionRef.current.get(event.thread_id);
+          if (pending) {
+            dispatch(
+              addReaction({
+                threadId: pending.threadId,
+                messageId: pending.msgId,
+                emoji: event.reaction_emoji,
+              })
+            );
+            pendingReactionRef.current.delete(event.thread_id);
+          }
         }
-
+        dispatch(addInferenceResponse({ content: segmentText(event), threadId: event.thread_id }));
+      },
+      onDone: event => {
         // Update tool timeline
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
@@ -424,58 +430,38 @@ const Conversations = () => {
           sendingTimeoutRef.current = null;
         }
 
-        // Fire-and-forget: auto-react to the user's message
-        const pending = pendingReactionRef.current.get(event.thread_id);
-        if (pending) {
-          maybeAutoReact(pending.msgId, pending.content, pending.threadId);
-          pendingReactionRef.current.delete(event.thread_id);
-        }
-
-        // Multi-bubble delivery gate: only when local model is active
-        if (!isLocalModelActiveRef.current) {
-          dispatch(
-            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
-          );
-          setIsSending(false);
-          dispatch(setActiveThread(null));
-          return;
-        }
-
-        const segments = segmentMessage(event.full_response);
-
-        if (segments.length <= 1) {
-          dispatch(
-            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
-          );
-          setIsSending(false);
-          dispatch(setActiveThread(null));
-          return;
-        }
-
-        // Async delivery: show each segment as a separate bubble with a typing pause
-        setIsDelivering(true);
-        deliveryActiveRef.current = true;
-
-        void (async () => {
-          for (let i = 0; i < segments.length; i++) {
-            if (!deliveryActiveRef.current) break;
-
-            if (i > 0) {
-              await new Promise<void>(resolve =>
-                setTimeout(resolve, getSegmentDelay(segments[i - 1]))
-              );
-            }
-
-            if (!deliveryActiveRef.current) break;
-
-            dispatch(addInferenceResponse({ content: segments[i], threadId: event.thread_id }));
+        // Apply reaction emoji from Rust (when not segmented — no onSegment fired).
+        if (event.reaction_emoji) {
+          const pending = pendingReactionRef.current.get(event.thread_id);
+          if (pending) {
+            dispatch(
+              addReaction({
+                threadId: pending.threadId,
+                messageId: pending.msgId,
+                emoji: event.reaction_emoji,
+              })
+            );
           }
+        }
 
-          deliveryActiveRef.current = false;
-          setIsDelivering(false);
-          setIsSending(false);
-          // activeThreadId was already cleared by the first addInferenceResponse dispatch
-        })();
+        // Fire-and-forget: GIF decision + sentiment analysis (cadence-based)
+        const pendingMsg = pendingReactionRef.current.get(event.thread_id);
+        if (pendingMsg) {
+          maybeCheckGif(pendingMsg.content, pendingMsg.threadId);
+          maybeSentimentAnalysis(pendingMsg.content);
+        }
+        pendingReactionRef.current.delete(event.thread_id);
+
+        // Only add the response bubble if Rust didn't already deliver it
+        // via chat_segment events (segment_total > 0 means segments were sent).
+        if (!event.segment_total) {
+          dispatch(
+            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
+          );
+        }
+
+        setIsSending(false);
+        dispatch(setActiveThread(null));
       },
       onError: event => {
         if (event.thread_id !== selectedThreadIdRef.current) return;
@@ -529,54 +515,69 @@ const Conversations = () => {
   }, [rustChat, socketStatus]);
 
   /**
-   * Segment a complete response string and dispatch each segment as a
-   * separate message bubble with a typing pause between them.
-   * Local-model-only path — no cloud API calls.
+   * Fire-and-forget: periodically check if a GIF response is appropriate
+   * (every ~GIF_CADENCE_MESSAGES messages). If the model says yes, search
+   * Tenor and dispatch the top result as a gif-type message.
    */
-  const deliverLocalResponse = async (fullResponse: string, threadId: string) => {
-    const segments = segmentMessage(fullResponse);
+  const maybeCheckGif = (messageContent: string, threadId: string) => {
+    if (!isTauri()) return;
 
-    if (segments.length <= 1) {
-      dispatch(addInferenceResponse({ content: fullResponse, threadId }));
-      return;
-    }
+    gifCadenceCountRef.current += 1;
+    if (gifCadenceCountRef.current < GIF_CADENCE_MESSAGES) return;
+    gifCadenceCountRef.current = 0;
 
-    setIsDelivering(true);
-    deliveryActiveRef.current = true;
+    console.debug('[conversations:gif] cadence reached, evaluating gif decision');
 
-    for (let i = 0; i < segments.length; i++) {
-      if (!deliveryActiveRef.current) break;
+    void openhumanLocalAiShouldSendGif(messageContent, defaultChannelType)
+      .then(async response => {
+        const decision = response.result;
+        if (!decision?.should_send_gif || !decision.search_query) return;
 
-      if (i > 0) {
-        await new Promise<void>(resolve => setTimeout(resolve, getSegmentDelay(segments[i - 1])));
-      }
+        console.debug('[conversations:gif] searching tenor for:', decision.search_query);
+        const tenorResponse = await openhumanLocalAiTenorSearch(decision.search_query, 5);
+        const results = tenorResponse.result?.results;
+        if (!results || results.length === 0) return;
 
-      if (!deliveryActiveRef.current) break;
+        // Pick a random GIF from top results
+        const picked = results[Math.floor(Math.random() * Math.min(results.length, 3))];
+        const gifUrl =
+          picked.media?.mediumgif?.url || picked.media?.gif?.url || picked.media?.tinygif?.url;
+        if (!gifUrl) return;
 
-      dispatch(addInferenceResponse({ content: segments[i], threadId }));
-    }
-
-    deliveryActiveRef.current = false;
-    setIsDelivering(false);
+        console.debug('[conversations:gif] sending gif:', picked.title || picked.id);
+        dispatch(addInferenceResponse({ content: gifUrl, threadId }));
+      })
+      .catch(err => {
+        console.debug('[conversations:gif] failed:', err);
+      });
   };
 
   /**
-   * Fire-and-forget: ask the local model if we should auto-react to the
-   * user's message with an emoji. Adds a personal touch based on channel type.
+   * Fire-and-forget: periodically analyze user sentiment (~every hour).
+   * Stores the result in debug logs for now.
    */
-  const maybeAutoReact = (userMessageId: string, messageContent: string, threadId: string) => {
-    if (!isTauri() || !isLocalModelActiveRef.current) return;
+  const maybeSentimentAnalysis = (messageContent: string) => {
+    if (!isTauri()) return;
 
-    void openhumanLocalAiShouldReact(messageContent, defaultChannelType)
+    const now = Date.now();
+    if (now - lastSentimentAtRef.current < SENTIMENT_INTERVAL_MS) return;
+    lastSentimentAtRef.current = now;
+
+    console.debug('[conversations:sentiment] interval reached, analyzing sentiment');
+
+    void openhumanLocalAiAnalyzeSentiment(messageContent)
       .then(response => {
-        const decision = response.result;
-        if (decision?.should_react && decision.emoji) {
-          console.debug('[conversations:auto-react] reacting with', decision.emoji);
-          dispatch(addReaction({ threadId, messageId: userMessageId, emoji: decision.emoji }));
-        }
+        const sentiment = response.result;
+        if (!sentiment) return;
+        console.debug(
+          '[conversations:sentiment] result:',
+          sentiment.emotion,
+          sentiment.valence,
+          `(${sentiment.confidence})`
+        );
       })
       .catch(err => {
-        console.debug('[conversations:auto-react] failed:', err);
+        console.debug('[conversations:sentiment] failed:', err);
       });
   };
 
@@ -585,8 +586,13 @@ const Conversations = () => {
     const trimmed = normalized.trim();
 
     if (!trimmed || !selectedThreadId || isSending) return;
-    if (!isLocalModelActiveRef.current && socketStatus !== 'connected') {
-      setSendError(chatSendError('socket_disconnected', 'Realtime socket is not connected.'));
+    if (socketStatus !== 'connected') {
+      setSendError(
+        chatSendError(
+          'socket_disconnected',
+          'Realtime socket is not connected — responses cannot be delivered without a client ID.'
+        )
+      );
       return;
     }
 
@@ -632,61 +638,10 @@ const Conversations = () => {
     setToolTimelineByThread(prev => ({ ...prev, [sendingThreadId]: [] }));
     dispatch(setActiveThread(sendingThreadId));
 
-    // ── Local Ollama path ────────────────────────────────────────────────────
-    // When a local model is ready, bypass the cloud socket entirely.
-    // Zero cloud tokens consumed on this path.
-    if (isLocalModelActiveRef.current) {
-      try {
-        // Build message history: convert stored messages + the new user turn
-        const storedMessages =
-          (
-            store.getState() as {
-              thread: {
-                messagesByThreadId: Record<string, import('../types/thread').ThreadMessage[]>;
-              };
-            }
-          ).thread.messagesByThreadId[sendingThreadId] ?? [];
-
-        const history: LocalAiChatMessage[] = storedMessages
-          .filter(m => m.sender === 'user' || m.sender === 'agent')
-          .map(m => ({
-            role: m.sender === 'user' ? ('user' as const) : ('assistant' as const),
-            content: m.content,
-          }));
-
-        console.debug('[conversations:local] sending to local model', {
-          historyLength: history.length,
-          threadId: sendingThreadId,
-        });
-
-        const response = await openhumanLocalAiChat(history);
-        const reply = response.result?.trim() ?? '';
-
-        if (!reply) {
-          throw new Error('Local model returned an empty response.');
-        }
-
-        await deliverLocalResponse(reply, sendingThreadId);
-        pendingReactionRef.current.delete(sendingThreadId);
-        maybeAutoReact(userMessage.id, trimmed, sendingThreadId);
-      } catch (err) {
-        pendingReactionRef.current.delete(sendingThreadId);
-        const msg = err instanceof Error ? err.message : String(err);
-        setSendError(chatSendError('local_model_failed', msg));
-        dispatch(
-          addInferenceResponse({
-            content: 'Local model error — please try again.',
-            threadId: sendingThreadId,
-          })
-        );
-      } finally {
-        setIsSending(false);
-        dispatch(setActiveThread(null));
-      }
-      return;
-    }
-
-    // ── Cloud socket path (unchanged) ────────────────────────────────────────
+    // ── Cloud socket path ─────────────────────────────────────────────────────
+    // Always route primary chat through the cloud backend via socket.
+    // Local model (Ollama) is used only for supplementary features
+    // (auto-react, autocomplete, etc.) — never as a primary chat path.
     try {
       await chatSend({ threadId: sendingThreadId, message: trimmed, model: AGENTIC_MODEL_ID });
 
@@ -1081,7 +1036,7 @@ const Conversations = () => {
                   </div>
                 </div>
               ))}
-              {((activeThreadId === selectedThreadId && isSending) || isDelivering) && (
+              {activeThreadId === selectedThreadId && isSending && (
                 <div className="flex justify-start">
                   <div className="bg-stone-200/80 rounded-2xl rounded-bl-md px-4 py-3">
                     <div className="flex items-center gap-1">

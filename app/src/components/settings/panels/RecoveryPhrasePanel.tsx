@@ -204,7 +204,7 @@ const RecoveryPhrasePanel = () => {
       <SettingsHeader title="Recovery Phrase" showBackButton onBack={navigateBack} />
 
       <div>
-        <div className="p-4 max-w-md mx-auto">
+        <div className="p-4">
           {success ? (
             <div className="flex flex-col items-center justify-center gap-3 py-12">
               <div className="w-12 h-12 rounded-full bg-sage-500/20 flex items-center justify-center">

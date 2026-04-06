@@ -122,6 +122,9 @@ pub struct Config {
     pub orchestrator: OrchestratorConfig,
 
     #[serde(default)]
+    pub update: UpdateConfig,
+
+    #[serde(default)]
     pub dictation: DictationConfig,
 
     /// Whether to launch the overlay Tauri app (floating debug/voice panel)
@@ -179,6 +182,7 @@ impl Default for Config {
             query_classification: QueryClassificationConfig::default(),
             learning: LearningConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            update: UpdateConfig::default(),
             dictation: DictationConfig::default(),
             overlay_enabled: true,
             onboarding_completed: false,

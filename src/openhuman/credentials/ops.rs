@@ -13,6 +13,9 @@ use crate::openhuman::security::SecretStore;
 use crate::rpc::RpcOutcome;
 
 use super::{AuthService, APP_SESSION_PROVIDER, DEFAULT_AUTH_PROFILE_NAME};
+use crate::openhuman::config::{
+    default_root_openhuman_dir, user_openhuman_dir, write_active_user_id,
+};
 
 fn secret_store_for_config(config: &Config) -> SecretStore {
     let data_dir = config
@@ -72,7 +75,55 @@ pub async fn store_session(
     let user_for_store = user.unwrap_or(settings);
     metadata.insert("user_json".to_string(), user_for_store.to_string());
 
-    let auth = AuthService::from_config(config);
+    // Determine user_id so we can scope the openhuman directory to this user.
+    let resolved_user_id = metadata.get("user_id").cloned();
+
+    // If we know the user_id, activate the user-scoped directory BEFORE storing
+    // the auth profile so that credentials land in the correct place.
+    let mut logs = vec![format!(
+        "session JWT verified via GET /auth/me on {}",
+        api_url.trim_end_matches('/')
+    )];
+
+    if let Some(ref uid) = resolved_user_id {
+        if let Ok(root_dir) = default_root_openhuman_dir() {
+            let user_dir = user_openhuman_dir(&root_dir, uid);
+            if let Err(e) = std::fs::create_dir_all(&user_dir) {
+                tracing::warn!(
+                    user_id = %uid,
+                    error = %e,
+                    "failed to create user directory"
+                );
+            } else if let Err(e) = write_active_user_id(&root_dir, uid) {
+                tracing::warn!(
+                    user_id = %uid,
+                    error = %e,
+                    "failed to write active_user.toml"
+                );
+            } else {
+                logs.push(format!("user directory activated for {uid}"));
+                tracing::info!(
+                    user_id = %uid,
+                    user_dir = %user_dir.display(),
+                    "User-scoped directory activated"
+                );
+            }
+        }
+    }
+
+    // Reload config so it picks up the newly activated user directory.
+    // This ensures auth-profiles.json, encryption key, etc. are written
+    // to the user-scoped location.
+    let effective_config = if resolved_user_id.is_some() {
+        match crate::openhuman::config::load_config_with_timeout().await {
+            Ok(c) => c,
+            Err(_) => config.clone(),
+        }
+    } else {
+        config.clone()
+    };
+
+    let auth = AuthService::from_config(&effective_config);
     let profile = auth
         .store_provider_token(
             APP_SESSION_PROVIDER,
@@ -83,16 +134,8 @@ pub async fn store_session(
         )
         .map_err(|e| e.to_string())?;
 
-    Ok(RpcOutcome::new(
-        summarize_auth_profile(&profile),
-        vec![
-            format!(
-                "session JWT verified via GET /auth/me on {}",
-                api_url.trim_end_matches('/')
-            ),
-            "session stored".to_string(),
-        ],
-    ))
+    logs.push("session stored".to_string());
+    Ok(RpcOutcome::new(summarize_auth_profile(&profile), logs))
 }
 
 pub async fn clear_session(config: &Config) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -100,6 +143,15 @@ pub async fn clear_session(config: &Config) -> Result<RpcOutcome<serde_json::Val
     let removed = auth
         .remove_profile(APP_SESSION_PROVIDER, DEFAULT_AUTH_PROFILE_NAME)
         .map_err(|e| e.to_string())?;
+
+    // Clear the active user marker so subsequent config loads fall back to the
+    // default (unauthenticated) openhuman directory.
+    if let Ok(root_dir) = default_root_openhuman_dir() {
+        if let Err(e) = crate::openhuman::config::clear_active_user(&root_dir) {
+            tracing::warn!(error = %e, "failed to clear active_user.toml on logout");
+        }
+    }
+
     Ok(RpcOutcome::single_log(
         json!({ "removed": removed }),
         "session cleared",
