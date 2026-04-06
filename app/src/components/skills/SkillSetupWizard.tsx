@@ -677,7 +677,7 @@ function OAuthLoginView({
     const encKey = devEncryptionKey.trim();
     if (!id || !skillId) return;
     if (!encKey) { setDevError("Encryption key is required"); return; }
-    if (/["\\\x00-\x1f]/.test(encKey)) { setDevError("Encryption key contains invalid characters"); return; }
+    if (/["\\]/.test(encKey) || encKey !== encKey.replace(/[^\x20-\x7e]/g, "")) { setDevError("Encryption key contains invalid characters"); return; }
     setDevSubmitting(true);
     setDevError("");
     try {
