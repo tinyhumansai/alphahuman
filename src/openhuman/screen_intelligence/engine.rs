@@ -835,7 +835,7 @@ impl AccessibilityEngine {
 
     /// Save a screenshot PNG to `{workspace_dir}/screenshots/{timestamp}_{app}.png`.
     /// Returns the file path on success.
-    fn save_screenshot_to_disk(
+    pub fn save_screenshot_to_disk(
         workspace_dir: &std::path::Path,
         frame: &CaptureFrame,
     ) -> Result<PathBuf, String> {
