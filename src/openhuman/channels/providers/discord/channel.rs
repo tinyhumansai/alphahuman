@@ -964,4 +964,26 @@ mod tests {
             assert!(part.len() <= DISCORD_MAX_MESSAGE_LENGTH);
         }
     }
+
+    // ── channel_id field tests ───────────────────────────────────
+
+    #[test]
+    fn channel_id_stored_in_struct() {
+        let ch = DiscordChannel::new(
+            "token".into(),
+            Some("guild1".into()),
+            Some("channel1".into()),
+            vec![],
+            false,
+            false,
+        );
+        assert_eq!(ch.channel_id.as_deref(), Some("channel1"));
+        assert_eq!(ch.guild_id.as_deref(), Some("guild1"));
+    }
+
+    #[test]
+    fn channel_id_defaults_to_none() {
+        let ch = DiscordChannel::new("token".into(), None, None, vec![], false, false);
+        assert!(ch.channel_id.is_none());
+    }
 }
