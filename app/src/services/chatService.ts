@@ -32,6 +32,20 @@ export interface ChatDoneEvent {
   rounds_used: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  /** Emoji reaction decided by the local model (if any). */
+  reaction_emoji?: string | null;
+  /** Total segments when the response was split into bubbles by Rust. */
+  segment_total?: number | null;
+}
+
+/** A single segment of a multi-bubble response, emitted before `chat_done`. */
+export interface ChatSegmentEvent {
+  thread_id: string;
+  full_response: string; // The segment text (not the full response)
+  request_id: string;
+  segment_index: number;
+  segment_total: number;
+  reaction_emoji?: string | null;
 }
 
 export interface ChatErrorEvent {
@@ -44,6 +58,7 @@ export interface ChatErrorEvent {
 export interface ChatEventListeners {
   onToolCall?: (event: ChatToolCallEvent) => void;
   onToolResult?: (event: ChatToolResultEvent) => void;
+  onSegment?: (event: ChatSegmentEvent) => void;
   onDone?: (event: ChatDoneEvent) => void;
   onError?: (event: ChatErrorEvent) => void;
 }
@@ -66,6 +81,13 @@ export function subscribeChatEvents(listeners: ChatEventListeners): () => void {
     socket.on('chat:tool_result', cb);
     socket.on('tool_result', cb);
     handlers.push(['chat:tool_result', cb], ['tool_result', cb]);
+  }
+
+  if (listeners.onSegment) {
+    const cb = (payload: unknown) => listeners.onSegment?.(payload as ChatSegmentEvent);
+    socket.on('chat:segment', cb);
+    socket.on('chat_segment', cb);
+    handlers.push(['chat:segment', cb], ['chat_segment', cb]);
   }
 
   if (listeners.onDone) {

@@ -9,6 +9,7 @@ import { creditsApi, type TeamUsage } from '../services/api/creditsApi';
 import {
   chatCancel,
   chatSend,
+  type ChatSegmentEvent,
   type ChatToolCallEvent,
   type ChatToolResultEvent,
   subscribeChatEvents,
@@ -397,16 +398,26 @@ const Conversations = () => {
           return { ...prev, [event.thread_id]: nextEntries };
         });
       },
-      onDone: event => {
-        const currentState = store.getState() as {
-          thread: { messagesByThreadId: Record<string, ThreadMessage[]> };
-        };
-        const threadMessages = currentState.thread.messagesByThreadId[event.thread_id] || [];
-        const lastMsg = threadMessages[threadMessages.length - 1];
-        if (lastMsg?.sender === 'agent' && lastMsg?.content === event.full_response) {
-          return;
+      onSegment: (event: ChatSegmentEvent) => {
+        // Rust delivers segments with delays already applied — just dispatch.
+        if (event.reaction_emoji) {
+          const pending = pendingReactionRef.current.get(event.thread_id);
+          if (pending) {
+            dispatch(
+              addReaction({
+                threadId: pending.threadId,
+                messageId: pending.msgId,
+                emoji: event.reaction_emoji,
+              })
+            );
+            pendingReactionRef.current.delete(event.thread_id);
+          }
         }
-
+        dispatch(
+          addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
+        );
+      },
+      onDone: event => {
         // Update tool timeline
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
@@ -423,58 +434,31 @@ const Conversations = () => {
           sendingTimeoutRef.current = null;
         }
 
-        // Fire-and-forget: auto-react to the user's message
-        const pending = pendingReactionRef.current.get(event.thread_id);
-        if (pending) {
-          maybeAutoReact(pending.msgId, pending.content, pending.threadId);
-          pendingReactionRef.current.delete(event.thread_id);
-        }
-
-        // Multi-bubble delivery gate: only when local model is active
-        if (!isLocalModelActiveRef.current) {
-          dispatch(
-            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
-          );
-          setIsSending(false);
-          dispatch(setActiveThread(null));
-          return;
-        }
-
-        const segments = segmentMessage(event.full_response);
-
-        if (segments.length <= 1) {
-          dispatch(
-            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
-          );
-          setIsSending(false);
-          dispatch(setActiveThread(null));
-          return;
-        }
-
-        // Async delivery: show each segment as a separate bubble with a typing pause
-        setIsDelivering(true);
-        deliveryActiveRef.current = true;
-
-        void (async () => {
-          for (let i = 0; i < segments.length; i++) {
-            if (!deliveryActiveRef.current) break;
-
-            if (i > 0) {
-              await new Promise<void>(resolve =>
-                setTimeout(resolve, getSegmentDelay(segments[i - 1]))
-              );
-            }
-
-            if (!deliveryActiveRef.current) break;
-
-            dispatch(addInferenceResponse({ content: segments[i], threadId: event.thread_id }));
+        // Apply reaction emoji from Rust (when not segmented — no onSegment fired).
+        if (event.reaction_emoji) {
+          const pending = pendingReactionRef.current.get(event.thread_id);
+          if (pending) {
+            dispatch(
+              addReaction({
+                threadId: pending.threadId,
+                messageId: pending.msgId,
+                emoji: event.reaction_emoji,
+              })
+            );
           }
+        }
+        pendingReactionRef.current.delete(event.thread_id);
 
-          deliveryActiveRef.current = false;
-          setIsDelivering(false);
-          setIsSending(false);
-          // activeThreadId was already cleared by the first addInferenceResponse dispatch
-        })();
+        // Only add the response bubble if Rust didn't already deliver it
+        // via chat_segment events (segment_total > 0 means segments were sent).
+        if (!event.segment_total) {
+          dispatch(
+            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
+          );
+        }
+
+        setIsSending(false);
+        dispatch(setActiveThread(null));
       },
       onError: event => {
         if (event.thread_id !== selectedThreadIdRef.current) return;
@@ -526,26 +510,6 @@ const Conversations = () => {
     return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rustChat, socketStatus]);
-
-  /**
-   * Fire-and-forget: ask the local model if we should auto-react to the
-   * user's message with an emoji. Adds a personal touch based on channel type.
-   */
-  const maybeAutoReact = (userMessageId: string, messageContent: string, threadId: string) => {
-    if (!isTauri() || !isLocalModelActiveRef.current) return;
-
-    void openhumanLocalAiShouldReact(messageContent, defaultChannelType)
-      .then(response => {
-        const decision = response.result;
-        if (decision?.should_react && decision.emoji) {
-          console.debug('[conversations:auto-react] reacting with', decision.emoji);
-          dispatch(addReaction({ threadId, messageId: userMessageId, emoji: decision.emoji }));
-        }
-      })
-      .catch(err => {
-        console.debug('[conversations:auto-react] failed:', err);
-      });
-  };
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
