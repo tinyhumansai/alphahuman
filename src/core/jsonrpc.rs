@@ -679,7 +679,7 @@ pub async fn bootstrap_skill_runtime() {
 
     // --- Socket manager bootstrap ---
     let socket_mgr = Arc::new(SocketManager::new());
-    set_global_socket_manager(socket_mgr);
+    set_global_socket_manager(socket_mgr.clone());
     log::info!("[socket] SocketManager initialized and registered globally");
 
     // Register engine globally so RPC handlers can access it.
@@ -694,8 +694,40 @@ pub async fn bootstrap_skill_runtime() {
     log::info!("[runtime] Skill runtime initialized");
 
     // Auto-start skills in the background so it doesn't block server startup.
+    let engine_for_skills = engine.clone();
     tokio::spawn(async move {
-        engine.auto_start_skills().await;
+        engine_for_skills.auto_start_skills().await;
+    });
+
+    // Auto-connect socket to backend if a session token is already stored.
+    // This runs in the background so it doesn't block server startup.
+    tokio::spawn(async move {
+        log::info!("[socket] Checking for stored session to auto-connect...");
+        let config = match crate::openhuman::config::Config::load_or_init().await {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("[socket] Config not available for auto-connect: {e}");
+                return;
+            }
+        };
+        let api_url = crate::api::config::effective_api_url(&config.api_url);
+        let token = match crate::api::jwt::get_session_token(&config) {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                log::info!("[socket] No session token stored — skipping auto-connect (will connect after login)");
+                return;
+            }
+            Err(e) => {
+                log::warn!("[socket] Failed to read session token: {e}");
+                return;
+            }
+        };
+        log::info!("[socket] Session token found — auto-connecting to {}", api_url);
+        if let Err(e) = socket_mgr.connect(&api_url, &token).await {
+            log::error!("[socket] Auto-connect failed: {e}");
+        } else {
+            log::info!("[socket] Auto-connect initiated successfully");
+        }
     });
 }
 
