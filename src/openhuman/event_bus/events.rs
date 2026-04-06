@@ -79,10 +79,7 @@ pub enum DomainEvent {
 
     // ── Skills ──────────────────────────────────────────────────────────
     /// A skill was loaded into the runtime.
-    SkillLoaded {
-        skill_id: String,
-        runtime: String,
-    },
+    SkillLoaded { skill_id: String, runtime: String },
     /// A skill was stopped.
     SkillStopped { skill_id: String },
     /// A skill failed to start.
@@ -132,10 +129,7 @@ pub enum DomainEvent {
         tunnel_name: Option<String>,
     },
     /// A webhook tunnel was unregistered from a skill.
-    WebhookUnregistered {
-        tunnel_id: String,
-        skill_id: String,
-    },
+    WebhookUnregistered { tunnel_id: String, skill_id: String },
     /// A webhook request was fully processed (includes timing and status).
     WebhookProcessed {
         tunnel_id: String,
@@ -205,47 +199,237 @@ mod tests {
     fn all_variants_have_correct_domain() {
         let cases: Vec<(DomainEvent, &str)> = vec![
             // Agent
-            (DomainEvent::AgentTurnStarted { session_id: "s".into(), channel: "c".into() }, "agent"),
-            (DomainEvent::AgentTurnCompleted { session_id: "s".into(), text_chars: 0, iterations: 0 }, "agent"),
-            (DomainEvent::AgentError { session_id: "s".into(), message: "e".into(), recoverable: false }, "agent"),
-            // Memory
-            (DomainEvent::MemoryStored { key: "k".into(), category: "c".into(), namespace: "n".into() }, "memory"),
-            (DomainEvent::MemoryRecalled { query: "q".into(), hit_count: 0 }, "memory"),
-            // Channel
-            (DomainEvent::ChannelInboundMessage { event_name: "telegram:message".into(), channel: "telegram".into(), message: "hi".into(), raw_data: serde_json::Value::Null }, "channel"),
-            (DomainEvent::ChannelMessageReceived { channel: "c".into(), sender: "s".into(), content: "hi".into(), thread_ts: None }, "channel"),
-            (DomainEvent::ChannelMessageProcessed { channel: "c".into(), sender: "s".into(), content: "hi".into(), response: "hello".into(), elapsed_ms: 0, success: true }, "channel"),
-            (DomainEvent::ChannelConnected { channel: "c".into() }, "channel"),
-            (DomainEvent::ChannelDisconnected { channel: "c".into(), reason: "r".into() }, "channel"),
-            // Cron
-            (DomainEvent::CronJobTriggered { job_id: "j".into(), job_type: "t".into() }, "cron"),
-            (DomainEvent::CronJobCompleted { job_id: "j".into(), success: true }, "cron"),
-            (DomainEvent::CronDeliveryRequested { job_id: "j".into(), channel: "c".into(), target: "t".into(), output: "o".into() }, "cron"),
-            // Skill
-            (DomainEvent::SkillLoaded { skill_id: "s".into(), runtime: "quickjs".into() }, "skill"),
-            (DomainEvent::SkillStopped { skill_id: "s".into() }, "skill"),
-            (DomainEvent::SkillStartFailed { skill_id: "s".into(), error: "e".into() }, "skill"),
-            (DomainEvent::SkillExecuted { skill_id: "s".into(), tool_name: "t".into(), arguments: serde_json::Value::Null, result: None, success: true, elapsed_ms: 0 }, "skill"),
-            // Tool
-            (DomainEvent::ToolExecutionStarted { tool_name: "t".into(), session_id: "s".into() }, "tool"),
-            (DomainEvent::ToolExecutionCompleted { tool_name: "t".into(), session_id: "s".into(), success: true, elapsed_ms: 0 }, "tool"),
-            // Webhook
-            (DomainEvent::WebhookIncomingRequest {
-                request: crate::openhuman::webhooks::WebhookRequest {
-                    correlation_id: "c".into(), tunnel_id: "t".into(), tunnel_uuid: "u".into(),
-                    tunnel_name: "n".into(), method: "GET".into(), path: "/".into(),
-                    headers: Default::default(), query: Default::default(), body: String::new(),
+            (
+                DomainEvent::AgentTurnStarted {
+                    session_id: "s".into(),
+                    channel: "c".into(),
                 },
-                raw_data: serde_json::Value::Null,
-            }, "webhook"),
-            (DomainEvent::WebhookReceived { tunnel_id: "t".into(), skill_id: "s".into(), method: "GET".into(), path: "/".into(), correlation_id: "c".into() }, "webhook"),
-            (DomainEvent::WebhookRegistered { tunnel_id: "t".into(), skill_id: "s".into(), tunnel_name: None }, "webhook"),
-            (DomainEvent::WebhookUnregistered { tunnel_id: "t".into(), skill_id: "s".into() }, "webhook"),
-            (DomainEvent::WebhookProcessed { tunnel_id: "t".into(), skill_id: "s".into(), method: "GET".into(), path: "/".into(), correlation_id: "c".into(), status_code: 200, elapsed_ms: 0, error: None }, "webhook"),
+                "agent",
+            ),
+            (
+                DomainEvent::AgentTurnCompleted {
+                    session_id: "s".into(),
+                    text_chars: 0,
+                    iterations: 0,
+                },
+                "agent",
+            ),
+            (
+                DomainEvent::AgentError {
+                    session_id: "s".into(),
+                    message: "e".into(),
+                    recoverable: false,
+                },
+                "agent",
+            ),
+            // Memory
+            (
+                DomainEvent::MemoryStored {
+                    key: "k".into(),
+                    category: "c".into(),
+                    namespace: "n".into(),
+                },
+                "memory",
+            ),
+            (
+                DomainEvent::MemoryRecalled {
+                    query: "q".into(),
+                    hit_count: 0,
+                },
+                "memory",
+            ),
+            // Channel
+            (
+                DomainEvent::ChannelInboundMessage {
+                    event_name: "telegram:message".into(),
+                    channel: "telegram".into(),
+                    message: "hi".into(),
+                    raw_data: serde_json::Value::Null,
+                },
+                "channel",
+            ),
+            (
+                DomainEvent::ChannelMessageReceived {
+                    channel: "c".into(),
+                    sender: "s".into(),
+                    content: "hi".into(),
+                    thread_ts: None,
+                },
+                "channel",
+            ),
+            (
+                DomainEvent::ChannelMessageProcessed {
+                    channel: "c".into(),
+                    sender: "s".into(),
+                    content: "hi".into(),
+                    response: "hello".into(),
+                    elapsed_ms: 0,
+                    success: true,
+                },
+                "channel",
+            ),
+            (
+                DomainEvent::ChannelConnected {
+                    channel: "c".into(),
+                },
+                "channel",
+            ),
+            (
+                DomainEvent::ChannelDisconnected {
+                    channel: "c".into(),
+                    reason: "r".into(),
+                },
+                "channel",
+            ),
+            // Cron
+            (
+                DomainEvent::CronJobTriggered {
+                    job_id: "j".into(),
+                    job_type: "t".into(),
+                },
+                "cron",
+            ),
+            (
+                DomainEvent::CronJobCompleted {
+                    job_id: "j".into(),
+                    success: true,
+                },
+                "cron",
+            ),
+            (
+                DomainEvent::CronDeliveryRequested {
+                    job_id: "j".into(),
+                    channel: "c".into(),
+                    target: "t".into(),
+                    output: "o".into(),
+                },
+                "cron",
+            ),
+            // Skill
+            (
+                DomainEvent::SkillLoaded {
+                    skill_id: "s".into(),
+                    runtime: "quickjs".into(),
+                },
+                "skill",
+            ),
+            (
+                DomainEvent::SkillStopped {
+                    skill_id: "s".into(),
+                },
+                "skill",
+            ),
+            (
+                DomainEvent::SkillStartFailed {
+                    skill_id: "s".into(),
+                    error: "e".into(),
+                },
+                "skill",
+            ),
+            (
+                DomainEvent::SkillExecuted {
+                    skill_id: "s".into(),
+                    tool_name: "t".into(),
+                    arguments: serde_json::Value::Null,
+                    result: None,
+                    success: true,
+                    elapsed_ms: 0,
+                },
+                "skill",
+            ),
+            // Tool
+            (
+                DomainEvent::ToolExecutionStarted {
+                    tool_name: "t".into(),
+                    session_id: "s".into(),
+                },
+                "tool",
+            ),
+            (
+                DomainEvent::ToolExecutionCompleted {
+                    tool_name: "t".into(),
+                    session_id: "s".into(),
+                    success: true,
+                    elapsed_ms: 0,
+                },
+                "tool",
+            ),
+            // Webhook
+            (
+                DomainEvent::WebhookIncomingRequest {
+                    request: crate::openhuman::webhooks::WebhookRequest {
+                        correlation_id: "c".into(),
+                        tunnel_id: "t".into(),
+                        tunnel_uuid: "u".into(),
+                        tunnel_name: "n".into(),
+                        method: "GET".into(),
+                        path: "/".into(),
+                        headers: Default::default(),
+                        query: Default::default(),
+                        body: String::new(),
+                    },
+                    raw_data: serde_json::Value::Null,
+                },
+                "webhook",
+            ),
+            (
+                DomainEvent::WebhookReceived {
+                    tunnel_id: "t".into(),
+                    skill_id: "s".into(),
+                    method: "GET".into(),
+                    path: "/".into(),
+                    correlation_id: "c".into(),
+                },
+                "webhook",
+            ),
+            (
+                DomainEvent::WebhookRegistered {
+                    tunnel_id: "t".into(),
+                    skill_id: "s".into(),
+                    tunnel_name: None,
+                },
+                "webhook",
+            ),
+            (
+                DomainEvent::WebhookUnregistered {
+                    tunnel_id: "t".into(),
+                    skill_id: "s".into(),
+                },
+                "webhook",
+            ),
+            (
+                DomainEvent::WebhookProcessed {
+                    tunnel_id: "t".into(),
+                    skill_id: "s".into(),
+                    method: "GET".into(),
+                    path: "/".into(),
+                    correlation_id: "c".into(),
+                    status_code: 200,
+                    elapsed_ms: 0,
+                    error: None,
+                },
+                "webhook",
+            ),
             // System
-            (DomainEvent::SystemStartup { component: "c".into() }, "system"),
-            (DomainEvent::SystemShutdown { component: "c".into() }, "system"),
-            (DomainEvent::HealthChanged { component: "c".into(), healthy: true }, "system"),
+            (
+                DomainEvent::SystemStartup {
+                    component: "c".into(),
+                },
+                "system",
+            ),
+            (
+                DomainEvent::SystemShutdown {
+                    component: "c".into(),
+                },
+                "system",
+            ),
+            (
+                DomainEvent::HealthChanged {
+                    component: "c".into(),
+                    healthy: true,
+                },
+                "system",
+            ),
         ];
 
         for (event, expected_domain) in cases {

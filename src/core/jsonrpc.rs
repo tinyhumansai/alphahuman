@@ -691,9 +691,8 @@ pub async fn bootstrap_skill_runtime() {
 
     // --- Event bus bootstrap ---
     // Ensure the global event bus is initialized (no-op if already done by start_channels).
-    let bus = crate::openhuman::event_bus::init_global(
-        crate::openhuman::event_bus::DEFAULT_CAPACITY,
-    );
+    let bus =
+        crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
     // Register domain subscribers for cross-module event handling.
     let _webhook_request_handle = bus.subscribe(Arc::new(
         crate::openhuman::webhooks::bus::WebhookRequestSubscriber::new(),

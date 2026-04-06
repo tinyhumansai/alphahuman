@@ -38,7 +38,11 @@ impl EventHandler for WebhookRequestSubscriber {
     }
 
     async fn handle(&self, event: &DomainEvent) {
-        let DomainEvent::WebhookIncomingRequest { request, raw_data: _ } = event else {
+        let DomainEvent::WebhookIncomingRequest {
+            request,
+            raw_data: _,
+        } = event
+        else {
             return;
         };
 
@@ -59,13 +63,12 @@ impl EventHandler for WebhookRequestSubscriber {
         );
 
         // Get the webhook router from the skill engine
-        let router = crate::openhuman::skills::global_engine()
-            .map(|e| e.webhook_router());
+        let router = crate::openhuman::skills::global_engine().map(|e| e.webhook_router());
 
         let registration = router.as_ref().and_then(|r| r.registration(&tunnel_uuid));
-        let skill_id = registration.as_ref().and_then(|reg| {
-            (reg.target_kind == "skill").then(|| reg.skill_id.clone())
-        });
+        let skill_id = registration
+            .as_ref()
+            .and_then(|reg| (reg.target_kind == "skill").then(|| reg.skill_id.clone()));
         if let Some(ref router) = router {
             router.record_request(request, skill_id.clone());
         }
