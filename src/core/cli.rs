@@ -252,9 +252,8 @@ fn run_voice_server_command(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let config = crate::openhuman::config::load_config()
-            .await
-            .unwrap_or_default();
+        let mut config = crate::openhuman::config::Config::default();
+        config.apply_env_overrides();
 
         let activation_mode = match mode.as_deref() {
             Some("push") => ActivationMode::Push,

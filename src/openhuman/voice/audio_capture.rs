@@ -53,9 +53,45 @@ impl RecordingHandle {
 /// Start recording from the default microphone.
 ///
 /// Returns a `RecordingHandle` that must be `.stop().await`-ed to get
-/// the captured audio. Recording runs on a background thread (cpal
-/// requires a real OS thread for the audio callback).
+/// the captured audio. Recording runs on a dedicated OS thread because
+/// `cpal::Stream` is `!Send` (it must be created and dropped on the
+/// same thread).
 pub fn start_recording() -> Result<RecordingHandle, String> {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_flag_clone = stop_flag.clone();
+    let (result_tx, result_rx) = oneshot::channel();
+
+    // Use a oneshot to report whether stream setup succeeded.
+    let (setup_tx, setup_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+
+    std::thread::Builder::new()
+        .name("voice-capture".into())
+        .spawn(move || {
+            // All cpal objects are created and used on this thread.
+            let result = record_on_thread(stop_flag_clone, setup_tx);
+            let _ = result_tx.send(result);
+        })
+        .map_err(|e| format!("failed to spawn capture thread: {e}"))?;
+
+    // Wait for the stream to be set up (or an error).
+    match setup_rx.recv() {
+        Ok(Ok(())) => {
+            info!("{LOG_PREFIX} recording started");
+            Ok(RecordingHandle {
+                stop_flag,
+                result_rx: Some(result_rx),
+            })
+        }
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("capture thread exited before signalling readiness".to_string()),
+    }
+}
+
+/// Runs the entire recording lifecycle on a single thread (cpal requirement).
+fn record_on_thread(
+    stop_flag: Arc<AtomicBool>,
+    setup_tx: std::sync::mpsc::SyncSender<Result<(), String>>,
+) -> Result<RecordingResult, String> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -68,7 +104,6 @@ pub fn start_recording() -> Result<RecordingHandle, String> {
         .supported_input_configs()
         .map_err(|e| format!("failed to query input configs: {e}"))?;
 
-    // Try to find a config that supports our target sample rate, else pick default.
     let config = find_best_config(supported_configs)?;
     let source_sample_rate = config.sample_rate().0;
     let source_channels = config.channels() as usize;
@@ -78,90 +113,84 @@ pub fn start_recording() -> Result<RecordingHandle, String> {
         config.sample_format()
     );
 
-    let stop_flag = Arc::new(AtomicBool::new(false));
-    let stop_flag_clone = stop_flag.clone();
-    let (result_tx, result_rx) = oneshot::channel();
-
-    // Collect raw f32 samples on the audio thread.
     let samples: Arc<parking_lot::Mutex<Vec<f32>>> =
         Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
-            TARGET_SAMPLE_RATE as usize * 30, // pre-alloc ~30s
+            TARGET_SAMPLE_RATE as usize * 30,
         )));
-    let samples_writer = samples.clone();
 
     let sample_format = config.sample_format();
     let stream_config: StreamConfig = config.into();
 
-    // Build the cpal stream.
-    let stream = match sample_format {
-        SampleFormat::F32 => device
-            .build_input_stream(
-                &stream_config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let mono = to_mono(data, source_channels);
-                    samples_writer.lock().extend_from_slice(&mono);
-                },
-                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
-                None,
-            )
-            .map_err(|e| format!("failed to build f32 input stream: {e}"))?,
-        SampleFormat::I16 => device
-            .build_input_stream(
-                &stream_config,
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let floats: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
-                    let mono = to_mono(&floats, source_channels);
-                    samples_writer.lock().extend_from_slice(&mono);
-                },
-                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
-                None,
-            )
-            .map_err(|e| format!("failed to build i16 input stream: {e}"))?,
-        SampleFormat::U16 => device
-            .build_input_stream(
-                &stream_config,
-                move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                    let floats: Vec<f32> =
-                        data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
-                    let mono = to_mono(&floats, source_channels);
-                    samples_writer.lock().extend_from_slice(&mono);
-                },
-                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
-                None,
-            )
-            .map_err(|e| format!("failed to build u16 input stream: {e}"))?,
-        other => return Err(format!("unsupported sample format: {other:?}")),
+    let stream = {
+        let samples_writer = samples.clone();
+        match sample_format {
+            SampleFormat::F32 => device
+                .build_input_stream(
+                    &stream_config,
+                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        let mono = to_mono(data, source_channels);
+                        samples_writer.lock().extend_from_slice(&mono);
+                    },
+                    |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                    None,
+                )
+                .map_err(|e| format!("failed to build f32 input stream: {e}")),
+            SampleFormat::I16 => device
+                .build_input_stream(
+                    &stream_config,
+                    move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                        let floats: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
+                        let mono = to_mono(&floats, source_channels);
+                        samples_writer.lock().extend_from_slice(&mono);
+                    },
+                    |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                    None,
+                )
+                .map_err(|e| format!("failed to build i16 input stream: {e}")),
+            SampleFormat::U16 => device
+                .build_input_stream(
+                    &stream_config,
+                    move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                        let floats: Vec<f32> =
+                            data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
+                        let mono = to_mono(&floats, source_channels);
+                        samples_writer.lock().extend_from_slice(&mono);
+                    },
+                    |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                    None,
+                )
+                .map_err(|e| format!("failed to build u16 input stream: {e}")),
+            other => Err(format!("unsupported sample format: {other:?}")),
+        }
     };
 
-    stream
-        .play()
-        .map_err(|e| format!("failed to start audio stream: {e}"))?;
+    let stream = match stream {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = setup_tx.send(Err(e.clone()));
+            return Err(e);
+        }
+    };
 
-    info!("{LOG_PREFIX} recording started");
+    if let Err(e) = stream.play() {
+        let msg = format!("failed to start audio stream: {e}");
+        let _ = setup_tx.send(Err(msg.clone()));
+        return Err(msg);
+    }
 
-    // Spin a background thread to poll the stop flag and finalize.
-    std::thread::Builder::new()
-        .name("voice-capture".into())
-        .spawn(move || {
-            // Keep stream alive on this thread.
-            let _stream = stream;
+    // Signal success so start_recording() returns.
+    let _ = setup_tx.send(Ok(()));
 
-            while !stop_flag_clone.load(Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+    // Poll stop flag while keeping the stream alive on this thread.
+    while !stop_flag.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
-            debug!("{LOG_PREFIX} stop flag detected, finalizing recording");
+    debug!("{LOG_PREFIX} stop flag detected, finalizing recording");
+    drop(stream);
 
-            let raw_samples = samples.lock().clone();
-            let result = finalize_recording(raw_samples, source_sample_rate);
-            let _ = result_tx.send(result);
-        })
-        .map_err(|e| format!("failed to spawn capture thread: {e}"))?;
-
-    Ok(RecordingHandle {
-        stop_flag,
-        result_rx: Some(result_rx),
-    })
+    let raw_samples = samples.lock().clone();
+    finalize_recording(raw_samples, source_sample_rate)
 }
 
 /// List available input devices.
