@@ -901,99 +901,71 @@ impl Config {
 mod tests {
     use super::*;
 
-    /// Helper: write a minimal auth-profiles.json with an app-session profile.
-    fn write_auth_profiles(dir: &Path, user_id: Option<&str>, has_token: bool) {
-        let token_value = if has_token { "\"jwt-abc\"" } else { "null" };
-        let metadata = match user_id {
-            Some(id) => format!("{{ \"user_id\": \"{id}\" }}"),
-            None => "{}".to_string(),
-        };
-        let json = format!(
-            r#"{{
-  "schema_version": 1,
-  "updated_at": "2026-01-01T00:00:00Z",
-  "active_profiles": {{ "app-session": "app-session:default" }},
-  "profiles": {{
-    "app-session:default": {{
-      "provider": "app-session",
-      "profile_name": "default",
-      "kind": "token",
-      "token": {token_value},
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:00:00Z",
-      "metadata": {metadata}
-    }}
-  }}
-}}"#
-        );
-        std::fs::write(dir.join("auth-profiles.json"), json).unwrap();
+    #[test]
+    fn read_active_user_returns_none_when_no_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
     }
 
     #[test]
-    fn read_user_id_returns_none_when_no_profiles_file() {
+    fn read_active_user_returns_none_when_empty() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(read_authenticated_user_id(tmp.path()).is_none());
+        std::fs::write(tmp.path().join(ACTIVE_USER_STATE_FILE), "").unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
     }
 
     #[test]
-    fn read_user_id_returns_none_when_no_token() {
+    fn read_active_user_returns_id_when_present() {
         let tmp = tempfile::tempdir().unwrap();
-        write_auth_profiles(tmp.path(), Some("user-123"), false);
-        assert!(read_authenticated_user_id(tmp.path()).is_none());
-    }
-
-    #[test]
-    fn read_user_id_returns_none_when_no_user_id_metadata() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_auth_profiles(tmp.path(), None, true);
-        assert!(read_authenticated_user_id(tmp.path()).is_none());
-    }
-
-    #[test]
-    fn read_user_id_returns_id_when_authenticated() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_auth_profiles(tmp.path(), Some("user-456"), true);
+        write_active_user_id(tmp.path(), "user-789").unwrap();
         assert_eq!(
-            read_authenticated_user_id(tmp.path()),
-            Some("user-456".to_string())
+            read_active_user_id(tmp.path()),
+            Some("user-789".to_string())
         );
     }
 
-    #[tokio::test]
-    async fn scope_workspace_to_user_creates_user_dir() {
+    #[test]
+    fn write_and_clear_active_user_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
-        let openhuman_dir = tmp.path();
-        write_auth_profiles(openhuman_dir, Some("u-abc"), true);
 
-        let mut config = Config::default();
-        config.workspace_dir = openhuman_dir.join("workspace");
+        write_active_user_id(tmp.path(), "u-abc").unwrap();
+        assert_eq!(read_active_user_id(tmp.path()), Some("u-abc".to_string()));
 
-        maybe_scope_workspace_to_user(&mut config, openhuman_dir)
-            .await
-            .unwrap();
+        clear_active_user(tmp.path()).unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
+    }
 
-        let expected = openhuman_dir
-            .join("users")
-            .join("u-abc")
-            .join("workspace");
-        assert_eq!(config.workspace_dir, expected);
-        assert!(expected.exists());
+    #[test]
+    fn user_openhuman_dir_builds_correct_path() {
+        let root = PathBuf::from("/home/test/.openhuman");
+        let dir = user_openhuman_dir(&root, "user-123");
+        assert_eq!(dir, PathBuf::from("/home/test/.openhuman/users/user-123"));
     }
 
     #[tokio::test]
-    async fn scope_workspace_noop_when_unauthenticated() {
+    async fn resolve_dirs_uses_active_user_when_present() {
         let tmp = tempfile::tempdir().unwrap();
-        let openhuman_dir = tmp.path();
-        // No auth-profiles.json at all.
+        let root = tmp.path();
+        let default_workspace = root.join("workspace");
 
-        let mut config = Config::default();
-        let original = openhuman_dir.join("workspace");
-        config.workspace_dir = original.clone();
+        // No active user → uses default.
+        let (oh_dir, ws_dir, source) =
+            resolve_runtime_config_dirs(root, &default_workspace)
+                .await
+                .unwrap();
+        assert_eq!(oh_dir, root);
+        assert_eq!(ws_dir, default_workspace);
+        assert_eq!(source, ConfigResolutionSource::DefaultConfigDir);
 
-        maybe_scope_workspace_to_user(&mut config, openhuman_dir)
-            .await
-            .unwrap();
-
-        assert_eq!(config.workspace_dir, original);
+        // With active user → scopes to user dir.
+        write_active_user_id(root, "u-test").unwrap();
+        let (oh_dir, ws_dir, source) =
+            resolve_runtime_config_dirs(root, &default_workspace)
+                .await
+                .unwrap();
+        let expected_user_dir = root.join("users").join("u-test");
+        assert_eq!(oh_dir, expected_user_dir);
+        assert_eq!(ws_dir, expected_user_dir.join("workspace"));
+        assert_eq!(source, ConfigResolutionSource::ActiveUser);
     }
 }
