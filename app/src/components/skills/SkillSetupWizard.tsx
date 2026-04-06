@@ -710,13 +710,11 @@ function OAuthLoginView({
       }
       if (!running) throw new Error("Skill did not reach running state within timeout");
 
-      // 4. Notify skill of OAuth completion
+      // 4. Notify skill of OAuth completion — the snapshot effect will
+      //    detect the connected state and transition to setup automatically.
       await skillManager.notifyOAuthComplete(skillId, id, provider, {
         clientKeyShare,
       });
-
-      // 5. Advance wizard
-      onManualComplete?.();
     } catch (err) {
       setDevError(err instanceof Error ? err.message : String(err));
     } finally {
