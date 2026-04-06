@@ -84,9 +84,7 @@ class MiniGl {
                   material.Source
                 )));
               if (!material.vertexShader || !material.fragmentShader) {
-                console.warn('[MeshGradient] Shader compilation failed — skipping program link');
-                material.program = null;
-                return;
+                throw new Error('[MeshGradient] Shader compilation failed — WebGL context may be lost');
               }
               ((material.program = context.createProgram()),
                 context.attachShader(material.program, material.vertexShader),
@@ -490,16 +488,6 @@ class Gradient {
           console.warn('[MeshGradient] Element is not a canvas:', selector);
           return this;
         }
-        // Probe WebGL support on a throwaway canvas so we don't permanently
-        // bind this.el to a context type that MiniGl may not request.
-        const probe = document.createElement('canvas');
-        const probeCtx = probe.getContext('webgl') || probe.getContext('webgl2');
-        if (!probeCtx) {
-          console.warn('[MeshGradient] WebGL not available');
-          return this;
-        }
-        // Release the probe context so it doesn't count against the browser limit.
-        probeCtx.getExtension('WEBGL_lose_context')?.loseContext();
         this.connect();
         return this;
       }));
@@ -638,11 +626,15 @@ class Gradient {
       document.body.classList.remove('isGradientLegendVisible'));
   }
   init() {
-    (this.initGradientColors(),
-      this.initMesh(),
-      this.resize(),
-      requestAnimationFrame(this.animate),
-      window.addEventListener('resize', this.resize));
+    try {
+      (this.initGradientColors(),
+        this.initMesh(),
+        this.resize(),
+        requestAnimationFrame(this.animate),
+        window.addEventListener('resize', this.resize));
+    } catch (err) {
+      console.warn('[MeshGradient] init failed, gradient disabled:', err);
+    }
   }
   /*
    * Waiting for the css variables to become available, usually on page load before we can continue.

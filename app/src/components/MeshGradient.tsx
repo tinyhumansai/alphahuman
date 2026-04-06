@@ -12,7 +12,6 @@ export default function MeshGradient() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
     let gradient: InstanceType<typeof Gradient> | null = null;
 
     try {
@@ -28,12 +27,6 @@ export default function MeshGradient() {
         if (gradient) {
           gradient.disconnect();
           gradient.pause();
-        }
-        if (canvas) {
-          const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
-          if (gl) {
-            gl.getExtension('WEBGL_lose_context')?.loseContext();
-          }
         }
       } catch {
         // Cleanup is best-effort.
