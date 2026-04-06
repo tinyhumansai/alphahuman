@@ -1,5 +1,5 @@
 //! High-level operations for managing skills.
-//! 
+//!
 //! This module provides functions for initializing the skills directory,
 //! loading skills from disk, and parsing legacy skill manifests (`skill.json`)
 //! and documentation (`SKILL.md`).
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Represents a skill in the system.
-/// 
+///
 /// This structure holds metadata about a skill, including its name,
 /// description, version, and location on disk.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -51,7 +51,7 @@ struct LegacySkillManifest {
 }
 
 /// Initialize the skills directory in the specified workspace.
-/// 
+///
 /// It creates the `skills` folder and a default `README.md` if they don't exist.
 pub fn init_skills_dir(workspace_dir: &Path) -> Result<(), String> {
     let skills_dir = workspace_dir.join("skills");
@@ -73,7 +73,7 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<(), String> {
 }
 
 /// Discover and load all skills from the `skills` directory in the workspace.
-/// 
+///
 /// It scans subdirectories, parses manifests (`skill.json`), and reads
 /// descriptions from `SKILL.md` if necessary.
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {

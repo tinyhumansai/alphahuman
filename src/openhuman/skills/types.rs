@@ -1,5 +1,5 @@
 //! Core type definitions for the QuickJS skill runtime.
-//! 
+//!
 //! This module defines the essential data structures used throughout the skills system,
 //! including lifecycle statuses, message types for internal communication,
 //! tool definitions, and state snapshots.
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::openhuman::webhooks::WebhookResponseData;
 
 /// Status of a running skill instance.
-/// 
+///
 /// Represents the current phase of a skill's lifecycle, from registration
 /// to active execution or error states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,8 +33,8 @@ pub enum SkillStatus {
 }
 
 /// Messages sent to a skill instance's message loop for processing.
-/// 
-/// This enum covers all possible interactions between the runtime/host 
+///
+/// This enum covers all possible interactions between the runtime/host
 /// and the skill's JavaScript environment.
 #[derive(Debug)]
 pub enum SkillMessage {
@@ -55,9 +55,9 @@ pub enum SkillMessage {
         data: serde_json::Value,
     },
     /// Trigger a pre-registered cron job within the skill.
-    CronTrigger { 
+    CronTrigger {
         /// Identifier of the schedule that triggered this message.
-        schedule_id: String 
+        schedule_id: String,
     },
     /// Request the skill to stop its execution gracefully.
     Stop {
@@ -137,11 +137,11 @@ pub enum SkillMessage {
         reply: tokio::sync::oneshot::Sender<Result<serde_json::Value, String>>,
     },
     /// Pass parameters loaded from the frontend to the skill.
-    /// 
+    ///
     /// Typically used to provide session-specific data like wallet addresses.
-    LoadParams { 
+    LoadParams {
         /// JSON parameters to load.
-        params: serde_json::Value 
+        params: serde_json::Value,
     },
     /// Deliver a targeted webhook request to the skill.
     WebhookRequest {
@@ -172,9 +172,9 @@ pub enum ToolCallOrigin {
     /// Request initiated from outside the skill runtime (e.g., UI, backend, or CLI).
     External,
     /// Request initiated from within a skill's own execution environment.
-    SkillSelf { 
+    SkillSelf {
         /// ID of the skill making the call.
-        skill_id: String 
+        skill_id: String,
     },
 }
 
@@ -211,7 +211,7 @@ pub struct ToolDefinition {
 }
 
 /// A comprehensive snapshot of a skill's current state.
-/// 
+///
 /// This struct is serialized and sent to the frontend to update the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillSnapshot {
@@ -238,8 +238,8 @@ pub struct SkillSnapshot {
 }
 
 /// Derive a unified connection status string for UI display.
-/// 
-/// This function translates internal statuses and skill-reported health 
+///
+/// This function translates internal statuses and skill-reported health
 /// (e.g., auth status) into a set of standard strings consumed by the frontend.
 pub fn derive_connection_status(
     status: SkillStatus,

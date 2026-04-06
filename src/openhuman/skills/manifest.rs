@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Setup configuration defined in `manifest.json`.
-/// 
+///
 /// This describes whether a skill requires manual setup and what authentication
 /// or configuration fields should be presented to the user in the UI.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -20,11 +20,11 @@ pub struct SkillSetup {
     /// human-readable label for the setup process.
     pub label: Option<String>,
     /// OAuth configuration (provider, scopes, apiBaseUrl).
-    /// 
+    ///
     /// NOTE: This is considered legacy — prefer `auth` for new skills.
     pub oauth: Option<serde_json::Value>,
     /// Advanced authentication configuration with support for multiple modes.
-    /// 
+    ///
     /// When present, the UI shows a mode selector (e.g., managed vs. self-hosted).
     #[serde(default)]
     pub auth: Option<SkillAuthConfig>,
@@ -65,7 +65,7 @@ where
 }
 
 /// A single authentication mode that a skill supports.
-/// 
+///
 /// The fields in this struct are used selectively based on the `mode_type`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SkillAuthMode {
@@ -76,7 +76,7 @@ pub struct SkillAuthMode {
     pub label: Option<String>,
     /// Short description of the mode shown below the label.
     pub description: Option<String>,
-    
+
     // --- Managed mode fields ---
     /// OAuth provider name (e.g., "google", "github", "notion").
     pub provider: Option<String>,
@@ -85,12 +85,12 @@ pub struct SkillAuthMode {
     /// Base URL for API requests that are proxied through the OpenHuman backend.
     #[serde(rename = "apiBaseUrl")]
     pub api_base_url: Option<String>,
-    
+
     // --- Self-hosted mode fields ---
     /// Dynamic form fields for credential input, represented as JSON objects.
     #[serde(default)]
     pub fields: Vec<serde_json::Value>,
-    
+
     // --- Text mode fields ---
     /// Hint text shown above the textarea input.
     #[serde(rename = "textDescription")]
@@ -175,14 +175,14 @@ impl SkillManifest {
     }
 
     /// Check if the manifest specifies a JavaScript-compatible runtime.
-    /// 
+    ///
     /// Currently accepts "v8", "javascript", and "quickjs".
     pub fn is_javascript(&self) -> bool {
         matches!(self.runtime.as_str(), "v8" | "javascript" | "quickjs")
     }
 
     /// Check if the skill is supported on the current execution platform.
-    /// 
+    ///
     /// Returns true if `platforms` is not specified or if the current platform
     /// is explicitly included in the list.
     pub fn supports_current_platform(&self) -> bool {
@@ -195,7 +195,7 @@ impl SkillManifest {
     }
 
     /// Convert the manifest into a `SkillConfig` for use by the `RuntimeEngine`.
-    /// 
+    ///
     /// This resolves default values and converts megabytes to bytes.
     pub fn to_config(&self) -> SkillConfig {
         SkillConfig {

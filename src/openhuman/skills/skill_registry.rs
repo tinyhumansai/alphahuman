@@ -1,7 +1,7 @@
 //! SkillRegistry — tracks all registered/running skills and routes messages.
-//! 
+//!
 //! The registry is the central source of truth for which skills are currently
-//! active in the runtime. It manages the communication channels (senders) to 
+//! active in the runtime. It manages the communication channels (senders) to
 //! each skill's event loop and provides methods for interacting with them.
 
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ struct RegistryEntry {
 }
 
 /// Central registry of all skills known to the runtime.
-/// 
+///
 /// This struct provides thread-safe access to all active skills and mediates
 /// message routing, tool calls, and event broadcasting.
 pub struct SkillRegistry {
@@ -47,7 +47,7 @@ impl SkillRegistry {
     }
 
     /// Register a skill instance after it has been created and spawned.
-    /// 
+    ///
     /// This makes the skill available for discovery and interaction through the registry.
     pub fn register(
         &self,
@@ -70,14 +70,14 @@ impl SkillRegistry {
     }
 
     /// Unregister a skill from the registry.
-    /// 
+    ///
     /// This is typically called after a skill has successfully stopped.
     pub fn unregister(&self, skill_id: &str) {
         self.skills.write().remove(skill_id);
     }
 
     /// Get a snapshot of all currently registered skills.
-    /// 
+    ///
     /// Returns a list of `SkillSnapshot` containing the latest state of each skill.
     pub fn list_skills(&self) -> Vec<SkillSnapshot> {
         self.skills
@@ -91,7 +91,7 @@ impl SkillRegistry {
     }
 
     /// Get a snapshot of a single skill by its ID.
-    /// 
+    ///
     /// Returns `None` if the skill is not found in the registry.
     pub fn get_skill(&self, skill_id: &str) -> Option<SkillSnapshot> {
         let skills = self.skills.read();
@@ -143,7 +143,7 @@ impl SkillRegistry {
     }
 
     /// Call a tool with an explicit origin so runtime policy can enforce security boundaries.
-    /// 
+    ///
     /// Currently, cross-skill tool calls are forbidden to ensure isolation.
     pub async fn call_tool_scoped(
         &self,
@@ -283,7 +283,7 @@ impl SkillRegistry {
     }
 
     /// Stop a specific skill gracefully by sending a `Stop` message.
-    /// 
+    ///
     /// It waits up to 5 seconds for the skill to acknowledge the stop request.
     pub async fn stop_skill(&self, skill_id: &str) -> Result<(), String> {
         let sender = {
@@ -312,7 +312,7 @@ impl SkillRegistry {
     }
 
     /// Get all tool definitions across all running skills.
-    /// 
+    ///
     /// Returns a list of tuples containing the skill ID and the tool definition.
     pub fn all_tools(&self) -> Vec<(String, ToolDefinition)> {
         self.skills
@@ -336,7 +336,7 @@ impl SkillRegistry {
     }
 
     /// Merge a patch into a running skill's published state and broadcast the change.
-    /// 
+    ///
     /// This is used by components like the ping scheduler to update health information.
     pub async fn merge_published_state(
         &self,
@@ -369,7 +369,7 @@ impl SkillRegistry {
     }
 
     /// Send a raw `SkillMessage` to a specific skill's message loop.
-    /// 
+    ///
     /// This is a non-blocking operation that returns an error if the skill
     /// is not running or the message channel is full/closed.
     pub fn send_message(&self, skill_id: &str, msg: SkillMessage) -> Result<(), String> {
@@ -407,9 +407,9 @@ impl SkillRegistry {
 
     /// Send an incoming webhook request to a specific skill and wait for its response.
     ///
-    /// This routes a request from an external tunnel to the skill's internal 
+    /// This routes a request from an external tunnel to the skill's internal
     /// webhook handler. It returns the response (status, headers, body) or an error.
-    /// 
+    ///
     /// The request will time out after 25 seconds if no response is received.
     pub async fn send_webhook_request(
         &self,

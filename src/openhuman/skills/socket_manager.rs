@@ -82,7 +82,7 @@ enum ConnectionOutcome {
 // ---------------------------------------------------------------------------
 
 /// Manages a persistent Socket.IO connection to the backend.
-/// 
+///
 /// It handles protocol-level handshakes (Engine.IO/Socket.IO),heartbeats,
 /// and automatic reconnection, while providing a high-level API for emitting
 /// events and syncing tool state.
@@ -141,9 +141,9 @@ impl SocketManager {
     // -----------------------------------------------------------------------
     // Connection lifecycle (desktop)
     // -----------------------------------------------------------------------
-    
+
     /// Connect to the specified URL using the provided authentication token.
-    /// 
+    ///
     /// This spawns a background `ws_loop` that manages the connection.
     pub async fn connect(&self, url: &str, token: &str) -> Result<(), String> {
         self.disconnect().await?;
@@ -204,7 +204,7 @@ impl SocketManager {
     // -----------------------------------------------------------------------
 
     /// Emit `tool:sync` with the current skill/tool state.
-    /// 
+    ///
     /// This is called automatically on reconnect and should be called
     /// manually after any skill lifecycle changes (start/stop).
     pub async fn sync_tools(&self) {
@@ -460,7 +460,7 @@ async fn run_connection(
 // ---------------------------------------------------------------------------
 
 /// Read the Engine.IO OPEN packet (type 0) from the WebSocket.
-/// 
+///
 /// Format: `0{"sid":"...","upgrades":[],"pingInterval":25000,"pingTimeout":20000}`
 async fn read_eio_open(
     ws_read: &mut futures_util::stream::SplitStream<WsStream>,
@@ -486,7 +486,7 @@ async fn read_eio_open(
 }
 
 /// Read the Socket.IO CONNECT ACK (type 40) from the WebSocket.
-/// 
+///
 /// Format: `40{"sid":"..."}` or `44{"message":"error"}` for connect error.
 async fn read_sio_connect_ack(
     ws_read: &mut futures_util::stream::SplitStream<WsStream>,
@@ -1045,7 +1045,7 @@ async fn handle_webhook_request(
 }
 
 /// Base64-encode a string for transmission in webhook response bodies.
-/// 
+///
 /// Uses the `STANDARD` alphabet (A-Z, a-z, 0-9, +, /) with `=` padding.
 fn base64_encode(input: &str) -> String {
     use base64::Engine;
@@ -1057,7 +1057,7 @@ fn base64_encode(input: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Send a Socket.IO event through the emit channel with the proper prefix.
-/// 
+///
 /// Format: `42["eventName", data]`
 fn emit_via_channel(tx: &mpsc::UnboundedSender<String>, event: &str, data: serde_json::Value) {
     let payload = serde_json::to_string(&json!([event, data])).unwrap_or_default();
@@ -1072,7 +1072,7 @@ fn emit_via_channel(tx: &mpsc::UnboundedSender<String>, event: &str, data: serde
 // ---------------------------------------------------------------------------
 
 /// Derive a unified connection status string from a skill snapshot.
-/// 
+///
 /// This logic mirrors the frontend's `deriveConnectionStatus()` to ensure
 /// consistent display of skill health.
 fn derive_connection_status(snap: &SkillSnapshot) -> &'static str {
@@ -1131,7 +1131,7 @@ fn sync_tools_via_channel(emit_tx: &mpsc::UnboundedSender<String>, shared: &Shar
 // ---------------------------------------------------------------------------
 
 /// Parse a Socket.IO EVENT payload into an event name and JSON data.
-/// 
+///
 /// Format: `["eventName", data]` or `<ackId>["eventName", data]`.
 fn parse_sio_event(text: &str) -> Option<(String, serde_json::Value)> {
     // Find the start of the JSON array (skip optional ACK id digits)

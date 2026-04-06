@@ -1,5 +1,5 @@
 //! The `skills` module provides the core runtime and management system for OpenHuman skills.
-//! 
+//!
 //! It includes:
 //! - A QuickJS-based engine for executing skill code (`qjs_engine.rs`)
 //! - A registry for managing installed and active skills (`skill_registry.rs`)

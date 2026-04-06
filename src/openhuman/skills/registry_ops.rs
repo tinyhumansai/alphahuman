@@ -37,10 +37,10 @@ pub async fn registry_fetch(
             .map_err(|e| format!("registry file is not valid UTF-8: {e}"))?;
         let mut registry: RemoteSkillRegistry = serde_json::from_str(&body)
             .map_err(|e| format!("failed to parse local registry JSON: {e}"))?;
-        
+
         // Ensure category flags are set correctly based on the registry structure
         tag_categories(&mut registry);
-        
+
         log::info!(
             "[registry] loaded {} core + {} third-party skills from local file",
             registry.skills.core.len(),

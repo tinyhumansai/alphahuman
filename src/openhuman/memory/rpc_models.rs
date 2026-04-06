@@ -4,8 +4,8 @@
 //! interface to interact with the memory system. These models ensure type-safe
 //! communication between the frontend/client and the Rust backend.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Standard error structure for API responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,8 +441,8 @@ fn default_memory_relative_dir() -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use super::RecallMemoriesRequest;
+    use serde_json::json;
 
     #[test]
     fn recall_memories_request_accepts_compatibility_noop_params() {

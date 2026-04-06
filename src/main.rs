@@ -49,7 +49,7 @@ fn main() {
 
     // Collect command-line arguments, skipping the binary name.
     let args: Vec<String> = std::env::args().skip(1).collect();
-    
+
     // Delegate to the core library to handle the command.
     if let Err(err) = openhuman_core::run_core_from_args(&args) {
         eprintln!("{err}");

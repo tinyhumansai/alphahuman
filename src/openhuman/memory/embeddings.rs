@@ -115,7 +115,7 @@ impl FastembedEmbedding {
 }
 
 /// Configures the search path for the ONNX Runtime dynamic library.
-/// 
+///
 /// This is critical for Fastembed to function across different platforms and
 /// installation methods (e.g., local dev, bundled app). It checks several
 /// locations in order of priority:
@@ -226,11 +226,11 @@ impl EmbeddingProvider for FastembedEmbedding {
             .collect::<Vec<_>>();
         let state = Arc::clone(&self.state);
         let provider = self.model.clone();
-        
+
         let join_result = tokio::task::spawn_blocking(move || {
             ensure_fastembed_ort_dylib_path();
             let mut guard = state.lock();
-            
+
             // Lazy initialization of the model on the first request.
             if matches!(*guard, FastembedState::Uninitialized) {
                 match fastembed::TextEmbedding::try_new(
@@ -388,7 +388,7 @@ impl EmbeddingProvider for OpenAiEmbedding {
 // ── Factory ──────────────────────────────────────────────────
 
 /// Creates an embedding provider based on the specified name and configuration.
-/// 
+///
 /// Supports "fastembed", "openai", and "custom:<url>".
 pub fn create_embedding_provider(
     provider: &str,

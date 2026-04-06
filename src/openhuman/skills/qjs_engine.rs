@@ -42,7 +42,7 @@ use crate::openhuman::skills::types::{SkillSnapshot, SkillStatus, ToolCallOrigin
 use crate::openhuman::webhooks::WebhookRouter;
 
 /// The central runtime engine using QuickJS.
-/// 
+///
 /// This struct orchestrates the lifecycle of all JavaScript-based skills,
 /// managing their discovery, startup, shutdown, and communication.
 pub struct RuntimeEngine {
@@ -72,7 +72,7 @@ pub struct RuntimeEngine {
 
 impl RuntimeEngine {
     /// Create a new RuntimeEngine with the specified data directory.
-    /// 
+    ///
     /// This initializes all core components including the registry, schedulers,
     /// and preference store.
     pub fn new(skills_data_dir: PathBuf) -> Result<Self, String> {
@@ -175,7 +175,7 @@ impl RuntimeEngine {
     }
 
     /// Resolve the directory where skills should be loaded from.
-    /// 
+    ///
     /// The resolution follows this priority:
     /// 1. `SKILLS_LOCAL_DIR` environment variable (for development)
     /// 2. Programmatically set source directory
@@ -266,7 +266,7 @@ impl RuntimeEngine {
     }
 
     /// Discover all JavaScript skills from the skills source directory and workspace.
-    /// 
+    ///
     /// Returns a list of `SkillManifest` for all valid skills found.
     pub async fn discover_skills(&self) -> Result<Vec<SkillManifest>, String> {
         let mut manifests = Vec::new();
@@ -356,8 +356,8 @@ impl RuntimeEngine {
     }
 
     /// Start a specific skill by its ID.
-    /// 
-    /// This resolves the skill directory, creates a `QjsSkillInstance`, 
+    ///
+    /// This resolves the skill directory, creates a `QjsSkillInstance`,
     /// spawns its execution task, and registers it in the registry.
     /// It then waits for the skill to reach the `Running` state or fail.
     pub async fn start_skill(&self, skill_id: &str) -> Result<SkillSnapshot, String> {
@@ -518,8 +518,8 @@ impl RuntimeEngine {
     }
 
     /// Stop a running skill.
-    /// 
-    /// This sends a stop signal to the skill, unregisters it from schedulers 
+    ///
+    /// This sends a stop signal to the skill, unregisters it from schedulers
     /// and the webhook router, and updates its status.
     pub async fn stop_skill(&self, skill_id: &str) -> Result<(), String> {
         self.registry.stop_skill(skill_id).await?;
@@ -575,7 +575,7 @@ impl RuntimeEngine {
     }
 
     /// Call a tool from inside a running skill. Enforces self-only invocation.
-    /// 
+    ///
     /// This is used when a skill wants to call its own tools or when inter-skill
     /// communication is permitted.
     pub async fn call_tool_as_skill(
@@ -619,7 +619,7 @@ impl RuntimeEngine {
     }
 
     /// Auto-start skills based on user preferences and manifest defaults.
-    /// 
+    ///
     /// No stagger delay is needed for QuickJS as instances are lightweight.
     pub async fn auto_start_skills(&self) {
         match self.discover_skills().await {
@@ -681,14 +681,14 @@ impl RuntimeEngine {
     }
 
     /// Read a KV value from a skill's database.
-    /// 
+    ///
     /// NOTE: This was removed during runtime cleanup and currently returns an error.
     pub fn kv_get(&self, _skill_id: &str, _key: &str) -> Result<serde_json::Value, String> {
         Err("KV storage removed during runtime cleanup".to_string())
     }
 
     /// Write a KV value into a skill's database.
-    /// 
+    ///
     /// NOTE: This was removed during runtime cleanup and currently returns an error.
     pub fn kv_set(
         &self,
@@ -700,8 +700,8 @@ impl RuntimeEngine {
     }
 
     /// Route a JSON-RPC method call to a specific skill.
-    /// 
-    /// This handles built-in skill methods (setup, tools, session) and 
+    ///
+    /// This handles built-in skill methods (setup, tools, session) and
     /// routes others to the skill's custom RPC handler.
     pub async fn rpc(
         &self,
@@ -953,7 +953,7 @@ impl RuntimeEngine {
 }
 
 /// Disk usage statistics for a skill's persisted data folder.
-/// 
+///
 /// This is exposed to the UI for display in sync summaries.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SkillDataDirectoryStats {
@@ -975,7 +975,7 @@ fn directory_byte_and_file_count(path: &std::path::Path) -> std::io::Result<(u64
     }
     let mut total_bytes = 0u64;
     let mut file_count = 0u64;
-    
+
     /// Internal recursive function to walk the directory tree.
     fn walk(
         path: &std::path::Path,

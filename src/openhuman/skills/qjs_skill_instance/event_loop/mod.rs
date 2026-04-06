@@ -69,7 +69,7 @@ fn spawn_memory_write_worker() -> mpsc::Sender<MemoryWriteJob> {
                 job.title,
                 job.content.len(),
             );
-            
+
             // Persist the full state blob to the skill's sync history
             if let Err(e) = job
                 .client

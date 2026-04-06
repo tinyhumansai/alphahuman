@@ -1,7 +1,7 @@
 //! Relation Extraction (RelEx) using GLiNER on ONNX for the OpenHuman memory system.
 //!
 //! This module implements entity and relation extraction from unstructured text.
-//! It uses a specialized GLiNER model (General Language Model for Information 
+//! It uses a specialized GLiNER model (General Language Model for Information
 //! Extraction) exported to ONNX format. The extraction process identifies:
 //! 1. **Entities**: Named people, organizations, projects, etc.
 //! 2. **Relations**: Semantic links between entities (e.g., "Person A works on Project B").
@@ -224,10 +224,18 @@ struct DecodedSpan {
     probability: f32,
 }
 
-fn default_ent_token() -> String { "<<ENT>>".to_string() }
-fn default_rel_token() -> String { "<<REL>>".to_string() }
-fn default_sep_token() -> String { "<<SEP>>".to_string() }
-fn default_max_width() -> usize { 12 }
+fn default_ent_token() -> String {
+    "<<ENT>>".to_string()
+}
+fn default_rel_token() -> String {
+    "<<REL>>".to_string()
+}
+fn default_sep_token() -> String {
+    "<<SEP>>".to_string()
+}
+fn default_max_width() -> usize {
+    12
+}
 
 /// Obtains a singleton or cached instance of the RelexRuntime.
 pub(crate) async fn runtime(model_name: &str) -> Option<Arc<RelexRuntime>> {
@@ -291,7 +299,7 @@ impl RelexRuntime {
             ENTITY_LABELS,
             RELATION_LABELS,
         )?;
-        
+
         // Create span tensors. GLiNER uses these to evaluate every possible word span (up to max_width).
         let (span_idx, span_mask) = make_spans_tensors(prompt.num_words, self.config.max_width);
 
@@ -307,7 +315,7 @@ impl RelexRuntime {
         // Execute inference.
         let mut session = self.session.lock();
         let outputs = session.run(inputs)?;
-        
+
         // Extract 4D logits for entity spans.
         let logits = extract_f32_4d(outputs.get("logits").context("missing logits output")?)?;
 

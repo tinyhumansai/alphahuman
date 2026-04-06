@@ -5,8 +5,8 @@
 //! such as within certain V8 isolates or when strict synchronous
 //! execution is required.
 
-use std::collections::HashMap;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// Options for an HTTP fetch request, typically deserialized from a JSON string
 /// provided by the JavaScript runtime.

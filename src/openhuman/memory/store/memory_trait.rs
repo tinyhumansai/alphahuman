@@ -128,7 +128,7 @@ impl Memory for UnifiedMemory {
                     Vec::new()
                 }
             };
-            
+
             // Simple keyword-based filtering for episodic matches.
             let query_lower = query.to_lowercase();
             let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
@@ -144,7 +144,7 @@ impl Memory for UnifiedMemory {
                 // Score based on proportion of query terms matched.
                 let match_score = matched_count as f64 / query_terms.len().max(1) as f64;
                 let ts_rfc3339 = timestamp_to_rfc3339(entry.timestamp);
-                
+
                 out.push(MemoryEntry {
                     id: format!("episodic:{}", entry.id.unwrap_or(0)),
                     key: format!("{}:{}", entry.session_id, entry.role),
@@ -156,7 +156,7 @@ impl Memory for UnifiedMemory {
                     score: Some(match_score),
                 });
             }
-            
+
             // 3. Re-sort the combined results by score.
             out.sort_by(|a, b| {
                 b.score

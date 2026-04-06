@@ -65,7 +65,7 @@ pub(crate) async fn handle_webhook_request(
                 .get("statusCode")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(200) as u16;
-            
+
             // Extract headers from the JS response object
             let resp_headers: HashMap<String, String> = response_val
                 .get("headers")
@@ -79,7 +79,7 @@ pub(crate) async fn handle_webhook_request(
                     }
                 })
                 .unwrap_or_default();
-            
+
             // Extract response body (usually a string or serialized JSON)
             let resp_body = response_val
                 .get("body")

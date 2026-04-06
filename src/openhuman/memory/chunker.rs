@@ -41,14 +41,14 @@ pub fn chunk_markdown(text: &str, max_tokens: usize) -> Vec<Chunk> {
 
     // Rough estimation: 4 characters per token for English text.
     let max_chars = max_tokens * 4;
-    
+
     // Step 1: Divide the document into top-level sections based on headings.
     let sections = split_on_headings(text);
     let mut chunks = Vec::with_capacity(sections.len());
 
     for (heading, body) in sections {
         let heading: Option<Rc<str>> = heading.map(Rc::from);
-        
+
         // Combine heading and body to check initial size.
         let full = if let Some(ref h) = heading {
             format!("{h}\n{body}")

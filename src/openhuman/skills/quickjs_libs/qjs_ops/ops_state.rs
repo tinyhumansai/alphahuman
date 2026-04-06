@@ -146,7 +146,7 @@ pub fn register<'js>(
                 move |metadata_json: String| -> rquickjs::Result<()> {
                     let input: JsMemoryInsertInput =
                         serde_json::from_str(&metadata_json).map_err(|e| js_err(e.to_string()))?;
-                    
+
                     // Basic validation
                     if input.title.trim().is_empty() {
                         return Err(js_err("memory.insert requires a non-empty title"));
@@ -159,10 +159,10 @@ pub fn register<'js>(
                         .memory_client
                         .clone()
                         .ok_or_else(|| js_err("Memory client is not initialized"))?;
-                    
+
                     let skill_id = sc.skill_id.clone();
                     let namespace = format!("skill-{skill_id}");
-                    
+
                     let source_type = input
                         .source_type
                         .unwrap_or_else(|| "doc".to_string())
@@ -170,7 +170,7 @@ pub fn register<'js>(
                     if !matches!(source_type.as_str(), "doc" | "chat" | "email") {
                         return Err(js_err("sourceType must be one of: doc, chat, email"));
                     }
-                    
+
                     let priority = input
                         .priority
                         .unwrap_or_else(|| "medium".to_string())
@@ -178,7 +178,7 @@ pub fn register<'js>(
                     if !matches!(priority.as_str(), "high" | "medium" | "low") {
                         return Err(js_err("priority must be one of: high, medium, low"));
                     }
-                    
+
                     let metadata = input.metadata.unwrap_or_else(|| serde_json::json!({}));
 
                     // Spawn the memory insertion in the background to avoid blocking the JS loop

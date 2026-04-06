@@ -22,7 +22,7 @@ pub(crate) async fn call_lifecycle(
     name: &str,
 ) -> Result<(), String> {
     let name = name.to_string();
-    
+
     // First, try to initiate the call in the JS context
     let is_promise = ctx
         .with(|js_ctx| {

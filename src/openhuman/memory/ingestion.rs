@@ -218,8 +218,8 @@ struct ExtractionUnit {
 }
 
 /// Accumulates extraction results across multiple chunks or units.
-/// 
-/// Handles entity and relation deduplication, alias tracking, and 
+///
+/// Handles entity and relation deduplication, alias tracking, and
 /// basic document understanding (e.g., identifying the primary subject).
 #[derive(Debug, Default)]
 struct ExtractionAccumulator {
