@@ -1,13 +1,12 @@
-//! Subscriber that handles cron job delivery requests via the event bus.
+//! Event bus handlers for the cron domain.
 //!
 //! When the cron scheduler needs to deliver job output to a channel (Telegram,
 //! Discord, Slack, etc.), it publishes a `CronDeliveryRequested` event instead
-//! of directly constructing channel instances. This subscriber picks up those
-//! events and dispatches to the appropriate channel, decoupling cron from
-//! channel implementations.
+//! of directly constructing channel instances. The [`CronDeliverySubscriber`]
+//! picks up those events and dispatches to the appropriate channel, keeping
+//! channel construction out of the scheduler.
 
-use crate::openhuman::channels::Channel;
-use crate::openhuman::channels::SendMessage;
+use crate::openhuman::channels::{Channel, SendMessage};
 use crate::openhuman::event_bus::{DomainEvent, EventHandler};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -28,7 +27,7 @@ impl CronDeliverySubscriber {
 #[async_trait]
 impl EventHandler for CronDeliverySubscriber {
     fn name(&self) -> &str {
-        "channels::cron_delivery"
+        "cron::delivery"
     }
 
     fn domains(&self) -> Option<&[&str]> {
@@ -51,7 +50,7 @@ impl EventHandler for CronDeliverySubscriber {
             channel = %channel,
             target = %target,
             output_len = output.len(),
-            "[cron_delivery] handling delivery request"
+            "[cron] handling delivery request"
         );
 
         let channel_lower = channel.to_ascii_lowercase();
@@ -61,7 +60,7 @@ impl EventHandler for CronDeliverySubscriber {
                     tracing::debug!(
                         job_id = %job_id,
                         channel = %channel_lower,
-                        "[cron_delivery] delivery succeeded"
+                        "[cron] delivery succeeded"
                     );
                 }
                 Err(e) => {
@@ -69,7 +68,7 @@ impl EventHandler for CronDeliverySubscriber {
                         job_id = %job_id,
                         channel = %channel_lower,
                         error = %e,
-                        "[cron_delivery] delivery failed"
+                        "[cron] delivery failed"
                     );
                 }
             }
@@ -78,7 +77,7 @@ impl EventHandler for CronDeliverySubscriber {
                 job_id = %job_id,
                 channel = %channel_lower,
                 available = ?self.channels_by_name.keys().collect::<Vec<_>>(),
-                "[cron_delivery] no matching channel found"
+                "[cron] no matching channel found for delivery"
             );
         }
     }
