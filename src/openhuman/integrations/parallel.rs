@@ -400,8 +400,7 @@ impl Tool for ParallelExtractTool {
                     if let Some(ref content) = item.full_content {
                         let content = content.trim();
                         if !content.is_empty() {
-                            let (slice, was_truncated) =
-                                truncate_chars(content, MAX_CONTENT_CHARS);
+                            let (slice, was_truncated) = truncate_chars(content, MAX_CONTENT_CHARS);
                             let truncated = if was_truncated {
                                 format!(
                                     "{}... [truncated, {} chars total]",

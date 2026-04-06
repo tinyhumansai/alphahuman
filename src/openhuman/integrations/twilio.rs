@@ -119,8 +119,15 @@ impl Tool for TwilioCallTool {
         }
 
         let redacted = if to.len() > 4 {
-            format!("{}***{}", &to[..to.char_indices().nth(2).map_or(2, |(i, _)| i)],
-                    &to[to.char_indices().rev().nth(3).map_or(to.len().saturating_sub(4), |(i, _)| i)..])
+            format!(
+                "{}***{}",
+                &to[..to.char_indices().nth(2).map_or(2, |(i, _)| i)],
+                &to[to
+                    .char_indices()
+                    .rev()
+                    .nth(3)
+                    .map_or(to.len().saturating_sub(4), |(i, _)| i)..]
+            )
         } else {
             "****".to_string()
         };
