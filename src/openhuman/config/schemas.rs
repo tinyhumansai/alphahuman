@@ -443,7 +443,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
             description: "Update voice dictation settings.",
             inputs: vec![
                 optional_bool("enabled", "Enable voice dictation."),
-                optional_string("hotkey", "Global hotkey string (e.g. CmdOrCtrl+Shift+D)."),
+                optional_string("hotkey", "Global hotkey string (e.g. Fn)."),
                 optional_string("activation_mode", "Activation mode: toggle or push."),
                 optional_bool("llm_refinement", "Enable LLM post-processing of transcription."),
                 optional_bool("streaming", "Enable WebSocket streaming transcription."),

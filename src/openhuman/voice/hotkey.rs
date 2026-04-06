@@ -77,7 +77,7 @@ impl Drop for HotkeyListenerHandle {
     }
 }
 
-/// Parse a hotkey string like "ctrl+shift+space" into a `HotkeyCombination`.
+/// Parse a hotkey string like "ctrl+shift+space" or "fn" into a `HotkeyCombination`.
 pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
     let parts: Vec<&str> = hotkey_str
         .split('+')
@@ -232,6 +232,7 @@ fn string_to_key(s: &str) -> Result<Key, String> {
         "backspace" => Ok(Key::Backspace),
         "delete" | "del" => Ok(Key::Delete),
         "capslock" => Ok(Key::CapsLock),
+        "fn" | "function" => Ok(Key::Function),
 
         // F-keys
         "f1" => Ok(Key::F1),
@@ -326,6 +327,13 @@ mod tests {
         let combo = parse_hotkey("cmd+space").unwrap();
         assert_eq!(combo.trigger, Key::Space);
         assert!(combo.modifiers.contains(&Key::MetaLeft));
+    }
+
+    #[test]
+    fn parse_function_key() {
+        let combo = parse_hotkey("fn").unwrap();
+        assert_eq!(combo.trigger, Key::Function);
+        assert!(combo.modifiers.is_empty());
     }
 
     #[test]
