@@ -27,9 +27,9 @@ afterEach(() => {
 });
 
 describe('TelegramConfig', () => {
-  it('renders the Telegram header', () => {
+  it('renders auth mode labels', () => {
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
-    expect(screen.getByText('Telegram')).toBeInTheDocument();
+    expect(screen.getByText('Managed DM')).toBeInTheDocument();
   });
 
   it('renders both auth modes', () => {
@@ -79,7 +79,7 @@ describe('TelegramConfig', () => {
     renderWithProviders(<TelegramConfig definition={telegramDef} />);
 
     const connectButtons = screen.getAllByText('Connect');
-    fireEvent.click(connectButtons[1]);
+    fireEvent.click(connectButtons[0]);
 
     await waitFor(() => {
       expect(channelConnectionsApi.telegramLoginStart).toHaveBeenCalledTimes(1);

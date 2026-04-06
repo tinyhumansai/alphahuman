@@ -32,6 +32,12 @@ export const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
     icon: 'telegram',
     auth_modes: [
       {
+        mode: 'managed_dm',
+        description: 'Message the OpenHuman Telegram bot directly.',
+        fields: [],
+        auth_action: 'telegram_managed_dm',
+      },
+      {
         mode: 'bot_token',
         description: 'Provide your own Telegram Bot token from @BotFather.',
         fields: [
@@ -51,12 +57,6 @@ export const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
           },
         ],
         auth_action: undefined,
-      },
-      {
-        mode: 'managed_dm',
-        description: 'Message the OpenHuman Telegram bot directly.',
-        fields: [],
-        auth_action: 'telegram_managed_dm',
       },
     ],
     capabilities: ['send_text', 'receive_text', 'typing', 'draft_updates'],

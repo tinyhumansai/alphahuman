@@ -5,7 +5,7 @@ interface WebChannelConfigProps {
   definition: ChannelDefinition;
 }
 
-const WebChannelConfig = ({ definition }: WebChannelConfigProps) => {
+const WebChannelConfig = ({ definition: _definition }: WebChannelConfigProps) => {
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between">
