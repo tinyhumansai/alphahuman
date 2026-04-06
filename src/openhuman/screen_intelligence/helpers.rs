@@ -7,6 +7,17 @@ use uuid::Uuid;
 use super::limits::{MAX_CONTEXT_CHARS, MAX_EPHEMERAL_FRAMES, MAX_EPHEMERAL_VISION_SUMMARIES};
 use super::types::{AutocompleteSuggestion, CaptureFrame, InputActionParams, VisionSummary};
 
+pub(crate) const VISION_MEMORY_NAMESPACE: &str = "background";
+pub(crate) const VISION_MEMORY_SOURCE_TYPE: &str = "screenshot";
+pub(crate) const VISION_MEMORY_CATEGORY: &str = "screen_intelligence";
+pub(crate) const VISION_MEMORY_TAG: &str = "screen_intelligence";
+
+#[derive(Debug, Clone)]
+pub(crate) struct PersistVisionSummaryResult {
+    pub namespace: String,
+    pub key: String,
+}
+
 pub(crate) fn validate_input_action(action: &InputActionParams) -> Result<(), String> {
     match action.action.as_str() {
         "mouse_move" | "mouse_click" | "mouse_drag" => {
@@ -106,12 +117,18 @@ pub(crate) fn parse_vision_summary_output(frame: CaptureFrame, raw: &str) -> Vis
     }
 }
 
-pub(crate) async fn persist_vision_summary(summary: VisionSummary) {
+pub(crate) async fn persist_vision_summary(
+    summary: VisionSummary,
+) -> Result<PersistVisionSummaryResult, String> {
     let config = match Config::load_or_init().await {
         Ok(cfg) => cfg,
         Err(err) => {
-            tracing::debug!("vision summary persistence skipped: config load failed: {err}");
-            return;
+            let message = format!("config load failed: {err}");
+            tracing::debug!(
+                "[screen_intelligence] vision summary persistence skipped: {}",
+                message
+            );
+            return Err(message);
         }
     };
 
@@ -128,35 +145,56 @@ pub(crate) async fn persist_vision_summary(summary: VisionSummary) {
     ) {
         Ok(mem) => mem,
         Err(err) => {
-            tracing::debug!("vision summary persistence skipped: memory init failed: {err}");
-            return;
+            let message = format!("memory init failed: {err}");
+            tracing::debug!(
+                "[screen_intelligence] vision summary persistence skipped: {}",
+                message
+            );
+            return Err(message);
         }
     };
 
     let content = match serde_json::to_string(&summary) {
         Ok(content) => content,
         Err(err) => {
-            tracing::debug!("vision summary persistence skipped: serialization failed: {err}");
-            return;
+            let message = format!("serialization failed: {err}");
+            tracing::debug!(
+                "[screen_intelligence] vision summary persistence skipped: {}",
+                message
+            );
+            return Err(message);
         }
     };
 
     let key = format!("screen_intelligence_{}", summary.id);
-    let _ = mem
-        .upsert_document(NamespaceDocumentInput {
-            namespace: "background".to_string(),
-            key: key.clone(),
-            title: key,
-            content,
-            source_type: "screenshot".to_string(),
-            priority: "medium".to_string(),
-            tags: vec!["screen_intelligence".to_string()],
-            metadata: serde_json::json!({}),
-            category: "screen_intelligence".to_string(),
-            session_id: None,
-            document_id: None,
-        })
-        .await;
+    mem.upsert_document(NamespaceDocumentInput {
+        namespace: VISION_MEMORY_NAMESPACE.to_string(),
+        key: key.clone(),
+        title: key.clone(),
+        content,
+        source_type: VISION_MEMORY_SOURCE_TYPE.to_string(),
+        priority: "medium".to_string(),
+        tags: vec![VISION_MEMORY_TAG.to_string()],
+        metadata: serde_json::json!({}),
+        category: VISION_MEMORY_CATEGORY.to_string(),
+        session_id: None,
+        document_id: None,
+    })
+    .await
+    .map_err(|err| format!("memory upsert failed: {err}"))?;
+
+    tracing::debug!(
+        "[screen_intelligence] persisted vision summary into unified memory (namespace={} key={} app={:?} captured_at_ms={})",
+        VISION_MEMORY_NAMESPACE,
+        key,
+        summary.app_name,
+        summary.captured_at_ms
+    );
+
+    Ok(PersistVisionSummaryResult {
+        namespace: VISION_MEMORY_NAMESPACE.to_string(),
+        key,
+    })
 }
 
 pub(crate) fn truncate_tail(text: &str, max_chars: usize) -> String {

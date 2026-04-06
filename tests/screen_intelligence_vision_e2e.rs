@@ -14,13 +14,16 @@
 //! ```
 //! cargo test --test screen_intelligence_vision_e2e
 //! ```
+//! Cross-platform CI tests use `OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON` to validate the
+//! real engine pipeline without requiring macOS permissions or a running Ollama server.
 //!
 //! ### macOS E2E checklist (manual, requires Screen Recording permission)
 //! 1. Grant Screen Recording to the `openhuman-core` binary in System Settings › Privacy & Security.
 //! 2. Run: `cargo test --test screen_intelligence_vision_e2e -- --nocapture`
 //! 3. Ensure Ollama is running with a vision-capable model (e.g. `ollama run minicpm-v`).
 //! 4. Call `openhuman.screen_intelligence_capture_test` via `cargo test --test json_rpc_e2e json_rpc_screen_intelligence`.
-//! 5. Start a session and call `openhuman.screen_intelligence_vision_recent` to verify summaries.
+//! 5. Run ignored real-capture test:
+//!    `cargo test --test screen_intelligence_vision_e2e macos_real_capture_cycle_persists_summary -- --ignored --nocapture`
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -36,7 +39,9 @@ use openhuman_core::openhuman::memory::embeddings::NoopEmbedding;
 use openhuman_core::openhuman::memory::store::types::NamespaceDocumentInput;
 use openhuman_core::openhuman::memory::store::UnifiedMemory;
 use openhuman_core::openhuman::screen_intelligence::CaptureFrame;
-use openhuman_core::openhuman::screen_intelligence::{AccessibilityEngine, VisionSummary};
+use openhuman_core::openhuman::screen_intelligence::{
+    global_engine, AccessibilityEngine, VisionSummary,
+};
 
 // ── Env isolation ────────────────────────────────────────────────────
 
@@ -49,6 +54,18 @@ impl EnvVarGuard {
     fn set_to_path(key: &'static str, path: &Path) -> Self {
         let old = std::env::var(key).ok();
         std::env::set_var(key, path.as_os_str());
+        Self { key, old }
+    }
+
+    fn set(key: &'static str, value: &str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, old }
+    }
+
+    fn unset(key: &'static str) -> Self {
+        let old = std::env::var(key).ok();
+        std::env::remove_var(key);
         Self { key, old }
     }
 }
@@ -65,10 +82,10 @@ impl Drop for EnvVarGuard {
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("env lock poisoned")
+    match ENV_LOCK.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -104,6 +121,38 @@ fn open_test_memory(dir: &Path) -> UnifiedMemory {
     let embedder: Arc<dyn openhuman_core::openhuman::memory::embeddings::EmbeddingProvider> =
         Arc::new(NoopEmbedding);
     UnifiedMemory::new(dir, embedder, Some(5)).expect("UnifiedMemory::new")
+}
+
+fn write_screen_intelligence_test_config(
+    root: &Path,
+    local_ai_enabled: bool,
+    local_ai_provider: &str,
+) {
+    let cfg = format!(
+        r#"default_temperature = 0.7
+
+[memory]
+backend = "sqlite"
+auto_save = true
+embedding_provider = "none"
+embedding_model = "none"
+embedding_dimensions = 0
+
+[local_ai]
+enabled = {local_ai_enabled}
+provider = "{local_ai_provider}"
+
+[screen_intelligence]
+keep_screenshots = false
+
+[secrets]
+encrypt = false
+"#
+    );
+    std::fs::create_dir_all(root).expect("mkdir test root");
+    std::fs::write(root.join("config.toml"), &cfg).expect("write config");
+    let _: openhuman_core::openhuman::config::Config =
+        toml::from_str(&cfg).expect("test config should deserialize");
 }
 
 /// Simulate what `parse_vision_summary_output` does, but from public types.
@@ -613,5 +662,114 @@ async fn vision_summary_struct_persist_and_deserialize_roundtrip() {
     assert!(
         docs.iter().any(|d| d["key"].as_str() == Some(&key)),
         "[screen_intelligence] persisted VisionSummary should be queryable by key: {key}"
+    );
+}
+
+/// Exercises the real engine pipeline (compress -> parse -> persist) with mocked local-vision
+/// output so Linux CI can validate behavior without macOS permissions or Ollama runtime.
+#[tokio::test]
+async fn engine_pipeline_with_mocked_local_vision_persists_to_memory() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    let _mock = EnvVarGuard::set(
+        "OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON",
+        r#"{"ui_state":"browser with docs","key_text":"README.md","actionable_notes":"User is reading project docs","confidence":0.89}"#,
+    );
+    write_screen_intelligence_test_config(tmp.path(), true, "ollama");
+
+    let frame = make_capture_frame(Some(make_test_png_uri(960, 540)));
+    let summary = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect("mocked engine pipeline should succeed");
+    assert_eq!(summary.ui_state, "browser with docs");
+
+    let config = openhuman_core::openhuman::config::Config::load_or_init()
+        .await
+        .expect("load config");
+    let mem = open_test_memory(&config.workspace_dir);
+    let docs = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list documents")["documents"]
+        .as_array()
+        .cloned()
+        .expect("documents array");
+    let key = format!("screen_intelligence_{}", summary.id);
+    assert!(
+        docs.iter().any(|doc| doc["key"].as_str() == Some(&key)),
+        "expected persisted summary key in memory: {key}"
+    );
+}
+
+/// Ensures screen-intelligence vision refuses non-local providers to avoid remote fallback.
+#[tokio::test]
+async fn engine_pipeline_rejects_non_local_provider() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    write_screen_intelligence_test_config(tmp.path(), true, "openai");
+
+    let frame = make_capture_frame(Some(make_test_png_uri(320, 240)));
+    let err = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect_err("non-local providers should be rejected");
+    assert!(
+        err.contains("provider 'ollama'"),
+        "unexpected provider guard error: {err}"
+    );
+}
+
+/// Manual macOS-only smoke test for the real capture -> local vision -> memory persistence chain.
+/// Run manually with:
+/// `cargo test --test screen_intelligence_vision_e2e macos_real_capture_cycle_persists_summary -- --ignored --nocapture`
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[ignore = "requires Screen Recording permission + local Ollama vision model"]
+async fn macos_real_capture_cycle_persists_summary() {
+    let _lock = env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let _workspace = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", tmp.path());
+    let _mock = EnvVarGuard::unset("OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON");
+    write_screen_intelligence_test_config(tmp.path(), true, "ollama");
+
+    let capture = global_engine().capture_test().await;
+    assert!(
+        capture.ok,
+        "capture_test failed; ensure Screen Recording permission is granted: {:?}",
+        capture.error
+    );
+    let image_ref = capture
+        .image_ref
+        .clone()
+        .expect("capture_test should return image_ref on success");
+    let frame = make_capture_frame(Some(image_ref));
+
+    let summary = global_engine()
+        .analyze_and_persist_frame(frame)
+        .await
+        .expect("real local-vision inference should succeed");
+    assert!(
+        !summary.actionable_notes.is_empty(),
+        "summary should include actionable notes"
+    );
+
+    let config = openhuman_core::openhuman::config::Config::load_or_init()
+        .await
+        .expect("load config");
+    let mem = open_test_memory(&config.workspace_dir);
+    let docs = mem
+        .list_documents(Some("background"))
+        .await
+        .expect("list documents")["documents"]
+        .as_array()
+        .cloned()
+        .expect("documents array");
+    let key = format!("screen_intelligence_{}", summary.id);
+    assert!(
+        docs.iter().any(|doc| doc["key"].as_str() == Some(&key)),
+        "expected persisted summary key after real capture cycle: {key}"
     );
 }

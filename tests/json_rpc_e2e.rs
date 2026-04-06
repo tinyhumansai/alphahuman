@@ -834,6 +834,17 @@ async fn json_rpc_screen_intelligence_status_returns_stable_shape() {
             .is_some(),
         "expected u64 session.capture_count: {status_result}"
     );
+    assert!(
+        session
+            .get("vision_persist_count")
+            .and_then(Value::as_u64)
+            .is_some(),
+        "expected u64 session.vision_persist_count: {status_result}"
+    );
+    assert!(
+        session.get("last_vision_persist_error").is_some(),
+        "expected nullable session.last_vision_persist_error: {status_result}"
+    );
 
     // permissions block
     let perms = status_result

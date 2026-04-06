@@ -31,6 +31,9 @@ pub struct SessionStatus {
     pub vision_queue_depth: usize,
     pub last_vision_at_ms: Option<i64>,
     pub last_vision_summary: Option<String>,
+    pub vision_persist_count: u64,
+    pub last_vision_persisted_key: Option<String>,
+    pub last_vision_persist_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
