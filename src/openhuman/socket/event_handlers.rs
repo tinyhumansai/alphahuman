@@ -24,6 +24,18 @@ pub(super) fn handle_sio_event(
     emit_tx: &mpsc::UnboundedSender<String>,
     shared: &Arc<SharedState>,
 ) {
+    // Log every incoming event for observability.
+    log::info!(
+        "[socket] event received: name={} data_bytes={}",
+        event_name,
+        data.to_string().len()
+    );
+    log::debug!(
+        "[socket] event payload: name={} data={}",
+        event_name,
+        &data.to_string()[..data.to_string().len().min(500)]
+    );
+
     match event_name {
         "ready" => {
             log::info!("[socket] Server ready — auth successful");
@@ -37,19 +49,28 @@ pub(super) fn handle_sio_event(
         }
         // Webhook tunnel — route to owning skill and relay response
         "webhook:request" => {
+            log::info!("[socket] Routing webhook:request to handler");
             let shared = Arc::clone(shared);
             let tx = emit_tx.clone();
             tokio::spawn(async move {
                 handle_webhook_request(&shared, data, &tx).await;
             });
         }
-        // Inbound channel message (Telegram, Discord, etc.) — run agent and reply
-        "channel:message" => {
+        // Any event ending with ":message" is treated as an inbound channel
+        // message that triggers the agent loop. This covers channel:message,
+        // telegram:message, discord:message, slack:message, and any future
+        // channel integration without requiring code changes.
+        _ if event_name.ends_with(":message") => {
+            log::info!(
+                "[socket] Inbound channel message via '{}' — triggering agent loop",
+                event_name
+            );
             tokio::spawn(async move {
                 handle_channel_inbound_message(data).await;
             });
         }
         _ => {
+            log::debug!("[socket] Unhandled event '{}' — logging only", event_name);
             emit_server_event(shared, event_name, data);
         }
     }
