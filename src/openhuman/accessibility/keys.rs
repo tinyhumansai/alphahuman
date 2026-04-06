@@ -15,7 +15,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static INPUT_MONITORING_GRANTED: Lazy<AtomicBool> = Lazy::new(|| {
     use super::permissions::detect_input_monitoring_permission;
     use super::types::PermissionState;
-    let granted = matches!(detect_input_monitoring_permission(), PermissionState::Granted);
+    let granted = matches!(
+        detect_input_monitoring_permission(),
+        PermissionState::Granted
+    );
     if !granted {
         log::warn!(
             "[accessibility] Input Monitoring permission not granted; \

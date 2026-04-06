@@ -76,7 +76,11 @@ pub enum PermissionKind {
 mod tests {
     use super::*;
 
-    fn make_ctx(app: Option<&str>, title: Option<&str>, bounds: Option<ElementBounds>) -> AppContext {
+    fn make_ctx(
+        app: Option<&str>,
+        title: Option<&str>,
+        bounds: Option<ElementBounds>,
+    ) -> AppContext {
         AppContext {
             app_name: app.map(str::to_string),
             window_title: title.map(str::to_string),
@@ -85,15 +89,28 @@ mod tests {
     }
 
     fn make_bounds(x: i32, y: i32, w: i32, h: i32) -> ElementBounds {
-        ElementBounds { x, y, width: w, height: h }
+        ElementBounds {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
     }
 
     // --- AppContext::same_as ---
 
     #[test]
     fn same_as_identical_contexts_true() {
-        let a = make_ctx(Some("App"), Some("Window"), Some(make_bounds(0, 0, 800, 600)));
-        let b = make_ctx(Some("App"), Some("Window"), Some(make_bounds(0, 0, 800, 600)));
+        let a = make_ctx(
+            Some("App"),
+            Some("Window"),
+            Some(make_bounds(0, 0, 800, 600)),
+        );
+        let b = make_ctx(
+            Some("App"),
+            Some("Window"),
+            Some(make_bounds(0, 0, 800, 600)),
+        );
         assert!(a.same_as(&b));
     }
 

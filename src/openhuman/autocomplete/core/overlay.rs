@@ -219,10 +219,20 @@ mod tests {
     #[test]
     fn show_overflow_badge_non_macos_does_not_panic_ready() {
         let bounds = crate::openhuman::accessibility::ElementBounds {
-            x: 0, y: 0, width: 100, height: 50,
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
         };
         // Should be a no-op and not panic.
-        show_overflow_badge("ready", Some("suggestion"), None, Some("TestApp"), Some(&bounds), 900);
+        show_overflow_badge(
+            "ready",
+            Some("suggestion"),
+            None,
+            Some("TestApp"),
+            Some(&bounds),
+            900,
+        );
     }
 
     #[cfg(not(target_os = "macos"))]

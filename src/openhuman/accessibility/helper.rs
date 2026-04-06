@@ -247,10 +247,7 @@ pub fn precompile_helper_background() {
     std::thread::spawn(|| {
         log::debug!("[accessibility] precompile_helper_background: starting");
         match ensure_helper_binary() {
-            Ok(path) => log::debug!(
-                "[accessibility] helper binary ready: {}",
-                path.display()
-            ),
+            Ok(path) => log::debug!("[accessibility] helper binary ready: {}", path.display()),
             Err(e) => log::warn!(
                 "[accessibility] helper precompile failed (will retry on first use): {e}"
             ),

@@ -56,28 +56,48 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn show_overlay_non_macos_returns_ok() {
-        let bounds = ElementBounds { x: 0, y: 0, width: 100, height: 50 };
+        let bounds = ElementBounds {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+        };
         assert!(show_overlay(&bounds, "suggestion text", 900).is_ok());
     }
 
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn show_overlay_non_macos_empty_text_returns_ok() {
-        let bounds = ElementBounds { x: 10, y: 20, width: 0, height: 0 };
+        let bounds = ElementBounds {
+            x: 10,
+            y: 20,
+            width: 0,
+            height: 0,
+        };
         assert!(show_overlay(&bounds, "", 500).is_ok());
     }
 
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn show_overlay_non_macos_zero_ttl_returns_ok() {
-        let bounds = ElementBounds { x: 0, y: 0, width: 200, height: 30 };
+        let bounds = ElementBounds {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 30,
+        };
         assert!(show_overlay(&bounds, "hello", 0).is_ok());
     }
 
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn show_overlay_non_macos_max_ttl_returns_ok() {
-        let bounds = ElementBounds { x: -10, y: -5, width: 300, height: 60 };
+        let bounds = ElementBounds {
+            x: -10,
+            y: -5,
+            width: 300,
+            height: 60,
+        };
         assert!(show_overlay(&bounds, "test", u32::MAX).is_ok());
     }
 
