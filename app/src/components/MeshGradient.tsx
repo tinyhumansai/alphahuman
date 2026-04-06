@@ -10,15 +10,15 @@ export default function MeshGradient() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
     const gradient = new Gradient();
     gradient.initGradient('#mesh-gradient');
 
     return () => {
       gradient.disconnect();
       gradient.pause();
-      // Release WebGL context on unmount
-      if (canvasRef.current) {
-        const gl = canvasRef.current.getContext('webgl') || canvasRef.current.getContext('webgl2');
+      if (canvas) {
+        const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
         if (gl) {
           gl.getExtension('WEBGL_lose_context')?.loseContext();
         }

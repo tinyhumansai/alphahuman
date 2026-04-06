@@ -1,3 +1,4 @@
+/* eslint-disable no-undef, no-unused-vars */
 /*
  *   Stripe WebGl Gradient Animation
  *   All Credits to Stripe.com

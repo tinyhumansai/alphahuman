@@ -664,7 +664,7 @@ function OAuthLoginView({
   onCancel,
   waiting,
   skillId,
-  onManualComplete,
+  onManualComplete: _onManualComplete,
 }: OAuthLoginViewProps) {
   const providerName = formatProviderName(provider);
   const [devIntegrationId, setDevIntegrationId] = useState("");
@@ -720,7 +720,7 @@ function OAuthLoginView({
     } finally {
       setDevSubmitting(false);
     }
-  }, [devIntegrationId, devEncryptionKey, skillId, provider, onManualComplete]);
+  }, [devIntegrationId, devEncryptionKey, skillId, provider]);
 
   return (
     <div className="py-6">
