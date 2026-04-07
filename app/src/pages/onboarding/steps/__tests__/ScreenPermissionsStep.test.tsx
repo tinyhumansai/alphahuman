@@ -10,8 +10,8 @@ import authReducer from '../../../../store/authSlice';
 import socketReducer from '../../../../store/socketSlice';
 import teamReducer from '../../../../store/teamSlice';
 import userReducer from '../../../../store/userSlice';
-import type { AccessibilityStatus } from '../../../../utils/tauriCommands';
 import {
+  type AccessibilityStatus,
   openhumanAccessibilityRequestPermission,
   openhumanAccessibilityStatus,
   restartCoreProcess,

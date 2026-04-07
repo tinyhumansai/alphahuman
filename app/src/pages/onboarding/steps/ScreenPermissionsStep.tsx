@@ -50,9 +50,12 @@ const ScreenPermissionsStep = ({ onNext, onBack: _onBack }: ScreenPermissionsSte
   }, [dispatch, isGranted, isLoading, isRestartingCore, shouldAutoRefreshOnReturn]);
 
   useEffect(() => {
-    if (isGranted && shouldAutoRefreshOnReturn) {
-      setShouldAutoRefreshOnReturn(false);
+    if (!isGranted || !shouldAutoRefreshOnReturn) {
+      return;
     }
+    void Promise.resolve().then(() => {
+      setShouldAutoRefreshOnReturn(false);
+    });
   }, [isGranted, shouldAutoRefreshOnReturn]);
 
   const handleRequestPermissions = () => {
