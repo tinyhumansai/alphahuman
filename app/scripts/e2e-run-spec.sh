@@ -15,6 +15,8 @@ LOG_SUFFIX="${2:-$(basename "$SPEC" .spec.ts)}"
 
 E2E_MOCK_PORT="${E2E_MOCK_PORT:-18473}"
 OS="$(uname)"
+# Normalize Windows shells (Git Bash / MSYS2 / Cygwin) to a single token
+case "$OS" in MINGW*|MSYS*|CYGWIN*) OS="Windows" ;; esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -67,6 +69,10 @@ if [ "$OS" = "Darwin" ]; then
   pkill -f "OpenHuman" 2>/dev/null || true
   # Give the process time to exit and release file locks
   sleep 1
+elif [ "$OS" = "Windows" ]; then
+  # taskkill via cmd works in both Git Bash and PowerShell
+  cmd //c "taskkill /F /IM OpenHuman.exe" 2>/dev/null || true
+  sleep 1
 fi
 
 echo "Cleaning cached app data..."
@@ -75,18 +81,28 @@ if [ "$OS" = "Darwin" ]; then
   rm -rf ~/Library/Caches/com.openhuman.app
   rm -rf "$HOME/Library/Application Support/com.openhuman.app"
   rm -rf "$HOME/Library/Saved Application State/com.openhuman.app.savedState"
+elif [ "$OS" = "Windows" ]; then
+  # Git Bash exposes Windows env vars; APPDATA and LOCALAPPDATA are set by the runner
+  WIN_APPDATA="${APPDATA:-$HOME/AppData/Roaming}"
+  WIN_LOCALAPPDATA="${LOCALAPPDATA:-$HOME/AppData/Local}"
+  rm -rf "$WIN_APPDATA/com.openhuman.app" 2>/dev/null || true
+  rm -rf "$WIN_LOCALAPPDATA/com.openhuman.app" 2>/dev/null || true
 else
   rm -rf "$HOME/.local/share/com.openhuman.app" 2>/dev/null || true
   rm -rf "$HOME/.cache/com.openhuman.app" 2>/dev/null || true
   rm -rf "$HOME/.config/com.openhuman.app" 2>/dev/null || true
 fi
 
-# Write config.toml into the default ~/.openhuman/ so the core process
+# Write config.toml into the default config directory so the core process
 # uses the mock server URL. Appium Mac2 launches the .app via XCUITest
 # which does NOT inherit shell environment variables, so BACKEND_URL
 # never reaches the core sidecar. Writing api_url to the config file
 # is the reliable cross-platform approach.
-E2E_CONFIG_DIR="$HOME/.openhuman"
+if [ "$OS" = "Windows" ]; then
+  E2E_CONFIG_DIR="${APPDATA:-$HOME/AppData/Roaming}/.openhuman"
+else
+  E2E_CONFIG_DIR="$HOME/.openhuman"
+fi
 E2E_CONFIG_FILE="$E2E_CONFIG_DIR/config.toml"
 E2E_CONFIG_BACKUP=""
 mkdir -p "$E2E_CONFIG_DIR"
@@ -118,24 +134,28 @@ if ! grep -q "127.0.0.1:${E2E_MOCK_PORT}" "$DIST_JS"; then
 fi
 echo "Verified: frontend bundle contains mock server URL."
 
-if [ "$OS" = "Linux" ]; then
+if [ "$OS" = "Linux" ] || [ "$OS" = "Windows" ]; then
   # ---------------------------------------------------------------------------
-  # Linux: start tauri-driver
+  # Linux + Windows: start tauri-driver (W3C WebDriver, exposes WebView DOM)
   # ---------------------------------------------------------------------------
   export TAURI_DRIVER_PORT="${TAURI_DRIVER_PORT:-4444}"
-  DRIVER_LOG="/tmp/tauri-driver-e2e-${LOG_SUFFIX}.log"
+  DRIVER_LOG="${TEMP:-/tmp}/tauri-driver-e2e-${LOG_SUFFIX}.log"
 
   TAURI_DRIVER_BIN="$(command -v tauri-driver 2>/dev/null || true)"
   if [ -z "${TAURI_DRIVER_BIN:-}" ] || [ ! -x "$TAURI_DRIVER_BIN" ]; then
-    # Try cargo bin path
+    # Try Cargo bin path (works on both Linux and Windows Git Bash)
     TAURI_DRIVER_BIN="$HOME/.cargo/bin/tauri-driver"
   fi
-  if [ ! -x "$TAURI_DRIVER_BIN" ]; then
+  if [ ! -x "$TAURI_DRIVER_BIN" ] && [ -f "$TAURI_DRIVER_BIN.exe" ]; then
+    # Git Bash: fall back to .exe suffix
+    TAURI_DRIVER_BIN="$TAURI_DRIVER_BIN.exe"
+  fi
+  if [ ! -x "$TAURI_DRIVER_BIN" ] && [ ! -f "$TAURI_DRIVER_BIN" ]; then
     echo "ERROR: tauri-driver not found. Install with: cargo install tauri-driver" >&2
     exit 1
   fi
 
-  echo "Starting tauri-driver on port $TAURI_DRIVER_PORT..."
+  echo "Starting tauri-driver on port $TAURI_DRIVER_PORT (OS=$OS)..."
   echo "  Driver logs: $DRIVER_LOG"
   "$TAURI_DRIVER_BIN" --port "$TAURI_DRIVER_PORT" > "$DRIVER_LOG" 2>&1 &
   DRIVER_PID=$!
@@ -154,7 +174,7 @@ if [ "$OS" = "Linux" ]; then
   done
 else
   # ---------------------------------------------------------------------------
-  # macOS: start Appium
+  # macOS: start Appium (Mac2 / XCUITest drives the .app bundle)
   # ---------------------------------------------------------------------------
   export APPIUM_PORT="${APPIUM_PORT:-4723}"
   # shellcheck source=/dev/null
@@ -164,7 +184,9 @@ else
   NODE_VER=$("$NODE24" --version)
   echo "Starting Appium on port $APPIUM_PORT (Node $NODE_VER)..."
   echo "  Appium logs: $APPIUM_LOG"
-  "$APPIUM_BIN" --port "$APPIUM_PORT" --relaxed-security > "$APPIUM_LOG" 2>&1 &
+  # Run Appium via the explicit Node 24 binary so the shebang (#!/usr/bin/env node)
+  # doesn't pick up a different node version from PATH.
+  "$NODE24" "$APPIUM_BIN" --port "$APPIUM_PORT" --relaxed-security > "$APPIUM_LOG" 2>&1 &
   DRIVER_PID=$!
 
   for i in $(seq 1 30); do

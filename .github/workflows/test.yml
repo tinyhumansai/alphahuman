@@ -215,42 +215,206 @@ jobs:
           fi
           echo "Core E2E specs passed"
 
-#   e2e-macos:
-#     name: E2E (macOS / Appium)
-#     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_macos_e2e == 'true'
-#     runs-on: macos-latest
-#     timeout-minutes: 90
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-#         with:
-#           fetch-depth: 1
-#           submodules: recursive
+  e2e-macos:
+    name: E2E (macOS / Appium Mac2)
+    # Run on manual dispatch with opt-in flag, or on pushes to main.
+    # macOS runners are ~10× more expensive than Linux — keep gated by default.
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.run_macos_e2e == 'true' ||
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
 
-#       - name: Setup Node.js 24.x
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 24.x
-#           cache: "yarn"
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "yarn"
 
-#       - name: Install Rust (rust-toolchain.toml)
-#         uses: dtolnay/rust-toolchain@1.93.0
+      - name: Install Rust 1.93.0
+        uses: dtolnay/rust-toolchain@1.93.0
 
-#       - name: Install dependencies
-#         run: yarn install --frozen-lockfile
+      - name: Cargo.lock fingerprint (deps only)
+        id: cargo-lock-fingerprint
+        run: |
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
-#       - name: Ensure .env exists for E2E build
-#         run: |
-#           touch .env
-#           touch app/.env
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macOS-e2e-cargo-${{ steps.cargo-lock-fingerprint.outputs.hash }}
+          restore-keys: |
+            macOS-e2e-cargo-
 
-#       - name: Install Appium and mac2 driver
-#         run: |
-#           npm install -g appium
-#           appium driver install mac2
+      - name: Install JS dependencies
+        run: yarn install --frozen-lockfile
 
-#       - name: Build E2E app bundle
-#         run: yarn workspace openhuman-app test:e2e:build
+      - name: Ensure .env files exist for E2E build
+        run: |
+          touch .env
+          touch app/.env
 
-#       - name: Run all E2E flows
-#         run: yarn workspace openhuman-app test:e2e:all:flows
+      - name: Install Appium and Mac2 driver
+        run: |
+          npm install -g appium
+          appium driver install mac2
+
+      - name: Build E2E .app bundle
+        run: yarn workspace openhuman-app test:e2e:build
+
+      - name: Resolve host triple and stage sidecar
+        run: |
+          TRIPLE=$(rustc -vV | awk '/^host:/{print $2}')
+          echo "Host triple: $TRIPLE"
+          SRC="app/src-tauri/binaries/openhuman-core-${TRIPLE}"
+          # Fall back to repo-root binaries dir
+          [ -f "$SRC" ] || SRC="binaries/openhuman-core-${TRIPLE}"
+          DEST_DIR="$(ls -d app/src-tauri/target/debug/bundle/macos/OpenHuman.app/Contents/MacOS 2>/dev/null || echo app/src-tauri/target/debug)"
+          cp "$SRC" "$DEST_DIR/openhuman-core-${TRIPLE}"
+          chmod +x "$DEST_DIR/openhuman-core-${TRIPLE}"
+          echo "Sidecar staged: $DEST_DIR/openhuman-core-${TRIPLE}"
+          # Also stage next to debug binary for non-bundled lookup
+          cp "$SRC" "app/src-tauri/target/debug/openhuman-core-${TRIPLE}" 2>/dev/null || true
+          chmod +x "app/src-tauri/target/debug/openhuman-core-${TRIPLE}" 2>/dev/null || true
+
+      - name: Run core E2E specs (Appium Mac2)
+        run: |
+          cd app
+          FAILED=0
+          for spec in \
+            test/e2e/specs/smoke.spec.ts \
+            test/e2e/specs/login-flow.spec.ts \
+            test/e2e/specs/navigation.spec.ts \
+            test/e2e/specs/app-lifecycle.spec.ts; do
+            SPEC_NAME=$(basename "$spec" .spec.ts)
+            echo "=== Running $SPEC_NAME (macOS / Appium) ==="
+            bash scripts/e2e-run-spec.sh "$spec" "$SPEC_NAME" || {
+              echo "FAILED: $SPEC_NAME"
+              cat /tmp/appium-e2e-${SPEC_NAME}.log 2>/dev/null || true
+              FAILED=1
+            }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "One or more macOS E2E specs failed"
+            exit 1
+          fi
+          echo "All macOS E2E specs passed"
+
+      - name: Upload Appium logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-appium-logs
+          path: /tmp/appium-e2e-*.log
+          retention-days: 7
+
+  e2e-windows:
+    name: E2E (Windows / tauri-driver)
+    # Run on manual dispatch (same flag as macOS) or pushes to main.
+    # windows-latest runners are ~2× more expensive than Linux.
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.run_macos_e2e == 'true' ||
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash   # Git Bash — consistent with Linux job and e2e-run-spec.sh
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "yarn"
+
+      - name: Install Rust 1.93.0
+        uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cargo.lock fingerprint (deps only)
+        id: cargo-lock-fingerprint
+        run: |
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: Windows-e2e-cargo-${{ steps.cargo-lock-fingerprint.outputs.hash }}
+          restore-keys: |
+            Windows-e2e-cargo-
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --version 2.0.5
+
+      - name: Install JS dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Ensure .env files exist for E2E build
+        run: |
+          touch .env
+          touch app/.env
+
+      - name: Build E2E app (Windows debug binary)
+        run: yarn workspace openhuman-app test:e2e:build
+
+      - name: Stage sidecar next to app binary
+        run: |
+          TRIPLE="x86_64-pc-windows-msvc"
+          SRC="app/src-tauri/binaries/openhuman-core-${TRIPLE}.exe"
+          DEST="app/src-tauri/target/debug/openhuman-core-${TRIPLE}.exe"
+          echo "Staging sidecar: $SRC -> $DEST"
+          cp "$SRC" "$DEST"
+          echo "Sidecar staged:"
+          ls -la "app/src-tauri/target/debug/openhuman-core-"* "app/src-tauri/target/debug/OpenHuman.exe"
+
+      - name: Run core E2E specs (Windows / tauri-driver)
+        run: |
+          cd app
+          FAILED=0
+          for spec in \
+            test/e2e/specs/smoke.spec.ts \
+            test/e2e/specs/login-flow.spec.ts \
+            test/e2e/specs/navigation.spec.ts \
+            test/e2e/specs/app-lifecycle.spec.ts; do
+            SPEC_NAME=$(basename "$spec" .spec.ts)
+            echo "=== Running $SPEC_NAME (Windows / tauri-driver) ==="
+            bash scripts/e2e-run-spec.sh "$spec" "$SPEC_NAME" || {
+              echo "FAILED: $SPEC_NAME"
+              cat "${TEMP}/tauri-driver-e2e-${SPEC_NAME}.log" 2>/dev/null || true
+              FAILED=1
+            }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "One or more Windows E2E specs failed"
+            exit 1
+          fi
+          echo "All Windows E2E specs passed"
+
+      - name: Upload tauri-driver logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-tauri-driver-logs
+          path: ${{ env.TEMP }}/tauri-driver-e2e-*.log
+          retention-days: 7

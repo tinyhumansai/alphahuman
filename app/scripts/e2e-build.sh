@@ -18,6 +18,11 @@ cd "$APP_DIR"
 
 export VITE_BACKEND_URL="http://127.0.0.1:${E2E_MOCK_PORT:-18473}"
 
+# Disable ggml/whisper.cpp native CPU detection (-mcpu=native) which is
+# unsupported by Apple Clang 16 on arm64 and unnecessary for E2E test builds.
+# whisper-rs-sys build.rs forwards any GGML_* env var as a CMake define.
+export GGML_NATIVE=OFF
+
 echo "Building E2E app with VITE_BACKEND_URL=$VITE_BACKEND_URL"
 
 if [ -n "${E2E_FORCE_CARGO_CLEAN:-}" ]; then
@@ -45,12 +50,19 @@ TAURI_CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
 case "${CI:-}" in 1) export CI=true ;; 0) export CI=false ;; esac
 
 OS="$(uname)"
+# Normalize Windows (Git Bash / MSYS2 / Cygwin) to a single token
+case "$OS" in MINGW*|MSYS*|CYGWIN*) OS="Windows" ;; esac
+
 if [ "$OS" = "Linux" ]; then
-  # Linux: build debug binary only (no bundle needed for tauri-driver)
+  # Linux: debug binary only — tauri-driver drives the raw binary, no bundle needed
   echo "Building for Linux (debug binary, no bundle)..."
   npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --debug --no-bundle
+elif [ "$OS" = "Windows" ]; then
+  # Windows: debug binary only — tauri-driver drives OpenHuman.exe directly
+  echo "Building for Windows (debug binary, no bundle)..."
+  npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --debug --no-bundle
 else
-  # macOS: build .app bundle for Appium Mac2
+  # macOS: .app bundle required for Appium Mac2 / XCUITest
   echo "Building for macOS (.app bundle)..."
   npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles app --debug
 fi

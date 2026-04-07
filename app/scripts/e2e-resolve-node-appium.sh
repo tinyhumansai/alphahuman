@@ -25,12 +25,16 @@ if [ "${NODE_MAJOR:-0}" -lt 24 ]; then
   exit 1
 fi
 
-APPIUM_BIN="$(command -v appium 2>/dev/null || true)"
-if [ -z "${APPIUM_BIN:-}" ] || [ ! -x "$APPIUM_BIN" ]; then
-  APPIUM_BIN="$(dirname "$NODE24")/appium"
-fi
+# Prefer the Appium binary co-located with NODE24 so the correct Node
+# version is used at runtime (Appium 3.x requires Node >=20.19/22.12/24).
+APPIUM_BIN="$(dirname "$NODE24")/appium"
 if [ ! -x "$APPIUM_BIN" ]; then
-  echo "ERROR: appium not found. Install with: npm install -g appium" >&2
+  # Fall back to whatever is on PATH
+  APPIUM_BIN="$(command -v appium 2>/dev/null || true)"
+fi
+if [ -z "${APPIUM_BIN:-}" ] || [ ! -x "$APPIUM_BIN" ]; then
+  echo "ERROR: appium not found under Node $("$NODE24" --version) or PATH." >&2
+  echo "       Install with: npm install -g appium  (using Node 24+)" >&2
   exit 1
 fi
 
