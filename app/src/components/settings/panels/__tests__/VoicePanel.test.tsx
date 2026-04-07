@@ -149,6 +149,8 @@ describe('VoicePanel', () => {
         activation_mode: 'push',
         skip_cleanup: true,
         min_duration_secs: 0.3,
+        silence_threshold: 0.002,
+        custom_dictionary: [],
       });
     });
     expect(openhumanVoiceServerStart).toHaveBeenCalledWith({
@@ -178,6 +180,8 @@ describe('VoicePanel', () => {
         activation_mode: 'push',
         skip_cleanup: true,
         min_duration_secs: 0.3,
+        silence_threshold: 0.002,
+        custom_dictionary: [],
       });
     });
     expect(openhumanVoiceServerStop).toHaveBeenCalled();
