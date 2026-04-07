@@ -29,7 +29,7 @@ use crate::openhuman::accessibility::{
     open_macos_privacy_pane, request_accessibility_access, request_screen_recording_access,
 };
 
-struct SessionRuntime {
+pub(crate) struct SessionRuntime {
     pub(crate) started_at_ms: i64,
     pub(crate) expires_at_ms: i64,
     pub(crate) ttl_secs: u64,
@@ -713,7 +713,7 @@ impl AccessibilityEngine {
             }
         };
 
-        let persist = persist_vision_summary(summary.clone())
+        let persist = super::helpers::persist_vision_summary(summary.clone())
             .await
             .map_err(|err| format!("vision summary persistence failed: {err}"));
 
@@ -758,7 +758,7 @@ impl AccessibilityEngine {
         frame: CaptureFrame,
     ) -> Result<VisionSummary, String> {
         let summary = super::processing_worker::analyze_frame(self, frame).await?;
-        let persisted = persist_vision_summary(summary.clone())
+        let persisted = super::helpers::persist_vision_summary(summary.clone())
             .await
             .map_err(|err| format!("vision summary persistence failed: {err}"))?;
         tracing::debug!(

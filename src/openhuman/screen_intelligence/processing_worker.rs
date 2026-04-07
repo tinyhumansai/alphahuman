@@ -174,7 +174,7 @@ pub(crate) async fn run(
 /// Run the full 3-pass analysis pipeline on a captured frame.
 /// Public within the crate so `engine.rs` can call it for flush/diagnostics.
 pub(crate) async fn analyze_frame(
-    engine: &AccessibilityEngine,
+    _engine: &AccessibilityEngine,
     frame: CaptureFrame,
 ) -> Result<VisionSummary, String> {
     let image_ref = frame
