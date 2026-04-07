@@ -122,7 +122,7 @@ pub fn transcribe_pcm_f32(
     }
 
     // Suppress non-speech tokens to reduce hallucinations.
-    params.set_suppress_non_speech_tokens(true);
+    params.set_suppress_nst(true);
 
     // Disable printing to stdout — we capture segments programmatically.
     params.set_print_special(false);

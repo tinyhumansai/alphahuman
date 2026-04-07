@@ -616,6 +616,8 @@ pub struct VoiceServerSettingsPatch {
     pub activation_mode: Option<String>,
     pub skip_cleanup: Option<bool>,
     pub min_duration_secs: Option<f32>,
+    pub silence_threshold: Option<f32>,
+    pub custom_dictionary: Option<Vec<String>>,
 }
 
 pub async fn get_voice_server_settings() -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -626,6 +628,8 @@ pub async fn get_voice_server_settings() -> Result<RpcOutcome<serde_json::Value>
         "activation_mode": config.voice_server.activation_mode,
         "skip_cleanup": config.voice_server.skip_cleanup,
         "min_duration_secs": config.voice_server.min_duration_secs,
+        "silence_threshold": config.voice_server.silence_threshold,
+        "custom_dictionary": config.voice_server.custom_dictionary,
     });
     Ok(RpcOutcome::new(
         result,
@@ -661,6 +665,12 @@ pub async fn load_and_apply_voice_server_settings(
     }
     if let Some(min_duration_secs) = update.min_duration_secs {
         config.voice_server.min_duration_secs = min_duration_secs.max(0.0);
+    }
+    if let Some(silence_threshold) = update.silence_threshold {
+        config.voice_server.silence_threshold = silence_threshold.max(0.0);
+    }
+    if let Some(custom_dictionary) = update.custom_dictionary {
+        config.voice_server.custom_dictionary = custom_dictionary;
     }
     config.save().await.map_err(|e| e.to_string())?;
     let snapshot = snapshot_config_json(&config)?;

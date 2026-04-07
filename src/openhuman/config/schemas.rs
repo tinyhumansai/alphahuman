@@ -93,6 +93,8 @@ struct VoiceServerSettingsUpdate {
     activation_mode: Option<String>,
     skip_cleanup: Option<bool>,
     min_duration_secs: Option<f32>,
+    silence_threshold: Option<f32>,
+    custom_dictionary: Option<Vec<String>>,
 }
 
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
@@ -711,6 +713,8 @@ fn handle_update_voice_server_settings(params: Map<String, Value>) -> Controller
             activation_mode: update.activation_mode,
             skip_cleanup: update.skip_cleanup,
             min_duration_secs: update.min_duration_secs,
+            silence_threshold: update.silence_threshold,
+            custom_dictionary: update.custom_dictionary,
         };
         to_json(config_rpc::load_and_apply_voice_server_settings(patch).await?)
     })

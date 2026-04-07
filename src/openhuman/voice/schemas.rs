@@ -292,6 +292,8 @@ fn handle_voice_server_start(params: Map<String, Value>) -> ControllerFuture {
             skip_cleanup,
             context: None,
             min_duration_secs: config.voice_server.min_duration_secs,
+            silence_threshold: config.voice_server.silence_threshold,
+            custom_dictionary: config.voice_server.custom_dictionary.clone(),
         };
 
         // Check if a server is already running with a different config.

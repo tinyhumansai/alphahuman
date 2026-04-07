@@ -48,6 +48,11 @@ export interface VoiceServerSettings {
   activation_mode: 'tap' | 'push';
   skip_cleanup: boolean;
   min_duration_secs: number;
+  /** RMS energy threshold for silence detection. Recordings below this are
+   *  treated as silence and skipped to prevent whisper hallucinations. */
+  silence_threshold: number;
+  /** Custom vocabulary words to bias whisper toward (names, technical terms). */
+  custom_dictionary: string[];
 }
 
 export async function openhumanVoiceStatus(): Promise<VoiceStatus> {
@@ -94,6 +99,8 @@ export async function openhumanUpdateVoiceServerSettings(update: {
   activation_mode?: 'tap' | 'push';
   skip_cleanup?: boolean;
   min_duration_secs?: number;
+  silence_threshold?: number;
+  custom_dictionary?: string[];
 }): Promise<CommandResponse<ConfigSnapshot>> {
   return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
     method: 'openhuman.config_update_voice_server_settings',

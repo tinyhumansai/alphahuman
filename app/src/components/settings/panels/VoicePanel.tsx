@@ -28,6 +28,7 @@ const VoicePanel = () => {
   const [isStopping, setIsStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [newDictWord, setNewDictWord] = useState('');
 
   const hasUnsavedChanges =
     settings != null && savedSettings != null && JSON.stringify(settings) !== JSON.stringify(savedSettings);
@@ -79,6 +80,8 @@ const VoicePanel = () => {
         activation_mode: settings.activation_mode,
         skip_cleanup: settings.skip_cleanup,
         min_duration_secs: settings.min_duration_secs,
+        silence_threshold: settings.silence_threshold,
+        custom_dictionary: settings.custom_dictionary,
       });
 
       if (restartIfRunning && serverStatus && serverStatus.state !== 'stopped') {
@@ -115,6 +118,8 @@ const VoicePanel = () => {
         activation_mode: settings.activation_mode,
         skip_cleanup: settings.skip_cleanup,
         min_duration_secs: settings.min_duration_secs,
+        silence_threshold: settings.silence_threshold,
+        custom_dictionary: settings.custom_dictionary,
       });
       await openhumanVoiceServerStart({
         hotkey: settings.hotkey,
@@ -274,6 +279,86 @@ const VoicePanel = () => {
                       className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-primary-400"
                     />
                   </label>
+                </div>
+
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-stone-600">
+                    Silence Threshold (RMS)
+                  </span>
+                  <p className="text-[11px] text-stone-400">
+                    Recordings with energy below this are treated as silence and skipped. Lower = more sensitive.
+                  </p>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.001"
+                    value={settings.silence_threshold}
+                    onChange={e => updateSetting('silence_threshold', Number(e.target.value) || 0.002)}
+                    className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-primary-400"
+                  />
+                </label>
+
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-xs font-medium text-stone-600">Custom Dictionary</span>
+                    <p className="text-[11px] text-stone-400">
+                      Add names, technical terms, and domain words to improve recognition accuracy.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={newDictWord}
+                      onChange={e => setNewDictWord(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && newDictWord.trim()) {
+                          e.preventDefault();
+                          const word = newDictWord.trim();
+                          if (!settings.custom_dictionary.includes(word)) {
+                            updateSetting('custom_dictionary', [...settings.custom_dictionary, word]);
+                          }
+                          setNewDictWord('');
+                        }
+                      }}
+                      placeholder="Add a word..."
+                      className="flex-1 rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const word = newDictWord.trim();
+                        if (word && !settings.custom_dictionary.includes(word)) {
+                          updateSetting('custom_dictionary', [...settings.custom_dictionary, word]);
+                        }
+                        setNewDictWord('');
+                      }}
+                      disabled={!newDictWord.trim()}
+                      className="px-3 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white">
+                      Add
+                    </button>
+                  </div>
+                  {settings.custom_dictionary.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {settings.custom_dictionary.map(word => (
+                        <span
+                          key={word}
+                          className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-xs text-stone-700">
+                          {word}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateSetting(
+                                'custom_dictionary',
+                                settings.custom_dictionary.filter(w => w !== word)
+                              )
+                            }
+                            className="ml-0.5 text-stone-400 hover:text-stone-700">
+                            &times;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}
