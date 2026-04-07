@@ -182,6 +182,16 @@ pub(crate) async fn analyze_frame(
         .clone()
         .ok_or_else(|| "frame has no image payload".to_string())?;
 
+    // ── Mock path for testing ───────────────────────────────────────
+    if let Ok(mock_raw) = std::env::var("OPENHUMAN_SCREEN_INTELLIGENCE_MOCK_VISION_JSON") {
+        if !mock_raw.trim().is_empty() {
+            tracing::debug!("[processing_worker] using mocked vision output");
+            return Ok(super::helpers::parse_vision_summary_output(
+                frame, &mock_raw,
+            ));
+        }
+    }
+
     // ── Pass 1: OCR via Apple Vision ────────────────────────────────
     tracing::debug!("[processing_worker] pass 1/3: Apple Vision OCR");
     let ocr_text = run_apple_vision_ocr(&image_ref)?;
