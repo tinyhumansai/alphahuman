@@ -470,7 +470,10 @@ pub fn foreground_context() -> Option<AppContext> {
     // `screencapture -l <id>` instead of the fragile `-R x,y,w,h` region
     // approach. Falls back gracefully — window_id stays None.
     if let Some(ref mut ctx) = result {
-        ctx.window_id = resolve_frontmost_window_id(ctx.app_name.as_deref());
+        ctx.window_id = resolve_frontmost_window_id(
+            ctx.app_name.as_deref(),
+            ctx.window_title.as_deref(),
+        );
     }
 
     tracing::debug!(
@@ -483,36 +486,87 @@ pub fn foreground_context() -> Option<AppContext> {
 }
 
 /// Resolve the CGWindowID of the frontmost on-screen window owned by the
-/// given application name.
+/// given application name (and optionally matching the window title).
 ///
-/// Uses the same AppleScript process we already depend on, but queries
-/// Quartz via `do shell script` + a tiny Swift one-liner. Swift ships with
-/// macOS and has direct CoreGraphics access — no pip packages needed.
+/// Uses a Swift subprocess to query Quartz `CGWindowListCopyWindowInfo`.
+/// Swift ships with macOS and has direct CoreGraphics access.
+///
+/// Strategy:
+/// 1. Prefer a window matching both app name AND title (when title provided).
+/// 2. Fall back to first layer-0 window matching app name only.
+/// 3. Retry once after a short delay if the first attempt fails (the window
+///    list can be briefly stale during fast app switches).
 #[cfg(target_os = "macos")]
-fn resolve_frontmost_window_id(app_name: Option<&str>) -> Option<u32> {
+fn resolve_frontmost_window_id(
+    app_name: Option<&str>,
+    window_title: Option<&str>,
+) -> Option<u32> {
     let app = app_name?;
-    // Escape single-quotes for shell embedding.
-    let escaped = app.replace('\'', "'\\''");
 
-    // Swift snippet: iterate CGWindowList, find the first layer-0 window
-    // whose owner name matches, print its CGWindowNumber.
+    // Try up to 2 times — the CGWindowList can briefly lag behind
+    // AppleScript during fast app switches.
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            tracing::debug!(
+                "[accessibility] retrying window_id resolution for app={:?} (attempt {})",
+                app,
+                attempt + 1
+            );
+        }
+
+        if let Some(wid) = run_swift_window_lookup(app, window_title) {
+            return Some(wid);
+        }
+    }
+
+    tracing::debug!(
+        "[accessibility] window_id resolution failed after retries for app={:?} title={:?}",
+        app,
+        window_title,
+    );
+    None
+}
+
+/// Run the Swift subprocess that queries CGWindowList and returns the best
+/// matching window ID.
+#[cfg(target_os = "macos")]
+fn run_swift_window_lookup(app_name: &str, window_title: Option<&str>) -> Option<u32> {
+    // Escape single-quotes for shell embedding.
+    let escaped_app = app_name.replace('\'', "'\\''");
+    let escaped_title = window_title
+        .map(|t| t.replace('\'', "'\\''"))
+        .unwrap_or_default();
+    let has_title = window_title.is_some() && !escaped_title.is_empty();
+
+    // Swift snippet: iterate CGWindowList, prefer title+app match, fall
+    // back to first layer-0 app-name-only match.
     let swift_code = format!(
         r#"
 import CoreGraphics
 import Foundation
 let o: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+var fallback: Int = -1
 if let l = CGWindowListCopyWindowInfo(o, kCGNullWindowID) as? [[String: Any]] {{
     for w in l {{
         let owner = w["kCGWindowOwnerName"] as? String ?? ""
         let layer = w["kCGWindowLayer"] as? Int ?? -1
         let wid = w["kCGWindowNumber"] as? Int ?? -1
-        if owner == "{escaped}" && layer == 0 {{
-            print(wid)
-            exit(0)
+        let name = w["kCGWindowName"] as? String ?? ""
+        if owner == "{escaped_app}" && layer == 0 {{
+            if {has_title_swift} && name == "{escaped_title}" {{
+                print(wid)
+                exit(0)
+            }}
+            if fallback < 0 {{
+                fallback = wid
+            }}
         }}
     }}
 }}
-"#
+if fallback > 0 {{ print(fallback) }}
+"#,
+        has_title_swift = if has_title { "true" } else { "false" },
     );
 
     let output = std::process::Command::new("swift")
@@ -523,8 +577,10 @@ if let l = CGWindowListCopyWindowInfo(o, kCGNullWindowID) as? [[String: Any]] {{
 
     if !output.status.success() {
         tracing::debug!(
-            "[accessibility] swift CGWindowList failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            "[accessibility] swift CGWindowList failed: status={:?} stderr={} app={:?}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim(),
+            app_name,
         );
         return None;
     }
@@ -532,9 +588,10 @@ if let l = CGWindowListCopyWindowInfo(o, kCGNullWindowID) as? [[String: Any]] {{
     let id_str = String::from_utf8_lossy(&output.stdout);
     let wid = id_str.trim().parse::<u32>().ok().filter(|&id| id > 0);
     tracing::debug!(
-        "[accessibility] resolved window_id={:?} for app={:?}",
+        "[accessibility] resolved window_id={:?} for app={:?} title={:?}",
         wid,
-        app
+        app_name,
+        window_title,
     );
     wid
 }

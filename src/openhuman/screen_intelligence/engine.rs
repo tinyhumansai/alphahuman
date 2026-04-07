@@ -465,6 +465,21 @@ impl AccessibilityEngine {
             });
         };
 
+        // Only capture when we have a window ID — never fall back to
+        // fullscreen which would capture the entire display.
+        let has_window_id = context.as_ref().and_then(|c| c.window_id).is_some();
+        if !has_window_id {
+            tracing::debug!(
+                "[screen_intelligence] capture_now: skipping — no window_id for app={:?}",
+                context.as_ref().and_then(|c| c.app_name.as_deref()),
+            );
+            session.last_context = context;
+            return Ok(CaptureNowResult {
+                accepted: false,
+                frame: None,
+            });
+        }
+
         let frame = CaptureFrame {
             captured_at_ms: now_ms(),
             reason,
