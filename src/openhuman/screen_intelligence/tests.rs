@@ -215,7 +215,8 @@ fn parse_vision_missing_fields() {
     let summary = parse_vision_summary_output(test_frame(), raw);
     assert_eq!(summary.ui_state, "active");
     assert_eq!(summary.key_text, "");
-    assert!((summary.confidence - 0.66).abs() < 0.01);
+    // Default confidence is now 0.8 (consistent across JSON and plain-text branches).
+    assert!((summary.confidence - 0.8).abs() < 0.01);
 }
 
 #[test]
