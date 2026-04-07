@@ -5,11 +5,13 @@
 //! testing the capture → save → vision-analysis pipeline from a terminal.
 //!
 //! Usage:
-//!   openhuman screen-intelligence run       [--port <u16>] [-v]
-//!   openhuman screen-intelligence status
-//!   openhuman screen-intelligence capture   [--keep]
+//!   openhuman screen-intelligence run       [--ttl <secs>] [--keep] [-v]
+//!   openhuman screen-intelligence status    [-v]
+//!   openhuman screen-intelligence capture   [--keep] [-v]
 //!   openhuman screen-intelligence start     [--ttl <secs>] [-v]
-//!   openhuman screen-intelligence stop
+//!   openhuman screen-intelligence stop      [-v]
+//!   openhuman screen-intelligence doctor    [-v]
+//!   openhuman screen-intelligence vision    [--limit <n>] [-v]
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -27,6 +29,8 @@ pub fn run_screen_intelligence_command(args: &[String]) -> Result<()> {
         "capture" => run_capture(&args[1..]),
         "start" => run_start_session(&args[1..]),
         "stop" => run_stop_session(&args[1..]),
+        "doctor" => run_doctor(&args[1..]),
+        "vision" => run_vision(&args[1..]),
         other => Err(anyhow::anyhow!(
             "unknown screen-intelligence subcommand '{other}'. Run `openhuman screen-intelligence --help`."
         )),
@@ -38,31 +42,22 @@ pub fn run_screen_intelligence_command(args: &[String]) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 struct CliOpts {
-    port: u16,
     verbose: bool,
     ttl_secs: u64,
     keep: bool,
+    limit: usize,
 }
 
 fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
-    let mut port: u16 = 7797;
     let mut verbose = false;
     let mut ttl_secs: u64 = 300;
     let mut keep = false;
+    let mut limit: usize = 10;
     let mut rest = Vec::new();
     let mut i = 0;
 
     while i < args.len() {
         match args[i].as_str() {
-            "--port" => {
-                let val = args
-                    .get(i + 1)
-                    .ok_or_else(|| anyhow::anyhow!("missing value for --port"))?;
-                port = val
-                    .parse()
-                    .map_err(|e| anyhow::anyhow!("invalid --port: {e}"))?;
-                i += 2;
-            }
             "--ttl" => {
                 let val = args
                     .get(i + 1)
@@ -70,6 +65,15 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
                 ttl_secs = val
                     .parse()
                     .map_err(|e| anyhow::anyhow!("invalid --ttl: {e}"))?;
+                i += 2;
+            }
+            "--limit" => {
+                let val = args
+                    .get(i + 1)
+                    .ok_or_else(|| anyhow::anyhow!("missing value for --limit"))?;
+                limit = val
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("invalid --limit: {e}"))?;
                 i += 2;
             }
             "--keep" => {
@@ -93,10 +97,10 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
 
     Ok((
         CliOpts {
-            port,
             verbose,
             ttl_secs,
             keep,
+            limit,
         },
         rest,
     ))
@@ -135,17 +139,23 @@ async fn bootstrap_engine(
 // Subcommands
 // ---------------------------------------------------------------------------
 
-/// `openhuman screen-intelligence run` — start a minimal JSON-RPC server with the
-/// screen intelligence engine, useful for integration testing.
+/// `openhuman screen-intelligence run` — start the standalone capture + vision loop.
+///
+/// Delegates to [`crate::openhuman::screen_intelligence::server::run_standalone`],
+/// which boots the engine, starts a capture session, and blocks in a
+/// monitoring loop logging captures and vision summaries until TTL or Ctrl+C.
 fn run_server(args: &[String]) -> Result<()> {
     let (opts, rest) = parse_opts(args)?;
 
     if rest.iter().any(|a| is_help(a)) {
-        println!("Usage: openhuman screen-intelligence run [--port <u16>] [-v]");
+        println!("Usage: openhuman screen-intelligence run [--ttl <secs>] [--keep] [-v]");
         println!();
-        println!("Start a lightweight JSON-RPC server exposing screen intelligence RPC methods.");
+        println!("Start the screen intelligence capture + vision loop.");
+        println!("Captures screenshots at baseline FPS, sends to vision model,");
+        println!("and logs summaries. Blocks until TTL expires or Ctrl+C.");
         println!();
-        println!("  --port <u16>     Listen port (default: 7797)");
+        println!("  --ttl <secs>     Session duration (default: 300)");
+        println!("  --keep           Keep screenshots on disk after vision processing");
         println!("  -v, --verbose    Enable debug logging");
         return Ok(());
     }
@@ -157,24 +167,40 @@ fn run_server(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let _engine = bootstrap_engine(opts.verbose).await?;
+        let config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
 
-        let app = build_router();
-
-        let bind_addr = format!("127.0.0.1:{}", opts.port);
-        let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-
-        log::info!("[screen-intelligence-cli] ready — http://{bind_addr}/rpc (JSON-RPC 2.0)");
+        let server_config = crate::openhuman::screen_intelligence::server::SiServerConfig {
+            ttl_secs: opts.ttl_secs,
+            log_interval_secs: 5,
+            keep_screenshots: opts.keep,
+        };
 
         eprintln!();
-        eprintln!("  Screen intelligence dev server listening on http://{bind_addr}");
-        eprintln!("  JSON-RPC endpoint: POST http://{bind_addr}/rpc");
-        eprintln!("  Health check:      GET  http://{bind_addr}/health");
-        eprintln!("  Press Ctrl+C to stop.");
+        eprintln!("  Screen Intelligence");
+        eprintln!("  ───────────────────");
+        eprintln!("  TTL:              {}s", opts.ttl_secs);
+        eprintln!(
+            "  Vision:           {}",
+            config.screen_intelligence.vision_enabled
+        );
+        eprintln!("  Vision model:     {}", config.local_ai.vision_model_id);
+        eprintln!(
+            "  FPS:              {}",
+            config.screen_intelligence.baseline_fps
+        );
+        eprintln!(
+            "  Keep screenshots: {}",
+            opts.keep || config.screen_intelligence.keep_screenshots
+        );
+        eprintln!();
+        eprintln!("  Capturing → Vision → Log. Press Ctrl+C to stop.");
         eprintln!();
 
-        axum::serve(listener, app).await?;
-        Ok(())
+        crate::openhuman::screen_intelligence::server::run_standalone(config, server_config)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     })
 }
 
@@ -368,8 +394,8 @@ fn run_start_session(args: &[String]) -> Result<()> {
                         status.session.last_context.as_deref().unwrap_or("-"),
                     );
                     if let Some(summary) = &status.session.last_vision_summary {
-                        let truncated = if summary.len() > 100 {
-                            format!("{}…", &summary[..100])
+                        let truncated = if summary.chars().count() > 100 {
+                            format!("{}…", summary.chars().take(100).collect::<String>())
                         } else {
                             summary.clone()
                         };
@@ -415,68 +441,183 @@ fn run_stop_session(args: &[String]) -> Result<()> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Minimal HTTP router
-// ---------------------------------------------------------------------------
-
-fn build_router() -> axum::Router {
-    use axum::routing::{get, post};
-
-    axum::Router::new()
-        .route("/health", get(health))
-        .route("/rpc", post(rpc))
-        .route("/status", get(status_endpoint))
-}
-
-async fn health() -> impl axum::response::IntoResponse {
-    axum::Json(serde_json::json!({ "ok": true, "mode": "screen-intelligence-dev" }))
-}
-
-async fn rpc(
-    axum::Json(req): axum::Json<crate::core::types::RpcRequest>,
-) -> axum::response::Response {
-    use crate::core::types::{RpcError, RpcFailure, RpcSuccess};
-    use axum::response::IntoResponse;
-
-    let id = req.id.clone();
-    let state = crate::core::jsonrpc::default_state();
-
-    match crate::core::jsonrpc::invoke_method(state, req.method.as_str(), req.params).await {
-        Ok(value) => (
-            axum::http::StatusCode::OK,
-            axum::Json(RpcSuccess {
-                jsonrpc: "2.0",
-                id,
-                result: value,
-            }),
-        )
-            .into_response(),
-        Err(message) => (
-            axum::http::StatusCode::OK,
-            axum::Json(RpcFailure {
-                jsonrpc: "2.0",
-                id,
-                error: RpcError {
-                    code: -32000,
-                    message,
-                    data: None,
-                },
-            }),
-        )
-            .into_response(),
+/// `openhuman screen-intelligence doctor` — diagnostic readiness check.
+fn run_doctor(args: &[String]) -> Result<()> {
+    if args.iter().any(|a| is_help(a)) {
+        println!("Usage: openhuman screen-intelligence doctor [-v]");
+        println!();
+        println!("Check system readiness: permissions, platform support, vision config.");
+        return Ok(());
     }
+
+    let (opts, _) = parse_opts(args)?;
+    init_quiet_logging(opts.verbose);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async {
+        let _engine = bootstrap_engine(opts.verbose).await?;
+
+        let doctor_json =
+            crate::openhuman::screen_intelligence::rpc::accessibility_doctor_cli_json()
+                .await
+                .map_err(|e| anyhow::anyhow!("doctor check failed: {e}"))?;
+
+        let summary = &doctor_json["result"]["summary"];
+        let recommendations = &doctor_json["result"]["recommendations"];
+        let permissions = &doctor_json["result"]["permissions"];
+
+        eprintln!("  Screen Intelligence Doctor");
+        eprintln!("  ──────────────────────────");
+        eprintln!();
+
+        let check = |ok: bool| if ok { "✓" } else { "✗" };
+
+        let platform_ok = summary["platform_supported"].as_bool().unwrap_or(false);
+        let screen_ok = summary["screen_capture_ready"].as_bool().unwrap_or(false);
+        let control_ok = summary["device_control_ready"].as_bool().unwrap_or(false);
+        let input_ok = summary["input_monitoring_ready"].as_bool().unwrap_or(false);
+        let overall_ok = summary["overall_ready"].as_bool().unwrap_or(false);
+
+        eprintln!("  {} Platform supported", check(platform_ok));
+        eprintln!("  {} Screen recording", check(screen_ok));
+        eprintln!("  {} Accessibility (device control)", check(control_ok));
+        eprintln!("  {} Input monitoring", check(input_ok));
+        eprintln!();
+
+        // Vision config check.
+        let config = crate::openhuman::config::Config::load_or_init().await.ok();
+        if let Some(ref cfg) = config {
+            let si = &cfg.screen_intelligence;
+            let la = &cfg.local_ai;
+            eprintln!("  Config:");
+            eprintln!("    enabled:           {}", si.enabled);
+            eprintln!("    vision_enabled:    {}", si.vision_enabled);
+            eprintln!("    baseline_fps:      {}", si.baseline_fps);
+            eprintln!("    keep_screenshots:  {}", si.keep_screenshots);
+            eprintln!("    local_ai.enabled:  {}", la.enabled);
+            eprintln!("    local_ai.provider: {}", la.provider);
+            if si.vision_enabled && !la.enabled {
+                eprintln!("    ⚠  Vision is enabled but local_ai.enabled=false — vision analysis will fail");
+            }
+        }
+
+        eprintln!();
+        if overall_ok {
+            eprintln!("  ✓ Overall: READY");
+        } else {
+            eprintln!("  ✗ Overall: NOT READY");
+            eprintln!();
+            eprintln!("  Recommendations:");
+            if let Some(recs) = recommendations.as_array() {
+                for rec in recs {
+                    if let Some(s) = rec.as_str() {
+                        eprintln!("    • {s}");
+                    }
+                }
+            }
+        }
+        eprintln!();
+
+        // Machine-readable JSON output.
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "summary": summary,
+                "permissions": permissions,
+                "config": config.as_ref().map(|c| serde_json::json!({
+                    "enabled": c.screen_intelligence.enabled,
+                    "vision_enabled": c.screen_intelligence.vision_enabled,
+                    "baseline_fps": c.screen_intelligence.baseline_fps,
+                    "keep_screenshots": c.screen_intelligence.keep_screenshots,
+                    "local_ai_enabled": c.local_ai.enabled,
+                    "local_ai_provider": c.local_ai.provider,
+                })),
+            }))
+            .unwrap_or_default()
+        );
+        Ok(())
+    })
 }
 
-async fn status_endpoint() -> impl axum::response::IntoResponse {
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::to_value(&status).unwrap_or_default())
+/// `openhuman screen-intelligence vision` — inspect recent vision summaries.
+fn run_vision(args: &[String]) -> Result<()> {
+    if args.iter().any(|a| is_help(a)) {
+        println!("Usage: openhuman screen-intelligence vision [--limit <n>] [-v]");
+        println!();
+        println!("Print recent vision summaries from the active session.");
+        println!();
+        println!("  --limit <n>      Maximum summaries to show (default: 10)");
+        println!("  -v, --verbose    Enable debug logging");
+        return Ok(());
+    }
+
+    let (opts, _) = parse_opts(args)?;
+    init_quiet_logging(opts.verbose);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async {
+        let engine = bootstrap_engine(opts.verbose).await?;
+        let result = engine.vision_recent(Some(opts.limit)).await;
+
+        if result.summaries.is_empty() {
+            eprintln!("  No vision summaries available.");
+            eprintln!("  Start a session first: openhuman screen-intelligence start");
+        } else {
+            eprintln!("  {} vision summary(ies):\n", result.summaries.len());
+            for (i, s) in result.summaries.iter().enumerate() {
+                let ts = chrono::DateTime::from_timestamp_millis(s.captured_at_ms)
+                    .map(|dt| dt.format("%H:%M:%S").to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                eprintln!(
+                    "  [{}] {} — {} (confidence: {:.0}%)",
+                    i + 1,
+                    ts,
+                    s.app_name.as_deref().unwrap_or("unknown"),
+                    s.confidence * 100.0,
+                );
+                if !s.ui_state.is_empty() {
+                    let truncated = if s.ui_state.chars().count() > 120 {
+                        format!("{}…", s.ui_state.chars().take(120).collect::<String>())
+                    } else {
+                        s.ui_state.clone()
+                    };
+                    eprintln!("       ui: {truncated}");
+                }
+                if !s.actionable_notes.is_empty() {
+                    let truncated = if s.actionable_notes.chars().count() > 120 {
+                        format!(
+                            "{}…",
+                            s.actionable_notes.chars().take(120).collect::<String>()
+                        )
+                    } else {
+                        s.actionable_notes.clone()
+                    };
+                    eprintln!("       notes: {truncated}");
+                }
+                eprintln!();
+            }
+        }
+
+        // Machine-readable output.
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).unwrap_or_default()
+        );
+        Ok(())
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Quiet logging: only `warn` unless verbose (used for non-server subcommands).
 fn init_quiet_logging(verbose: bool) {
     if !verbose && std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "warn");
@@ -489,24 +630,30 @@ fn is_help(value: &str) -> bool {
 }
 
 fn print_help() {
-    println!("openhuman screen-intelligence — screen intelligence runtime\n");
+    println!("openhuman screen-intelligence — standalone screen intelligence runtime\n");
+    println!("Boots only the screen intelligence engine (accessibility capture + local-AI");
+    println!("vision) without the full desktop app, Socket.IO, or skills runtime.\n");
     println!("Usage:");
-    println!("  openhuman screen-intelligence run       [--port <u16>] [-v]");
+    println!("  openhuman screen-intelligence run       [--ttl <secs>] [-v]");
     println!("  openhuman screen-intelligence status     [-v]");
     println!("  openhuman screen-intelligence capture    [--keep] [-v]");
     println!("  openhuman screen-intelligence start      [--ttl <secs>] [-v]");
     println!("  openhuman screen-intelligence stop       [-v]");
+    println!("  openhuman screen-intelligence doctor     [-v]");
+    println!("  openhuman screen-intelligence vision     [--limit <n>] [-v]");
     println!();
     println!("Subcommands:");
-    println!("  run       Start a lightweight JSON-RPC server with screen intelligence");
+    println!("  run       Start the capture → vision → log loop (blocks until TTL/Ctrl+C)");
     println!("  status    Print current engine status (permissions, session, config)");
     println!("  capture   Take a single screenshot and print diagnostics");
     println!("  start     Start a capture + vision session (runs until TTL or Ctrl+C)");
     println!("  stop      Stop the active session");
+    println!("  doctor    Check system readiness (permissions, vision config, platform)");
+    println!("  vision    Print recent vision summaries from the active session");
     println!();
     println!("Common options:");
-    println!("  --port <u16>     Server port for 'run' (default: 7797)");
-    println!("  --ttl <secs>     Session TTL for 'start' (default: 300)");
+    println!("  --ttl <secs>     Session TTL (default: 300)");
+    println!("  --limit <n>      Max vision summaries for 'vision' (default: 10)");
     println!("  --keep           Save screenshot to disk (for 'capture')");
     println!("  -v, --verbose    Enable debug logging");
 }

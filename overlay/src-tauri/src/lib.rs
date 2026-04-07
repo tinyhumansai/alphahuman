@@ -3,9 +3,9 @@ mod log_bridge;
 use log_bridge::{LogBuffer, LogEntry, TauriLogLayer};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::Manager;
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
+use tauri::Manager;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -38,6 +38,19 @@ fn set_click_through(
         .map_err(|e| e.to_string())?;
     log::debug!("[overlay] click-through set to {}", enabled);
     Ok(())
+}
+
+/// JSON-RPC URL of the desktop core sidecar, when the overlay was spawned by it.
+/// When set, the web UI should prefer HTTP `fetch` to this URL so autocomplete,
+/// screen intelligence, and voice state match the main app (see `overlay/src/parentCoreRpc.ts`).
+#[tauri::command]
+fn overlay_parent_rpc_url() -> Option<String> {
+    let url = std::env::var("OPENHUMAN_OVERLAY_PARENT_RPC_URL").ok()?;
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 /// Forward an RPC call to openhuman_core's dispatch in-process.
@@ -76,6 +89,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_log_history,
             set_click_through,
+            overlay_parent_rpc_url,
             core_rpc,
             insert_text_into_focused_field,
         ])
@@ -112,20 +126,33 @@ pub fn run() {
 
             log::info!("[overlay] overlay process started, tracing bridge active");
 
-            // ── Start openhuman_core JSON-RPC server in-process ─────────
-            // Use port 7799 to avoid conflicts with a standalone core on 7788.
-            // Override with OPENHUMAN_CORE_PORT env var.
-            tauri::async_runtime::spawn(async move {
-                let port = std::env::var("OPENHUMAN_CORE_PORT")
-                    .ok()
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .unwrap_or(7799);
-                log::info!("[overlay] starting openhuman_core server on 127.0.0.1:{}...", port);
-                match openhuman_core::core::jsonrpc::run_server(None, Some(port), true).await {
-                    Ok(()) => log::info!("[overlay] core server shut down cleanly"),
-                    Err(e) => log::error!("[overlay] core server error: {}", e),
-                }
-            });
+            // ── Optional in-process JSON-RPC (standalone / dev without a parent core) ──
+            // When spawned by the desktop sidecar, OPENHUMAN_OVERLAY_PARENT_RPC_URL is set and
+            // the web UI talks to the parent over HTTP — do not bind a second server on 7788.
+            // Use OPENHUMAN_OVERLAY_EMBEDDED_CORE_PORT (default 7799), not OPENHUMAN_CORE_PORT.
+            let parent_rpc = std::env::var("OPENHUMAN_OVERLAY_PARENT_RPC_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty());
+            if parent_rpc.is_some() {
+                log::info!(
+                    "[overlay] parent core RPC URL set — skipping embedded JSON-RPC server"
+                );
+            } else {
+                tauri::async_runtime::spawn(async move {
+                    let port = std::env::var("OPENHUMAN_OVERLAY_EMBEDDED_CORE_PORT")
+                        .ok()
+                        .and_then(|p| p.parse::<u16>().ok())
+                        .unwrap_or(7799);
+                    log::info!(
+                        "[overlay] starting embedded openhuman_core server on 127.0.0.1:{} (standalone)",
+                        port
+                    );
+                    match openhuman_core::core::jsonrpc::run_server_embedded(None, Some(port), true).await {
+                        Ok(()) => log::info!("[overlay] embedded core server shut down cleanly"),
+                        Err(e) => log::error!("[overlay] embedded core server error: {}", e),
+                    }
+                });
+            }
 
             // ── macOS: floating panel + visible on all workspaces ───────
             #[cfg(target_os = "macos")]

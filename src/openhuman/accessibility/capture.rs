@@ -28,6 +28,14 @@ impl std::fmt::Display for CaptureMode {
 }
 
 fn capture_mode_for_context(context: Option<&AppContext>) -> CaptureMode {
+    // Only use windowed capture when we have a reliable CGWindowID.
+    // Without a window ID we still return Windowed so the caller can
+    // decide — but `capture_screen_image_ref_for_context` will fail
+    // gracefully when neither window_id nor bounds are available.
+    if context.and_then(|ctx| ctx.window_id).is_some() {
+        return CaptureMode::Windowed;
+    }
+    // Fallback to bounds-based if available, otherwise fullscreen.
     match context.and_then(|ctx| ctx.bounds) {
         Some(bounds) if bounds.width > 0 && bounds.height > 0 => CaptureMode::Windowed,
         _ => CaptureMode::Fullscreen,
@@ -114,17 +122,37 @@ pub fn capture_screen_image_ref_for_context(
         let capture_mode = capture_mode_for_context(context);
         log_capture_mode_decision(context, &capture_mode);
 
+        // Never fall back to fullscreen — capturing the entire display is
+        // almost never what the caller wants and leaks unrelated content.
+        if capture_mode == CaptureMode::Fullscreen {
+            let app = context.and_then(|ctx| ctx.app_name.as_deref());
+            tracing::debug!(
+                "[accessibility] refusing fullscreen fallback for app={:?} — \
+                 no window_id or valid bounds available",
+                app,
+            );
+            return Err(
+                "no window_id or valid bounds available — refusing fullscreen capture".to_string(),
+            );
+        }
+
         let mut cmd = std::process::Command::new("screencapture");
         cmd.arg("-x").arg("-t").arg("png");
 
-        if capture_mode == CaptureMode::Windowed {
+        if let Some(wid) = context.and_then(|ctx| ctx.window_id) {
+            // Capture by window ID — most reliable, no coordinate issues.
+            cmd.arg("-l").arg(wid.to_string());
+            tracing::debug!(
+                "[accessibility] capture mode=window_id id={} app={:?}",
+                wid,
+                context.and_then(|ctx| ctx.app_name.as_deref())
+            );
+        } else if capture_mode == CaptureMode::Windowed {
             let b = &context
                 .and_then(|ctx| ctx.bounds)
                 .expect("windowed capture requires bounds");
             let rect = format!("{},{},{},{}", b.x, b.y, b.width, b.height);
             cmd.arg("-R").arg(&rect);
-        } else {
-            tracing::debug!("[accessibility] capture mode=fullscreen (primary display)");
         }
 
         cmd.arg(tmp_file.path());
@@ -235,6 +263,7 @@ mod tests {
                 width: 1440,
                 height: 900,
             }),
+            window_id: None,
         };
 
         assert_eq!(
@@ -248,6 +277,7 @@ mod tests {
         let invalid_context = AppContext {
             app_name: Some("Finder".to_string()),
             window_title: Some("Desktop".to_string()),
+            window_id: None,
             bounds: Some(ElementBounds {
                 x: 0,
                 y: 0,
@@ -261,6 +291,30 @@ mod tests {
             CaptureMode::Fullscreen
         );
         assert_eq!(capture_mode_for_context(None), CaptureMode::Fullscreen);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fullscreen_fallback_is_rejected() {
+        // No window_id and no valid bounds → should refuse to capture.
+        let result = capture_screen_image_ref_for_context(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("refusing fullscreen capture"));
+
+        let invalid_context = AppContext {
+            app_name: Some("Finder".to_string()),
+            window_title: Some("Desktop".to_string()),
+            window_id: None,
+            bounds: Some(ElementBounds {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 900,
+            }),
+        };
+        let result = capture_screen_image_ref_for_context(Some(&invalid_context));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("refusing fullscreen capture"));
     }
 
     #[cfg(target_os = "macos")]

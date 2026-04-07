@@ -415,6 +415,7 @@ pub fn parse_foreground_output(stdout: &str) -> Option<AppContext> {
         app_name: app,
         window_title: title,
         bounds,
+        window_id: None, // Populated later by foreground_context() via resolve_frontmost_window_id.
     })
 }
 
@@ -463,13 +464,178 @@ pub fn foreground_context() -> Option<AppContext> {
     }
 
     let text = String::from_utf8_lossy(&output.stdout);
-    let result = parse_foreground_output(&text);
+    let mut result = parse_foreground_output(&text);
+
+    // Resolve the CGWindowID for the frontmost window so capture can use
+    // `screencapture -l <id>` instead of the fragile `-R x,y,w,h` region
+    // approach. Falls back gracefully — window_id stays None.
+    if let Some(ref mut ctx) = result {
+        ctx.window_id =
+            resolve_frontmost_window_id(ctx.app_name.as_deref(), ctx.window_title.as_deref());
+    }
+
     tracing::debug!(
-        "[accessibility] foreground_context: app={:?} bounds_present={}",
+        "[accessibility] foreground_context: app={:?} window_id={:?} bounds_present={}",
         result.as_ref().and_then(|c| c.app_name.as_deref()),
+        result.as_ref().and_then(|c| c.window_id),
         result.as_ref().map(|c| c.bounds.is_some()).unwrap_or(false)
     );
     result
+}
+
+/// Resolve the CGWindowID of the frontmost on-screen window owned by the
+/// given application name (and optionally matching the window title).
+///
+/// Uses a Swift subprocess to query Quartz `CGWindowListCopyWindowInfo`.
+/// Swift ships with macOS and has direct CoreGraphics access.
+///
+/// Strategy:
+/// 1. Prefer a window matching both app name AND title (when title provided).
+/// 2. Fall back to first layer-0 window matching app name only.
+/// 3. Retry once after a short delay if the first attempt fails (the window
+///    list can be briefly stale during fast app switches).
+#[cfg(target_os = "macos")]
+fn resolve_frontmost_window_id(app_name: Option<&str>, window_title: Option<&str>) -> Option<u32> {
+    let app = app_name?;
+
+    // Try up to 2 times — the CGWindowList can briefly lag behind
+    // AppleScript during fast app switches.
+    for attempt in 0..2 {
+        if attempt > 0 {
+            // Intentional blocking sleep: `resolve_frontmost_window_id` is called
+            // from `foreground_context()`, which is a synchronous function invoked
+            // from within an async context (the capture/status hot path). The sleep
+            // is only 50ms and is rare (second attempt only), so the blocking impact
+            // on the Tokio runtime is minimal and acceptable here.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            tracing::debug!(
+                "[accessibility] retrying window_id resolution for app={:?} (attempt {})",
+                app,
+                attempt + 1
+            );
+        }
+
+        if let Some(wid) = run_swift_window_lookup(app, window_title) {
+            return Some(wid);
+        }
+    }
+
+    tracing::debug!(
+        "[accessibility] window_id resolution failed after retries for app={:?} title={:?}",
+        app,
+        window_title,
+    );
+    None
+}
+
+/// Run the Swift subprocess that queries CGWindowList and returns the best
+/// matching window ID.
+#[cfg(target_os = "macos")]
+fn run_swift_window_lookup(app_name: &str, window_title: Option<&str>) -> Option<u32> {
+    // Escape single-quotes for shell embedding.
+    let escaped_app = app_name.replace('\'', "'\\''");
+    let escaped_title = window_title
+        .map(|t| t.replace('\'', "'\\''"))
+        .unwrap_or_default();
+    let has_title = window_title.is_some() && !escaped_title.is_empty();
+
+    // Strip Unicode formatting/control characters (e.g. U+200E LTR mark)
+    // from the app name before embedding in Swift. Some apps like WhatsApp
+    // have invisible Unicode prefixes in their bundle name that AppleScript
+    // preserves but can cause comparison issues.
+    let stripped_app: String = escaped_app
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'
+                )
+        })
+        .collect();
+    let stripped_title: String = escaped_title
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'
+                )
+        })
+        .collect();
+
+    // Swift snippet: iterate CGWindowList, prefer title+app match, fall
+    // back to first layer-0 app-name-only match.
+    //
+    // Uses `.optionAll` instead of `.optionOnScreenOnly` because some apps
+    // (e.g. WhatsApp, Catalyst/Electron apps) have visible windows that
+    // aren't reported by the on-screen-only filter. We compensate by
+    // requiring layer == 0 and positive bounds to skip truly off-screen
+    // or minimised windows.
+    let swift_code = format!(
+        r#"
+import CoreGraphics
+import Foundation
+func strip(_ s: String) -> String {{
+    s.unicodeScalars.filter {{ !($0.properties.isDefaultIgnorableCodePoint || $0.value == 0x200E || $0.value == 0x200F || $0.value == 0xFEFF) }}.map {{ String($0) }}.joined()
+}}
+let target = strip("{stripped_app}")
+let targetTitle = strip("{stripped_title}")
+let o: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+var fallback: Int = -1
+if let l = CGWindowListCopyWindowInfo(o, kCGNullWindowID) as? [[String: Any]] {{
+    for w in l {{
+        let owner = strip(w["kCGWindowOwnerName"] as? String ?? "")
+        let layer = w["kCGWindowLayer"] as? Int ?? -1
+        let wid = w["kCGWindowNumber"] as? Int ?? -1
+        let name = strip(w["kCGWindowName"] as? String ?? "")
+        let bounds = w["kCGWindowBounds"] as? [String: Any] ?? [:]
+        let bw = bounds["Width"] as? Int ?? 0
+        let bh = bounds["Height"] as? Int ?? 0
+        if owner == target && layer == 0 && bw > 1 && bh > 1 {{
+            if {has_title_swift} && name == targetTitle {{
+                print(wid)
+                exit(0)
+            }}
+            if fallback < 0 {{
+                fallback = wid
+            }}
+        }}
+    }}
+}}
+if fallback > 0 {{ print(fallback) }}
+"#,
+        has_title_swift = if has_title { "true" } else { "false" },
+    );
+
+    // Note: this subprocess has no explicit timeout. This is consistent with
+    // the rest of the codebase (`screencapture`, `osascript`) which also run
+    // without timeouts. Swift startup for a trivial snippet is typically <1s.
+    let output = std::process::Command::new("swift")
+        .arg("-e")
+        .arg(&swift_code)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        tracing::debug!(
+            "[accessibility] swift CGWindowList failed: status={:?} stderr={} app={:?}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim(),
+            app_name,
+        );
+        return None;
+    }
+
+    let id_str = String::from_utf8_lossy(&output.stdout);
+    let wid = id_str.trim().parse::<u32>().ok().filter(|&id| id > 0);
+    tracing::debug!(
+        "[accessibility] resolved window_id={:?} for app={:?} title={:?}",
+        wid,
+        app_name,
+        window_title,
+    );
+    wid
 }
 
 #[cfg(not(target_os = "macos"))]

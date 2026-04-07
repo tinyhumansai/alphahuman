@@ -7,6 +7,10 @@ use uuid::Uuid;
 use super::limits::{MAX_CONTEXT_CHARS, MAX_EPHEMERAL_FRAMES, MAX_EPHEMERAL_VISION_SUMMARIES};
 use super::types::{AutocompleteSuggestion, CaptureFrame, InputActionParams, VisionSummary};
 
+/// Default confidence score used when the model does not provide one.
+/// Applied consistently across both JSON and plain-text vision output branches.
+const DEFAULT_VISION_CONFIDENCE: f32 = 0.8;
+
 pub(crate) const VISION_MEMORY_NAMESPACE: &str = "background";
 pub(crate) const VISION_MEMORY_SOURCE_TYPE: &str = "screenshot";
 pub(crate) const VISION_MEMORY_CATEGORY: &str = "screen_intelligence";
@@ -68,6 +72,19 @@ pub(crate) fn push_ephemeral_vision_summary(
     summaries: &mut VecDeque<VisionSummary>,
     summary: VisionSummary,
 ) {
+    // Deduplicate: skip if a summary with the same captured_at_ms already exists.
+    // This prevents `vision_flush` from storing duplicates when called concurrently
+    // with the processing worker channel path.
+    if summaries
+        .iter()
+        .any(|s| s.captured_at_ms == summary.captured_at_ms)
+    {
+        tracing::debug!(
+            "[screen_intelligence] skipping duplicate vision summary (captured_at_ms={})",
+            summary.captured_at_ms
+        );
+        return;
+    }
     summaries.push_back(summary);
     while summaries.len() > MAX_EPHEMERAL_VISION_SUMMARIES {
         let _ = summaries.pop_front();
@@ -75,45 +92,60 @@ pub(crate) fn push_ephemeral_vision_summary(
 }
 
 pub(crate) fn parse_vision_summary_output(frame: CaptureFrame, raw: &str) -> VisionSummary {
-    let fallback = truncate_tail(raw.trim(), 512);
-    let value = serde_json::from_str::<serde_json::Value>(raw).ok();
-    let ui_state = value
-        .as_ref()
-        .and_then(|v| v.get("ui_state"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or("UI state unavailable");
-    let key_text = value
-        .as_ref()
-        .and_then(|v| v.get("key_text"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .unwrap_or("");
-    let actionable_notes = value
-        .as_ref()
-        .and_then(|v| v.get("actionable_notes"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(&fallback);
-    let confidence = value
-        .as_ref()
-        .and_then(|v| v.get("confidence"))
-        .and_then(|v| v.as_f64())
-        .map(|v| v as f32)
-        .unwrap_or(0.66)
-        .clamp(0.0, 1.0);
+    let trimmed = raw.trim();
+
+    // Try JSON first (backwards compat / mock testing).
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let ui_state = value
+            .get("ui_state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let key_text = value
+            .get("key_text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let actionable_notes = value
+            .get("actionable_notes")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let confidence = value
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .unwrap_or(DEFAULT_VISION_CONFIDENCE)
+            .clamp(0.0, 1.0);
+
+        return VisionSummary {
+            id: format!("vision-{}-{}", frame.captured_at_ms, Uuid::new_v4()),
+            captured_at_ms: frame.captured_at_ms,
+            app_name: frame.app_name,
+            window_title: frame.window_title,
+            ui_state: truncate_tail(ui_state, 500),
+            key_text: truncate_tail(key_text, 2000),
+            actionable_notes: truncate_tail(actionable_notes, 1000),
+            confidence,
+        };
+    }
+
+    // Plain text mode: first line = ui_state, second line = actionable_notes,
+    // rest = key_text (the full content extraction).
+    let mut lines = trimmed.lines();
+    let ui_state = lines.next().unwrap_or("").trim().to_string();
+    let actionable_notes = lines.next().unwrap_or("").trim().to_string();
+    let key_text: String = lines.collect::<Vec<_>>().join("\n").trim().to_string();
 
     VisionSummary {
         id: format!("vision-{}-{}", frame.captured_at_ms, Uuid::new_v4()),
         captured_at_ms: frame.captured_at_ms,
         app_name: frame.app_name,
         window_title: frame.window_title,
-        ui_state: truncate_tail(ui_state, 220),
-        key_text: truncate_tail(key_text, 280),
-        actionable_notes: truncate_tail(actionable_notes, 560),
-        confidence,
+        ui_state: truncate_tail(&ui_state, 500),
+        key_text: truncate_tail(&key_text, 4000),
+        actionable_notes: truncate_tail(&actionable_notes, 1000),
+        confidence: DEFAULT_VISION_CONFIDENCE,
     }
 }
 
@@ -154,23 +186,44 @@ pub(crate) async fn persist_vision_summary(
         }
     };
 
-    let content = match serde_json::to_string(&summary) {
-        Ok(content) => content,
-        Err(err) => {
-            let message = format!("serialization failed: {err}");
-            tracing::debug!(
-                "[screen_intelligence] vision summary persistence skipped: {}",
-                message
-            );
-            return Err(message);
-        }
+    let ts = chrono::DateTime::from_timestamp_millis(summary.captured_at_ms)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .unwrap_or_else(|| summary.captured_at_ms.to_string());
+    let app = summary.app_name.as_deref().unwrap_or("Unknown");
+    let window = summary.window_title.as_deref().unwrap_or("");
+
+    let title = format!("Screen capture — {} — {}", app, ts);
+
+    // YAML frontmatter for metadata, body is clean markdown content.
+    // Limitation: escaping is best-effort — only double-quotes and newlines are
+    // escaped. Values containing YAML-special characters like `:`, `{`, `}`, `[`,
+    // `]`, `#`, `|`, `>`, `&`, `*` may still produce invalid YAML in edge cases.
+    let yaml_escape = |s: &str| -> String {
+        s.replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "")
     };
+    let mut content = String::from("---\n");
+    content.push_str(&format!("app: \"{}\"\n", yaml_escape(app)));
+    if !window.is_empty() {
+        content.push_str(&format!("window: \"{}\"\n", yaml_escape(window)));
+    }
+    content.push_str(&format!("captured: \"{}\"\n", ts));
+    content.push_str(&format!("captured_ms: {}\n", summary.captured_at_ms));
+    content.push_str(&format!("confidence: {:.2}\n", summary.confidence));
+    content.push_str(&format!("id: \"{}\"\n", summary.id));
+    content.push_str("---\n\n");
+
+    // key_text = synthesized summary (the main document body)
+    if !summary.key_text.is_empty() {
+        content.push_str(&format!("{}\n", summary.key_text));
+    }
 
     let key = format!("screen_intelligence_{}", summary.id);
     mem.upsert_document(NamespaceDocumentInput {
         namespace: VISION_MEMORY_NAMESPACE.to_string(),
         key: key.clone(),
-        title: key.clone(),
+        title,
         content,
         source_type: VISION_MEMORY_SOURCE_TYPE.to_string(),
         priority: "medium".to_string(),

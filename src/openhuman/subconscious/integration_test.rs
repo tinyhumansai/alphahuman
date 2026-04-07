@@ -103,7 +103,7 @@ mod tests {
         )
         .await;
 
-        let notion_doc_id = ingest(
+        let _notion_doc_id = ingest(
             &memory,
             "skill-notion",
             "tick1-tracker",

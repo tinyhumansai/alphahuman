@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { callParentCoreRpc } from "./parentCoreRpc";
+
 const TARGET_SAMPLE_RATE = 16000;
 
 type OverlayStatus = "idle" | "listening" | "transcribing" | "ready" | "error";
@@ -64,12 +66,29 @@ interface AutocompleteStatus {
   suggestion: AutocompleteSuggestion | null;
 }
 
+/** Matches `VoiceStatus` in src/openhuman/voice/types.rs */
+interface VoiceStatus {
+  stt_available: boolean;
+  tts_available: boolean;
+  stt_model_id: string;
+  tts_voice_id: string;
+  whisper_binary: string | null;
+  piper_binary: string | null;
+  stt_model_path: string | null;
+  tts_voice_path: string | null;
+  whisper_in_process: boolean;
+  llm_cleanup_enabled: boolean;
+}
+
 interface OverlayDebugSnapshot {
   screen: AccessibilityStatus | null;
   autocomplete: AutocompleteStatus | null;
+  voice: VoiceStatus | null;
   updatedAt: number | null;
   error: string | null;
 }
+
+const DEBUG_EXPANDED_KEY = "openhuman_overlay_debug_expanded";
 
 function logOverlay(message: string, details?: unknown) {
   if (details) {
@@ -205,15 +224,66 @@ export function App() {
   const sessionIdRef = useRef(0);
   const globePollInFlightRef = useRef(false);
 
+  /** `undefined` until Tauri reports env; then URL string or `null` (embedded core only). */
+  const [parentRpcUrl, setParentRpcUrl] = useState<string | null | undefined>(undefined);
+  const [coreReachable, setCoreReachable] = useState(true);
+  const [voiceCaptureEnabled, setVoiceCaptureEnabled] = useState(true);
+  const [debugExpanded, setDebugExpanded] = useState(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(DEBUG_EXPANDED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
   const [status, setStatus] = useState<OverlayStatus>("idle");
   const [message, setMessage] = useState("Click to start listening");
   const [transcript, setTranscript] = useState("");
   const [debugSnapshot, setDebugSnapshot] = useState<OverlayDebugSnapshot>({
     screen: null,
     autocomplete: null,
+    voice: null,
     updatedAt: null,
     error: null,
   });
+
+  useEffect(() => {
+    let mounted = true;
+    void invoke<string | null>("overlay_parent_rpc_url")
+      .then((url) => {
+        if (!mounted) return;
+        const trimmed = url?.trim();
+        setParentRpcUrl(trimmed && trimmed.length > 0 ? trimmed : null);
+      })
+      .catch(() => {
+        if (mounted) setParentRpcUrl(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const rpc = useCallback(
+    async <T,>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+      if (parentRpcUrl === undefined) {
+        throw new Error("[overlay] RPC not initialized");
+      }
+      if (parentRpcUrl) {
+        return callParentCoreRpc<T>(parentRpcUrl, method, params);
+      }
+      return invoke<T>("core_rpc", { method, params });
+    },
+    [parentRpcUrl],
+  );
+
+  const persistDebugExpanded = useCallback((expanded: boolean) => {
+    setDebugExpanded(expanded);
+    try {
+      localStorage.setItem(DEBUG_EXPANDED_KEY, expanded ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -228,11 +298,11 @@ export function App() {
     };
 
     const startGlobeListener = async () => {
+      if (parentRpcUrl === undefined) {
+        return;
+      }
       try {
-        const result = await invoke<GlobeHotkeyStatus>("core_rpc", {
-          method: "openhuman.screen_intelligence_globe_listener_start",
-          params: {},
-        });
+        const result = await rpc<GlobeHotkeyStatus>("openhuman.screen_intelligence_globe_listener_start", {});
         logOverlay("globe listener start result", result);
 
         if (!result.supported) {
@@ -252,16 +322,13 @@ export function App() {
     };
 
     const pollGlobeListener = async () => {
-      if (disposed || globePollInFlightRef.current) {
+      if (disposed || parentRpcUrl === undefined || globePollInFlightRef.current) {
         return;
       }
       globePollInFlightRef.current = true;
 
       try {
-        const result = await invoke<GlobeHotkeyPollResult>("core_rpc", {
-          method: "openhuman.screen_intelligence_globe_listener_poll",
-          params: {},
-        });
+        const result = await rpc<GlobeHotkeyPollResult>("openhuman.screen_intelligence_globe_listener_poll", {});
 
         if (disposed) {
           return;
@@ -297,33 +364,43 @@ export function App() {
     return () => {
       disposed = true;
       window.clearInterval(intervalId);
-      void invoke("core_rpc", {
-        method: "openhuman.screen_intelligence_globe_listener_stop",
-        params: {},
-      }).catch(() => {});
+      if (parentRpcUrl === undefined) {
+        return;
+      }
+      void rpc("openhuman.screen_intelligence_globe_listener_stop", {}).catch(() => {});
     };
-  }, [appWindow]);
+  }, [appWindow, parentRpcUrl, rpc]);
 
   useEffect(() => {
     let disposed = false;
     let pollInFlight = false;
 
     const pollDebugState = async () => {
-      if (disposed || pollInFlight) {
+      if (disposed || parentRpcUrl === undefined || pollInFlight) {
         return;
       }
       pollInFlight = true;
 
       try {
-        const [screen, autocomplete] = await Promise.all([
-          invoke<AccessibilityStatus>("core_rpc", {
-            method: "openhuman.accessibility_status",
-            params: {},
-          }),
-          invoke<AutocompleteStatus>("core_rpc", {
-            method: "openhuman.autocomplete_status",
-            params: {},
-          }),
+        if (parentRpcUrl) {
+          try {
+            await rpc<{ ok?: boolean }>("core.ping", {});
+            if (!disposed) {
+              setCoreReachable(true);
+            }
+          } catch {
+            if (!disposed) {
+              setCoreReachable(false);
+            }
+          }
+        } else {
+          setCoreReachable(true);
+        }
+
+        const [screen, autocomplete, voice] = await Promise.all([
+          rpc<AccessibilityStatus>("openhuman.screen_intelligence_status", {}),
+          rpc<AutocompleteStatus>("openhuman.autocomplete_status", {}),
+          rpc<VoiceStatus>("openhuman.voice_status", {}),
         ]);
 
         if (disposed) {
@@ -335,11 +412,13 @@ export function App() {
           captureCount: screen.session.capture_count,
           autocompletePhase: autocomplete.phase,
           hasSuggestion: Boolean(autocomplete.suggestion?.value),
+          sttAvailable: voice.stt_available,
         });
 
         setDebugSnapshot({
           screen,
           autocomplete,
+          voice,
           updatedAt: Date.now(),
           error: null,
         });
@@ -370,7 +449,7 @@ export function App() {
       disposed = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [parentRpcUrl, rpc]);
 
   const insertTranscriptIntoFocusedField = useCallback(
     async (text: string) => {
@@ -404,13 +483,10 @@ export function App() {
     async (blob: Blob, sessionId: number) => {
       try {
         const audioBytes = await convertBlobToWavBytes(blob);
-        const result = await invoke<TranscribeResult>("core_rpc", {
-          method: "openhuman.voice_transcribe_bytes",
-          params: {
-            audio_bytes: audioBytes,
-            extension: "wav",
-            skip_cleanup: false,
-          },
+        const result = await rpc<TranscribeResult>("openhuman.voice_transcribe_bytes", {
+          audio_bytes: audioBytes,
+          extension: "wav",
+          skip_cleanup: false,
         });
 
         if (sessionIdRef.current !== sessionId) {
@@ -444,7 +520,7 @@ export function App() {
         setMessage(error instanceof Error ? error.message : "Transcription failed");
       }
     },
-    [insertTranscriptIntoFocusedField],
+    [insertTranscriptIntoFocusedField, rpc],
   );
 
   const stopRecording = useCallback(() => {
@@ -521,15 +597,33 @@ export function App() {
   }, [cleanupStream, transcribeBlob]);
 
   const handleMainButton = useCallback(() => {
+    // Always allow stopping an active recording, regardless of config state.
     if (status === "listening") {
       logOverlay("main button toggled to stop listening");
       stopRecording();
       return;
     }
 
+    if (!voiceCaptureEnabled) {
+      setMessage("Turn on voice capture to use the microphone");
+      return;
+    }
+    if (debugSnapshot.voice && !debugSnapshot.voice.stt_available) {
+      setMessage(
+        "Speech-to-text is not available. Configure Local AI / voice in the main OpenHuman app.",
+      );
+      return;
+    }
+
     logOverlay("main button toggled to start listening", { priorStatus: status });
     void startRecording();
-  }, [startRecording, status, stopRecording]);
+  }, [
+    debugSnapshot.voice,
+    startRecording,
+    status,
+    stopRecording,
+    voiceCaptureEnabled,
+  ]);
 
   const shellClassName = useMemo(() => {
     if (status === "listening") {
@@ -560,6 +654,11 @@ export function App() {
   const autocompleteRunning =
     debugSnapshot.autocomplete?.running && debugSnapshot.autocomplete?.enabled;
 
+  const sttAvailable = debugSnapshot.voice?.stt_available ?? true;
+  const voiceBlocked =
+    !voiceCaptureEnabled || (debugSnapshot.voice !== null && !debugSnapshot.voice.stt_available);
+  const waitingForCoreConfig = parentRpcUrl === undefined;
+
   return (
     <div className="flex h-screen w-screen items-start justify-start bg-transparent p-3">
       <div className="relative select-none">
@@ -579,6 +678,13 @@ export function App() {
             void appWindow.startDragging();
           }}
         >
+          {parentRpcUrl && !coreReachable ? (
+            <div className="mb-2 rounded-2xl border border-amber-400/35 bg-amber-950/35 px-3 py-2 text-[11px] leading-4 text-amber-50">
+              Cannot reach the OpenHuman core at the sidecar URL. Autocomplete and screen debug may
+              be stale. Check that the main app is running.
+            </div>
+          ) : null}
+
           <div className="mb-3 flex items-center justify-between gap-2">
             <span className="rounded-full bg-black/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.24em]">
               Voice
@@ -593,11 +699,45 @@ export function App() {
             </button>
           </div>
 
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-black/15 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">
+                Voice capture
+              </p>
+              <p className="mt-0.5 text-[11px] leading-4 opacity-85">
+                {waitingForCoreConfig
+                  ? "Checking core…"
+                  : sttAvailable
+                    ? debugSnapshot.voice?.whisper_in_process
+                      ? "STT ready (in-process)"
+                      : "STT ready"
+                    : "STT unavailable — configure voice in the main app"}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={voiceCaptureEnabled}
+              aria-label={voiceCaptureEnabled ? "Turn voice capture off" : "Turn voice capture on"}
+              className={`relative h-8 w-[52px] shrink-0 rounded-full border border-white/15 transition ${
+                voiceCaptureEnabled ? "bg-emerald-500/50" : "bg-black/35"
+              }`}
+              onClick={() => setVoiceCaptureEnabled((previous) => !previous)}
+            >
+              <span
+                className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${
+                  voiceCaptureEnabled ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+
           <div className="flex items-start gap-3">
             <button
               type="button"
               onClick={handleMainButton}
-              className={`group relative flex h-[108px] w-[108px] shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/20 transition duration-200 hover:bg-black/28 ${
+              disabled={waitingForCoreConfig || voiceBlocked}
+              className={`group relative flex h-[108px] w-[108px] shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/20 transition duration-200 hover:bg-black/28 disabled:cursor-not-allowed disabled:opacity-40 ${
                 status === "listening" ? "scale-[1.02]" : ""
               }`}
               aria-label={status === "listening" ? "Stop listening" : "Start listening"}
@@ -632,13 +772,28 @@ export function App() {
 
           <div className="mt-3 rounded-[24px] border border-white/10 bg-black/15 p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-75">
-                Debug
-              </span>
-              <span className="text-[10px] opacity-65">
-                {debugSnapshot.updatedAt ? formatTimestamp(debugSnapshot.updatedAt) : "waiting"}
-              </span>
+              <button
+                type="button"
+                className="flex flex-1 items-center justify-between gap-2 text-left"
+                onClick={() => persistDebugExpanded(!debugExpanded)}
+                aria-expanded={debugExpanded}
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-75">
+                  Debug {debugExpanded ? "▼" : "▶"}
+                </span>
+                <span className="text-[10px] opacity-65">
+                  {debugSnapshot.updatedAt ? formatTimestamp(debugSnapshot.updatedAt) : "waiting"}
+                </span>
+              </button>
             </div>
+
+            {!debugExpanded ? (
+              <p className="mt-2 text-[11px] leading-4 opacity-80">
+                Screen: {debugSnapshot.screen?.session.active ? "session on" : "idle"} ·
+                Autocomplete: {autocompletePhase}
+                {debugSnapshot.autocomplete?.last_error ? " · error" : ""}
+              </p>
+            ) : null}
 
             {debugSnapshot.error ? (
               <div className="mt-3 rounded-2xl border border-red-300/20 bg-red-950/20 px-3 py-2 text-[11px] leading-4 text-red-100">
@@ -646,7 +801,21 @@ export function App() {
               </div>
             ) : null}
 
+            {debugExpanded ? (
             <div className="mt-3 grid gap-3">
+              <section className="rounded-2xl border border-white/8 bg-black/10 px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">
+                  Voice / STT
+                </div>
+                <div className="mt-2 space-y-1 text-[11px] leading-4 opacity-90">
+                  <p>STT: {sttAvailable ? "available" : "unavailable"}</p>
+                  <p className="truncate">Model: {debugSnapshot.voice?.stt_model_id ?? "—"}</p>
+                  <p className="truncate">
+                    Whisper: {debugSnapshot.voice?.whisper_binary ?? "not found"}
+                  </p>
+                </div>
+              </section>
+
               <section className="rounded-2xl border border-white/8 bg-black/10 px-3 py-2">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">
                   Screen Intelligence
@@ -704,6 +873,7 @@ export function App() {
                 </div>
               </section>
             </div>
+            ) : null}
           </div>
         </div>
       </div>
