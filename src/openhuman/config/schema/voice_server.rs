@@ -42,6 +42,18 @@ pub struct VoiceServerConfig {
     /// this are discarded.
     #[serde(default = "default_min_duration")]
     pub min_duration_secs: f32,
+
+    /// RMS energy threshold for silence detection. Recordings with peak
+    /// energy below this value are treated as silence and skipped without
+    /// sending to whisper, preventing hallucinated output.
+    #[serde(default = "default_silence_threshold")]
+    pub silence_threshold: f32,
+
+    /// Custom dictionary words to bias whisper toward. These are passed
+    /// as the `initial_prompt` parameter, improving recognition of names,
+    /// technical terms, and domain-specific vocabulary.
+    #[serde(default)]
+    pub custom_dictionary: Vec<String>,
 }
 
 fn default_hotkey() -> String {
@@ -52,6 +64,10 @@ fn default_min_duration() -> f32 {
     0.3
 }
 
+fn default_silence_threshold() -> f32 {
+    0.002
+}
+
 impl Default for VoiceServerConfig {
     fn default() -> Self {
         Self {
@@ -60,6 +76,8 @@ impl Default for VoiceServerConfig {
             activation_mode: VoiceActivationMode::default(),
             skip_cleanup: true,
             min_duration_secs: default_min_duration(),
+            silence_threshold: default_silence_threshold(),
+            custom_dictionary: Vec::new(),
         }
     }
 }

@@ -77,8 +77,9 @@ pub async fn voice_transcribe(
 
     let service = local_ai::global(config);
     let transcribe_started = Instant::now();
+    // Pass context as initial_prompt to bias whisper toward known vocabulary.
     let output = service
-        .transcribe(config, audio_path.trim())
+        .transcribe_with_prompt(config, audio_path.trim(), context)
         .await
         .map_err(|e| e.to_string())?;
     let transcribe_elapsed = transcribe_started.elapsed();
@@ -152,8 +153,9 @@ pub async fn voice_transcribe_bytes(
     let write_elapsed = write_started.elapsed();
 
     let transcribe_started = Instant::now();
+    // Pass context as initial_prompt to bias whisper toward known vocabulary.
     let output = service
-        .transcribe(config, file_path.to_string_lossy().as_ref())
+        .transcribe_with_prompt(config, file_path.to_string_lossy().as_ref(), context)
         .await;
     let transcribe_elapsed = transcribe_started.elapsed();
     if let Err(e) = tokio::fs::remove_file(&file_path).await {

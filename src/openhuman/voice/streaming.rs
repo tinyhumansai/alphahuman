@@ -65,7 +65,7 @@ pub async fn handle_dictation_ws(mut socket: WebSocket, config: Arc<Config>) {
                 };
 
                 let service = local_ai::global(&config_clone);
-                match whisper_engine::transcribe_pcm_i16(&service.whisper, &samples, None) {
+                match whisper_engine::transcribe_pcm_i16(&service.whisper, &samples, None, None) {
                     Ok(text) => {
                         let trimmed = text.trim().to_string();
                         if !trimmed.is_empty() {
@@ -182,7 +182,7 @@ pub async fn handle_dictation_ws(mut socket: WebSocket, config: Arc<Config>) {
     );
 
     let service = local_ai::global(&config);
-    let raw_text = match whisper_engine::transcribe_pcm_i16(&service.whisper, &final_samples, None)
+    let raw_text = match whisper_engine::transcribe_pcm_i16(&service.whisper, &final_samples, None, None)
     {
         Ok(text) => text.trim().to_string(),
         Err(e) => {
