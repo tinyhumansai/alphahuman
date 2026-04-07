@@ -158,13 +158,15 @@ impl AutocompleteEngine {
                             state.target_role.clone(),
                         )
                     };
-                    let refresh_result = time::timeout(
-                        Duration::from_secs(REFRESH_TIMEOUT_SECS),
-                        engine.refresh(None),
-                    )
-                    .await;
+                    let mut refresh_task = tokio::spawn({
+                        let engine = engine.clone();
+                        async move { engine.refresh(None).await }
+                    });
+                    let refresh_result =
+                        time::timeout(Duration::from_secs(REFRESH_TIMEOUT_SECS), &mut refresh_task)
+                            .await;
                     match refresh_result {
-                        Ok(Err(err)) => {
+                        Ok(Ok(Err(err))) => {
                             let error_message = {
                                 let mut state = engine.inner.lock().await;
                                 state.phase = "error".to_string();
@@ -194,14 +196,25 @@ impl AutocompleteEngine {
                                 }
                             }
                         }
-                        Ok(Ok(())) => {
+                        Ok(Ok(Ok(()))) => {
                             let mut state = engine.inner.lock().await;
                             if state.phase == "error" {
                                 state.phase = "idle".to_string();
                             }
                             state.last_error = None;
                         }
+                        Ok(Err(join_err)) => {
+                            log::error!(
+                                "[autocomplete] refresh task crashed; keeping loop alive: {}",
+                                join_err
+                            );
+                            let mut state = engine.inner.lock().await;
+                            state.phase = "error".to_string();
+                            state.last_error = Some(format!("refresh task crashed: {join_err}"));
+                            state.updated_at_ms = Some(Utc::now().timestamp_millis());
+                        }
                         Err(_elapsed) => {
+                            refresh_task.abort();
                             log::warn!(
                                 "[autocomplete] refresh timed out after {}s, skipping",
                                 REFRESH_TIMEOUT_SECS

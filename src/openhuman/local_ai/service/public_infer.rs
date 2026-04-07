@@ -118,7 +118,7 @@ impl LocalAiService {
         prompt.push_str("\n</USER_TEXT>");
 
         let raw = self
-            .inference_with_temperature(
+            .inference_with_temperature_allow_empty(
                 config,
                 "You are a low-latency inline text completion assistant.",
                 &prompt,
@@ -258,6 +258,49 @@ impl LocalAiService {
         no_think: bool,
         temperature: f32,
     ) -> Result<String, String> {
+        self.inference_with_temperature_internal(
+            config,
+            system,
+            prompt,
+            max_tokens,
+            no_think,
+            temperature,
+            false,
+        )
+        .await
+    }
+
+    async fn inference_with_temperature_allow_empty(
+        &self,
+        config: &Config,
+        system: &str,
+        prompt: &str,
+        max_tokens: Option<u32>,
+        no_think: bool,
+        temperature: f32,
+    ) -> Result<String, String> {
+        self.inference_with_temperature_internal(
+            config,
+            system,
+            prompt,
+            max_tokens,
+            no_think,
+            temperature,
+            true,
+        )
+        .await
+    }
+
+    async fn inference_with_temperature_internal(
+        &self,
+        config: &Config,
+        system: &str,
+        prompt: &str,
+        max_tokens: Option<u32>,
+        no_think: bool,
+        temperature: f32,
+        allow_empty: bool,
+    ) -> Result<String, String> {
         if !matches!(self.status.lock().state.as_str(), "ready") {
             self.bootstrap(config).await;
         }
@@ -330,7 +373,11 @@ impl LocalAiService {
         }
 
         if payload.response.trim().is_empty() {
-            Err("ollama returned empty content".to_string())
+            if allow_empty {
+                Ok(String::new())
+            } else {
+                Err("ollama returned empty content".to_string())
+            }
         } else {
             Ok(payload.response)
         }

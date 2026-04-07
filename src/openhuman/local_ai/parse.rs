@@ -35,13 +35,64 @@ fn trim_generation_prefixes(mut value: &str) -> &str {
 
     // Common wrappers from LLM output formatting.
     for prefix in ["suffix:", "completion:", "result:", "output:"] {
-        if value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix) {
-            value = value[prefix.len()..].trim_start();
+        if value
+            .get(..prefix.len())
+            .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+        {
+            value = value.get(prefix.len()..).unwrap_or(value).trim_start();
             break;
         }
     }
 
     value
+}
+
+fn strip_inline_wrapper_prefix(value: &str) -> &str {
+    fn strip_known_markers(input: &str) -> Option<&str> {
+        for marker in ["- ", "* ", "> ", "→ "] {
+            if let Some(rest) = input.strip_prefix(marker) {
+                return Some(rest.trim_start());
+            }
+        }
+        None
+    }
+
+    fn strip_numbered_token(input: &str) -> Option<&str> {
+        let bytes = input.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == 0 {
+            return None;
+        }
+        let punctuation = bytes.get(i).copied();
+        let following_space = bytes.get(i + 1).copied();
+        if matches!(punctuation, Some(b'.' | b')')) && following_space == Some(b' ') {
+            return input.get(i + 2..).map(str::trim_start);
+        }
+        None
+    }
+
+    let trimmed = value.trim_start();
+    if let Some(stripped) = strip_known_markers(trimmed) {
+        return stripped;
+    }
+    if let Some(stripped) = strip_numbered_token(trimmed) {
+        return stripped;
+    }
+
+    // Quoted marker variants, e.g. "\"- item" or "\"1. item".
+    if let Some(after_quote) = trimmed.strip_prefix('"') {
+        if let Some(stripped) = strip_known_markers(after_quote) {
+            return stripped;
+        }
+        if let Some(stripped) = strip_numbered_token(after_quote) {
+            return stripped;
+        }
+    }
+
+    trimmed
 }
 
 pub(crate) fn sanitize_inline_completion(raw: &str, context: &str) -> String {
@@ -58,11 +109,8 @@ pub(crate) fn sanitize_inline_completion(raw: &str, context: &str) -> String {
 
     line = trim_generation_prefixes(&line).to_string();
 
-    let mut cleaned = line
-        .trim_matches('"')
-        .trim_start_matches(|c: char| matches!(c, '-' | '*' | '>' | '→' | '1'..='9' | '.' | ')'))
-        .trim()
-        .to_string();
+    let unquoted = line.trim_matches('"');
+    let mut cleaned = strip_inline_wrapper_prefix(unquoted).trim().to_string();
 
     cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
 
@@ -170,6 +218,54 @@ mod tests {
         assert_eq!(
             sanitize_inline_completion(raw, ctx),
             "day, I went to garden"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_preserves_iso_date_prefix() {
+        assert_eq!(
+            sanitize_inline_completion("2026-04-07", "context example"),
+            "2026-04-07"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_preserves_time_prefix() {
+        assert_eq!(
+            sanitize_inline_completion("3pm meeting", "context example"),
+            "3pm meeting"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_preserves_double_dash_help_token() {
+        assert_eq!(
+            sanitize_inline_completion("--help", "context example"),
+            "--help"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_preserves_task_marker_without_space() {
+        assert_eq!(
+            sanitize_inline_completion("-[ ] task", "context example"),
+            "-[ ] task"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_strips_numbered_list_prefix_dot() {
+        assert_eq!(
+            sanitize_inline_completion("1. item", "context example"),
+            "item"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_strips_numbered_list_prefix_paren() {
+        assert_eq!(
+            sanitize_inline_completion("2) item", "context example"),
+            "item"
         );
     }
 }
