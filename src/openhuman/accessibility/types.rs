@@ -87,6 +87,7 @@ mod tests {
         AppContext {
             app_name: app.map(str::to_string),
             window_title: title.map(str::to_string),
+            window_id: None,
             bounds,
         }
     }
