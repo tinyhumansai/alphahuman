@@ -8,14 +8,21 @@ export type OAuthAppVersionGateResult =
   | { ok: true }
   | { ok: false; current: string; minimum: string; downloadUrl: string };
 
+function block(minimum: string, current: string): OAuthAppVersionGateResult {
+  return { ok: false, current, minimum, downloadUrl: LATEST_APP_DOWNLOAD_URL };
+}
+
 /**
  * When `VITE_MINIMUM_SUPPORTED_APP_VERSION` is set (CI/production), block OAuth
  * `openhuman://oauth/success` handling if the running desktop build is older.
  * Prevents completing Gmail (and other) OAuth on deprecated app binaries.
+ *
+ * When a minimum is configured, fails **closed** if the app version cannot be
+ * determined or parsed (never silently allows OAuth on unknown versions).
  */
 export async function evaluateOAuthAppVersionGate(): Promise<OAuthAppVersionGateResult> {
+  const minimum = MINIMUM_SUPPORTED_APP_VERSION.trim();
   try {
-    const minimum = MINIMUM_SUPPORTED_APP_VERSION.trim();
     if (!minimum) {
       return { ok: true };
     }
@@ -31,13 +38,13 @@ export async function evaluateOAuthAppVersionGate(): Promise<OAuthAppVersionGate
     try {
       current = await getVersion();
     } catch (e) {
-      console.warn('[oauth-app-version] getVersion failed; allowing OAuth', e);
-      return { ok: true };
+      console.warn('[oauth-app-version] getVersion failed; blocking OAuth', e);
+      return block(minimum, 'unknown');
     }
 
     if (!parseSemverParts(current)) {
-      console.warn('[oauth-app-version] unparseable app version; allowing OAuth', current);
-      return { ok: true };
+      console.warn('[oauth-app-version] unparseable app version; blocking OAuth', current);
+      return block(minimum, current);
     }
 
     if (isVersionAtLeast(current, minimum)) {
@@ -45,10 +52,13 @@ export async function evaluateOAuthAppVersionGate(): Promise<OAuthAppVersionGate
     }
 
     console.warn('[oauth-app-version] blocked OAuth success deep link', { current, minimum });
-    return { ok: false, current, minimum, downloadUrl: LATEST_APP_DOWNLOAD_URL };
+    return block(minimum, current);
   } catch (e) {
-    // Never throw: outer deep-link handler logs the raw URL on failure, which can include secrets (e.g. clientKey).
-    console.warn('[oauth-app-version] unexpected error; allowing OAuth', e);
-    return { ok: true };
+    // Never throw: outer deep-link handler must not receive errors that could log the raw URL.
+    console.warn('[oauth-app-version] unexpected error', e);
+    if (!minimum) {
+      return { ok: true };
+    }
+    return block(minimum, 'unknown');
   }
 }

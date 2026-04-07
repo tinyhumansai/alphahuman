@@ -131,6 +131,8 @@ jobs:
         id: tauri-build
         env:
           BASE_URL: ${{ vars.BASE_URL }}
+          VITE_MINIMUM_SUPPORTED_APP_VERSION: ${{ vars.VITE_MINIMUM_SUPPORTED_APP_VERSION }}
+          VITE_LATEST_APP_DOWNLOAD_URL: ${{ vars.VITE_LATEST_APP_DOWNLOAD_URL }}
         with:
           projectPath: app
           args: -c ${{ steps.config-overrides.outputs.json }} --target x86_64-pc-windows-msvc

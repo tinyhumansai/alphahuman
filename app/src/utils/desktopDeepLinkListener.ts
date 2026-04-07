@@ -134,7 +134,10 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     }
 
     if (!versionGate.ok) {
-      const msg = `This OpenHuman build (${versionGate.current}) is older than the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`;
+      const msg =
+        versionGate.current === 'unknown'
+          ? `OpenHuman could not verify this build against the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`
+          : `This OpenHuman build (${versionGate.current}) is older than the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`;
       try {
         await openUrl(versionGate.downloadUrl);
       } catch (e) {
