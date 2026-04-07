@@ -10,8 +10,8 @@ import authReducer from '../../../../store/authSlice';
 import socketReducer from '../../../../store/socketSlice';
 import teamReducer from '../../../../store/teamSlice';
 import userReducer from '../../../../store/userSlice';
-import type { AccessibilityStatus } from '../../../../utils/tauriCommands';
 import {
+  type AccessibilityStatus,
   openhumanAccessibilityRequestPermission,
   openhumanAccessibilityStatus,
   restartCoreProcess,
@@ -109,7 +109,7 @@ describe('ScreenPermissionsStep', () => {
     vi.mocked(openhumanAccessibilityRequestPermission).mockResolvedValue({
       result: deniedStatus.permissions,
       logs: [],
-    } as never);
+    });
     vi.mocked(openhumanAccessibilityStatus).mockResolvedValue({ result: deniedStatus, logs: [] });
   });
 
