@@ -113,8 +113,9 @@ impl LocalAiService {
                 }
             }
         }
+        let escaped_context = context.replace("</USER_TEXT>", "<\\/USER_TEXT>");
         prompt.push_str("\nUser text (verbatim):\n<USER_TEXT>\n");
-        prompt.push_str(context);
+        prompt.push_str(&escaped_context);
         prompt.push_str("\n</USER_TEXT>");
 
         let raw = self

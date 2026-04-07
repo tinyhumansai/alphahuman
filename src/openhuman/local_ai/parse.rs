@@ -97,7 +97,7 @@ fn strip_inline_wrapper_prefix(value: &str) -> &str {
 
 pub(crate) fn sanitize_inline_completion(raw: &str, context: &str) -> String {
     let raw_norm = normalize_inline_text(raw);
-    let mut line = raw_norm
+    let line = raw_norm
         .lines()
         .next()
         .unwrap_or_default()
@@ -107,10 +107,9 @@ pub(crate) fn sanitize_inline_completion(raw: &str, context: &str) -> String {
         return String::new();
     }
 
-    line = trim_generation_prefixes(&line).to_string();
-
     let unquoted = line.trim_matches('"');
     let mut cleaned = strip_inline_wrapper_prefix(unquoted).trim().to_string();
+    cleaned = trim_generation_prefixes(&cleaned).to_string();
 
     cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
 
@@ -201,6 +200,14 @@ mod tests {
         assert_eq!(
             sanitize_inline_completion("\t→  keep   it concise\t", "hello"),
             "keep it concise"
+        );
+    }
+
+    #[test]
+    fn sanitize_inline_completion_strips_quoted_generation_label() {
+        assert_eq!(
+            sanitize_inline_completion("\"suffix: hello\"", "context example"),
+            "hello"
         );
     }
 
