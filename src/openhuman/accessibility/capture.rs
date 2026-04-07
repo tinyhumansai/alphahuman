@@ -28,14 +28,14 @@ impl std::fmt::Display for CaptureMode {
 }
 
 fn capture_mode_for_context(context: Option<&AppContext>) -> CaptureMode {
-    // Prefer window ID capture — most reliable on macOS.
+    // Only use windowed capture when we have a reliable CGWindowID.
+    // The `-R x,y,w,h` region approach is fragile (coordinate issues,
+    // menu bar offsets, Retina scaling) so we fall back to fullscreen
+    // rather than risk capturing garbage.
     if context.and_then(|ctx| ctx.window_id).is_some() {
         return CaptureMode::Windowed;
     }
-    match context.and_then(|ctx| ctx.bounds) {
-        Some(bounds) if bounds.width > 0 && bounds.height > 0 => CaptureMode::Windowed,
-        _ => CaptureMode::Fullscreen,
-    }
+    CaptureMode::Fullscreen
 }
 
 #[cfg(target_os = "macos")]

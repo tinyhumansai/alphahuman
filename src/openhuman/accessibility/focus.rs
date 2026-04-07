@@ -483,50 +483,54 @@ pub fn foreground_context() -> Option<AppContext> {
 }
 
 /// Resolve the CGWindowID of the frontmost on-screen window owned by the
-/// given application name. Uses `CGWindowListCopyWindowInfo` via JXA
-/// (JavaScript for Automation / osascript) which is built into macOS.
+/// given application name.
+///
+/// Uses the same AppleScript process we already depend on, but queries
+/// Quartz via `do shell script` + a tiny Swift one-liner. Swift ships with
+/// macOS and has direct CoreGraphics access — no pip packages needed.
 #[cfg(target_os = "macos")]
 fn resolve_frontmost_window_id(app_name: Option<&str>) -> Option<u32> {
     let app = app_name?;
-    // Escape quotes in app name for safe JS string interpolation.
-    let escaped = app.replace('\\', "\\\\").replace('"', "\\\"");
+    // Escape single-quotes for shell embedding.
+    let escaped = app.replace('\'', "'\\''");
 
-    let script = format!(
+    // Swift snippet: iterate CGWindowList, find the first layer-0 window
+    // whose owner name matches, print its CGWindowNumber.
+    let swift_code = format!(
         r#"
-ObjC.import("CoreGraphics");
-var opts = $.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements;
-var list = $.CGWindowListCopyWindowInfo(opts, 0);
-var count = list.count;
-var target = "{escaped}";
-for (var i = 0; i < count; i++) {{
-    var w = list.objectAtIndex(i);
-    var owner = ObjC.unwrap(w.objectForKey("kCGWindowOwnerName"));
-    var layer = ObjC.unwrap(w.objectForKey("kCGWindowLayer"));
-    if (owner === target && layer === 0) {{
-        ObjC.unwrap(w.objectForKey("kCGWindowNumber"));
+import CoreGraphics
+import Foundation
+let o: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+if let l = CGWindowListCopyWindowInfo(o, kCGNullWindowID) as? [[String: Any]] {{
+    for w in l {{
+        let owner = w["kCGWindowOwnerName"] as? String ?? ""
+        let layer = w["kCGWindowLayer"] as? Int ?? -1
+        let wid = w["kCGWindowNumber"] as? Int ?? -1
+        if owner == "{escaped}" && layer == 0 {{
+            print(wid)
+            exit(0)
+        }}
     }}
 }}
 "#
     );
 
-    let output = std::process::Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
+    let output = std::process::Command::new("swift")
         .arg("-e")
-        .arg(&script)
+        .arg(&swift_code)
         .output()
         .ok()?;
 
     if !output.status.success() {
         tracing::debug!(
-            "[accessibility] JXA CGWindowList failed: {}",
+            "[accessibility] swift CGWindowList failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
         return None;
     }
 
     let id_str = String::from_utf8_lossy(&output.stdout);
-    let wid = id_str.trim().parse::<u32>().ok();
+    let wid = id_str.trim().parse::<u32>().ok().filter(|&id| id > 0);
     tracing::debug!(
         "[accessibility] resolved window_id={:?} for app={:?}",
         wid,

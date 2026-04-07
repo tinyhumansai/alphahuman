@@ -202,10 +202,32 @@ impl SiServer {
                 prev_vision_persist = status.session.vision_persist_count;
             }
 
-            // Log new vision summary content when it changes.
+            // Print full vision output when a new summary arrives.
             if status.session.last_vision_summary != prev_last_summary {
-                if let Some(ref summary) = status.session.last_vision_summary {
-                    info!("{LOG_PREFIX} vision summary: {}", truncate(summary, 200));
+                if status.session.last_vision_summary.is_some() {
+                    // Fetch the latest full summary from the engine.
+                    let recent = self.engine.vision_recent(Some(1)).await;
+                    if let Some(s) = recent.summaries.first() {
+                        eprintln!();
+                        eprintln!("  ┌─ Vision #{} ─ {} ─ {} ──",
+                            status.session.vision_persist_count,
+                            s.app_name.as_deref().unwrap_or("?"),
+                            chrono::DateTime::from_timestamp_millis(s.captured_at_ms)
+                                .map(|dt| dt.format("%H:%M:%S").to_string())
+                                .unwrap_or_else(|| "?".to_string()),
+                        );
+                        eprintln!("  │ ui_state: {}", s.ui_state);
+                        eprintln!("  │");
+                        eprintln!("  │ key_text:");
+                        for line in s.key_text.lines() {
+                            eprintln!("  │   {}", line);
+                        }
+                        eprintln!("  │");
+                        eprintln!("  │ actionable: {}", s.actionable_notes);
+                        eprintln!("  │ confidence: {:.0}%", s.confidence * 100.0);
+                        eprintln!("  └────────────────────────────");
+                        eprintln!();
+                    }
                 }
                 prev_last_summary = status.session.last_vision_summary.clone();
             }

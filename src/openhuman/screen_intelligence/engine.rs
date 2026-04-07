@@ -1002,10 +1002,52 @@ impl AccessibilityEngine {
     ) {
         tracing::debug!("[screen_intelligence] vision worker started");
 
-        while let Some(frame) = rx.recv().await {
+        // Track which frames we've already processed by their capture timestamp
+        // so we never re-analyze the same screenshot.
+        let mut processed_timestamps: std::collections::HashSet<i64> =
+            std::collections::HashSet::new();
+
+        while let Some(mut frame) = rx.recv().await {
+            // Drain the channel and keep only the latest frame. Older frames
+            // are stale — vision takes seconds, no point processing outdated
+            // screenshots when a newer one is available.
+            let mut skipped = 0u64;
+            while let Ok(newer) = rx.try_recv() {
+                skipped += 1;
+                frame = newer;
+            }
+            if skipped > 0 {
+                tracing::debug!(
+                    "[screen_intelligence] vision worker: skipped {} stale frame(s), processing latest (ts={})",
+                    skipped,
+                    frame.captured_at_ms,
+                );
+                // Update queue depth to reflect drained frames.
+                let mut state = self.inner.lock().await;
+                if let Some(session) = state.session.as_mut() {
+                    session.vision_queue_depth =
+                        session.vision_queue_depth.saturating_sub(skipped as usize);
+                }
+            }
+
+            // Skip if we've already processed this exact frame.
+            if processed_timestamps.contains(&frame.captured_at_ms) {
+                tracing::debug!(
+                    "[screen_intelligence] vision worker: frame ts={} already processed, skipping",
+                    frame.captured_at_ms,
+                );
+                let mut state = self.inner.lock().await;
+                if let Some(session) = state.session.as_mut() {
+                    session.vision_queue_depth =
+                        session.vision_queue_depth.saturating_sub(1);
+                }
+                continue;
+            }
+
             tracing::debug!(
-                "[screen_intelligence] vision worker: received frame (app={:?}, reason={})",
+                "[screen_intelligence] vision worker: processing frame (app={:?}, ts={}, reason={})",
                 frame.app_name,
+                frame.captured_at_ms,
                 frame.reason
             );
 
@@ -1044,7 +1086,16 @@ impl AccessibilityEngine {
                 }
             }
 
+            let capture_ts = frame.captured_at_ms;
             let result = self.analyze_frame_with_vision(frame).await;
+
+            // Mark this frame as processed.
+            processed_timestamps.insert(capture_ts);
+            // Cap the set size so it doesn't grow unbounded.
+            if processed_timestamps.len() > 500 {
+                let oldest = *processed_timestamps.iter().min().unwrap();
+                processed_timestamps.remove(&oldest);
+            }
 
             // Clean up screenshot file if keep_screenshots is false.
             if !keep_screenshots {
@@ -1175,9 +1226,15 @@ impl AccessibilityEngine {
             compressed.compressed_bytes
         );
         let service = local_ai::global(&config);
-        let prompt = "Analyze this UI screenshot. Return strict JSON with keys: ui_state, key_text, actionable_notes, confidence (0..1). Keep actionable_notes concise.";
+        let prompt = r#"You are a screen reader. Describe what's on screen in plain text.
+
+Line 1: APP — what app and page/view is showing (e.g. "Brave Browser — GitHub PR #341")
+Line 2: DOING — what the user appears to be doing
+Then: extract all visible text content you can read — article text, code, messages, tabs, buttons, notifications. Be thorough.
+
+No JSON. No markdown. Just plain readable text."#;
         let raw = service
-            .vision_prompt(&config, prompt, &[vision_image_ref], Some(180))
+            .vision_prompt(&config, prompt, &[vision_image_ref], Some(1024))
             .await?;
         Ok(parse_vision_summary_output(frame, &raw))
     }
