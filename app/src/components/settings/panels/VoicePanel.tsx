@@ -54,7 +54,7 @@ const VoicePanel = () => {
         setSettings(settingsResponse.result);
       }
       setSavedSettings(settingsResponse.result);
-      setServerStatus(serverResponse.result);
+      setServerStatus(serverResponse);
       setVoiceStatus(voiceResponse);
       setSttReady(assetsResponse.result.stt?.state === 'ready' && voiceResponse.stt_available);
       setError(null);
