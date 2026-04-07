@@ -650,6 +650,9 @@ pub async fn run_server(
                 // Start the global dictation hotkey listener (rdev-based, core-side).
                 crate::openhuman::voice::server::start_if_enabled(&config).await;
                 crate::openhuman::voice::dictation_listener::start_if_enabled(&config).await;
+
+                // Initialize screen intelligence engine if enabled in config.
+                crate::openhuman::screen_intelligence::server::start_if_enabled(&config).await;
             }
             Err(err) => {
                 log::warn!("[core] config load failed, skipping local-ai and overlay: {err}");

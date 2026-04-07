@@ -5,7 +5,7 @@
 //! testing the capture → save → vision-analysis pipeline from a terminal.
 //!
 //! Usage:
-//!   openhuman screen-intelligence run       [--port <u16>] [-v]
+//!   openhuman screen-intelligence run       [--port <u16>] [--auto-start] [-v]
 //!   openhuman screen-intelligence status    [-v]
 //!   openhuman screen-intelligence capture   [--keep] [-v]
 //!   openhuman screen-intelligence start     [--ttl <secs>] [-v]
@@ -47,6 +47,7 @@ struct CliOpts {
     ttl_secs: u64,
     keep: bool,
     limit: usize,
+    auto_start: bool,
 }
 
 fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
@@ -55,6 +56,7 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
     let mut ttl_secs: u64 = 300;
     let mut keep = false;
     let mut limit: usize = 10;
+    let mut auto_start = false;
     let mut rest = Vec::new();
     let mut i = 0;
 
@@ -91,6 +93,10 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
                 keep = true;
                 i += 1;
             }
+            "--auto-start" => {
+                auto_start = true;
+                i += 1;
+            }
             "-v" | "--verbose" => {
                 verbose = true;
                 i += 1;
@@ -113,6 +119,7 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
             ttl_secs,
             keep,
             limit,
+            auto_start,
         },
         rest,
     ))
@@ -151,18 +158,27 @@ async fn bootstrap_engine(
 // Subcommands
 // ---------------------------------------------------------------------------
 
-/// `openhuman screen-intelligence run` — start a minimal JSON-RPC server with the
-/// screen intelligence engine, useful for integration testing.
+/// `openhuman screen-intelligence run` — start the standalone dev server.
+///
+/// Delegates to [`crate::openhuman::screen_intelligence::server::run_standalone`],
+/// which boots the engine, optionally auto-starts a session, and serves
+/// JSON-RPC + REST endpoints for debugging the full pipeline.
 fn run_server(args: &[String]) -> Result<()> {
     let (opts, rest) = parse_opts(args)?;
 
     if rest.iter().any(|a| is_help(a)) {
-        println!("Usage: openhuman screen-intelligence run [--port <u16>] [-v]");
+        println!("Usage: openhuman screen-intelligence run [--port <u16>] [--auto-start] [--ttl <secs>] [-v]");
         println!();
-        println!("Start a lightweight JSON-RPC server exposing screen intelligence RPC methods.");
+        println!("Start a standalone dev server with JSON-RPC + REST endpoints.");
         println!();
         println!("  --port <u16>     Listen port (default: 7797)");
+        println!("  --auto-start     Auto-start a capture session on boot");
+        println!("  --ttl <secs>     Session TTL for auto-start (default: 300)");
         println!("  -v, --verbose    Enable debug logging");
+        println!();
+        println!("REST endpoints:");
+        println!("  GET  /status, /permissions, /session, /vision/recent, /doctor, /config");
+        println!("  POST /session/start, /session/stop, /capture, /capture/test, /vision/flush");
         return Ok(());
     }
 
@@ -173,41 +189,40 @@ fn run_server(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let _engine = bootstrap_engine(opts.verbose).await?;
+        let config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
 
-        let app = build_router();
-
-        let bind_addr = format!("127.0.0.1:{}", opts.port);
-        let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-
-        log::info!("[screen-intelligence-cli] ready — http://{bind_addr}/rpc (JSON-RPC 2.0)");
+        let server_config = crate::openhuman::screen_intelligence::server::SiServerConfig {
+            port: opts.port,
+            auto_start_session: opts.auto_start,
+            session_ttl_secs: opts.ttl_secs,
+            vision_enabled: config.screen_intelligence.vision_enabled,
+        };
 
         eprintln!();
-        eprintln!("  Screen Intelligence dev server listening on http://{bind_addr}");
+        eprintln!("  Screen Intelligence dev server");
+        eprintln!("  ─────────────────────────────");
+        eprintln!("  Port:         {}", opts.port);
+        eprintln!("  Auto-start:   {}", opts.auto_start);
+        eprintln!("  Vision:       {}", config.screen_intelligence.vision_enabled);
         eprintln!();
         eprintln!("  Core:");
-        eprintln!("    POST http://{bind_addr}/rpc            JSON-RPC 2.0 (screen_intelligence.*)");
-        eprintln!("    GET  http://{bind_addr}/health         Health check");
+        eprintln!("    POST http://127.0.0.1:{}/rpc            JSON-RPC 2.0", opts.port);
+        eprintln!("    GET  http://127.0.0.1:{}/health         Health check", opts.port);
         eprintln!();
-        eprintln!("  REST convenience endpoints:");
-        eprintln!("    GET  http://{bind_addr}/status         Full engine status");
-        eprintln!("    GET  http://{bind_addr}/permissions    Permission state");
-        eprintln!("    GET  http://{bind_addr}/session        Session status + features");
-        eprintln!("    POST http://{bind_addr}/session/start  Start capture session");
-        eprintln!("    POST http://{bind_addr}/session/stop   Stop session");
-        eprintln!("    POST http://{bind_addr}/capture        Trigger manual capture");
-        eprintln!("    POST http://{bind_addr}/capture/test   Standalone capture test");
-        eprintln!("    GET  http://{bind_addr}/vision/recent  Recent vision summaries");
-        eprintln!("    POST http://{bind_addr}/vision/flush   Analyze latest frame now");
-        eprintln!("    GET  http://{bind_addr}/doctor         System readiness diagnostics");
-        eprintln!("    GET  http://{bind_addr}/config         Current SI config");
-        eprintln!("    GET  http://{bind_addr}/watch          Long-poll status (default 2s delay)");
+        eprintln!("  REST:");
+        eprintln!("    GET  /status, /permissions, /session, /doctor, /config");
+        eprintln!("    GET  /vision/recent?limit=10");
+        eprintln!("    POST /session/start, /session/stop");
+        eprintln!("    POST /capture, /capture/test, /vision/flush");
         eprintln!();
         eprintln!("  Press Ctrl+C to stop.");
         eprintln!();
 
-        axum::serve(listener, app).await?;
-        Ok(())
+        crate::openhuman::screen_intelligence::server::run_standalone(config, server_config)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     })
 }
 
@@ -468,7 +483,9 @@ fn run_doctor(args: &[String]) -> Result<()> {
         let _engine = bootstrap_engine(opts.verbose).await?;
 
         let doctor_json =
-            crate::openhuman::screen_intelligence::rpc::accessibility_doctor_cli_json().await?;
+            crate::openhuman::screen_intelligence::rpc::accessibility_doctor_cli_json()
+                .await
+                .map_err(|e| anyhow::anyhow!("doctor check failed: {e}"))?;
 
         let summary = &doctor_json["result"]["summary"];
         let recommendations = &doctor_json["result"]["recommendations"];
@@ -492,10 +509,8 @@ fn run_doctor(args: &[String]) -> Result<()> {
         eprintln!("  {} Input monitoring", check(input_ok));
         eprintln!();
 
-        // Vision config check
-        let config = crate::openhuman::config::Config::load_or_init()
-            .await
-            .ok();
+        // Vision config check.
+        let config = crate::openhuman::config::Config::load_or_init().await.ok();
         if let Some(ref cfg) = config {
             let si = &cfg.screen_intelligence;
             let la = &cfg.local_ai;
@@ -507,9 +522,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
             eprintln!("    local_ai.enabled:  {}", la.enabled);
             eprintln!("    local_ai.provider: {}", la.provider);
             if si.vision_enabled && !la.enabled {
-                eprintln!(
-                    "    ⚠  Vision is enabled but local_ai.enabled=false — vision analysis will fail"
-                );
+                eprintln!("    ⚠  Vision is enabled but local_ai.enabled=false — vision analysis will fail");
             }
         }
 
@@ -530,7 +543,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
         }
         eprintln!();
 
-        // Also print machine-readable JSON
+        // Machine-readable JSON output.
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
@@ -610,7 +623,7 @@ fn run_vision(args: &[String]) -> Result<()> {
             }
         }
 
-        // Machine-readable output
+        // Machine-readable output.
         println!(
             "{}",
             serde_json::to_string_pretty(&result).unwrap_or_default()
@@ -620,257 +633,10 @@ fn run_vision(args: &[String]) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP router with convenience REST + JSON-RPC + CORS
-// ---------------------------------------------------------------------------
-
-fn build_router() -> axum::Router {
-    use axum::routing::{get, post};
-    use tower_http::cors::{Any, CorsLayer};
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    axum::Router::new()
-        // Core
-        .route("/health", get(health))
-        .route("/rpc", post(rpc))
-        // Convenience REST endpoints (read-only GETs + action POSTs)
-        .route("/status", get(status_endpoint))
-        .route("/permissions", get(permissions_endpoint))
-        .route("/session", get(session_endpoint))
-        .route("/session/start", post(session_start_endpoint))
-        .route("/session/stop", post(session_stop_endpoint))
-        .route("/capture", post(capture_endpoint))
-        .route("/capture/test", post(capture_test_endpoint))
-        .route("/vision/recent", get(vision_recent_endpoint))
-        .route("/vision/flush", post(vision_flush_endpoint))
-        .route("/doctor", get(doctor_endpoint))
-        .route("/config", get(config_endpoint))
-        // Watch: long-poll endpoint for status changes
-        .route("/watch", get(watch_endpoint))
-        .layer(cors)
-}
-
-async fn health() -> impl axum::response::IntoResponse {
-    axum::Json(serde_json::json!({
-        "ok": true,
-        "mode": "screen-intelligence-dev",
-        "endpoints": {
-            "rpc": "POST /rpc — JSON-RPC 2.0 (screen_intelligence.* methods)",
-            "status": "GET /status — full engine status",
-            "permissions": "GET /permissions — permission state",
-            "session": "GET /session — session status",
-            "session_start": "POST /session/start — start session (body: StartSessionParams)",
-            "session_stop": "POST /session/stop — stop session (body: { reason? })",
-            "capture": "POST /capture — trigger manual capture",
-            "capture_test": "POST /capture/test — standalone capture test",
-            "vision_recent": "GET /vision/recent?limit=10 — recent vision summaries",
-            "vision_flush": "POST /vision/flush — analyze latest frame now",
-            "doctor": "GET /doctor — system readiness diagnostics",
-            "config": "GET /config — current screen intelligence config",
-            "watch": "GET /watch?interval=2 — poll status with delay (long-poll)"
-        }
-    }))
-}
-
-async fn rpc(
-    axum::Json(req): axum::Json<crate::core::types::RpcRequest>,
-) -> axum::response::Response {
-    use crate::core::types::{RpcError, RpcFailure, RpcSuccess};
-    use axum::response::IntoResponse;
-
-    let id = req.id.clone();
-    let state = crate::core::jsonrpc::default_state();
-
-    match crate::core::jsonrpc::invoke_method(state, req.method.as_str(), req.params).await {
-        Ok(value) => (
-            axum::http::StatusCode::OK,
-            axum::Json(RpcSuccess {
-                jsonrpc: "2.0",
-                id,
-                result: value,
-            }),
-        )
-            .into_response(),
-        Err(message) => (
-            axum::http::StatusCode::OK,
-            axum::Json(RpcFailure {
-                jsonrpc: "2.0",
-                id,
-                error: RpcError {
-                    code: -32000,
-                    message,
-                    data: None,
-                },
-            }),
-        )
-            .into_response(),
-    }
-}
-
-async fn status_endpoint() -> impl axum::response::IntoResponse {
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::to_value(&status).unwrap_or_default())
-}
-
-async fn permissions_endpoint() -> impl axum::response::IntoResponse {
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::json!({
-        "permissions": status.permissions,
-        "platform_supported": status.platform_supported,
-        "permission_check_process_path": status.permission_check_process_path,
-    }))
-}
-
-async fn session_endpoint() -> impl axum::response::IntoResponse {
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::json!({
-        "session": status.session,
-        "features": status.features,
-        "foreground_context": status.foreground_context,
-        "is_context_blocked": status.is_context_blocked,
-    }))
-}
-
-async fn session_start_endpoint(
-    axum::Json(params): axum::Json<crate::openhuman::screen_intelligence::StartSessionParams>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    match crate::openhuman::screen_intelligence::global_engine()
-        .start_session(params)
-        .await
-    {
-        Ok(session) => (
-            axum::http::StatusCode::OK,
-            axum::Json(serde_json::to_value(&session).unwrap_or_default()),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::BAD_REQUEST,
-            axum::Json(serde_json::json!({ "error": e })),
-        )
-            .into_response(),
-    }
-}
-
-async fn session_stop_endpoint(
-    axum::Json(params): axum::Json<crate::openhuman::screen_intelligence::StopSessionParams>,
-) -> impl axum::response::IntoResponse {
-    let session = crate::openhuman::screen_intelligence::global_engine()
-        .disable(params.reason)
-        .await;
-    axum::Json(serde_json::to_value(&session).unwrap_or_default())
-}
-
-async fn capture_endpoint() -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    match crate::openhuman::screen_intelligence::global_engine()
-        .capture_now()
-        .await
-    {
-        Ok(result) => (
-            axum::http::StatusCode::OK,
-            axum::Json(serde_json::to_value(&result).unwrap_or_default()),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({ "error": e })),
-        )
-            .into_response(),
-    }
-}
-
-async fn capture_test_endpoint() -> impl axum::response::IntoResponse {
-    let result = crate::openhuman::screen_intelligence::global_engine()
-        .capture_test()
-        .await;
-    // Strip image_ref from response (too large for REST)
-    let mut json = serde_json::to_value(&result).unwrap_or_default();
-    if let Some(obj) = json.as_object_mut() {
-        obj.remove("image_ref");
-    }
-    axum::Json(json)
-}
-
-async fn vision_recent_endpoint(
-    query: axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> impl axum::response::IntoResponse {
-    let limit = query
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(10);
-    let result = crate::openhuman::screen_intelligence::global_engine()
-        .vision_recent(Some(limit))
-        .await;
-    axum::Json(serde_json::to_value(&result).unwrap_or_default())
-}
-
-async fn vision_flush_endpoint() -> axum::response::Response {
-    use axum::response::IntoResponse;
-
-    match crate::openhuman::screen_intelligence::global_engine()
-        .vision_flush()
-        .await
-    {
-        Ok(result) => (
-            axum::http::StatusCode::OK,
-            axum::Json(serde_json::to_value(&result).unwrap_or_default()),
-        )
-            .into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            axum::Json(serde_json::json!({ "error": e })),
-        )
-            .into_response(),
-    }
-}
-
-async fn doctor_endpoint() -> impl axum::response::IntoResponse {
-    match crate::openhuman::screen_intelligence::rpc::accessibility_doctor_cli_json().await {
-        Ok(json) => axum::Json(json),
-        Err(e) => axum::Json(serde_json::json!({ "error": e })),
-    }
-}
-
-async fn config_endpoint() -> impl axum::response::IntoResponse {
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::json!({
-        "config": status.config,
-        "denylist": status.denylist,
-    }))
-}
-
-/// Long-poll endpoint: waits `interval` seconds then returns current status.
-/// Useful for `watch -n2 curl ...` or frontend polling.
-async fn watch_endpoint(
-    query: axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> impl axum::response::IntoResponse {
-    let interval_secs = query
-        .get("interval")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(2)
-        .min(30);
-
-    tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
-
-    let engine = crate::openhuman::screen_intelligence::global_engine();
-    let status = engine.status().await;
-    axum::Json(serde_json::to_value(&status).unwrap_or_default())
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Quiet logging: only `warn` unless verbose (used for non-server subcommands).
 fn init_quiet_logging(verbose: bool) {
     if !verbose && std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "warn");
@@ -887,7 +653,7 @@ fn print_help() {
     println!("Boots only the screen intelligence engine (accessibility capture + local-AI");
     println!("vision) without the full desktop app, Socket.IO, or skills runtime.\n");
     println!("Usage:");
-    println!("  openhuman screen-intelligence run       [--port <u16>] [-v]");
+    println!("  openhuman screen-intelligence run       [--port <u16>] [--auto-start] [-v]");
     println!("  openhuman screen-intelligence status     [-v]");
     println!("  openhuman screen-intelligence capture    [--keep] [-v]");
     println!("  openhuman screen-intelligence start      [--ttl <secs>] [-v]");
@@ -896,7 +662,7 @@ fn print_help() {
     println!("  openhuman screen-intelligence vision     [--limit <n>] [-v]");
     println!();
     println!("Subcommands:");
-    println!("  run       Start a dev server with JSON-RPC + REST + SSE endpoints");
+    println!("  run       Start a dev server with JSON-RPC + REST endpoints");
     println!("  status    Print current engine status (permissions, session, config)");
     println!("  capture   Take a single screenshot and print diagnostics");
     println!("  start     Start a capture + vision session (runs until TTL or Ctrl+C)");
@@ -906,13 +672,13 @@ fn print_help() {
     println!();
     println!("Common options:");
     println!("  --port <u16>     Server port for 'run' (default: 7797)");
-    println!("  --ttl <secs>     Session TTL for 'start' (default: 300)");
+    println!("  --auto-start     Auto-start capture session on server boot");
+    println!("  --ttl <secs>     Session TTL (default: 300)");
     println!("  --limit <n>      Max vision summaries for 'vision' (default: 10)");
     println!("  --keep           Save screenshot to disk (for 'capture')");
     println!("  -v, --verbose    Enable debug logging");
     println!();
-    println!("The 'run' server exposes REST convenience endpoints at:");
+    println!("The 'run' server exposes REST endpoints alongside JSON-RPC:");
     println!("  GET  /status, /permissions, /session, /vision/recent, /doctor, /config");
     println!("  POST /session/start, /session/stop, /capture, /capture/test, /vision/flush");
-    println!("  GET  /watch?interval=2 — long-poll status (use with `watch` or polling)");
 }

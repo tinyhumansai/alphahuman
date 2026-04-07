@@ -2,6 +2,7 @@
 
 pub mod ops;
 mod schemas;
+pub mod server;
 
 mod capture;
 mod engine;
