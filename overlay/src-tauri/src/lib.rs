@@ -147,7 +147,7 @@ pub fn run() {
                         "[overlay] starting embedded openhuman_core server on 127.0.0.1:{} (standalone)",
                         port
                     );
-                    match openhuman_core::core::jsonrpc::run_server(None, Some(port), true).await {
+                    match openhuman_core::core::jsonrpc::run_server_embedded(None, Some(port), true).await {
                         Ok(()) => log::info!("[overlay] embedded core server shut down cleanly"),
                         Err(e) => log::error!("[overlay] embedded core server error: {}", e),
                     }

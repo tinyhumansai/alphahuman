@@ -107,19 +107,20 @@ impl AutocompleteEngine {
             return Err("autocomplete is only supported on macOS".to_string());
         }
 
-        // Kick off Swift helper compilation in the background so the first
-        // suggestion request does not stall waiting for `swiftc`.
-        static PRECOMPILE_ONCE: Once = Once::new();
-        PRECOMPILE_ONCE.call_once(|| {
-            crate::openhuman::accessibility::precompile_helper_background();
-        });
-
         let config = Config::load_or_init()
             .await
             .map_err(|e| format!("failed to load config: {e}"))?;
         if !config.autocomplete.enabled {
             return Ok(AutocompleteStartResult { started: false });
         }
+
+        // Kick off Swift helper compilation in the background so the first
+        // suggestion request does not stall waiting for `swiftc`.
+        // Only after we know config loaded and autocomplete is enabled.
+        static PRECOMPILE_ONCE: Once = Once::new();
+        PRECOMPILE_ONCE.call_once(|| {
+            crate::openhuman::accessibility::precompile_helper_background();
+        });
 
         let debounce_ms = params
             .debounce_ms

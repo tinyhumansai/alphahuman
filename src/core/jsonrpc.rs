@@ -571,6 +571,29 @@ pub async fn run_server(
     port: Option<u16>,
     socketio_enabled: bool,
 ) -> anyhow::Result<()> {
+    run_server_inner(host, port, socketio_enabled, false).await
+}
+
+/// Like [`run_server`] but marks the instance as embedded — the overlay will
+/// **not** be auto-spawned, preventing recursive overlay launches.
+pub async fn run_server_embedded(
+    host: Option<&str>,
+    port: Option<u16>,
+    socketio_enabled: bool,
+) -> anyhow::Result<()> {
+    run_server_inner(host, port, socketio_enabled, true).await
+}
+
+/// Internal server entrypoint.
+///
+/// When `embedded_core` is `true` the server skips auto-spawning the overlay
+/// (useful when the overlay itself hosts an embedded core to avoid recursion).
+async fn run_server_inner(
+    host: Option<&str>,
+    port: Option<u16>,
+    socketio_enabled: bool,
+    embedded_core: bool,
+) -> anyhow::Result<()> {
     // Ensure all controllers are registered before starting.
     let _ = all::all_registered_controllers();
 
@@ -631,8 +654,30 @@ pub async fn run_server(
         log::info!("[rpc:socketio] disabled (--jsonrpc-only)");
     }
 
+    // Derive the real bound address from the listener so ephemeral port 0,
+    // wildcard binds, and IPv6 are handled correctly.
+    let bound_addr = listener.local_addr()?;
+    let parent_core_rpc_url = {
+        let (h, p) = (bound_addr.ip(), bound_addr.port());
+        let effective_ip = if h.is_unspecified() {
+            if h.is_ipv6() {
+                std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+            } else {
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            }
+        } else {
+            h
+        };
+        if effective_ip.is_ipv6() {
+            format!("http://[{effective_ip}]:{p}/rpc")
+        } else {
+            format!("http://{effective_ip}:{p}/rpc")
+        }
+    };
+    log::debug!("[core] parent_core_rpc_url = {parent_core_rpc_url}");
+
     // Optional background bootstrap for local AI services.
-    let parent_core_rpc_url = format!("http://{host}:{port}/rpc");
+    let is_embedded = embedded_core;
     tokio::spawn(async move {
         match crate::openhuman::config::Config::load_or_init().await {
             Ok(config) => {
@@ -642,7 +687,10 @@ pub async fn run_server(
                 }
 
                 // Launch the overlay Tauri app (transparent debug/voice panel) as a child process.
-                if config.overlay_enabled {
+                // Skip when running as an embedded core inside the overlay itself.
+                if is_embedded {
+                    log::info!("[overlay] embedded core — skipping overlay auto-spawn");
+                } else if config.overlay_enabled {
                     crate::openhuman::overlay::spawn_overlay(parent_core_rpc_url.as_str());
                 } else {
                     log::info!("[overlay] overlay disabled by config (overlay_enabled = false)");

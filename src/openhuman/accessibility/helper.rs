@@ -133,8 +133,17 @@ pub(super) fn helper_send_receive(
             let rx = rx_guard
                 .as_ref()
                 .ok_or_else(|| "response channel unavailable".to_string())?;
-            rx.recv_timeout(chunk)
-                .map_err(|e| format!("helper response timed out or channel closed: {e}"))?
+            match rx.recv_timeout(chunk) {
+                Ok(line) => line,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Non-fatal: the outer loop will check `remaining` and
+                    // either retry or surface the top-level timeout.
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("helper response channel disconnected".to_string());
+                }
+            }
         };
 
         if response_line.trim().is_empty() {

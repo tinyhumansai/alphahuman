@@ -248,10 +248,19 @@ export function App() {
   });
 
   useEffect(() => {
-    void invoke<string | null>("overlay_parent_rpc_url").then((url) => {
-      const trimmed = url?.trim();
-      setParentRpcUrl(trimmed && trimmed.length > 0 ? trimmed : null);
-    });
+    let mounted = true;
+    void invoke<string | null>("overlay_parent_rpc_url")
+      .then((url) => {
+        if (!mounted) return;
+        const trimmed = url?.trim();
+        setParentRpcUrl(trimmed && trimmed.length > 0 ? trimmed : null);
+      })
+      .catch(() => {
+        if (mounted) setParentRpcUrl(null);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const rpc = useCallback(
