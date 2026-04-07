@@ -14,8 +14,8 @@ use std::sync::Arc;
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai;
 
-use super::state::AccessibilityEngine;
 use super::helpers::{persist_vision_summary, push_ephemeral_vision_summary, truncate_tail};
+use super::state::AccessibilityEngine;
 use super::types::{CaptureFrame, VisionSummary};
 
 /// Main processing loop. Receives frames from the capture worker channel.
@@ -185,10 +185,7 @@ pub(crate) async fn analyze_frame(
     // ── Pass 1: OCR via Apple Vision ────────────────────────────────
     tracing::debug!("[processing_worker] pass 1/3: Apple Vision OCR");
     let ocr_text = run_apple_vision_ocr(&image_ref)?;
-    tracing::debug!(
-        "[processing_worker] OCR extracted {} chars",
-        ocr_text.len()
-    );
+    tracing::debug!("[processing_worker] OCR extracted {} chars", ocr_text.len());
 
     // ── Pass 2: Vision LLM for context ──────────────────────────────
     let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
@@ -276,11 +273,7 @@ Be specific and informative. Write in present tense. ~300-500 words."#
     );
 
     Ok(VisionSummary {
-        id: format!(
-            "vision-{}-{}",
-            frame.captured_at_ms,
-            uuid::Uuid::new_v4()
-        ),
+        id: format!("vision-{}-{}", frame.captured_at_ms, uuid::Uuid::new_v4()),
         captured_at_ms: frame.captured_at_ms,
         app_name: frame.app_name,
         window_title: frame.window_title,
@@ -307,10 +300,7 @@ fn run_apple_vision_ocr(image_ref: &str) -> Result<String, String> {
         .decode(b64_payload)
         .map_err(|e| format!("base64 decode for OCR failed: {e}"))?;
 
-    let tmp_path = std::env::temp_dir().join(format!(
-        "openhuman_ocr_{}.png",
-        uuid::Uuid::new_v4()
-    ));
+    let tmp_path = std::env::temp_dir().join(format!("openhuman_ocr_{}.png", uuid::Uuid::new_v4()));
     std::fs::write(&tmp_path, &raw_bytes)
         .map_err(|e| format!("failed to write temp OCR image: {e}"))?;
 

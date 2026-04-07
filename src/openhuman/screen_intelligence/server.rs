@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::openhuman::config::Config;
 
-use super::state::AccessibilityEngine;
 use super::global_engine;
+use super::state::AccessibilityEngine;
 use super::types::StartSessionParams;
 
 const LOG_PREFIX: &str = "[si_server]";
@@ -147,8 +147,9 @@ impl SiServer {
         }
 
         // Main monitoring loop — log status until session ends or cancelled.
-        let mut tick =
-            tokio::time::interval(std::time::Duration::from_secs(self.config.log_interval_secs));
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(
+            self.config.log_interval_secs,
+        ));
         let mut prev_capture_count: u64 = 0;
         let mut prev_vision_persist: u64 = 0;
         let mut prev_last_summary: Option<String> = None;
@@ -197,7 +198,11 @@ impl SiServer {
                 info!(
                     "{LOG_PREFIX} vision #{} persisted (key={:?})",
                     status.session.vision_persist_count,
-                    status.session.last_vision_persisted_key.as_deref().unwrap_or("-"),
+                    status
+                        .session
+                        .last_vision_persisted_key
+                        .as_deref()
+                        .unwrap_or("-"),
                 );
                 prev_vision_persist = status.session.vision_persist_count;
             }
@@ -212,7 +217,8 @@ impl SiServer {
                             .map(|dt| dt.format("%H:%M:%S").to_string())
                             .unwrap_or_else(|| "?".to_string());
                         eprintln!();
-                        eprintln!("  ┌─ #{} ─ {} ─ {} ──────────────────",
+                        eprintln!(
+                            "  ┌─ #{} ─ {} ─ {} ──────────────────",
                             status.session.vision_persist_count,
                             s.app_name.as_deref().unwrap_or("?"),
                             ts,
@@ -333,7 +339,10 @@ pub async fn run_standalone(
 ) -> Result<(), String> {
     info!("{LOG_PREFIX} starting standalone screen intelligence server");
     info!("{LOG_PREFIX} ttl: {}s", server_config.ttl_secs);
-    info!("{LOG_PREFIX} log_interval: {}s", server_config.log_interval_secs);
+    info!(
+        "{LOG_PREFIX} log_interval: {}s",
+        server_config.log_interval_secs
+    );
     info!(
         "{LOG_PREFIX} vision: {} (provider: {} model: {})",
         app_config.screen_intelligence.vision_enabled,

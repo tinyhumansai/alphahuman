@@ -10,8 +10,8 @@ use crate::openhuman::accessibility::{capture_screen_image_ref_for_context, fore
 use crate::openhuman::config::Config;
 
 use super::capture::now_ms;
-use super::state::AccessibilityEngine;
 use super::helpers::push_ephemeral_frame;
+use super::state::AccessibilityEngine;
 use super::types::CaptureFrame;
 
 /// Main capture loop. Runs until session TTL expires or the session is stopped.
@@ -140,8 +140,7 @@ pub(crate) async fn run(engine: Arc<AccessibilityEngine>) {
         if frame.image_ref.is_some() && session.vision_enabled {
             if let Some(tx) = session.vision_tx.as_ref() {
                 if tx.send(frame).is_ok() {
-                    session.vision_queue_depth =
-                        session.vision_queue_depth.saturating_add(1);
+                    session.vision_queue_depth = session.vision_queue_depth.saturating_add(1);
                     session.vision_state = "queued".to_string();
                 }
             }

@@ -181,10 +181,19 @@ fn run_server(args: &[String]) -> Result<()> {
         eprintln!("  Screen Intelligence");
         eprintln!("  ───────────────────");
         eprintln!("  TTL:              {}s", opts.ttl_secs);
-        eprintln!("  Vision:           {}", config.screen_intelligence.vision_enabled);
+        eprintln!(
+            "  Vision:           {}",
+            config.screen_intelligence.vision_enabled
+        );
         eprintln!("  Vision model:     {}", config.local_ai.vision_model_id);
-        eprintln!("  FPS:              {}", config.screen_intelligence.baseline_fps);
-        eprintln!("  Keep screenshots: {}", opts.keep || config.screen_intelligence.keep_screenshots);
+        eprintln!(
+            "  FPS:              {}",
+            config.screen_intelligence.baseline_fps
+        );
+        eprintln!(
+            "  Keep screenshots: {}",
+            opts.keep || config.screen_intelligence.keep_screenshots
+        );
         eprintln!();
         eprintln!("  Capturing → Vision → Log. Press Ctrl+C to stop.");
         eprintln!();

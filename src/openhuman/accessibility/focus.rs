@@ -470,10 +470,8 @@ pub fn foreground_context() -> Option<AppContext> {
     // `screencapture -l <id>` instead of the fragile `-R x,y,w,h` region
     // approach. Falls back gracefully — window_id stays None.
     if let Some(ref mut ctx) = result {
-        ctx.window_id = resolve_frontmost_window_id(
-            ctx.app_name.as_deref(),
-            ctx.window_title.as_deref(),
-        );
+        ctx.window_id =
+            resolve_frontmost_window_id(ctx.app_name.as_deref(), ctx.window_title.as_deref());
     }
 
     tracing::debug!(
@@ -497,10 +495,7 @@ pub fn foreground_context() -> Option<AppContext> {
 /// 3. Retry once after a short delay if the first attempt fails (the window
 ///    list can be briefly stale during fast app switches).
 #[cfg(target_os = "macos")]
-fn resolve_frontmost_window_id(
-    app_name: Option<&str>,
-    window_title: Option<&str>,
-) -> Option<u32> {
+fn resolve_frontmost_window_id(app_name: Option<&str>, window_title: Option<&str>) -> Option<u32> {
     let app = app_name?;
 
     // Try up to 2 times — the CGWindowList can briefly lag behind
@@ -545,11 +540,23 @@ fn run_swift_window_lookup(app_name: &str, window_title: Option<&str>) -> Option
     // preserves but can cause comparison issues.
     let stripped_app: String = escaped_app
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'))
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'
+                )
+        })
         .collect();
     let stripped_title: String = escaped_title
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'))
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{200E}' | '\u{200F}' | '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}'
+                )
+        })
         .collect();
 
     // Swift snippet: iterate CGWindowList, prefer title+app match, fall

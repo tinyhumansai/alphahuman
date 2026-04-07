@@ -299,9 +299,7 @@ mod tests {
         // No window_id and no valid bounds → should refuse to capture.
         let result = capture_screen_image_ref_for_context(None);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("refusing fullscreen capture"));
+        assert!(result.unwrap_err().contains("refusing fullscreen capture"));
 
         let invalid_context = AppContext {
             app_name: Some("Finder".to_string()),
@@ -316,9 +314,7 @@ mod tests {
         };
         let result = capture_screen_image_ref_for_context(Some(&invalid_context));
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("refusing fullscreen capture"));
+        assert!(result.unwrap_err().contains("refusing fullscreen capture"));
     }
 
     #[cfg(target_os = "macos")]

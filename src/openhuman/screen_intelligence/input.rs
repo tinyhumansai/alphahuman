@@ -120,8 +120,7 @@ impl AccessibilityEngine {
             state.autocomplete_context.push(' ');
         }
         state.autocomplete_context.push_str(cleaned);
-        state.autocomplete_context =
-            truncate_tail(&state.autocomplete_context, MAX_CONTEXT_CHARS);
+        state.autocomplete_context = truncate_tail(&state.autocomplete_context, MAX_CONTEXT_CHARS);
         state.last_event = Some("autocomplete_commit".to_string());
 
         Ok(AutocompleteCommitResult { committed: true })

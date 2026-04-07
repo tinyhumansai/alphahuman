@@ -18,8 +18,8 @@ use super::types::{
     CaptureTestResult, SessionStatus, StartSessionParams,
 };
 use crate::openhuman::accessibility::{
-    capture_screen_image_ref_for_context, detect_permissions, foreground_context, permission_to_str,
-    AppContext, PermissionKind, PermissionState, PermissionStatus,
+    capture_screen_image_ref_for_context, detect_permissions, foreground_context,
+    permission_to_str, AppContext, PermissionKind, PermissionState, PermissionStatus,
 };
 #[cfg(target_os = "macos")]
 use crate::openhuman::accessibility::{
@@ -131,7 +131,12 @@ impl AccessibilityEngine {
                 .predictive_input
                 .unwrap_or(state.config.autocomplete_enabled);
 
-            state.session = Some(new_session_runtime(&state.config, now, expires_at_ms, ttl_secs));
+            state.session = Some(new_session_runtime(
+                &state.config,
+                now,
+                expires_at_ms,
+                ttl_secs,
+            ));
             state.last_event = Some("session_started".to_string());
             state.last_error = None;
         }
@@ -279,10 +284,7 @@ impl AccessibilityEngine {
                 frames_in_memory: s.frames.len(),
                 last_capture_at_ms: s.last_capture_at_ms,
                 last_context: s.last_context.as_ref().and_then(|c| c.app_name.clone()),
-                last_window_title: s
-                    .last_context
-                    .as_ref()
-                    .and_then(|c| c.window_title.clone()),
+                last_window_title: s.last_context.as_ref().and_then(|c| c.window_title.clone()),
                 vision_enabled: s.vision_enabled,
                 vision_state: s.vision_state.clone(),
                 vision_queue_depth: s.vision_queue_depth,
@@ -492,7 +494,13 @@ impl AccessibilityEngine {
             .as_deref()
             .unwrap_or("unknown")
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let filename = format!("{}_{}.png", frame.captured_at_ms, app_slug);
         let file_path = screenshots_dir.join(&filename);
@@ -583,16 +591,10 @@ mod tests {
 
         {
             let mut state = engine.inner.lock().await;
-            state.session = Some(new_session_runtime(
-                &state.config,
-                now_ms(),
-                i64::MAX,
-                300,
-            ));
+            state.session = Some(new_session_runtime(&state.config, now_ms(), i64::MAX, 300));
         }
 
-        let result =
-            tokio::time::timeout(Duration::from_millis(250), engine.enable()).await;
+        let result = tokio::time::timeout(Duration::from_millis(250), engine.enable()).await;
         assert!(
             result.is_ok(),
             "enable should not deadlock with an active session"
