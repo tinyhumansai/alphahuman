@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/Dockerfile"
       - ".github/workflows/docker-ci-image.yml"
+      - "e2e/docker-entrypoint.sh"
   workflow_dispatch:
 
 permissions:
@@ -16,6 +17,7 @@ jobs:
   build-image:
     name: Build and push CI image
     runs-on: ubuntu-latest
+    environment: Production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,9 +32,10 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .github
+          context: .
           file: .github/Dockerfile
           push: true
+          provenance: false
           tags: |
             ghcr.io/tinyhumansai/openhuman_ci:latest
             ghcr.io/tinyhumansai/openhuman_ci:rust-1.93.0

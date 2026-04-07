@@ -26,16 +26,21 @@ pub use schema::{
     build_runtime_proxy_client_with_timeouts, runtime_proxy_config, set_runtime_proxy_config,
     AgentConfig, ArchetypeConfig, AuditConfig, AutocompleteConfig, AutonomyConfig,
     BrowserComputerUseConfig, BrowserConfig, ChannelsConfig, ClassificationRule, ComposioConfig,
-    Config, CostConfig, CronConfig, DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig,
-    EmbeddingRouteConfig, HardwareConfig, HardwareTransport, HeartbeatConfig, HttpRequestConfig,
-    IMessageConfig, IdentityConfig, LarkConfig, LearningConfig, LocalAiConfig, MatrixConfig,
-    MemoryConfig, ModelRouteConfig, MultimodalConfig, ObservabilityConfig, OrchestratorConfig,
+    Config, CostConfig, CronConfig, DelegateAgentConfig, DictationActivationMode, DictationConfig,
+    DiscordConfig, DockerRuntimeConfig, EmbeddingRouteConfig, HardwareConfig, HardwareTransport,
+    HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig, IntegrationToggle,
+    IntegrationsConfig, LarkConfig, LearningConfig, LocalAiConfig, MatrixConfig, MemoryConfig,
+    ModelRouteConfig, MultimodalConfig, ObservabilityConfig, OrchestratorConfig,
     PeripheralBoardConfig, PeripheralsConfig, ProxyConfig, ProxyScope, QueryClassificationConfig,
     ReflectionSource, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend,
     SandboxConfig, SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig, SecurityConfig,
     SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
-    TelegramConfig, WebSearchConfig, WebhookConfig, DEFAULT_MODEL, MODEL_AGENTIC_V1,
-    MODEL_CODING_V1, MODEL_REASONING_V1,
+    TelegramConfig, UpdateConfig, VoiceActivationMode, VoiceServerConfig, WebSearchConfig,
+    WebhookConfig, DEFAULT_MODEL, MODEL_AGENTIC_V1, MODEL_CODING_V1, MODEL_REASONING_V1,
+};
+pub use schema::{
+    clear_active_user, default_root_openhuman_dir, read_active_user_id, user_openhuman_dir,
+    write_active_user_id,
 };
 pub use schemas::{
     all_controller_schemas as all_config_controller_schemas,

@@ -27,6 +27,13 @@ struct ActiveWorkspaceState {
 }
 
 fn default_config_dir() -> Result<PathBuf> {
+    Ok(default_root_openhuman_dir()?)
+}
+
+/// Returns the root openhuman directory (`~/.openhuman`), independent of any
+/// per-user scoping.  Used to locate `active_user.toml` and the shared
+/// `users/` tree.
+pub fn default_root_openhuman_dir() -> Result<PathBuf> {
     let home = UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
@@ -174,6 +181,7 @@ fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) 
 enum ConfigResolutionSource {
     EnvWorkspace,
     ActiveWorkspaceMarker,
+    ActiveUser,
     DefaultConfigDir,
 }
 
@@ -182,6 +190,7 @@ impl ConfigResolutionSource {
         match self {
             Self::EnvWorkspace => "OPENHUMAN_WORKSPACE",
             Self::ActiveWorkspaceMarker => "active_workspace.toml",
+            Self::ActiveUser => "active_user.toml",
             Self::DefaultConfigDir => "default",
         }
     }
@@ -191,6 +200,7 @@ async fn resolve_runtime_config_dirs(
     default_openhuman_dir: &Path,
     default_workspace_dir: &Path,
 ) -> Result<(PathBuf, PathBuf, ConfigResolutionSource)> {
+    // 1. Explicit env override always wins.
     if let Ok(custom_workspace) = std::env::var("OPENHUMAN_WORKSPACE") {
         if !custom_workspace.is_empty() {
             let (openhuman_dir, workspace_dir) =
@@ -203,6 +213,20 @@ async fn resolve_runtime_config_dirs(
         }
     }
 
+    // 2. Active user — scopes the entire openhuman dir to a per-user directory
+    //    so that config, auth, encryption, and workspace are all user-isolated.
+    if let Some(user_id) = read_active_user_id(default_openhuman_dir) {
+        let user_dir = user_openhuman_dir(default_openhuman_dir, &user_id);
+        let user_workspace = user_dir.join("workspace");
+        tracing::debug!(
+            user_id = %user_id,
+            user_dir = %user_dir.display(),
+            "Config dirs resolved via active_user.toml"
+        );
+        return Ok((user_dir, user_workspace, ConfigResolutionSource::ActiveUser));
+    }
+
+    // 3. Active workspace marker (legacy / multi-workspace).
     if let Some((openhuman_dir, workspace_dir)) =
         load_persisted_workspace_dirs(default_openhuman_dir).await?
     {
@@ -213,6 +237,7 @@ async fn resolve_runtime_config_dirs(
         ));
     }
 
+    // 4. Default.
     Ok((
         default_openhuman_dir.to_path_buf(),
         default_workspace_dir.to_path_buf(),
@@ -252,6 +277,58 @@ fn encrypt_optional_secret(
         }
     }
     Ok(())
+}
+
+const ACTIVE_USER_STATE_FILE: &str = "active_user.toml";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ActiveUserState {
+    user_id: String,
+}
+
+/// Reads the active user id from `{default_openhuman_dir}/active_user.toml`.
+/// Returns `None` when the file does not exist, is empty, or cannot be parsed.
+pub fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
+    let path = default_openhuman_dir.join(ACTIVE_USER_STATE_FILE);
+    let contents = std::fs::read_to_string(&path).ok()?;
+    let state: ActiveUserState = toml::from_str(&contents).ok()?;
+    let id = state.user_id.trim().to_string();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
+}
+
+/// Writes the active user id to `{default_openhuman_dir}/active_user.toml`.
+pub fn write_active_user_id(default_openhuman_dir: &Path, user_id: &str) -> Result<()> {
+    let path = default_openhuman_dir.join(ACTIVE_USER_STATE_FILE);
+    let state = ActiveUserState {
+        user_id: user_id.to_string(),
+    };
+    let toml_str = toml::to_string_pretty(&state).context("serialize active_user.toml")?;
+    std::fs::write(&path, toml_str)
+        .with_context(|| format!("Failed to write active user state: {}", path.display()))?;
+    tracing::debug!(user_id = %user_id, path = %path.display(), "active user written");
+    Ok(())
+}
+
+/// Removes the active user marker.  After this, the next config load will
+/// use the default (unauthenticated) openhuman directory.
+pub fn clear_active_user(default_openhuman_dir: &Path) -> Result<()> {
+    let path = default_openhuman_dir.join(ACTIVE_USER_STATE_FILE);
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .with_context(|| format!("Failed to remove active user state: {}", path.display()))?;
+        tracing::debug!(path = %path.display(), "active user cleared");
+    }
+    Ok(())
+}
+
+/// Returns the user-scoped openhuman directory for the given user id:
+/// `{default_openhuman_dir}/users/{user_id}`.
+pub fn user_openhuman_dir(default_openhuman_dir: &Path, user_id: &str) -> PathBuf {
+    default_openhuman_dir.join("users").join(user_id)
 }
 
 fn migrate_legacy_autocomplete_disabled_apps(config: &mut Config) {
@@ -364,6 +441,7 @@ impl Config {
             }
             migrate_legacy_autocomplete_disabled_apps(&mut config);
             config.apply_env_overrides();
+
             tracing::info!(
                 path = %config.config_path.display(),
                 workspace = %config.workspace_dir.display(),
@@ -385,6 +463,7 @@ impl Config {
             }
 
             config.apply_env_overrides();
+
             tracing::info!(
                 path = %config.config_path.display(),
                 workspace = %config.workspace_dir.display(),
@@ -682,6 +761,77 @@ impl Config {
             }
         }
 
+        // Auto-update overrides
+        if let Ok(flag) = std::env::var("OPENHUMAN_AUTO_UPDATE_ENABLED") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.update.enabled = true,
+                "0" | "false" | "no" | "off" => self.update.enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(val) = std::env::var("OPENHUMAN_AUTO_UPDATE_INTERVAL_MINUTES") {
+            if let Ok(minutes) = val.trim().parse::<u32>() {
+                self.update.interval_minutes = minutes;
+            }
+        }
+
+        // Dictation overrides
+        if let Ok(flag) = std::env::var("OPENHUMAN_DICTATION_ENABLED") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.dictation.enabled = true,
+                "0" | "false" | "no" | "off" => self.dictation.enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(hotkey) = std::env::var("OPENHUMAN_DICTATION_HOTKEY") {
+            let hotkey = hotkey.trim();
+            if !hotkey.is_empty() {
+                self.dictation.hotkey = hotkey.to_string();
+            }
+        }
+        if let Ok(mode) = std::env::var("OPENHUMAN_DICTATION_ACTIVATION_MODE") {
+            let normalized = mode.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "toggle" => {
+                    self.dictation.activation_mode =
+                        crate::openhuman::config::DictationActivationMode::Toggle
+                }
+                "push" => {
+                    self.dictation.activation_mode =
+                        crate::openhuman::config::DictationActivationMode::Push
+                }
+                _ => {
+                    tracing::warn!(
+                        mode = %mode,
+                        "ignoring invalid OPENHUMAN_DICTATION_ACTIVATION_MODE (valid: toggle, push)"
+                    );
+                }
+            }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_DICTATION_LLM_REFINEMENT") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.dictation.llm_refinement = true,
+                "0" | "false" | "no" | "off" => self.dictation.llm_refinement = false,
+                _ => {}
+            }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_DICTATION_STREAMING") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.dictation.streaming = true,
+                "0" | "false" | "no" | "off" => self.dictation.streaming = false,
+                _ => {}
+            }
+        }
+        if let Ok(val) = std::env::var("OPENHUMAN_DICTATION_STREAMING_INTERVAL_MS") {
+            if let Ok(ms) = val.trim().parse::<u64>() {
+                self.dictation.streaming_interval_ms = ms;
+            }
+        }
+
         if let Ok(flag) = std::env::var("OPENHUMAN_OVERLAY_ENABLED") {
             let normalized = flag.trim().to_ascii_lowercase();
             match normalized.as_str() {
@@ -810,5 +960,76 @@ impl Config {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_active_user_returns_none_when_no_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn read_active_user_returns_none_when_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(ACTIVE_USER_STATE_FILE), "").unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn read_active_user_returns_id_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_active_user_id(tmp.path(), "user-789").unwrap();
+        assert_eq!(
+            read_active_user_id(tmp.path()),
+            Some("user-789".to_string())
+        );
+    }
+
+    #[test]
+    fn write_and_clear_active_user_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        write_active_user_id(tmp.path(), "u-abc").unwrap();
+        assert_eq!(read_active_user_id(tmp.path()), Some("u-abc".to_string()));
+
+        clear_active_user(tmp.path()).unwrap();
+        assert!(read_active_user_id(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn user_openhuman_dir_builds_correct_path() {
+        let root = PathBuf::from("/home/test/.openhuman");
+        let dir = user_openhuman_dir(&root, "user-123");
+        assert_eq!(dir, PathBuf::from("/home/test/.openhuman/users/user-123"));
+    }
+
+    #[tokio::test]
+    async fn resolve_dirs_uses_active_user_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let default_workspace = root.join("workspace");
+
+        // No active user → uses default.
+        let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs(root, &default_workspace)
+            .await
+            .unwrap();
+        assert_eq!(oh_dir, root);
+        assert_eq!(ws_dir, default_workspace);
+        assert_eq!(source, ConfigResolutionSource::DefaultConfigDir);
+
+        // With active user → scopes to user dir.
+        write_active_user_id(root, "u-test").unwrap();
+        let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs(root, &default_workspace)
+            .await
+            .unwrap();
+        let expected_user_dir = root.join("users").join("u-test");
+        assert_eq!(oh_dir, expected_user_dir);
+        assert_eq!(ws_dir, expected_user_dir.join("workspace"));
+        assert_eq!(source, ConfigResolutionSource::ActiveUser);
     }
 }

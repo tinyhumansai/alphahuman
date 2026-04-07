@@ -6,7 +6,9 @@
 //! - SSE (Server-Sent Events) for real-time event streaming.
 //! - Helper routes for health checks, schema discovery, and Telegram authentication.
 
-use axum::extract::{Query, State};
+use std::sync::Arc;
+
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -326,6 +328,21 @@ async fn telegram_auth_handler(Query(query): Query<TelegramAuthQuery>) -> impl I
     html_response(StatusCode::OK, success_html())
 }
 
+/// WebSocket upgrade handler for streaming voice dictation.
+async fn dictation_ws_handler(ws: WebSocketUpgrade) -> Response {
+    log::info!("[ws] dictation WebSocket upgrade requested");
+    ws.on_upgrade(|socket| async move {
+        let config = match crate::openhuman::config::rpc::load_config_with_timeout().await {
+            Ok(c) => Arc::new(c),
+            Err(e) => {
+                log::error!("[ws] failed to load config for dictation: {e}");
+                return;
+            }
+        };
+        crate::openhuman::voice::streaming::handle_dictation_ws(socket, config).await;
+    })
+}
+
 /// Builds the main Axum router for the core HTTP server.
 ///
 /// Includes routes for health, schema, SSE events, JSON-RPC, and Telegram auth.
@@ -338,6 +355,7 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         .route("/events", get(events_handler))
         .route("/events/webhooks", get(webhook_events_handler))
         .route("/rpc", post(rpc_handler))
+        .route("/ws/dictation", get(dictation_ws_handler))
         .route("/auth/telegram", get(telegram_auth_handler))
         .fallback(not_found_handler)
         .layer(middleware::from_fn(http_request_log_middleware))
@@ -628,9 +646,25 @@ pub async fn run_server(
                 } else {
                     log::info!("[overlay] overlay disabled by config (overlay_enabled = false)");
                 }
+
+                // Start the global dictation hotkey listener (rdev-based, core-side).
+                crate::openhuman::voice::server::start_if_enabled(&config).await;
+                crate::openhuman::voice::dictation_listener::start_if_enabled(&config).await;
             }
             Err(err) => {
                 log::warn!("[core] config load failed, skipping local-ai and overlay: {err}");
+            }
+        }
+    });
+
+    // Periodic self-update checker (default: every 1 hour).
+    tokio::spawn(async {
+        match crate::openhuman::config::Config::load_or_init().await {
+            Ok(config) => {
+                crate::openhuman::update::scheduler::run(config.update).await;
+            }
+            Err(err) => {
+                log::warn!("[core] config load failed, skipping update scheduler: {err}");
             }
         }
     });
@@ -676,6 +710,22 @@ pub async fn bootstrap_skill_runtime() {
     let workspace_dir = base_dir.join("workspace");
     let _ = std::fs::create_dir_all(&workspace_dir);
     engine.set_workspace_dir(workspace_dir);
+
+    // --- Event bus bootstrap ---
+    // Ensure the global event bus is initialized (no-op if already done by start_channels).
+    let bus =
+        crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
+    // Register domain subscribers for cross-module event handling.
+    // Leak the handles so the background tasks live for the entire process —
+    // SubscriptionHandle::drop aborts the task, and bootstrap_skill_runtime()
+    // returns immediately after setup.
+    std::mem::forget(bus.subscribe(Arc::new(
+        crate::openhuman::webhooks::bus::WebhookRequestSubscriber::new(),
+    )));
+    std::mem::forget(bus.subscribe(Arc::new(
+        crate::openhuman::channels::bus::ChannelInboundSubscriber::new(),
+    )));
+    log::info!("[event_bus] webhook and channel subscribers registered");
 
     // --- Socket manager bootstrap ---
     let socket_mgr = Arc::new(SocketManager::new());

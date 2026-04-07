@@ -1,3 +1,4 @@
+pub mod bus;
 pub mod ops;
 mod schedule;
 mod schemas;

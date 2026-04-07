@@ -1,15 +1,15 @@
 ##
-# Linux E2E environment for OpenHuman desktop app.
+# DEPRECATED: E2E tests now use the shared CI image from GHCR.
 #
-# Mirrors the ubuntu-22.04 CI runner so macOS developers can run the
-# same Linux-based E2E stack locally via Docker.
+# The CI image (.github/Dockerfile) includes all E2E dependencies
+# (xvfb, dbus, tauri-driver, webkit2gtk-driver).
 #
 # Usage:
 #   docker compose -f e2e/docker-compose.yml run --rm e2e
 #
-# Or manually:
-#   docker build -t openhuman-e2e -f e2e/Dockerfile .
-#   docker run --rm -v "$(pwd):/app" openhuman-e2e yarn workspace openhuman-app test:e2e:all
+# To build the CI image locally (if you can't pull from GHCR):
+#   docker build -t openhuman-ci -f .github/Dockerfile .
+#   IMAGE=openhuman-ci docker compose -f e2e/docker-compose.yml run --rm e2e
 #
 FROM ubuntu:22.04
 
@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
   bash curl build-essential pkg-config \
   libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev \
   librsvg2-dev patchelf libssl-dev \
+  libasound2-dev libxdo-dev libxtst-dev libx11-dev libevdev-dev \
   xvfb at-spi2-core dbus-x11 webkit2gtk-driver \
   clang libclang-dev cmake \
   git ca-certificates \
@@ -40,9 +41,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 RUN cargo install tauri-driver --version 2.0.5
 
 WORKDIR /app
-
-COPY e2e/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["yarn", "workspace", "openhuman-app", "test:e2e:all"]
