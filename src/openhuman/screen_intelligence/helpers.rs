@@ -209,10 +209,11 @@ pub(crate) async fn persist_vision_summary(
         document_id: None,
     };
 
-    // put_doc stores the document + chunks immediately, then enqueues
-    // background graph extraction on the global ingestion queue worker.
+    // put_doc_light stores the document (DB row + markdown file) without
+    // vector embedding or graph extraction — screen captures are too frequent
+    // and ephemeral to justify the cost of GLiNER / embedding per frame.
     client
-        .put_doc(document)
+        .put_doc_light(document)
         .await
         .map_err(|err| format!("memory upsert failed: {err}"))?;
 
