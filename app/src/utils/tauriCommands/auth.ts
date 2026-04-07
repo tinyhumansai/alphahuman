@@ -2,8 +2,9 @@
  * Authentication commands.
  */
 import { invoke } from '@tauri-apps/api/core';
+
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, CommandResponse } from './common';
+import { CommandResponse, isTauri } from './common';
 
 /**
  * Exchange a login token for a session token

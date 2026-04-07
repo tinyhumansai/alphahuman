@@ -657,7 +657,11 @@ pub async fn load_and_apply_voice_server_settings(
                 config.voice_server.activation_mode =
                     crate::openhuman::config::VoiceActivationMode::Push;
             }
-            _ => return Err(format!("invalid activation_mode: {mode} (valid: tap, push)")),
+            _ => {
+                return Err(format!(
+                    "invalid activation_mode: {mode} (valid: tap, push)"
+                ))
+            }
         }
     }
     if let Some(skip_cleanup) = update.skip_cleanup {

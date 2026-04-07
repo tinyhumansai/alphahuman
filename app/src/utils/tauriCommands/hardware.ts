@@ -2,8 +2,9 @@
  * Hardware and service management commands.
  */
 import { invoke } from '@tauri-apps/api/core';
+
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, CommandResponse, parseServiceCliOutput } from './common';
+import { CommandResponse, isTauri, parseServiceCliOutput } from './common';
 
 export type HardwareTransport = 'Native' | 'Serial' | 'Probe' | 'None';
 export type ServiceState = 'Running' | 'Stopped' | 'NotInstalled' | { Unknown: string };

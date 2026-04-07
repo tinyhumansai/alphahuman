@@ -2,8 +2,9 @@
  * Core process and update commands.
  */
 import { invoke } from '@tauri-apps/api/core';
+
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, CommandResponse } from './common';
+import { CommandResponse, isTauri } from './common';
 
 export interface CoreUpdateStatus {
   running_version: string;

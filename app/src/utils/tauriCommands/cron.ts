@@ -2,7 +2,7 @@
  * Cron job commands.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, CommandResponse } from './common';
+import { CommandResponse, isTauri } from './common';
 
 export interface CoreCronScheduleCron {
   kind: 'cron';

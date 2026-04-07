@@ -2,6 +2,7 @@
  * Window management commands.
  */
 import { getCurrentWindow } from '@tauri-apps/api/window';
+
 import { isTauri } from './common';
 
 /**

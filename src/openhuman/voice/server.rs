@@ -242,7 +242,6 @@ impl VoiceServer {
             .await;
         });
     }
-
 }
 
 // ── Background processing (free functions, spawnable) ─────────────────
@@ -346,8 +345,7 @@ async fn process_recording_bg(
             }
 
             // Build initial_prompt from dictionary + recent transcripts.
-            let initial_prompt =
-                build_initial_prompt(server_config, &recent_transcripts).await;
+            let initial_prompt = build_initial_prompt(server_config, &recent_transcripts).await;
             let context = initial_prompt
                 .as_deref()
                 .or(server_config.context.as_deref());
@@ -657,7 +655,9 @@ mod tests {
         assert!(!is_hallucinated_output("Hello, how are you?"));
         assert!(!is_hallucinated_output("the quick brown fox"));
         assert!(!is_hallucinated_output("I want to order pizza"));
-        assert!(!is_hallucinated_output("thank you for your help with the project"));
+        assert!(!is_hallucinated_output(
+            "thank you for your help with the project"
+        ));
         assert!(!is_hallucinated_output(""));
     }
 

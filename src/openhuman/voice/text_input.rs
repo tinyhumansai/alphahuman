@@ -47,8 +47,7 @@ pub fn insert_text(text: &str) -> Result<(), String> {
     );
 
     // Step 1: Save current clipboard.
-    let mut clipboard =
-        Clipboard::new().map_err(|e| format!("failed to access clipboard: {e}"))?;
+    let mut clipboard = Clipboard::new().map_err(|e| format!("failed to access clipboard: {e}"))?;
     let saved_clipboard = clipboard.get_text().ok();
     debug!(
         "{LOG_PREFIX} saved clipboard ({} chars)",

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '../../../../test/test-utils';
 import {
+  type CommandResponse,
+  type ConfigSnapshot,
   openhumanGetVoiceServerSettings,
   openhumanLocalAiAssetsStatus,
   openhumanUpdateVoiceServerSettings,
@@ -10,8 +12,6 @@ import {
   openhumanVoiceServerStatus,
   openhumanVoiceServerStop,
   openhumanVoiceStatus,
-  type CommandResponse,
-  type ConfigSnapshot,
   type VoiceServerSettings,
   type VoiceServerStatus,
   type VoiceStatus,
@@ -186,6 +186,8 @@ describe('VoicePanel', () => {
       activation_mode: 'push',
       skip_cleanup: true,
     });
-    expect(await screen.findByText('Voice server restarted with the new settings.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Voice server restarted with the new settings.')
+    ).toBeInTheDocument();
   });
 });

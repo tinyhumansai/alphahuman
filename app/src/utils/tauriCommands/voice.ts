@@ -2,8 +2,9 @@
  * Voice and dictation commands.
  */
 import { invoke } from '@tauri-apps/api/core';
+
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, CommandResponse } from './common';
+import { CommandResponse, isTauri } from './common';
 import { ConfigSnapshot } from './config';
 
 export interface VoiceSpeechResult {

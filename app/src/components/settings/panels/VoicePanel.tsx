@@ -31,7 +31,9 @@ const VoicePanel = () => {
   const [newDictWord, setNewDictWord] = useState('');
 
   const hasUnsavedChanges =
-    settings != null && savedSettings != null && JSON.stringify(settings) !== JSON.stringify(savedSettings);
+    settings != null &&
+    savedSettings != null &&
+    JSON.stringify(settings) !== JSON.stringify(savedSettings);
 
   const loadData = async (forceSettings = false) => {
     try {
@@ -44,7 +46,11 @@ const VoicePanel = () => {
       // Only overwrite local settings if there are no unsaved edits,
       // or if explicitly forced (e.g. after save or initial load).
       // This prevents the 2s polling timer from clobbering user input.
-      if (forceSettings || !settings || JSON.stringify(settings) === JSON.stringify(savedSettings)) {
+      if (
+        forceSettings ||
+        !settings ||
+        JSON.stringify(settings) === JSON.stringify(savedSettings)
+      ) {
         setSettings(settingsResponse.result);
       }
       setSavedSettings(settingsResponse.result);
@@ -68,7 +74,10 @@ const VoicePanel = () => {
     return () => window.clearInterval(timer);
   }, []);
 
-  const updateSetting = <K extends keyof VoiceServerSettings>(key: K, value: VoiceServerSettings[K]) => {
+  const updateSetting = <K extends keyof VoiceServerSettings>(
+    key: K,
+    value: VoiceServerSettings[K]
+  ) => {
     setSettings(current => (current ? { ...current, [key]: value } : current));
   };
 
@@ -280,7 +289,9 @@ const VoicePanel = () => {
                       min="0"
                       step="0.1"
                       value={settings.min_duration_secs}
-                      onChange={e => updateSetting('min_duration_secs', Number(e.target.value) || 0)}
+                      onChange={e =>
+                        updateSetting('min_duration_secs', Number(e.target.value) || 0)
+                      }
                       className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-primary-400"
                     />
                   </label>
@@ -291,7 +302,8 @@ const VoicePanel = () => {
                     Silence Threshold (RMS)
                   </span>
                   <p className="text-[11px] text-stone-400">
-                    Recordings with energy below this are treated as silence and skipped. Lower = more sensitive.
+                    Recordings with energy below this are treated as silence and skipped. Lower =
+                    more sensitive.
                   </p>
                   <input
                     type="number"
@@ -299,7 +311,9 @@ const VoicePanel = () => {
                     max="1"
                     step="0.001"
                     value={settings.silence_threshold}
-                    onChange={e => updateSetting('silence_threshold', Number(e.target.value) || 0.002)}
+                    onChange={e =>
+                      updateSetting('silence_threshold', Number(e.target.value) || 0.002)
+                    }
                     className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-1 focus:ring-primary-400"
                   />
                 </label>
@@ -320,7 +334,10 @@ const VoicePanel = () => {
                           e.preventDefault();
                           const word = newDictWord.trim();
                           if (!settings.custom_dictionary.includes(word)) {
-                            updateSetting('custom_dictionary', [...settings.custom_dictionary, word]);
+                            updateSetting('custom_dictionary', [
+                              ...settings.custom_dictionary,
+                              word,
+                            ]);
                           }
                           setNewDictWord('');
                         }

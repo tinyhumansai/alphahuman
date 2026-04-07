@@ -117,7 +117,10 @@ pub fn transcribe_pcm_f32(
     if let Some(prompt) = initial_prompt {
         if !prompt.trim().is_empty() {
             params.set_initial_prompt(prompt);
-            debug!("{LOG_PREFIX} set initial_prompt: '{}...'", &prompt[..prompt.len().min(80)]);
+            debug!(
+                "{LOG_PREFIX} set initial_prompt: '{}...'",
+                &prompt[..prompt.len().min(80)]
+            );
         }
     }
 
