@@ -32,7 +32,12 @@ const ScreenPermissionsStep = ({ onNext, onBack: _onBack }: ScreenPermissionsSte
     }
 
     const refreshAfterReturn = () => {
-      if (document.visibilityState !== 'visible' || isLoading || isRestartingCore || isGranted) {
+      if (document.visibilityState !== 'visible' || isLoading || isRestartingCore) {
+        return;
+      }
+
+      if (isGranted) {
+        setShouldAutoRefreshOnReturn(false);
         return;
       }
 
@@ -48,15 +53,6 @@ const ScreenPermissionsStep = ({ onNext, onBack: _onBack }: ScreenPermissionsSte
       document.removeEventListener('visibilitychange', refreshAfterReturn);
     };
   }, [dispatch, isGranted, isLoading, isRestartingCore, shouldAutoRefreshOnReturn]);
-
-  useEffect(() => {
-    if (!isGranted || !shouldAutoRefreshOnReturn) {
-      return;
-    }
-    void Promise.resolve().then(() => {
-      setShouldAutoRefreshOnReturn(false);
-    });
-  }, [isGranted, shouldAutoRefreshOnReturn]);
 
   const handleRequestPermissions = () => {
     setShouldAutoRefreshOnReturn(true);
