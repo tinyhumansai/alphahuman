@@ -880,12 +880,23 @@ impl AccessibilityEngine {
                     "baseline"
                 };
 
+                // Only capture when we have a window ID — never fall back
+                // to fullscreen which would capture the entire display.
+                let has_window_id = context.as_ref().and_then(|c| c.window_id).is_some();
+                if !has_window_id {
+                    tracing::debug!(
+                        "[screen_intelligence] skipping capture: no window_id for app={:?}",
+                        context.as_ref().and_then(|c| c.app_name.as_deref()),
+                    );
+                    session.last_context = context;
+                    continue;
+                }
+
                 if let Some(ref ctx) = context {
                     tracing::debug!(
-                        "[screen_intelligence] capturing app={:?} window_id={:?} bounds={:?}",
+                        "[screen_intelligence] capturing app={:?} window_id={:?}",
                         ctx.app_name.as_deref().unwrap_or("?"),
                         ctx.window_id,
-                        ctx.bounds.as_ref().map(|b| (b.x, b.y, b.width, b.height)),
                     );
                 }
                 let capture_result = capture_screen_image_ref_for_context(context.as_ref());
@@ -1232,19 +1243,66 @@ One line per answer. No text extraction. Be specific and concise."#;
             .vision_prompt(&config, prompt, &[vision_image_ref], Some(200))
             .await?;
 
-        // ── Combine OCR text + LLM context into the summary ─────────────
-        // LLM returns structured lines: APP:, DOING:, FOCUS:, MOOD:
-        let ui_state = raw.trim().to_string();
-        let actionable_notes = String::new();
+        let vision_context = raw.trim().to_string();
+
+        // ── Step 4: Synthesis pass — text LLM combines everything ───────
+        // Feed the vision context + OCR text to a text-only LLM to produce
+        // a well-structured, informative document. This is fast since it's
+        // text-only (no image), and the output is the final persisted doc.
+        tracing::debug!(
+            "[screen_intelligence] running synthesis pass (ocr={} chars, vision={} chars)",
+            ocr_text.len(),
+            vision_context.len(),
+        );
+
+        let app_label = frame.app_name.as_deref().unwrap_or("Unknown");
+        let window_label = frame.window_title.as_deref().unwrap_or("");
+        let ocr_truncated = truncate_tail(&ocr_text, 4000);
+
+        let synthesis_prompt = format!(
+            r#"You are summarizing what a user is doing on their computer right now.
+
+Application: {app_label}
+Window: {window_label}
+
+Visual context from the screenshot:
+{vision_context}
+
+Extracted text from screen (OCR):
+{ocr_truncated}
+
+Write a clear, informative summary in plain text. Include:
+- What application and specific view/page the user has open
+- What they are actively doing (coding, reading, chatting, browsing, etc.)
+- Key content visible — summarize what's on screen (don't just list raw OCR text, synthesize it)
+- Any notable items: errors, notifications, deadlines, action items
+- Brief context that would help someone understand this moment later
+
+Be specific and informative. Write in present tense. ~300-500 words."#
+        );
+
+        let synthesis = service
+            .prompt(&config, &synthesis_prompt, Some(700), true)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::debug!("[screen_intelligence] synthesis pass failed: {e}");
+                // Fall back to raw vision context + OCR if synthesis fails.
+                format!("{}\n\n{}", vision_context, ocr_truncated)
+            });
+
+        tracing::debug!(
+            "[screen_intelligence] synthesis complete ({} chars)",
+            synthesis.len(),
+        );
 
         Ok(VisionSummary {
             id: format!("vision-{}-{}", frame.captured_at_ms, uuid::Uuid::new_v4()),
             captured_at_ms: frame.captured_at_ms,
             app_name: frame.app_name,
             window_title: frame.window_title,
-            ui_state: truncate_tail(&ui_state, 500),
-            key_text: truncate_tail(&ocr_text, 8000),
-            actionable_notes: truncate_tail(&actionable_notes, 1000),
+            ui_state: truncate_tail(&vision_context, 500),
+            key_text: truncate_tail(&synthesis, 4000),
+            actionable_notes: truncate_tail(&ocr_text, 8000),
             confidence: 0.9,
         })
     }

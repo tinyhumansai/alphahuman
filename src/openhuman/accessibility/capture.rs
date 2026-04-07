@@ -29,13 +29,17 @@ impl std::fmt::Display for CaptureMode {
 
 fn capture_mode_for_context(context: Option<&AppContext>) -> CaptureMode {
     // Only use windowed capture when we have a reliable CGWindowID.
-    // The `-R x,y,w,h` region approach is fragile (coordinate issues,
-    // menu bar offsets, Retina scaling) so we fall back to fullscreen
-    // rather than risk capturing garbage.
+    // Without a window ID we still return Windowed so the caller can
+    // decide — but `capture_screen_image_ref_for_context` will fail
+    // gracefully when neither window_id nor bounds are available.
     if context.and_then(|ctx| ctx.window_id).is_some() {
         return CaptureMode::Windowed;
     }
-    CaptureMode::Fullscreen
+    // Fallback to bounds-based if available, otherwise fullscreen.
+    match context.and_then(|ctx| ctx.bounds) {
+        Some(bounds) if bounds.width > 0 && bounds.height > 0 => CaptureMode::Windowed,
+        _ => CaptureMode::Fullscreen,
+    }
 }
 
 #[cfg(target_os = "macos")]

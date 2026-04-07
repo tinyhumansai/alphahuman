@@ -189,16 +189,19 @@ pub(crate) async fn persist_vision_summary(
     content.push_str(&format!("id: \"{}\"\n", summary.id));
     content.push_str("---\n\n");
 
-    if !summary.ui_state.is_empty() {
-        content.push_str(&format!("## Context\n\n{}\n", summary.ui_state));
-    }
-
-    if !summary.actionable_notes.is_empty() {
-        content.push_str(&format!("\n## Activity\n\n{}\n", summary.actionable_notes));
-    }
-
+    // key_text = synthesized summary (the main document body)
     if !summary.key_text.is_empty() {
-        content.push_str(&format!("\n## Visible Content\n\n{}\n", summary.key_text));
+        content.push_str(&format!("{}\n", summary.key_text));
+    }
+
+    // ui_state = raw vision model context (short)
+    if !summary.ui_state.is_empty() {
+        content.push_str(&format!("\n## Visual Context\n\n{}\n", summary.ui_state));
+    }
+
+    // actionable_notes = raw OCR text
+    if !summary.actionable_notes.is_empty() {
+        content.push_str(&format!("\n## Raw OCR Text\n\n{}\n", summary.actionable_notes));
     }
 
     let key = format!("screen_intelligence_{}", summary.id);

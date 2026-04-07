@@ -208,24 +208,20 @@ impl SiServer {
                     // Fetch the latest full summary from the engine.
                     let recent = self.engine.vision_recent(Some(1)).await;
                     if let Some(s) = recent.summaries.first() {
+                        let ts = chrono::DateTime::from_timestamp_millis(s.captured_at_ms)
+                            .map(|dt| dt.format("%H:%M:%S").to_string())
+                            .unwrap_or_else(|| "?".to_string());
                         eprintln!();
-                        eprintln!("  ┌─ Vision #{} ─ {} ─ {} ──",
+                        eprintln!("  ┌─ #{} ─ {} ─ {} ──────────────────",
                             status.session.vision_persist_count,
                             s.app_name.as_deref().unwrap_or("?"),
-                            chrono::DateTime::from_timestamp_millis(s.captured_at_ms)
-                                .map(|dt| dt.format("%H:%M:%S").to_string())
-                                .unwrap_or_else(|| "?".to_string()),
+                            ts,
                         );
-                        eprintln!("  │ ui_state: {}", s.ui_state);
-                        eprintln!("  │");
-                        eprintln!("  │ key_text:");
+                        // Print the synthesized summary (key_text)
                         for line in s.key_text.lines() {
-                            eprintln!("  │   {}", line);
+                            eprintln!("  │ {}", line);
                         }
-                        eprintln!("  │");
-                        eprintln!("  │ actionable: {}", s.actionable_notes);
-                        eprintln!("  │ confidence: {:.0}%", s.confidence * 100.0);
-                        eprintln!("  └────────────────────────────");
+                        eprintln!("  └────────────────────────────────────");
                         eprintln!();
                     }
                 }
