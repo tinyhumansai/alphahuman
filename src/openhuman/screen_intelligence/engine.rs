@@ -757,7 +757,7 @@ impl AccessibilityEngine {
         &self,
         frame: CaptureFrame,
     ) -> Result<VisionSummary, String> {
-        let summary = self.analyze_frame_with_vision(frame).await?;
+        let summary = super::processing_worker::analyze_frame(self, frame).await?;
         let persisted = persist_vision_summary(summary.clone())
             .await
             .map_err(|err| format!("vision summary persistence failed: {err}"))?;
