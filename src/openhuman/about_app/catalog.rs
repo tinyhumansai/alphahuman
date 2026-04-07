@@ -594,8 +594,8 @@ const CAPABILITIES: &[Capability] = &[
         name: "Manage Desktop Service",
         domain: "settings",
         category: CapabilityCategory::Settings,
-        description: "Install, start, stop, restart, uninstall, or refresh the required desktop service.",
-        how_to: "App startup > OpenHuman Service Required",
+        description: "Install, start, stop, restart, uninstall, or inspect the optional desktop background service.",
+        how_to: "Settings > Developer Options > Tauri Commands",
         status: CapabilityStatus::Stable,
     },
     Capability {
@@ -641,6 +641,25 @@ const CAPABILITIES: &[Capability] = &[
         category: CapabilityCategory::Automation,
         description: "Inspect past runs and results for scheduled jobs.",
         how_to: "Settings > Cron Jobs",
+        status: CapabilityStatus::Beta,
+    },
+    // ── Update ──────────────────────────────────────────────────────────────
+    Capability {
+        id: "update.check",
+        name: "Check for Core Updates",
+        domain: "update",
+        category: CapabilityCategory::Settings,
+        description: "Query GitHub Releases to see if a newer core binary is available.",
+        how_to: "Settings > Developer Options > Check for Updates",
+        status: CapabilityStatus::Beta,
+    },
+    Capability {
+        id: "update.apply",
+        name: "Apply Core Update",
+        domain: "update",
+        category: CapabilityCategory::Settings,
+        description: "Download and stage a newer core binary, then restart the sidecar.",
+        how_to: "Settings > Developer Options > Apply Update",
         status: CapabilityStatus::Beta,
     },
 ];

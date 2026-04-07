@@ -7,6 +7,7 @@
 //! - Various operations for skill lifecycle management (`ops.rs`, `registry_ops.rs`)
 
 pub mod bridge;
+pub mod bus;
 pub mod cron_scheduler;
 pub mod manifest;
 pub mod ops;
@@ -22,6 +23,7 @@ mod schemas;
 pub mod skill_registry;
 pub mod types;
 pub mod utils;
+pub mod working_memory;
 
 pub use ops::*;
 pub use qjs_engine::{global_engine, require_engine, set_global_engine};

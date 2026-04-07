@@ -1,6 +1,7 @@
 use crate::openhuman::agent::multimodal;
 use crate::openhuman::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ProviderCapabilityError};
+use crate::openhuman::tools::traits::ToolScope;
 use crate::openhuman::tools::Tool;
 use anyhow::Result;
 use std::fmt::Write as _;
@@ -77,6 +78,16 @@ pub(crate) async fn run_tool_call_loop(
     let tool_specs: Vec<crate::openhuman::tools::ToolSpec> =
         tools_registry.iter().map(|tool| tool.spec()).collect();
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
+
+    log::debug!(
+        "[tool-loop] Registry has {} tool(s): [{}]",
+        tools_registry.len(),
+        tools_registry
+            .iter()
+            .map(|t| t.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     let mut context_guard = ContextGuard::new();
 
@@ -278,13 +289,37 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
 
+            let tool_opt = find_tool(tools_registry, &call.name);
             tracing::debug!(
                 iteration,
                 tool = call.name.as_str(),
+                found = tool_opt.is_some(),
                 "[agent_loop] executing tool"
             );
 
-            let result = if let Some(tool) = find_tool(tools_registry, &call.name) {
+            // Scope check: CliRpcOnly tools cannot run in the autonomous agent loop.
+            if let Some(tool) = tool_opt {
+                if tool.scope() == ToolScope::CliRpcOnly {
+                    tracing::warn!(
+                        iteration,
+                        tool = call.name.as_str(),
+                        "[agent_loop] tool scope is CliRpcOnly — denied in agent loop"
+                    );
+                    let denied = format!(
+                        "Tool '{}' is only available via explicit CLI/RPC invocation, not in the autonomous agent loop.",
+                        call.name
+                    );
+                    individual_results.push(denied.clone());
+                    let _ = writeln!(
+                        tool_results,
+                        "<tool_result name=\"{}\">\n{denied}\n</tool_result>",
+                        call.name
+                    );
+                    continue;
+                }
+            }
+
+            let result = if let Some(tool) = tool_opt {
                 let tool_deadline =
                     crate::openhuman::tool_timeout::tool_execution_timeout_duration();
                 let timeout_secs = crate::openhuman::tool_timeout::tool_execution_timeout_secs();
@@ -292,22 +327,22 @@ pub(crate) async fn run_tool_call_loop(
                     .await
                 {
                     Ok(Ok(r)) => {
-                        if r.success {
+                        let output = r.output();
+                        if !r.is_error {
                             tracing::debug!(
                                 iteration,
                                 tool = call.name.as_str(),
-                                output_len = r.output.len(),
+                                output_len = output.len(),
                                 "[agent_loop] tool succeeded"
                             );
-                            scrub_credentials(&r.output)
+                            scrub_credentials(&output)
                         } else {
-                            let err_msg = r.error.unwrap_or(r.output);
                             tracing::warn!(
                                 iteration,
                                 tool = call.name.as_str(),
-                                "[agent_loop] tool returned error: {err_msg}"
+                                "[agent_loop] tool returned error: {output}"
                             );
-                            format!("Error: {err_msg}")
+                            format!("Error: {output}")
                         }
                     }
                     Ok(Err(e)) => {

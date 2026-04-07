@@ -29,6 +29,15 @@ pub struct WebChannelEvent {
     pub success: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub round: Option<u32>,
+    /// Emoji reaction the assistant wants to add to the user's message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reaction_emoji: Option<String>,
+    /// 0-based index when a response is delivered as multiple segments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_index: Option<u32>,
+    /// Total number of segments in a segmented delivery.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_total: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +196,8 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
 }
 
 pub fn spawn_web_channel_bridge(io: SocketIo) {
+    // Web channel events → per-client rooms.
+    let io_web = io.clone();
     tokio::spawn(async move {
         let mut rx = crate::openhuman::channels::providers::web::subscribe_web_channel_events();
         loop {
@@ -202,9 +213,34 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
 
-            emit_web_channel_event(&io, event);
+            emit_web_channel_event(&io_web, event);
         }
         log::debug!("[socketio] web_channel bridge stopped");
+    });
+
+    // Dictation hotkey events → broadcast to all connected clients.
+    tokio::spawn(async move {
+        let mut rx = crate::openhuman::voice::dictation_listener::subscribe_dictation_events();
+        loop {
+            let event = match rx.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    log::warn!("[socketio] dropped {} dictation events due to lag", skipped);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
+
+            if let Ok(payload) = serde_json::to_value(&event) {
+                log::debug!(
+                    "[socketio] broadcast dictation:{} to all clients",
+                    event.event_type
+                );
+                let _ = io.emit("dictation:toggle", &payload);
+                let _ = io.emit("dictation_toggle", &payload);
+            }
+        }
+        log::debug!("[socketio] dictation bridge stopped");
     });
 }
 

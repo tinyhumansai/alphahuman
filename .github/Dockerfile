@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System deps for Tauri + mold linker + clang (for mold)
+# System deps for Tauri + mold linker + clang + E2E testing (xvfb, dbus, webkit2gtk-driver)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -17,7 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     patchelf \
     mold \
     clang \
+    libclang-dev \
     libssl-dev \
+    xvfb \
+    at-spi2-core \
+    dbus-x11 \
+    webkit2gtk-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # Rust 1.93.0 with minimal profile + fmt/clippy
@@ -32,13 +37,28 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
 # Node.js 24.x + yarn
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g yarn \
+    && npm install -g yarn
+
+# Install ALSA, X11, input, and E2E automation dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2-dev libxdo-dev libxtst-dev libx11-dev libevdev-dev \
+    webkit2gtk-driver \
     && rm -rf /var/lib/apt/lists/*
+
+# Install system dependencies (cmake, ALSA, X11)
+RUN apt-get update && apt-get install -y --no-install-recommends cmake libasound2-dev libxdo-dev libxtst-dev libx11-dev libevdev-dev && rm -rf /var/lib/apt/lists/*
 
 # sccache (pre-installed so the action only needs to configure it)
 RUN curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-x86_64-unknown-linux-musl.tar.gz \
     | tar xz -C /usr/local/bin --strip-components=1 sccache-v0.10.0-x86_64-unknown-linux-musl/sccache \
     && chmod +x /usr/local/bin/sccache
 
+# tauri-driver (WebDriver server for Tauri E2E tests)
+RUN cargo install tauri-driver --version 2.0.5
+
+# E2E entrypoint (starts Xvfb + dbus for headless webkit2gtk testing)
+COPY e2e/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Verify installs
-RUN rustc --version && cargo --version && node --version && yarn --version && mold --version && sccache --version
+RUN rustc --version && cargo --version && node --version && yarn --version && mold --version && sccache --version && which tauri-driver

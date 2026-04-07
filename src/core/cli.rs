@@ -58,6 +58,8 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         "screen-intelligence" => {
             crate::core::screen_intelligence_cli::run_screen_intelligence_command(&args[1..])
         }
+        "voice" | "dictate" => run_voice_server_command(&args[1..]),
+        "text-input" => crate::core::text_input_cli::run_text_input_command(&args[1..]),
         namespace => run_namespace_command(namespace, &args[1..], &grouped),
     }
 }
@@ -185,6 +187,100 @@ fn run_call_command(args: &[String]) -> Result<()> {
 
     // Output the result as pretty-printed JSON.
     println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+/// Handles the `voice` subcommand to run the standalone voice dictation server.
+///
+/// Listens for a hotkey, records audio, transcribes via whisper, and inserts
+/// the result into the active text field.
+
+fn run_voice_server_command(args: &[String]) -> Result<()> {
+    use crate::openhuman::voice::hotkey::ActivationMode;
+    use crate::openhuman::voice::server::{run_standalone, VoiceServerConfig};
+
+    let mut hotkey: Option<String> = None;
+    let mut mode: Option<String> = None;
+    let mut skip_cleanup = false;
+    let mut verbose = false;
+    let mut i = 0usize;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "--hotkey" => {
+                hotkey = Some(
+                    args.get(i + 1)
+                        .ok_or_else(|| anyhow::anyhow!("missing value for --hotkey"))?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--mode" => {
+                mode = Some(
+                    args.get(i + 1)
+                        .ok_or_else(|| anyhow::anyhow!("missing value for --mode"))?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--skip-cleanup" => {
+                skip_cleanup = true;
+                i += 1;
+            }
+            "-v" | "--verbose" => {
+                verbose = true;
+                i += 1;
+            }
+            "-h" | "--help" => {
+                println!("Usage: openhuman voice [--hotkey <combo>] [--mode <tap|push>] [--skip-cleanup] [-v]");
+                println!();
+                println!("  --hotkey <combo>   Key combination (default: fn)");
+                println!(
+                    "  --mode <tap|push>  Activation: tap to toggle, push to hold (default: push)"
+                );
+                println!("  --skip-cleanup     Skip LLM post-processing on transcriptions");
+                println!("  -v, --verbose      Enable debug logging");
+                println!();
+                println!("Standalone voice dictation server. Press the hotkey to dictate,");
+                println!("transcribed text is inserted into the active text field.");
+                return Ok(());
+            }
+            other => return Err(anyhow::anyhow!("unknown voice arg: {other}")),
+        }
+    }
+
+    crate::core::logging::init_for_cli_run(verbose);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async {
+        let mut config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .unwrap_or_default();
+        config.apply_env_overrides();
+
+        let activation_mode = match mode.as_deref() {
+            Some("tap") => ActivationMode::Tap,
+            _ => ActivationMode::Push,
+        };
+
+        let server_config = VoiceServerConfig {
+            hotkey: hotkey.unwrap_or_else(|| config.voice_server.hotkey.clone()),
+            activation_mode,
+            skip_cleanup,
+            context: None,
+            min_duration_secs: config.voice_server.min_duration_secs,
+            silence_threshold: config.voice_server.silence_threshold,
+            custom_dictionary: config.voice_server.custom_dictionary.clone(),
+        };
+
+        run_standalone(config, server_config)
+            .await
+            .map_err(anyhow::Error::msg)
+    })?;
+
     Ok(())
 }
 
@@ -429,6 +525,7 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("  openhuman repl [--verbose] [--eval '<cmd>'] [--batch]");
     println!("  openhuman call --method <name> [--params '<json>']");
     println!("  openhuman skills <subcommand> [options]   (skill development runtime)");
+    println!("  openhuman voice [--hotkey <combo>] [--mode <tap|push>]  (voice dictation server)");
     println!("  openhuman <namespace> <function> [--param value ...]\n");
     println!("Available namespaces:");
     for namespace in grouped.keys() {

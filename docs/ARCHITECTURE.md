@@ -249,6 +249,8 @@ AI Response to User
 
 Memory encryption keys derive from user credentials via Argon2id, ensuring memory files are unreadable without authentication. The hybrid search combines semantic understanding (vector similarity) with keyword precision (SQLite FTS5) for reliable recall.
 
+Skill sync now also feeds a bounded **user working memory** layer (preferences, goals, constraints, recurring entities) via the core runtime sync worker. See [`docs/SKILL-WORKING-MEMORY.md`](./SKILL-WORKING-MEMORY.md) for hook locations, privacy rules, and extension guidance.
+
 ---
 
 ## Security Architecture

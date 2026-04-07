@@ -22,6 +22,7 @@ use crate::openhuman::{
     skills::{
         quickjs_libs::qjs_ops,
         types::{SkillMessage, SkillStatus, ToolResult},
+        working_memory::{skills_working_memory_enabled, working_memory_documents_from_sync},
     },
     tool_timeout::{tool_execution_timeout_duration, tool_execution_timeout_secs},
 };
@@ -45,6 +46,11 @@ pub(crate) struct MemoryWriteJob {
     title: String,
     /// Stringified JSON content of the skill's published state.
     content: String,
+    /// Whether to derive and persist user working-memory documents from this
+    /// payload. Set `true` only for explicit `skill/sync` enqueues; leave
+    /// `false` for Tick and CronTrigger enqueues so that `working.user.*`
+    /// documents are only produced from intentional sync payloads.
+    extract_working_memory: bool,
 }
 
 /// Maximum number of memory-write jobs that can be buffered before back-pressure
@@ -91,6 +97,60 @@ fn spawn_memory_write_worker() -> mpsc::Sender<MemoryWriteJob> {
                 continue;
             }
             log::debug!("[memory] store_skill_sync succeeded for '{}'", job.title);
+
+            if job.extract_working_memory {
+                if skills_working_memory_enabled() {
+                    let working_memory =
+                        working_memory_documents_from_sync(&job.skill, &job.content);
+                    let mut working_persisted = 0usize;
+                    let mut working_failed = 0usize;
+                    for doc in working_memory.documents {
+                        let key = doc.key.clone();
+                        match job.client.put_doc(doc).await {
+                            Ok(_) => {
+                                working_persisted += 1;
+                            }
+                            Err(e) => {
+                                working_failed += 1;
+                                log::warn!(
+                                    "[skills-working-memory] put_doc failed for skill='{}' key='{}': {}",
+                                    job.skill,
+                                    key,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    log::info!(
+                        "[skills-working-memory] sync_batch skill='{}' title='{}' scalar_fields={} \
+                         skipped_sensitive={} prefs={} goals={} constraints={} entities={} \
+                         generated_docs={} persisted_docs={} failed_docs={}",
+                        job.skill,
+                        job.title,
+                        working_memory.stats.scalar_fields_seen,
+                        working_memory.stats.sensitive_fields_skipped,
+                        working_memory.stats.preferences,
+                        working_memory.stats.goals,
+                        working_memory.stats.constraints,
+                        working_memory.stats.entities,
+                        working_memory.stats.documents_generated,
+                        working_persisted,
+                        working_failed,
+                    );
+                } else {
+                    log::debug!(
+                        "[skills-working-memory] disabled by OPENHUMAN_SKILLS_WORKING_MEMORY_ENABLED; skill='{}' title='{}'",
+                        job.skill,
+                        job.title
+                    );
+                }
+            } else {
+                log::debug!(
+                    "[skills-working-memory] skipping working-memory extraction for non-sync job; skill='{}' title='{}'",
+                    job.skill,
+                    job.title
+                );
+            }
 
             let namespace = format!("skill-{}", job.skill.trim());
             let skill = job.skill.trim().to_lowercase();
@@ -266,12 +326,17 @@ async fn ingest_single_doc(
 }
 
 /// Snapshot the skill's published state and queue it for background memory persistence.
+///
+/// `extract_working_memory` should be `true` only for explicit `skill/sync` enqueues so
+/// that user working-memory documents (`working.user.*`) are derived only from intentional
+/// sync payloads, not from every Tick or CronTrigger write.
 pub(crate) fn persist_state_to_memory(
     skill_id: &str,
     title_suffix: &str,
     ops_state: &Arc<RwLock<qjs_ops::SkillState>>,
     memory_client: &Option<MemoryClientRef>,
     memory_write_tx: &mpsc::Sender<MemoryWriteJob>,
+    extract_working_memory: bool,
 ) {
     let state_snapshot = ops_state.read().data.clone();
     log::debug!(
@@ -299,6 +364,7 @@ pub(crate) fn persist_state_to_memory(
         skill,
         title: title.clone(),
         content,
+        extract_working_memory,
     }) {
         log::warn!(
             "[memory] persist_state_to_memory: channel full, dropping write for '{title}': {e}"
@@ -526,6 +592,7 @@ async fn handle_message(
                         ops_state,
                         memory_client,
                         memory_write_tx,
+                        false,
                     );
                 }
                 Err(e) => {
@@ -604,6 +671,7 @@ async fn handle_message(
                     ops_state,
                     memory_client,
                     memory_write_tx,
+                    false,
                 );
             }
             let _ = reply.send(result);
