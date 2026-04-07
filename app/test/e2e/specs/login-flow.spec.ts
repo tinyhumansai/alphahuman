@@ -437,12 +437,15 @@ describe('Login flow — complete with mock data (Linux)', () => {
     resetMockBehavior();
 
     if (isTauriDriver()) {
-      // tauri-driver (Linux/Windows): clear localStorage directly via JS
+      // tauri-driver (Linux/Windows): clear persisted web storage and reload so
+      // the in-memory auth state is rebuilt from an unauthenticated baseline.
       await browser.execute(() => {
         localStorage.removeItem('persist:auth');
-        window.location.hash = '/';
+        sessionStorage.clear();
+        window.location.reload();
       });
-      await browser.pause(2_000);
+      await waitForAppReady(20_000);
+      console.log('[LoginFlow] Bypass auth: cleared web storage and reloaded app (Linux/Windows)');
     } else {
       // Appium Mac2 (macOS): browser.execute() is not supported for DOM access.
       // Terminate the app, wipe WebKit storage, and relaunch for a clean slate.

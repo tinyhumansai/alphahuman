@@ -339,7 +339,7 @@ describe('Auth & Access Control', () => {
   // 5. Logout
   // -------------------------------------------------------------------------
 
-  it('user can log out via Settings and returns to Welcome', async () => {
+  it('user can log out via Settings and returns to Welcome', async function () {
     if (isMac2()) {
       await navigateToSettings();
       const hasLogoutEntry =
@@ -350,7 +350,7 @@ describe('Auth & Access Control', () => {
       console.log(
         '[AuthAccess] Logout settings entry verified on Mac2; click-through logout remains unreliable via WKWebView accessibility'
       );
-      return;
+      this.skip();
     }
 
     // Re-auth to get a clean session for logout

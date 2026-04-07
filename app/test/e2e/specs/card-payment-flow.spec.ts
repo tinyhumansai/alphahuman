@@ -169,12 +169,12 @@ describe('Card Payment Flow', () => {
     await navigateToHome();
   });
 
-  it('5.3.2 — Manage Subscription opens Stripe portal', async () => {
+  it('5.3.2 — Manage Subscription opens Stripe portal', async function () {
     if (isMac2()) {
       console.log(
         `${LOG_PREFIX} 5.3.2 — skipping portal action assertion on Mac2; billing header actions are not exposed reliably in WKWebView accessibility`
       );
-      return;
+      this.skip();
     }
 
     // Seed mock with active subscription so "Manage" button appears
