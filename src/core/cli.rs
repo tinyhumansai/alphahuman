@@ -272,6 +272,8 @@ fn run_voice_server_command(args: &[String]) -> Result<()> {
             skip_cleanup,
             context: None,
             min_duration_secs: config.voice_server.min_duration_secs,
+            silence_threshold: config.voice_server.silence_threshold,
+            custom_dictionary: config.voice_server.custom_dictionary.clone(),
         };
 
         run_standalone(config, server_config)
