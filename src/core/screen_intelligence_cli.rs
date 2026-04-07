@@ -201,7 +201,7 @@ fn run_server(args: &[String]) -> Result<()> {
         eprintln!("    POST http://{bind_addr}/vision/flush   Analyze latest frame now");
         eprintln!("    GET  http://{bind_addr}/doctor         System readiness diagnostics");
         eprintln!("    GET  http://{bind_addr}/config         Current SI config");
-        eprintln!("    GET  http://{bind_addr}/events         SSE status stream (2s interval)");
+        eprintln!("    GET  http://{bind_addr}/watch          Long-poll status (default 2s delay)");
         eprintln!();
         eprintln!("  Press Ctrl+C to stop.");
         eprintln!();
@@ -670,7 +670,7 @@ async fn health() -> impl axum::response::IntoResponse {
             "vision_flush": "POST /vision/flush — analyze latest frame now",
             "doctor": "GET /doctor — system readiness diagnostics",
             "config": "GET /config — current screen intelligence config",
-            "events": "GET /events — SSE stream of session status updates"
+            "watch": "GET /watch?interval=2 — poll status with delay (long-poll)"
         }
     }))
 }
@@ -849,26 +849,22 @@ async fn config_endpoint() -> impl axum::response::IntoResponse {
     }))
 }
 
-/// SSE endpoint that streams session status every 2 seconds.
-async fn sse_endpoint() -> axum::response::Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
-    use axum::response::sse::Event;
-    use futures::stream;
-    use std::time::Duration;
+/// Long-poll endpoint: waits `interval` seconds then returns current status.
+/// Useful for `watch -n2 curl ...` or frontend polling.
+async fn watch_endpoint(
+    query: axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let interval_secs = query
+        .get("interval")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(2)
+        .min(30);
 
-    let stream = stream::unfold((), |()| async {
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        let engine = crate::openhuman::screen_intelligence::global_engine();
-        let status = engine.status().await;
-        let json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
-        let event = Event::default().data(json).event("status");
-        Some((Ok(event), ()))
-    });
+    tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
 
-    axum::response::Sse::new(stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("ping"),
-    )
+    let engine = crate::openhuman::screen_intelligence::global_engine();
+    let status = engine.status().await;
+    axum::Json(serde_json::to_value(&status).unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------
@@ -918,5 +914,5 @@ fn print_help() {
     println!("The 'run' server exposes REST convenience endpoints at:");
     println!("  GET  /status, /permissions, /session, /vision/recent, /doctor, /config");
     println!("  POST /session/start, /session/stop, /capture, /capture/test, /vision/flush");
-    println!("  GET  /events — SSE stream of session status updates (2s interval)");
+    println!("  GET  /watch?interval=2 — long-poll status (use with `watch` or polling)");
 }
