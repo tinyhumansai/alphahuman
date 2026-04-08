@@ -69,6 +69,18 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     }
 }
 
+/// Loads key/value pairs from a dotenv file into the process environment.
+///
+/// Precedence: variables already set in the environment are **not** overwritten.
+/// Order: `OPENHUMAN_DOTENV_PATH` (if set), else `.env` in the current working directory.
+fn load_dotenv_for_server() {
+    if let Ok(path) = std::env::var("OPENHUMAN_DOTENV_PATH") {
+        let _ignored = dotenvy::from_path(path);
+    } else {
+        let _ignored = dotenvy::dotenv();
+    }
+}
+
 /// Handles the `run` subcommand to start the core HTTP/JSON-RPC server.
 ///
 /// Parses flags for port, host, and optional Socket.IO support.
@@ -77,6 +89,8 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
 ///
 /// * `args` - Command-line arguments for the `run` command.
 fn run_server_command(args: &[String]) -> Result<()> {
+    load_dotenv_for_server();
+
     let mut port: Option<u16> = None;
     let mut host: Option<String> = None;
     let mut socketio_enabled = true;
