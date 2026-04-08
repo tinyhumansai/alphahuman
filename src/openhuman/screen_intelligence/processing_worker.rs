@@ -183,7 +183,7 @@ pub(crate) async fn run(
 ///
 /// Public within the crate so `engine.rs` can call it for flush/diagnostics.
 pub(crate) async fn analyze_frame(
-    _engine: &AccessibilityEngine,
+    engine: &AccessibilityEngine,
     frame: CaptureFrame,
 ) -> Result<VisionSummary, String> {
     let image_ref = frame
@@ -201,6 +201,12 @@ pub(crate) async fn analyze_frame(
         }
     }
 
+    // ── Read use_vision_model from the engine's runtime config ─────
+    // The CLI `--no-vision-model` flag overrides this at runtime without
+    // persisting to disk, so we read from the engine state, not from the
+    // persisted config file.
+    let use_vision_model = engine.inner.lock().await.config.use_vision_model;
+
     // ── Validate config before doing any work ─────────────────────────
     let config = Config::load_or_init()
         .await
@@ -217,6 +223,15 @@ pub(crate) async fn analyze_frame(
         ));
     }
 
+    tracing::debug!(
+        "[processing_worker] use_vision_model={} (from engine runtime config)",
+        use_vision_model,
+    );
+
+    // ── Image compression (always runs — used by vision LLM and/or storage) ──
+    let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
+        .map_err(|e| format!("image compression failed: {e}"))?;
+
     // ── Pass 1: OCR via Apple Vision ────────────────────────────────
     tracing::debug!("[processing_worker] pass 1/3: Apple Vision OCR");
     let ocr_text = tokio::time::timeout(
@@ -227,13 +242,8 @@ pub(crate) async fn analyze_frame(
     .map_err(|_| "Apple Vision OCR timed out after 30s".to_string())??;
     tracing::debug!("[processing_worker] OCR extracted {} chars", ocr_text.len());
 
-    // ── Resolve use_vision_model flag from config ─────────────────
-    let use_vision_model = config.screen_intelligence.use_vision_model;
-
     // ── Pass 2: Vision LLM for context (skipped when use_vision_model=false) ──
     let vision_context = if use_vision_model {
-        let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
-            .map_err(|e| format!("image compression failed: {e}"))?;
         let vision_image_ref = compressed.data_uri;
 
         tracing::debug!(
