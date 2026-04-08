@@ -175,23 +175,17 @@ pub fn get_tree_status(config: &Config, namespace: &str) -> Result<TreeStatus> {
                 // Scan months, days, hours inside
                 let year_dir = entry.path();
                 for month_entry in std::fs::read_dir(&year_dir).into_iter().flatten().flatten() {
-                    if month_entry
-                        .file_type()
-                        .map(|t| t.is_dir())
-                        .unwrap_or(false)
-                    {
+                    if month_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                         if depth < 3 {
                             depth = 3;
                         }
                         let month_dir = month_entry.path();
-                        for day_entry in
-                            std::fs::read_dir(&month_dir).into_iter().flatten().flatten()
+                        for day_entry in std::fs::read_dir(&month_dir)
+                            .into_iter()
+                            .flatten()
+                            .flatten()
                         {
-                            if day_entry
-                                .file_type()
-                                .map(|t| t.is_dir())
-                                .unwrap_or(false)
-                            {
+                            if day_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                                 if depth < 4 {
                                     depth = 4;
                                 }
@@ -200,7 +194,8 @@ pub fn get_tree_status(config: &Config, namespace: &str) -> Result<TreeStatus> {
                                 for hour_entry in
                                     std::fs::read_dir(&day_dir).into_iter().flatten().flatten()
                                 {
-                                    let hname = hour_entry.file_name().to_string_lossy().to_string();
+                                    let hname =
+                                        hour_entry.file_name().to_string_lossy().to_string();
                                     if hname.ends_with(".md") && hname != "summary.md" {
                                         if depth < 5 {
                                             depth = 5;
@@ -208,10 +203,7 @@ pub fn get_tree_status(config: &Config, namespace: &str) -> Result<TreeStatus> {
                                         // Try to parse timestamp from path
                                         if let Some(ts) = timestamp_from_hour_path(
                                             &name,
-                                            &month_entry
-                                                .file_name()
-                                                .to_string_lossy()
-                                                .to_string(),
+                                            &month_entry.file_name().to_string_lossy().to_string(),
                                             &day_entry.file_name().to_string_lossy().to_string(),
                                             &hname,
                                         ) {
@@ -253,8 +245,7 @@ pub fn delete_tree(config: &Config, namespace: &str) -> Result<u64> {
         return Ok(0);
     }
     let count = count_md_files(&base)?;
-    std::fs::remove_dir_all(&base)
-        .with_context(|| format!("delete tree at {}", base.display()))?;
+    std::fs::remove_dir_all(&base).with_context(|| format!("delete tree at {}", base.display()))?;
     tracing::debug!(
         "[tree_summarizer] deleted tree for namespace '{}' ({} nodes)",
         namespace,
@@ -266,12 +257,21 @@ pub fn delete_tree(config: &Config, namespace: &str) -> Result<u64> {
 // ── Buffer operations ──────────────────────────────────────────────────
 
 /// Append raw content to the ingestion buffer as a timestamped file.
-pub fn buffer_write(config: &Config, namespace: &str, content: &str, ts: &DateTime<Utc>) -> Result<PathBuf> {
+pub fn buffer_write(
+    config: &Config,
+    namespace: &str,
+    content: &str,
+    ts: &DateTime<Utc>,
+) -> Result<PathBuf> {
     let dir = buffer_dir(config, namespace);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("create buffer dir {}", dir.display()))?;
 
-    let filename = format!("{}_{}.md", ts.timestamp_millis(), &uuid::Uuid::new_v4().to_string()[..8]);
+    let filename = format!(
+        "{}_{}.md",
+        ts.timestamp_millis(),
+        &uuid::Uuid::new_v4().to_string()[..8]
+    );
     let path = dir.join(&filename);
     std::fs::write(&path, content)
         .with_context(|| format!("write buffer entry {}", path.display()))?;
@@ -473,7 +473,9 @@ fn split_frontmatter(raw: &str) -> (std::collections::HashMap<String, String>, S
     if let Some(close_pos) = after_open.find("\n---") {
         let fm_block = &after_open[..close_pos];
         let body_start = close_pos + 4; // skip "\n---"
-        let body = after_open[body_start..].trim_start_matches('\n').to_string();
+        let body = after_open[body_start..]
+            .trim_start_matches('\n')
+            .to_string();
 
         for line in fm_block.lines() {
             let line = line.trim();
@@ -505,12 +507,7 @@ fn count_md_files(dir: &Path) -> Result<u64> {
             }
             count += count_md_files(&entry.path())?;
         } else if ft.is_file() {
-            if entry
-                .path()
-                .extension()
-                .map(|e| e == "md")
-                .unwrap_or(false)
-            {
+            if entry.path().extension().map(|e| e == "md").unwrap_or(false) {
                 count += 1;
             }
         }
@@ -529,9 +526,7 @@ fn timestamp_from_hour_path(
     let m: u32 = month.parse().ok()?;
     let d: u32 = day.parse().ok()?;
     let h: u32 = hour.parse().ok()?;
-    chrono::Utc
-        .with_ymd_and_hms(y, m, d, h, 0, 0)
-        .single()
+    chrono::Utc.with_ymd_and_hms(y, m, d, h, 0, 0).single()
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -606,7 +601,11 @@ mod tests {
 
         // Write some hour leaves
         for hour in [10, 11, 14] {
-            let node = make_node(ns, &format!("2024/03/15/{hour:02}"), &format!("Hour {hour}."));
+            let node = make_node(
+                ns,
+                &format!("2024/03/15/{hour:02}"),
+                &format!("Hour {hour}."),
+            );
             write_node(&config, &node).unwrap();
         }
         // Write the day summary (should not appear as a child)

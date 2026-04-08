@@ -198,14 +198,7 @@ async fn propagate_node(
     let child_count = children.len() as u32;
     let combined: String = children
         .iter()
-        .map(|c| {
-            format!(
-                "## {} ({})\n\n{}",
-                c.node_id,
-                c.level.as_str(),
-                c.summary
-            )
-        })
+        .map(|c| format!("## {} ({})\n\n{}", c.node_id, c.level.as_str(), c.summary))
         .collect::<Vec<_>>()
         .join("\n\n---\n\n");
 
@@ -346,11 +339,9 @@ fn collect_hour_leaves_recursive(
             let level = level_from_node_id(&node_id);
             if level == NodeLevel::Hour {
                 let raw = std::fs::read_to_string(entry.path())?;
-                if let Ok(node) =
-                    crate::openhuman::tree_summarizer::store::parse_node_markdown_pub(
-                        &raw, namespace, &node_id,
-                    )
-                {
+                if let Ok(node) = crate::openhuman::tree_summarizer::store::parse_node_markdown_pub(
+                    &raw, namespace, &node_id,
+                ) {
                     leaves.push(node);
                 }
             }
@@ -410,11 +401,7 @@ pub async fn run_hourly_loop(config: Config, provider: Box<dyn Provider>) {
                     );
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "[tree_summarizer] hourly job failed for '{}': {:#}",
-                        ns,
-                        e
-                    );
+                    tracing::error!("[tree_summarizer] hourly job failed for '{}': {:#}", ns, e);
                 }
             }
         }
@@ -424,10 +411,7 @@ pub async fn run_hourly_loop(config: Config, provider: Box<dyn Provider>) {
 /// Discover namespaces that have pending buffer data by scanning the
 /// `memory/namespaces/*/tree/buffer/` directories.
 fn discover_active_namespaces(config: &Config) -> Vec<String> {
-    let namespaces_dir = config
-        .workspace_dir
-        .join("memory")
-        .join("namespaces");
+    let namespaces_dir = config.workspace_dir.join("memory").join("namespaces");
 
     if !namespaces_dir.exists() {
         return vec![];
@@ -443,12 +427,7 @@ fn discover_active_namespaces(config: &Config) -> Vec<String> {
                 if let Ok(buffer_entries) = std::fs::read_dir(&buffer_dir) {
                     let has_entries = buffer_entries
                         .flatten()
-                        .any(|e| {
-                            e.path()
-                                .extension()
-                                .map(|ext| ext == "md")
-                                .unwrap_or(false)
-                        });
+                        .any(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false));
                     if has_entries {
                         active.push(name);
                     }

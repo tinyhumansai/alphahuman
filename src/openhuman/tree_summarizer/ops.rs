@@ -84,7 +84,13 @@ pub async fn tree_summarizer_query(
     let target_id = node_id.unwrap_or("root");
     let node = store::read_node(config, namespace.trim(), target_id)
         .map_err(|e| format!("read node: {e}"))?
-        .ok_or_else(|| format!("node '{}' not found in namespace '{}'", target_id, namespace.trim()))?;
+        .ok_or_else(|| {
+            format!(
+                "node '{}' not found in namespace '{}'",
+                target_id,
+                namespace.trim()
+            )
+        })?;
 
     let children = store::read_children(config, namespace.trim(), target_id)
         .map_err(|e| format!("read children: {e}"))?;
@@ -92,7 +98,11 @@ pub async fn tree_summarizer_query(
     let result = QueryResult { node, children };
     Ok(RpcOutcome::single_log(
         serde_json::to_value(&result).map_err(|e| e.to_string())?,
-        format!("queried node '{}' in namespace '{}'", target_id, namespace.trim()),
+        format!(
+            "queried node '{}' in namespace '{}'",
+            target_id,
+            namespace.trim()
+        ),
     ))
 }
 
@@ -105,8 +115,8 @@ pub async fn tree_summarizer_status(
         return Err("namespace must not be empty".to_string());
     }
 
-    let status = store::get_tree_status(config, namespace.trim())
-        .map_err(|e| format!("get status: {e}"))?;
+    let status =
+        store::get_tree_status(config, namespace.trim()).map_err(|e| format!("get status: {e}"))?;
 
     Ok(RpcOutcome::single_log(
         serde_json::to_value(&status).map_err(|e| e.to_string())?,
@@ -125,10 +135,9 @@ pub async fn tree_summarizer_rebuild(
 
     let provider = create_provider(config)?;
 
-    let status =
-        engine::rebuild_tree(config, provider.as_ref(), namespace.trim())
-            .await
-            .map_err(|e| format!("rebuild failed: {e:#}"))?;
+    let status = engine::rebuild_tree(config, provider.as_ref(), namespace.trim())
+        .await
+        .map_err(|e| format!("rebuild failed: {e:#}"))?;
 
     Ok(RpcOutcome::single_log(
         serde_json::to_value(&status).map_err(|e| e.to_string())?,
@@ -142,7 +151,9 @@ pub async fn tree_summarizer_rebuild(
 
 // ── Helper ─────────────────────────────────────────────────────────────
 
-fn create_provider(config: &Config) -> Result<Box<dyn crate::openhuman::providers::traits::Provider>, String> {
+fn create_provider(
+    config: &Config,
+) -> Result<Box<dyn crate::openhuman::providers::traits::Provider>, String> {
     providers::create_resilient_provider(
         config.api_key.as_deref(),
         config.api_url.as_deref(),

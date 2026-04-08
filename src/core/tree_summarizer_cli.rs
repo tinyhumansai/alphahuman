@@ -152,12 +152,11 @@ fn run_ingest(args: &[String]) -> Result<()> {
     let rt = build_runtime()?;
     rt.block_on(async {
         let config = load_config().await?;
-        let outcome =
-            crate::openhuman::tree_summarizer::rpc::tree_summarizer_ingest(
-                &config, namespace, &content, None,
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let outcome = crate::openhuman::tree_summarizer::rpc::tree_summarizer_ingest(
+            &config, namespace, &content, None,
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
 
         println!(
             "{}",
@@ -208,7 +207,9 @@ fn run_query(args: &[String]) -> Result<()> {
     let (opts, rest) = parse_opts(args)?;
 
     if rest.iter().any(|a| is_help(a)) || rest.is_empty() {
-        println!("Usage: openhuman tree-summarizer query <namespace> [<node_id>] [--node-id <id>] [-v]");
+        println!(
+            "Usage: openhuman tree-summarizer query <namespace> [<node_id>] [--node-id <id>] [-v]"
+        );
         println!();
         println!("Read a summary tree node and its direct children.");
         println!();
@@ -237,12 +238,11 @@ fn run_query(args: &[String]) -> Result<()> {
     let rt = build_runtime()?;
     rt.block_on(async {
         let config = load_config().await?;
-        let outcome =
-            crate::openhuman::tree_summarizer::rpc::tree_summarizer_query(
-                &config, namespace, node_id,
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let outcome = crate::openhuman::tree_summarizer::rpc::tree_summarizer_query(
+            &config, namespace, node_id,
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
 
         println!(
             "{}",
@@ -357,7 +357,9 @@ fn is_help(value: &str) -> bool {
 fn print_help() {
     println!("openhuman tree-summarizer — hierarchical summary tree\n");
     println!("Usage:");
-    println!("  openhuman tree-summarizer ingest  <namespace> [--content <text>] [--file <path>] [-v]");
+    println!(
+        "  openhuman tree-summarizer ingest  <namespace> [--content <text>] [--file <path>] [-v]"
+    );
     println!("  openhuman tree-summarizer run     <namespace> [-v]");
     println!("  openhuman tree-summarizer query   <namespace> [<node_id>] [-v]");
     println!("  openhuman tree-summarizer status  <namespace> [-v]");

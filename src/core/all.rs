@@ -73,9 +73,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::subconscious::all_subconscious_registered_controllers());
     controllers.extend(crate::openhuman::webhooks::all_webhooks_registered_controllers());
     controllers.extend(crate::openhuman::update::all_update_registered_controllers());
-    controllers.extend(
-        crate::openhuman::tree_summarizer::all_tree_summarizer_registered_controllers(),
-    );
+    controllers
+        .extend(crate::openhuman::tree_summarizer::all_tree_summarizer_registered_controllers());
     controllers
 }
 

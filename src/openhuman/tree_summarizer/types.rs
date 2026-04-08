@@ -254,10 +254,7 @@ mod tests {
     #[test]
     fn node_id_to_path_mapping() {
         assert_eq!(node_id_to_path("root"), PathBuf::from("root.md"));
-        assert_eq!(
-            node_id_to_path("2024"),
-            PathBuf::from("2024/summary.md")
-        );
+        assert_eq!(node_id_to_path("2024"), PathBuf::from("2024/summary.md"));
         assert_eq!(
             node_id_to_path("2024/03"),
             PathBuf::from("2024/03/summary.md")

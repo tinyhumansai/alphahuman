@@ -157,10 +157,7 @@ pub enum DomainEvent {
         token_count: u32,
     },
     /// A full tree rebuild completed.
-    TreeSummarizerRebuildCompleted {
-        namespace: String,
-        total_nodes: u64,
-    },
+    TreeSummarizerRebuildCompleted { namespace: String, total_nodes: u64 },
 
     // ── System lifecycle ────────────────────────────────────────────────
     /// A system component started up.

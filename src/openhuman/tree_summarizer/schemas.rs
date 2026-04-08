@@ -176,10 +176,7 @@ fn handle_ingest(params: Map<String, Value>) -> ControllerFuture {
         let timestamp = read_optional_timestamp(&params, "timestamp")?;
         to_json(
             crate::openhuman::tree_summarizer::rpc::tree_summarizer_ingest(
-                &config,
-                &namespace,
-                &content,
-                timestamp,
+                &config, &namespace, &content, timestamp,
             )
             .await?,
         )
@@ -266,7 +263,10 @@ fn read_optional_timestamp(
         Some(Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s)
             .map(|dt| Some(dt.with_timezone(&chrono::Utc)))
             .map_err(|e| format!("invalid '{key}': {e}")),
-        Some(other) => Err(format!("invalid '{key}': expected string, got {}", type_name(other))),
+        Some(other) => Err(format!(
+            "invalid '{key}': expected string, got {}",
+            type_name(other)
+        )),
     }
 }
 
