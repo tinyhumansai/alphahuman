@@ -456,7 +456,11 @@ const LocalModelPanel = () => {
                     </div>
                     <div className="text-xs text-stone-400 mt-1">{preset.description}</div>
                     <div className="text-[10px] text-stone-500 mt-1">
-                      Chat: {preset.chat_model_id} &middot; Min RAM: {preset.min_ram_gb} GB
+                      Chat: {preset.chat_model_id} &middot; Vision:{' '}
+                      {preset.vision_mode === 'disabled'
+                        ? 'disabled'
+                        : preset.vision_model_id || preset.vision_mode}{' '}
+                      &middot; Target RAM: {preset.target_ram_gb} GB
                     </div>
                   </button>
                 );

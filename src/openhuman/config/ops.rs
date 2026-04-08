@@ -164,6 +164,7 @@ pub struct ScreenIntelligenceSettingsPatch {
     pub baseline_fps: Option<f32>,
     pub vision_enabled: Option<bool>,
     pub autocomplete_enabled: Option<bool>,
+    pub use_vision_model: Option<bool>,
     pub keep_screenshots: Option<bool>,
     pub allowlist: Option<Vec<String>>,
     pub denylist: Option<Vec<String>>,
@@ -281,6 +282,9 @@ pub async fn apply_screen_intelligence_settings(
     }
     if let Some(autocomplete_enabled) = update.autocomplete_enabled {
         config.screen_intelligence.autocomplete_enabled = autocomplete_enabled;
+    }
+    if let Some(use_vision_model) = update.use_vision_model {
+        config.screen_intelligence.use_vision_model = use_vision_model;
     }
     if let Some(keep_screenshots) = update.keep_screenshots {
         config.screen_intelligence.keep_screenshots = keep_screenshots;

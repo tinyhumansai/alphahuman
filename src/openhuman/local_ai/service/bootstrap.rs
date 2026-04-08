@@ -1,6 +1,7 @@
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::device::DeviceProfile;
 use crate::openhuman::local_ai::model_ids;
+use crate::openhuman::local_ai::presets::{self, VisionMode};
 use crate::openhuman::local_ai::types::LocalAiStatus;
 
 use super::LocalAiService;
@@ -10,6 +11,7 @@ impl LocalAiService {
         let model_id = model_ids::effective_chat_model_id(config);
         let vision_model_id = model_ids::effective_vision_model_id(config);
         let embedding_model_id = model_ids::effective_embedding_model_id(config);
+        let vision_mode = vision_mode_str(config);
         Self {
             whisper: super::whisper_engine::new_handle(),
             status: parking_lot::Mutex::new(LocalAiStatus {
@@ -21,7 +23,8 @@ impl LocalAiService {
                 stt_model_id: model_ids::effective_stt_model_id(config),
                 tts_voice_id: model_ids::effective_tts_voice_id(config),
                 quantization: model_ids::effective_quantization(config),
-                vision_state: "idle".to_string(),
+                vision_state: initial_vision_state(config),
+                vision_mode,
                 embedding_state: "idle".to_string(),
                 stt_state: "idle".to_string(),
                 tts_state: "idle".to_string(),
@@ -62,6 +65,7 @@ impl LocalAiService {
 
     pub fn reset_to_idle(&self, config: &Config) {
         let model_id = model_ids::effective_chat_model_id(config);
+        let vision_mode = vision_mode_str(config);
         let mut status = self.status.lock();
         status.state = "idle".to_string();
         status.model_id = model_id.clone();
@@ -71,7 +75,8 @@ impl LocalAiService {
         status.stt_model_id = model_ids::effective_stt_model_id(config);
         status.tts_voice_id = model_ids::effective_tts_voice_id(config);
         status.quantization = model_ids::effective_quantization(config);
-        status.vision_state = "idle".to_string();
+        status.vision_state = initial_vision_state(config);
+        status.vision_mode = vision_mode;
         status.embedding_state = "idle".to_string();
         status.stt_state = "idle".to_string();
         status.tts_state = "idle".to_string();
@@ -126,6 +131,7 @@ impl LocalAiService {
             status.tts_voice_id = model_ids::effective_tts_voice_id(&effective_config);
             status.quantization = model_ids::effective_quantization(&effective_config);
             status.state = "loading".to_string();
+            status.vision_mode = vision_mode_str(&effective_config);
             status.warning = Some("Connecting to local Ollama runtime".to_string());
             status.download_progress = None;
             status.downloaded_bytes = None;
@@ -207,10 +213,10 @@ impl LocalAiService {
 
         let mut status = self.status.lock();
         status.state = "ready".to_string();
-        status.vision_state = if effective_config.local_ai.preload_vision_model {
-            "ready".to_string()
-        } else {
-            "idle".to_string()
+        status.vision_state = match presets::vision_mode_for_config(&effective_config.local_ai) {
+            VisionMode::Disabled => "disabled".to_string(),
+            VisionMode::Bundled => "ready".to_string(),
+            VisionMode::Ondemand => "idle".to_string(),
         };
         status.embedding_state = if effective_config.local_ai.preload_embedding_model {
             "ready".to_string()
@@ -267,9 +273,11 @@ fn config_with_recommended_tier_if_unselected(config: &Config, device: &DevicePr
     if selected_tier.is_some()
         || matches!(
             current_tier,
-            crate::openhuman::local_ai::presets::ModelTier::Low
-                | crate::openhuman::local_ai::presets::ModelTier::Medium
-                | crate::openhuman::local_ai::presets::ModelTier::High
+            crate::openhuman::local_ai::presets::ModelTier::Ram1Gb
+                | crate::openhuman::local_ai::presets::ModelTier::Ram2To4Gb
+                | crate::openhuman::local_ai::presets::ModelTier::Ram4To8Gb
+                | crate::openhuman::local_ai::presets::ModelTier::Ram8To16Gb
+                | crate::openhuman::local_ai::presets::ModelTier::Ram16PlusGb
         )
     {
         return config.clone();
@@ -288,24 +296,38 @@ fn config_with_recommended_tier_if_unselected(config: &Config, device: &DevicePr
     effective_config
 }
 
-/// Append a tier step-down hint when the current tier is Medium or High.
 fn format_degraded_warning(err: &str, config: &Config) -> String {
     let current = crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
     match current {
-        crate::openhuman::local_ai::presets::ModelTier::High => {
+        crate::openhuman::local_ai::presets::ModelTier::Ram16PlusGb => {
             format!(
-                "{err}. Hint: your device may not support the High tier model. \
-                 Try switching to Medium or Low in Settings > Local AI Model."
+                "{err}. Hint: your device may not support the 16 GB+ tier model. \
+                 Try switching to the 8-16 GB or 4-8 GB tier in Settings > Local AI Model."
             )
         }
-        crate::openhuman::local_ai::presets::ModelTier::Medium => {
+        crate::openhuman::local_ai::presets::ModelTier::Ram8To16Gb => {
             format!(
-                "{err}. Hint: your device may not support the Medium tier model. \
-                 Try switching to Low in Settings > Local AI Model."
+                "{err}. Hint: your device may not support the 8-16 GB tier model. \
+                 Try switching to the 4-8 GB or 2-4 GB tier in Settings > Local AI Model."
             )
         }
+        crate::openhuman::local_ai::presets::ModelTier::Ram4To8Gb => format!(
+            "{err}. Hint: your device may not support the 4-8 GB tier vision sidecar. \
+             Try switching to the 2-4 GB tier for text-only local AI."
+        ),
         _ => err.to_string(),
     }
+}
+
+fn initial_vision_state(config: &Config) -> String {
+    match presets::vision_mode_for_config(&config.local_ai) {
+        VisionMode::Disabled => "disabled".to_string(),
+        VisionMode::Ondemand | VisionMode::Bundled => "idle".to_string(),
+    }
+}
+
+fn vision_mode_str(config: &Config) -> String {
+    format!("{:?}", presets::vision_mode_for_config(&config.local_ai)).to_ascii_lowercase()
 }
 
 #[cfg(test)]

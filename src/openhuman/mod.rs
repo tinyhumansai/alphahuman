@@ -49,6 +49,7 @@ pub mod team;
 pub mod text_input;
 pub mod tool_timeout;
 pub mod tools;
+pub mod tree_summarizer;
 pub mod update;
 pub mod util;
 pub mod voice;

@@ -541,11 +541,15 @@ pub(crate) async fn handle_js_call(
         .await?;
 
     if result_text == "__PROMISE__" {
-        // Async — drive the QuickJS job queue until the promise resolves
+        log::info!("[handle_js_call] {fn_name}() returned Promise, polling for resolution");
+
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let mut poll_count: u32 = 0;
 
         loop {
+            // Drive the QuickJS job queue to process microtasks and promise resolutions
             drive_jobs(rt).await;
+            poll_count += 1;
 
             let done = ctx
                 .with(|js_ctx| {
@@ -556,6 +560,7 @@ pub(crate) async fn handle_js_call(
                 .await;
 
             if done {
+                log::info!("[handle_js_call] {fn_name}() resolved after {poll_count} polls");
                 let result = ctx
                     .with(|js_ctx| {
                         let has_error = js_ctx
@@ -592,6 +597,22 @@ pub(crate) async fn handle_js_call(
             }
 
             if tokio::time::Instant::now() >= deadline {
+                log::error!(
+                    "[handle_js_call] {fn_name}() TIMED OUT after 30s ({poll_count} polls). \
+                     Promise never resolved — likely a stalled microtask or unhandled async error."
+                );
+                // Dump JS state for debugging
+                let debug_info = ctx
+                    .with(|js_ctx| {
+                        js_ctx
+                            .eval::<String, _>(
+                                b"JSON.stringify({ pendingDone: globalThis.__pendingRpcDone, pendingResult: typeof globalThis.__pendingRpcResult, pendingError: globalThis.__pendingRpcError })"
+                            )
+                            .unwrap_or_else(|_| "eval failed".to_string())
+                    })
+                    .await;
+                log::error!("[handle_js_call] {fn_name}() debug state: {debug_info}");
+
                 ctx.with(|js_ctx| {
                     let _ = js_ctx.eval::<rquickjs::Value, _>(
                         b"delete globalThis.__pendingRpcDone; delete globalThis.__pendingRpcResult; delete globalThis.__pendingRpcError;",
@@ -599,6 +620,17 @@ pub(crate) async fn handle_js_call(
                 })
                 .await;
                 return Err(format!("{fn_name}() timed out after 30s"));
+            }
+
+            // Log progress every 2 seconds so we can see if the loop is running
+            if poll_count % 400 == 0 {
+                let elapsed = 30
+                    - deadline
+                        .duration_since(tokio::time::Instant::now())
+                        .as_secs();
+                log::warn!(
+                    "[handle_js_call] {fn_name}() still waiting after ~{elapsed}s ({poll_count} polls)"
+                );
             }
 
             tokio::time::sleep(Duration::from_millis(5)).await;

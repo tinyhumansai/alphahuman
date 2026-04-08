@@ -426,6 +426,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let _cron_delivery_handle = bus.subscribe(Arc::new(
         crate::openhuman::cron::bus::CronDeliverySubscriber::new(Arc::clone(&channels_by_name)),
     ));
+    // Register the tree summarizer event subscriber for observability logging.
+    let _tree_summarizer_handle = bus.subscribe(Arc::new(
+        crate::openhuman::tree_summarizer::bus::TreeSummarizerEventSubscriber::new(),
+    ));
 
     let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
 

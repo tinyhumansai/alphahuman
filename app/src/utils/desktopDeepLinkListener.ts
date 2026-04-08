@@ -7,6 +7,9 @@ import { skillManager } from '../lib/skills/manager';
 import { emitSkillStateChange } from '../lib/skills/skillEvents';
 import { startSkill } from '../lib/skills/skillsApi';
 import { consumeLoginToken } from '../services/api/authApi';
+import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
+import { evaluateOAuthAppVersionGate } from './oauthAppVersionGate';
+import { openUrl } from './openUrl';
 import { storeSession } from './tauriCommands';
 
 const focusMainWindow = async () => {
@@ -116,7 +119,56 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     const skillId = parsed.searchParams.get('skillId');
 
     if (!integrationId || !skillId) {
-      console.error('[DeepLink] OAuth success missing integrationId or skillId', parsed.href);
+      // Do not log full URL — query can contain secrets (e.g. clientKey).
+      console.error('[DeepLink] OAuth success missing integrationId or skillId');
+      return;
+    }
+
+    let versionGate: Awaited<ReturnType<typeof evaluateOAuthAppVersionGate>>;
+    try {
+      versionGate = await evaluateOAuthAppVersionGate();
+    } catch (gateErr) {
+      // Avoid bubbling: outer handler logs the raw URL and would leak query secrets.
+      console.warn('[DeepLink] OAuth version gate failed; continuing OAuth', gateErr);
+      versionGate = { ok: true };
+    }
+
+    if (!versionGate.ok) {
+      const msg =
+        versionGate.current === 'unknown'
+          ? `OpenHuman could not verify this build against the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`
+          : `This OpenHuman build (${versionGate.current}) is older than the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`;
+      try {
+        await openUrl(versionGate.downloadUrl);
+      } catch (e) {
+        console.warn('[DeepLink] Could not open latest release URL', e);
+      }
+      enqueueError({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'manual',
+        title: 'Update OpenHuman to finish OAuth',
+        message: msg,
+        sentryEvent: buildManualSentryEvent(
+          { type: 'OAuthStaleAppVersion', value: `${versionGate.current}<${versionGate.minimum}` },
+          {
+            component: 'desktopDeepLinkListener',
+            current: versionGate.current,
+            minimum: versionGate.minimum,
+          }
+        ),
+      });
+      window.dispatchEvent(
+        new CustomEvent('oauth:stale-app', {
+          detail: {
+            current: versionGate.current,
+            minimum: versionGate.minimum,
+            downloadUrl: versionGate.downloadUrl,
+            skillId,
+            integrationId,
+          },
+        })
+      );
       return;
     }
 
@@ -194,7 +246,8 @@ const handleDeepLinkUrls = async (urls: string[] | null | undefined) => {
         break;
     }
   } catch (error) {
-    console.error('[DeepLink] Failed to handle deep link URL:', url, error);
+    // Avoid logging full `url` — OAuth callbacks can include sensitive query params.
+    console.error('[DeepLink] Failed to handle deep link:', error);
   }
 };
 

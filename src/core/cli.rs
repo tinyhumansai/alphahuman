@@ -61,6 +61,9 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         }
         "voice" | "dictate" => run_voice_server_command(&args[1..]),
         "text-input" => crate::core::text_input_cli::run_text_input_command(&args[1..]),
+        "tree-summarizer" => {
+            crate::core::tree_summarizer_cli::run_tree_summarizer_command(&args[1..])
+        }
         "memory" => crate::core::memory_cli::run_memory_command(&args[1..]),
         namespace => run_namespace_command(namespace, &args[1..], &grouped),
     }
@@ -479,6 +482,7 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("  openhuman call --method <name> [--params '<json>']");
     println!("  openhuman skills <subcommand> [options]   (skill development runtime)");
     println!("  openhuman voice [--hotkey <combo>] [--mode <tap|push>]  (voice dictation server)");
+    println!("  openhuman tree-summarizer <subcommand> [options]  (summary tree CLI)");
     println!("  openhuman <namespace> <function> [--param value ...]\n");
     println!("Available namespaces:");
     for namespace in grouped.keys() {

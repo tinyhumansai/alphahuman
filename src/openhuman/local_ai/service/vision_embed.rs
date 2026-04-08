@@ -5,6 +5,7 @@ use crate::openhuman::local_ai::ollama_api::{
     OllamaEmbedRequest, OllamaEmbedResponse, OllamaGenerateOptions, OllamaGenerateRequest,
     OLLAMA_BASE_URL,
 };
+use crate::openhuman::local_ai::presets::{self, VisionMode};
 use crate::openhuman::local_ai::types::LocalAiEmbeddingResult;
 
 use super::LocalAiService;
@@ -22,6 +23,16 @@ impl LocalAiService {
         }
         if image_refs.is_empty() {
             return Err("vision prompt requires at least one image reference".to_string());
+        }
+        if matches!(
+            presets::vision_mode_for_config(&config.local_ai),
+            VisionMode::Disabled
+        ) {
+            self.status.lock().vision_state = "disabled".to_string();
+            return Err(
+                "vision summaries are unavailable for this RAM tier. Use OCR-only summarization or switch to a higher local AI tier."
+                    .to_string(),
+            );
         }
         self.bootstrap(config).await;
         let vision_model = model_ids::effective_vision_model_id(config);

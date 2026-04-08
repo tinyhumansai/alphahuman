@@ -71,6 +71,7 @@ const ScreenIntelligencePanel = () => {
     'all_except_blacklist'
   );
   const [baselineFps, setBaselineFps] = useState<string>('1');
+  const [useVisionModel, setUseVisionModel] = useState<boolean>(true);
   const [keepScreenshots, setKeepScreenshots] = useState<boolean>(false);
   const [allowlistText, setAllowlistText] = useState('');
   const [denylistText, setDenylistText] = useState('');
@@ -105,6 +106,7 @@ const ScreenIntelligencePanel = () => {
       status.config.policy_mode === 'whitelist_only' ? 'whitelist_only' : 'all_except_blacklist'
     );
     setBaselineFps(String(status.config.baseline_fps ?? 1));
+    setUseVisionModel(status.config.use_vision_model ?? true);
     setKeepScreenshots(status.config.keep_screenshots ?? false);
     setAllowlistText((status.config.allowlist ?? []).join('\n'));
     setDenylistText((status.config.denylist ?? []).join('\n'));
@@ -145,6 +147,7 @@ const ScreenIntelligencePanel = () => {
         enabled,
         policy_mode: policyMode,
         baseline_fps: Number.isFinite(fps) && fps > 0 ? fps : 1,
+        use_vision_model: useVisionModel,
         keep_screenshots: keepScreenshots,
         allowlist: allowlistText
           .split('\n')
@@ -279,6 +282,21 @@ const ScreenIntelligencePanel = () => {
               value={baselineFps}
               onChange={event => setBaselineFps(event.target.value)}
               className="w-24 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700"
+            />
+          </label>
+
+          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
+            <div>
+              <span className="text-sm text-stone-700">Use Vision Model</span>
+              <p className="text-xs text-stone-400">
+                Send screenshots to a vision LLM for richer context. When off, only OCR text is used
+                with a text LLM — faster and no vision model required.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={useVisionModel}
+              onChange={event => setUseVisionModel(event.target.checked)}
             />
           </label>
 

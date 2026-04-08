@@ -499,7 +499,10 @@ pub fn schemas(function: &str) -> ControllerSchema {
             namespace: "local_ai",
             function: "apply_preset",
             description: "Apply a model tier preset to local AI config and persist.",
-            inputs: vec![required_string("tier", "Tier to apply: low, medium, high.")],
+            inputs: vec![required_string(
+                "tier",
+                "Tier to apply: ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb.",
+            )],
             outputs: vec![json_output("result", "Applied tier status.")],
         },
         "local_ai_diagnostics" => ControllerSchema {
@@ -829,12 +832,12 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
         let recommended = crate::openhuman::local_ai::presets::recommend_tier(&device);
         let current =
             crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
-        let selected_tier = config
-            .local_ai
-            .selected_tier
-            .as_ref()
-            .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| !value.is_empty());
+        let selected_tier = config.local_ai.selected_tier.as_ref().and_then(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            crate::openhuman::local_ai::presets::ModelTier::from_str_opt(&normalized)
+                .map(|tier| tier.as_str().to_string())
+                .or_else(|| (!normalized.is_empty()).then_some(normalized))
+        });
         let presets = crate::openhuman::local_ai::presets::all_presets();
         tracing::debug!(
             ?recommended,
@@ -863,7 +866,7 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         let tier = crate::openhuman::local_ai::presets::ModelTier::from_str_opt(&tier_str)
             .ok_or_else(|| {
                 format!(
-                    "invalid tier '{}': expected one of low, medium, high",
+                    "invalid tier '{}': expected one of ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb",
                     tier_str
                 )
             })?;
@@ -886,6 +889,7 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
             "vision_model_id": config.local_ai.vision_model_id,
             "embedding_model_id": config.local_ai.embedding_model_id,
             "quantization": config.local_ai.quantization,
+            "vision_mode": crate::openhuman::local_ai::presets::vision_mode_for_config(&config.local_ai),
         }))
     })
 }

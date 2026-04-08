@@ -1774,14 +1774,21 @@ async fn json_rpc_local_ai_device_profile_and_presets() {
         .get("presets")
         .and_then(Value::as_array)
         .expect("presets should be an array");
-    assert_eq!(presets_arr.len(), 3, "expected 3 presets: {presets_result}");
+    assert_eq!(presets_arr.len(), 5, "expected 5 presets: {presets_result}");
 
     let recommended = presets_result
         .get("recommended_tier")
         .and_then(Value::as_str)
         .expect("should have recommended_tier");
     assert!(
-        ["low", "medium", "high"].contains(&recommended),
+        [
+            "ram_1gb",
+            "ram_2_4gb",
+            "ram_4_8gb",
+            "ram_8_16gb",
+            "ram_16_plus_gb",
+        ]
+        .contains(&recommended),
         "unexpected recommended_tier: {recommended}"
     );
 
@@ -1789,25 +1796,32 @@ async fn json_rpc_local_ai_device_profile_and_presets() {
         .get("current_tier")
         .and_then(Value::as_str)
         .expect("should have current_tier");
-    // Default config uses gemma3:4b-it-qat which matches Medium
-    assert_eq!(current, "medium", "default config should be medium tier");
+    // Default config uses gemma3:4b-it-qat which now maps to the 8-16 GB tier.
+    assert_eq!(
+        current, "ram_8_16gb",
+        "default config should be the 8-16 GB tier"
+    );
 
-    // --- apply_preset (switch to Low) ---
+    // --- apply_preset (switch to 2-4 GB) ---
     let apply = post_json_rpc(
         &rpc_base,
         32,
         "openhuman.local_ai_apply_preset",
-        json!({"tier": "low"}),
+        json!({"tier": "ram_2_4gb"}),
     )
     .await;
     let apply_result = assert_no_jsonrpc_error(&apply, "apply_preset");
     assert_eq!(
         apply_result.get("applied_tier").and_then(Value::as_str),
-        Some("low")
+        Some("ram_2_4gb")
     );
     assert_eq!(
         apply_result.get("chat_model_id").and_then(Value::as_str),
-        Some("gemma3:1b-it-q4_0")
+        Some("gemma3:1b-it-qat")
+    );
+    assert_eq!(
+        apply_result.get("vision_mode").and_then(Value::as_str),
+        Some("disabled")
     );
 
     // --- verify presets reflects the change ---
@@ -1817,8 +1831,8 @@ async fn json_rpc_local_ai_device_profile_and_presets() {
         presets_after_result
             .get("current_tier")
             .and_then(Value::as_str),
-        Some("low"),
-        "current tier should now be low after apply"
+        Some("ram_2_4gb"),
+        "current tier should now be 2-4 GB after apply"
     );
 
     // --- apply_preset with invalid tier should error ---

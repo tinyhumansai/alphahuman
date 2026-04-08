@@ -74,6 +74,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::webhooks::all_webhooks_registered_controllers());
     controllers.extend(crate::openhuman::update::all_update_registered_controllers());
     controllers
+        .extend(crate::openhuman::tree_summarizer::all_tree_summarizer_registered_controllers());
+    controllers
 }
 
 fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
@@ -111,6 +113,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::subconscious::all_subconscious_controller_schemas());
     schemas.extend(crate::openhuman::webhooks::all_webhooks_controller_schemas());
     schemas.extend(crate::openhuman::update::all_update_controller_schemas());
+    schemas.extend(crate::openhuman::tree_summarizer::all_tree_summarizer_controller_schemas());
     schemas
 }
 
@@ -157,6 +160,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         }
         "update" => {
             Some("Self-update: check GitHub Releases for newer core binary and stage updates.")
+        }
+        "tree_summarizer" => {
+            Some("Hierarchical time-based summarization tree for background knowledge compression.")
         }
         _ => None,
     }

@@ -10,6 +10,7 @@ use crate::openhuman::local_ai::ollama_api::{
     OLLAMA_BASE_URL,
 };
 use crate::openhuman::local_ai::paths::{find_workspace_ollama_binary, workspace_ollama_binary};
+use crate::openhuman::local_ai::presets::{self, VisionMode};
 
 use super::LocalAiService;
 
@@ -280,11 +281,19 @@ impl LocalAiService {
         self.ensure_ollama_model_available(&chat_model, "chat")
             .await?;
 
-        let vision_model = model_ids::effective_vision_model_id(config);
-        if config.local_ai.preload_vision_model {
-            self.ensure_ollama_model_available(&vision_model, "vision")
-                .await?;
-            self.status.lock().vision_state = "ready".to_string();
+        match presets::vision_mode_for_config(&config.local_ai) {
+            VisionMode::Disabled => {
+                self.status.lock().vision_state = "disabled".to_string();
+            }
+            VisionMode::Ondemand => {
+                self.status.lock().vision_state = "idle".to_string();
+            }
+            VisionMode::Bundled => {
+                let vision_model = model_ids::effective_vision_model_id(config);
+                self.ensure_ollama_model_available(&vision_model, "vision")
+                    .await?;
+                self.status.lock().vision_state = "ready".to_string();
+            }
         }
 
         let embedding_model = model_ids::effective_embedding_model_id(config);
@@ -615,7 +624,13 @@ impl LocalAiService {
                 expected_embedding
             ));
         }
-        if healthy && config.local_ai.preload_vision_model && !vision_found {
+        if healthy
+            && matches!(
+                presets::vision_mode_for_config(&config.local_ai),
+                VisionMode::Bundled
+            )
+            && !vision_found
+        {
             issues.push(format!(
                 "Vision model `{}` is not installed",
                 expected_vision
@@ -636,6 +651,7 @@ impl LocalAiService {
             "ollama_running": healthy,
             "ollama_binary_path": binary_path,
             "installed_models": models,
+            "vision_mode": presets::vision_mode_for_config(&config.local_ai),
             "expected": {
                 "chat_model": expected_chat,
                 "chat_found": chat_found,

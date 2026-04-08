@@ -665,7 +665,7 @@ impl Config {
                 } else {
                     tracing::warn!(
                         tier = %tier_str,
-                        "ignoring invalid OPENHUMAN_LOCAL_AI_TIER (valid: low, medium, high)"
+                        "ignoring invalid OPENHUMAN_LOCAL_AI_TIER (valid: ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb)"
                     );
                 }
             }

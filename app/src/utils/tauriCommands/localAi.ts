@@ -14,6 +14,7 @@ export interface LocalAiStatus {
   tts_voice_id: string;
   quantization: string;
   vision_state: string;
+  vision_mode: string;
   embedding_state: string;
   stt_state: string;
   tts_state: string;
@@ -170,6 +171,9 @@ export interface ModelPresetResult {
   vision_model_id: string;
   embedding_model_id: string;
   quantization: string;
+  vision_mode: string;
+  supports_screen_summary: boolean;
+  target_ram_gb: number;
   min_ram_gb: number;
   approx_download_gb: number;
 }
@@ -188,11 +192,13 @@ export interface ApplyPresetResult {
   vision_model_id: string;
   embedding_model_id: string;
   quantization: string;
+  vision_mode?: string;
 }
 
 export interface LocalAiDiagnostics {
   ollama_running: boolean;
   ollama_binary_path: string | null;
+  vision_mode?: string;
   installed_models: Array<{ name: string; size?: number | null; modified_at?: string | null }>;
   expected: {
     chat_model: string;
