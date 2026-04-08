@@ -229,6 +229,34 @@ const Conversations = () => {
   const autocompleteDebounceRef = useRef<number | null>(null);
   const autocompleteRequestSeqRef = useRef(0);
   const sendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenChatEventsRef = useRef<Map<string, number>>(new Map());
+
+  const markChatEventSeen = (key: string): boolean => {
+    const now = Date.now();
+    const cache = seenChatEventsRef.current;
+    const ttlMs = 10 * 60_000;
+    const maxEntries = 500;
+
+    if (cache.has(key)) return false;
+
+    cache.set(key, now);
+
+    // Prune old entries first.
+    for (const [existingKey, timestamp] of cache) {
+      if (now - timestamp > ttlMs) {
+        cache.delete(existingKey);
+      }
+    }
+
+    // Keep bounded memory in long sessions.
+    while (cache.size > maxEntries) {
+      const oldest = cache.keys().next().value;
+      if (!oldest) break;
+      cache.delete(oldest);
+    }
+
+    return true;
+  };
 
   const getAudioExtension = (mimeType: string): string => {
     const lower = mimeType.toLowerCase();
@@ -400,6 +428,9 @@ const Conversations = () => {
 
     const cleanup = subscribeChatEvents({
       onToolCall: (event: ChatToolCallEvent) => {
+        const eventKey = `tool_call:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}`;
+        if (!markChatEventSeen(eventKey)) return;
+
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
           return {
@@ -417,6 +448,9 @@ const Conversations = () => {
         });
       },
       onToolResult: (event: ChatToolResultEvent) => {
+        const eventKey = `tool_result:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.success}`;
+        if (!markChatEventSeen(eventKey)) return;
+
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
           if (existing.length === 0) return prev;
@@ -441,6 +475,9 @@ const Conversations = () => {
         });
       },
       onSegment: (event: ChatSegmentEvent) => {
+        const eventKey = `segment:${event.thread_id}:${event.request_id}:${event.segment_index}`;
+        if (!markChatEventSeen(eventKey)) return;
+
         // Rust delivers segments with delays already applied — just dispatch.
         if (event.reaction_emoji) {
           const pending = pendingReactionRef.current.get(event.thread_id);
@@ -458,6 +495,9 @@ const Conversations = () => {
         dispatch(addInferenceResponse({ content: segmentText(event), threadId: event.thread_id }));
       },
       onDone: event => {
+        const eventKey = `done:${event.thread_id}:${event.request_id ?? 'none'}`;
+        if (!markChatEventSeen(eventKey)) return;
+
         // Update tool timeline
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
@@ -508,6 +548,9 @@ const Conversations = () => {
         dispatch(setActiveThread(null));
       },
       onError: event => {
+        const eventKey = `error:${event.thread_id}:${event.request_id ?? 'none'}:${event.error_type}:${event.message}`;
+        if (!markChatEventSeen(eventKey)) return;
+
         if (event.thread_id !== selectedThreadIdRef.current) return;
         if (sendingTimeoutRef.current) {
           clearTimeout(sendingTimeoutRef.current);
