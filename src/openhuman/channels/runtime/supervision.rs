@@ -20,11 +20,22 @@ pub(crate) fn spawn_supervised_listener(
         let mut backoff = initial_backoff_secs.max(1);
         let max_backoff = max_backoff_secs.max(backoff);
 
+        tracing::info!(
+            channel = ch.name(),
+            initial_backoff_secs,
+            max_backoff_secs,
+            "[channels] supervised listener started"
+        );
+
         loop {
             crate::openhuman::health::mark_component_ok(&component);
             publish_global(DomainEvent::ChannelConnected {
                 channel: ch.name().to_string(),
             });
+            tracing::debug!(
+                channel = ch.name(),
+                "[channels] listener entering recv loop"
+            );
             let result = ch.listen(tx.clone()).await;
 
             if tx.is_closed() {

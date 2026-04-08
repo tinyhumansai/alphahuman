@@ -12,6 +12,7 @@ use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use crate::openhuman::config::{Config, StreamMode};
 use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::security::pairing::PairingGuard;
+use crate::openhuman::util::truncate_with_ellipsis;
 use anyhow::Context;
 use async_trait::async_trait;
 use directories::UserDirs;
@@ -664,6 +665,12 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         }
 
         if !self.is_any_user_allowed(identities.iter().copied()) {
+            tracing::debug!(
+                username = %username,
+                sender_id = sender_id.as_deref().unwrap_or("none"),
+                text_preview = %truncate_with_ellipsis(text, 80),
+                "[telegram] dropped message: sender not in allowed_users (unauthorized handler may reply)"
+            );
             return None;
         }
 
