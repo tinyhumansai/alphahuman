@@ -18,13 +18,145 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+/// Maximum characters shown in the debug reply println. Large enough to not truncate
+/// real responses while keeping terminal output readable.
+const REPLY_LOG_TRUNCATE_CHARS: usize = 200;
+
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
-            "When responding on Telegram, include media markers for files or URLs that should be sent as attachments. Use one marker per attachment with this exact syntax: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]. Keep normal user-facing text outside markers and never wrap markers in code fences.",
+            "When responding on Telegram you may send media attachments using markers: \
+            [IMAGE:<url>], [DOCUMENT:<url>], [VIDEO:<url>], [AUDIO:<url>], [VOICE:<url>]. \
+            You may also react to the user's message by placing [REACTION:<emoji>] at the \
+            very start of your reply. The reaction replaces the automatic acknowledgment \
+            the user already saw. Choose based on actual message intent — for example: \
+            👍 agreement · ❤️ warmth/thanks · 🔥 excitement · 🤔 careful thought · \
+            🤯 surprise · 💯 strong agreement · ⚡ urgency · 👨‍💻 technical topic · \
+            🎉 celebration · 🙏 gratitude. \
+            A reaction can be combined with a reply: [REACTION:🔥] Here's what I found… \
+            Only react when it genuinely fits — skip it for neutral factual responses.",
         ),
         _ => None,
     }
+}
+
+/// Returns `true` if `s` contains any of the given substrings.
+#[inline]
+fn contains_any(s: &str, words: &[&str]) -> bool {
+    words.iter().any(|w| s.contains(w))
+}
+
+/// Returns `true` if `s` starts with any of the given prefixes.
+#[inline]
+fn starts_with_any(s: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|p| s.starts_with(p))
+}
+
+/// Pick a contextual acknowledgment emoji for an inbound message.
+///
+/// Intent categories are checked in priority order. Within each category two
+/// emoji options are defined; a cheap deterministic index (based on message
+/// length + first char value) selects between them so that similar messages
+/// don't always produce the identical reaction.
+///
+/// All emojis used here are in Telegram's standard (non-premium) reaction set.
+fn select_acknowledgment_reaction(content: &str) -> &'static str {
+    let l = content.to_lowercase();
+
+    // Deterministic variant (0 or 1) — avoids true randomness while giving variety.
+    let v = content
+        .len()
+        .wrapping_add(content.chars().next().map_or(0, |c| c as usize))
+        & 1;
+
+    let opts: &[&str] = if contains_any(&l, &["thank", "thx", "appreciate", "grateful", "cheers"]) {
+        // Gratitude
+        &["❤️", "🙏"]
+    } else if contains_any(
+        &l,
+        &[
+            "amazing",
+            "awesome",
+            "incredible",
+            "love it",
+            "congrat",
+            "!!",
+        ],
+    ) {
+        // Excitement / celebration
+        &["🔥", "🎉"]
+    } else if contains_any(
+        &l,
+        &[
+            "price", "btc", "eth", "crypto", "trade", "pump", "dump", "market", "token", "wallet",
+            "defi", "nft", "sol", "bnb",
+        ],
+    ) {
+        // Crypto / finance
+        &["💯", "⚡"]
+    } else if contains_any(
+        &l,
+        &[
+            "code",
+            "function",
+            "api",
+            "deploy",
+            "build",
+            "debug",
+            "script",
+            "git",
+            "rust",
+            "python",
+            "js",
+            "typescript",
+        ],
+    ) {
+        // Technical / dev
+        &["👨‍💻", "🤓"]
+    } else if starts_with_any(
+        &l,
+        &[
+            "hi",
+            "hello",
+            "hey",
+            "sup",
+            "good morning",
+            "good evening",
+            "good afternoon",
+        ],
+    ) || l == "yo"
+        || l.starts_with("yo ")
+    {
+        // Greeting
+        &["🤗", "😁"]
+    } else if l.contains('?')
+        || starts_with_any(
+            &l,
+            &[
+                "how",
+                "what",
+                "why",
+                "when",
+                "where",
+                "who",
+                "can you",
+                "could you",
+                "would you",
+                "is ",
+                "are ",
+                "do you",
+                "does",
+            ],
+        )
+    {
+        // Question / help request
+        &["🤔", "✍️"]
+    } else {
+        // Default — "seen, on it"
+        &["👀", "✍️"]
+    };
+
+    opts[v % opts.len()]
 }
 
 fn log_worker_join_result(result: Result<(), tokio::task::JoinError>) {
@@ -41,13 +173,10 @@ fn spawn_scoped_typing_task(
     let stop_signal = cancellation_token;
     let refresh_interval = Duration::from_secs(CHANNEL_TYPING_REFRESH_INTERVAL_SECS);
     let handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(refresh_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
         loop {
             tokio::select! {
                 () = stop_signal.cancelled() => break,
-                _ = interval.tick() => {
+                _ = tokio::time::sleep(refresh_interval) => {
                     if let Err(e) = channel.start_typing(&recipient).await {
                         tracing::debug!("Failed to start typing on {}: {e}", channel.name());
                     }
@@ -84,6 +213,40 @@ pub(crate) async fn process_channel_message(
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
     if handle_runtime_command_if_needed(ctx.as_ref(), &msg, target_channel.as_ref()).await {
         return;
+    }
+
+    // Fire typing indicator as early as possible — before any async I/O — so the
+    // user sees feedback immediately regardless of how fast the LLM responds.
+    if let Some(channel) = target_channel.as_ref() {
+        if let Err(e) = channel.start_typing(&msg.reply_target).await {
+            tracing::debug!(
+                "[dispatch] Early typing start failed on {}: {e}",
+                channel.name()
+            );
+        }
+    }
+
+    // Send a smart acknowledgment reaction immediately so the user knows the message
+    // was received and understood. The LLM may override this later by including its
+    // own [REACTION:...] marker, which Telegram replaces atomically.
+    if let Some(channel) = target_channel.as_ref() {
+        if channel.supports_reactions() && msg.thread_ts.is_some() {
+            let ack_emoji = select_acknowledgment_reaction(&msg.content);
+            tracing::debug!(
+                channel = msg.channel,
+                emoji = ack_emoji,
+                "[dispatch] Sending acknowledgment reaction"
+            );
+            let react_content = format!("[REACTION:{ack_emoji}]");
+            let channel_for_react = Arc::clone(channel);
+            let react_msg =
+                SendMessage::new(react_content, &msg.reply_target).in_thread(msg.thread_ts.clone());
+            tokio::spawn(async move {
+                if let Err(e) = channel_for_react.send(&react_msg).await {
+                    tracing::debug!("[dispatch] Acknowledgment reaction failed: {e}");
+                }
+            });
+        }
     }
 
     let history_key = conversation_history_key(&msg);
@@ -211,6 +374,8 @@ pub(crate) async fn process_channel_message(
     };
 
     let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());
+    // Typing was already started early (before memory/provider setup). Here we only
+    // spawn the background refresh task that keeps the indicator alive during long turns.
     let typing_task = match (target_channel.as_ref(), typing_cancellation.as_ref()) {
         (Some(channel), Some(token)) => Some(spawn_scoped_typing_task(
             Arc::clone(channel),
@@ -270,12 +435,17 @@ pub(crate) async fn process_channel_message(
             println!(
                 "  🤖 Reply ({}ms): {}",
                 started_at.elapsed().as_millis(),
-                truncate_with_ellipsis(&response, 80)
+                truncate_with_ellipsis(&response, REPLY_LOG_TRUNCATE_CHARS)
             );
             if let Some(channel) = target_channel.as_ref() {
                 if let Some(ref draft_id) = draft_message_id {
                     if let Err(e) = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &response)
+                        .finalize_draft(
+                            &msg.reply_target,
+                            draft_id,
+                            &response,
+                            msg.thread_ts.as_deref(),
+                        )
                         .await
                     {
                         tracing::warn!("Failed to finalize draft: {e}; sending as new message");
@@ -314,7 +484,12 @@ pub(crate) async fn process_channel_message(
                 if let Some(channel) = target_channel.as_ref() {
                     if let Some(ref draft_id) = draft_message_id {
                         let _ = channel
-                            .finalize_draft(&msg.reply_target, draft_id, error_text)
+                            .finalize_draft(
+                                &msg.reply_target,
+                                draft_id,
+                                error_text,
+                                msg.thread_ts.as_deref(),
+                            )
                             .await;
                     } else {
                         let _ = channel
@@ -345,7 +520,12 @@ pub(crate) async fn process_channel_message(
             if let Some(channel) = target_channel.as_ref() {
                 if let Some(ref draft_id) = draft_message_id {
                     let _ = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &error_response)
+                        .finalize_draft(
+                            &msg.reply_target,
+                            draft_id,
+                            &error_response,
+                            msg.thread_ts.as_deref(),
+                        )
                         .await;
                 } else {
                     let _ = channel
@@ -370,7 +550,12 @@ pub(crate) async fn process_channel_message(
             if let Some(channel) = target_channel.as_ref() {
                 if let Some(ref draft_id) = draft_message_id {
                     let _ = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &error_text)
+                        .finalize_draft(
+                            &msg.reply_target,
+                            draft_id,
+                            &error_text,
+                            msg.thread_ts.as_deref(),
+                        )
                         .await;
                 } else {
                     let _ = channel

@@ -72,7 +72,19 @@ pub(crate) fn conversation_memory_key(msg: &super::traits::ChannelMessage) -> St
 }
 
 pub(crate) fn conversation_history_key(msg: &super::traits::ChannelMessage) -> String {
-    format!("{}_{}", msg.channel, msg.sender)
+    let base_key = format!("{}_{}_{}", msg.channel, msg.sender, msg.reply_target);
+    // Telegram uses thread_ts as "reply-to message id" for transport targeting.
+    // It should not split memory/history into a new conversation per message.
+    if msg.channel == "telegram" {
+        return base_key;
+    }
+    if let Some(thread_ts) = msg.thread_ts.as_deref() {
+        let thread_ts = thread_ts.trim();
+        if !thread_ts.is_empty() {
+            return format!("{base_key}_thread:{thread_ts}");
+        }
+    }
+    base_key
 }
 
 pub(crate) fn clear_sender_history(ctx: &ChannelRuntimeContext, sender_key: &str) {

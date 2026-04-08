@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use crate::api::config::effective_api_url;
 use crate::api::jwt::get_session_token;
 use crate::api::rest::BackendOAuthClient;
-use crate::openhuman::config::Config;
+use crate::openhuman::config::{Config, TelegramConfig};
 use crate::openhuman::credentials;
 use crate::rpc::RpcOutcome;
 
@@ -48,6 +48,48 @@ pub struct ChannelTestResult {
 /// Credential provider key for channel connections: `"channel:{id}:{mode}"`.
 fn credential_provider(channel_id: &str, mode: ChannelAuthMode) -> String {
     format!("channel:{}:{}", channel_id, mode)
+}
+
+fn parse_allowed_users(value: Option<&Value>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+
+    let mut push_identity = |raw: &str| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let normalized = trimmed.trim_start_matches('@').trim();
+        if normalized.is_empty() {
+            return;
+        }
+        let canonical = normalized.to_lowercase();
+        if !out
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&canonical))
+        {
+            out.push(canonical);
+        }
+    };
+
+    match value {
+        Some(Value::String(s)) => {
+            for part in s.split([',', '\n', '\r']) {
+                push_identity(part);
+            }
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(s) = item.as_str() {
+                    for part in s.split([',', '\n', '\r']) {
+                        push_identity(part);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    out
 }
 
 /// List all available channel definitions.
@@ -129,6 +171,44 @@ pub async fn connect_channel(
     )
     .await
     .map_err(|e| format!("failed to store credentials: {e}"))?;
+
+    // Keep runtime channel config in sync so listeners can actually start
+    // with the credentials just connected from the UI.
+    if channel_id == "telegram" && auth_mode == ChannelAuthMode::BotToken {
+        let bot_token = creds_map
+            .get("bot_token")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "missing required bot_token".to_string())?
+            .to_string();
+        let allowed_users = parse_allowed_users(creds_map.get("allowed_users"));
+
+        let mut persisted = config.clone();
+        let (stream_mode, draft_update_interval_ms, mention_only) =
+            if let Some(existing) = persisted.channels_config.telegram.as_ref() {
+                (
+                    existing.stream_mode,
+                    existing.draft_update_interval_ms,
+                    existing.mention_only,
+                )
+            } else {
+                (crate::openhuman::config::StreamMode::default(), 1000, false)
+            };
+
+        persisted.channels_config.telegram = Some(TelegramConfig {
+            bot_token,
+            allowed_users,
+            stream_mode,
+            draft_update_interval_ms,
+            mention_only,
+        });
+
+        persisted
+            .save()
+            .await
+            .map_err(|e| format!("failed to persist telegram config.toml: {e}"))?;
+    }
 
     Ok(RpcOutcome::single_log(
         ChannelConnectionResult {

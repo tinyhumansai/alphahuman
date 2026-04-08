@@ -1,5 +1,6 @@
 use super::super::context::{
-    ChannelRouteSelection, ChannelRuntimeContext, CHANNEL_MESSAGE_TIMEOUT_SECS,
+    conversation_history_key, ChannelRouteSelection, ChannelRuntimeContext,
+    CHANNEL_MESSAGE_TIMEOUT_SECS,
 };
 use super::super::runtime::process_channel_message;
 use super::super::{traits, Channel};
@@ -160,30 +161,27 @@ async fn process_channel_message_handles_models_command_without_llm_call() {
         multimodal: crate::openhuman::config::MultimodalConfig::default(),
     });
 
-    process_channel_message(
-        runtime_ctx.clone(),
-        traits::ChannelMessage {
-            id: "msg-cmd-1".to_string(),
-            sender: "alice".to_string(),
-            reply_target: "chat-1".to_string(),
-            content: "/models openhuman".to_string(),
-            channel: "telegram".to_string(),
-            timestamp: 1,
-            thread_ts: None,
-        },
-    )
-    .await;
+    let cmd_msg = traits::ChannelMessage {
+        id: "msg-cmd-1".to_string(),
+        sender: "alice".to_string(),
+        reply_target: "chat-1".to_string(),
+        content: "/models openhuman".to_string(),
+        channel: "telegram".to_string(),
+        timestamp: 1,
+        thread_ts: None,
+    };
+    let route_key = conversation_history_key(&cmd_msg);
+    process_channel_message(runtime_ctx.clone(), cmd_msg).await;
 
     let sent = channel_impl.sent_messages.lock().await;
     assert_eq!(sent.len(), 1);
     assert!(sent[0].contains("Provider switched to `openhuman`"));
 
-    let route_key = "telegram_alice";
     let route = runtime_ctx
         .route_overrides
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(route_key)
+        .get(&route_key)
         .cloned()
         .expect("route should be stored for sender");
     assert_eq!(route.provider, "openhuman");
@@ -210,7 +208,16 @@ async fn process_channel_message_uses_route_override_provider_and_model() {
     provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&default_provider));
     provider_cache_seed.insert("openrouter".to_string(), routed_provider);
 
-    let route_key = "telegram_alice".to_string();
+    let routed_msg = traits::ChannelMessage {
+        id: "msg-routed-1".to_string(),
+        sender: "alice".to_string(),
+        reply_target: "chat-1".to_string(),
+        content: "hello routed provider".to_string(),
+        channel: "telegram".to_string(),
+        timestamp: 2,
+        thread_ts: None,
+    };
+    let route_key = conversation_history_key(&routed_msg);
     let mut route_overrides = HashMap::new();
     route_overrides.insert(
         route_key,
@@ -244,19 +251,7 @@ async fn process_channel_message_uses_route_override_provider_and_model() {
         multimodal: crate::openhuman::config::MultimodalConfig::default(),
     });
 
-    process_channel_message(
-        runtime_ctx,
-        traits::ChannelMessage {
-            id: "msg-routed-1".to_string(),
-            sender: "alice".to_string(),
-            reply_target: "chat-1".to_string(),
-            content: "hello routed provider".to_string(),
-            channel: "telegram".to_string(),
-            timestamp: 2,
-            thread_ts: None,
-        },
-    )
-    .await;
+    process_channel_message(runtime_ctx, routed_msg).await;
 
     assert_eq!(default_provider_impl.call_count.load(Ordering::SeqCst), 0);
     assert_eq!(routed_provider_impl.call_count.load(Ordering::SeqCst), 1);

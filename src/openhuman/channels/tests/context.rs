@@ -1,10 +1,11 @@
-use super::common::{DummyProvider};
+use super::common::DummyProvider;
 use super::super::context::{
-    compact_sender_history, effective_channel_message_timeout_secs,
+    compact_sender_history, conversation_history_key, effective_channel_message_timeout_secs,
     is_context_window_overflow_error, should_skip_memory_context_entry, ChannelRuntimeContext,
     CHANNEL_HISTORY_COMPACT_CONTENT_CHARS, CHANNEL_HISTORY_COMPACT_KEEP_MESSAGES,
     CHANNEL_MESSAGE_TIMEOUT_SECS, MIN_CHANNEL_MESSAGE_TIMEOUT_SECS,
 };
+use super::super::traits;
 use crate::openhuman::providers::ChatMessage;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -100,4 +101,49 @@ fn compact_sender_history_keeps_recent_truncated_messages() {
         len <= CHANNEL_HISTORY_COMPACT_CONTENT_CHARS
             || (len <= CHANNEL_HISTORY_COMPACT_CONTENT_CHARS + 3 && turn.content.ends_with("..."))
     }));
+}
+
+// ── conversation_history_key tests ─────────────────────────────────────────
+
+fn make_channel_msg(channel: &str, thread_ts: Option<&str>) -> traits::ChannelMessage {
+    traits::ChannelMessage {
+        id: "test_id".to_string(),
+        sender: "alice".to_string(),
+        reply_target: "chat-1".to_string(),
+        content: "hello".to_string(),
+        channel: channel.to_string(),
+        timestamp: 1,
+        thread_ts: thread_ts.map(ToString::to_string),
+    }
+}
+
+/// Telegram uses thread_ts for reply targeting only; it must not split history.
+#[test]
+fn telegram_history_key_is_thread_ts_agnostic() {
+    let no_thread = make_channel_msg("telegram", None);
+    let with_thread = make_channel_msg("telegram", Some("99"));
+    let other_thread = make_channel_msg("telegram", Some("777"));
+
+    let key_base = conversation_history_key(&no_thread);
+    let key_a = conversation_history_key(&with_thread);
+    let key_b = conversation_history_key(&other_thread);
+
+    assert_eq!(key_base, key_a, "telegram: thread_ts must not change history key");
+    assert_eq!(key_a, key_b, "telegram: different thread_ts must share history key");
+}
+
+/// For every other channel (e.g. Slack, Discord), thread_ts splits conversation
+/// history so each thread is an independent context.
+#[test]
+fn non_telegram_history_key_differs_by_thread_ts() {
+    let no_thread = make_channel_msg("slack", None);
+    let with_thread = make_channel_msg("slack", Some("1234567890.000001"));
+
+    let key_base = conversation_history_key(&no_thread);
+    let key_thread = conversation_history_key(&with_thread);
+
+    assert_ne!(
+        key_base, key_thread,
+        "non-telegram channels must produce distinct keys for different thread_ts values"
+    );
 }

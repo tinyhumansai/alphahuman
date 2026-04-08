@@ -5,3 +5,4 @@ mod memory;
 mod prompt;
 mod runtime_dispatch;
 mod runtime_tool_calls;
+mod telegram_integration;
