@@ -35,10 +35,11 @@ const IntegrationsSlide = () => (
       Handle GitHub reviews, track Notion tasks, check Slack messages, manage your community and
       many more — all from a single Place
     </p>
-    {/* Image placeholder — will be replaced with integration visual */}
-    <div className="w-full h-36 rounded-xl bg-stone-50 flex items-center justify-center">
-      <span className="text-stone-300 text-xs">Integration visual goes here</span>
-    </div>
+    <img
+      src="/onboarding-manage-work.png"
+      alt="Integration icons showing connected apps"
+      className="w-full max-h-36 object-contain"
+    />
   </div>
 );
 
@@ -51,10 +52,11 @@ const AutomationSlide = () => (
     <p className="text-stone-500 text-sm leading-relaxed mb-6">
       Save time by automating your daily workflow. Everything you need, right at your fingertips.
     </p>
-    {/* Image placeholder — will be replaced with task list visual */}
-    <div className="w-full h-48 rounded-xl bg-stone-50 flex items-center justify-center">
-      <span className="text-stone-300 text-xs">Automation visual goes here</span>
-    </div>
+    <img
+      src="/onboarding-automate-all.png"
+      alt="Automated tasks from Notion, Slack, and GitHub"
+      className="w-full max-h-48 object-contain"
+    />
   </div>
 );
 
