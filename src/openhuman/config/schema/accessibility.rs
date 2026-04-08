@@ -19,6 +19,12 @@ pub struct ScreenIntelligenceConfig {
     pub panic_stop_hotkey: String,
     #[serde(default = "default_autocomplete_enabled")]
     pub autocomplete_enabled: bool,
+    /// When `true`, Pass 2 sends the screenshot to a vision-capable LLM for
+    /// visual context extraction.  When `false`, only Apple Vision OCR (Pass 1)
+    /// feeds into the text synthesis LLM (Pass 3) — no vision model required.
+    /// Default: `true`.
+    #[serde(default = "default_use_vision_model")]
+    pub use_vision_model: bool,
     /// When `true`, captured screenshots are saved to `{workspace_dir}/screenshots/`
     /// instead of being discarded after vision processing. Default: `false`.
     #[serde(default)]
@@ -61,6 +67,10 @@ fn default_autocomplete_enabled() -> bool {
     true
 }
 
+fn default_use_vision_model() -> bool {
+    true
+}
+
 impl Default for ScreenIntelligenceConfig {
     fn default() -> Self {
         Self {
@@ -72,6 +82,7 @@ impl Default for ScreenIntelligenceConfig {
             session_ttl_secs: default_session_ttl_secs(),
             panic_stop_hotkey: default_panic_stop_hotkey(),
             autocomplete_enabled: default_autocomplete_enabled(),
+            use_vision_model: default_use_vision_model(),
             keep_screenshots: false,
             allowlist: vec![],
             denylist: vec![

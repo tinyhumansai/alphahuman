@@ -46,6 +46,7 @@ export interface AccessibilityConfig {
   session_ttl_secs: number;
   panic_stop_hotkey: string;
   autocomplete_enabled: boolean;
+  use_vision_model: boolean;
   keep_screenshots: boolean;
   allowlist: string[];
   denylist: string[];
