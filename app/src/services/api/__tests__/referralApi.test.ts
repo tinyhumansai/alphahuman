@@ -148,4 +148,22 @@ describe('referralApi', () => {
       expect.objectContaining({ code: 'abcd', deviceFingerprint: expect.any(String) })
     );
   });
+
+  it('getStats throws { success: false, error } when core rejects with Error', async () => {
+    const { callCoreCommand } = await import('../../coreCommandClient');
+    vi.mocked(callCoreCommand).mockRejectedValueOnce(new Error('Core RPC HTTP 503'));
+    await expect(referralApi.getStats()).rejects.toEqual({
+      success: false,
+      error: 'Core RPC HTTP 503',
+    });
+  });
+
+  it('applyCode throws { success: false, error } preserving err.error string', async () => {
+    const { callCoreCommand } = await import('../../coreCommandClient');
+    vi.mocked(callCoreCommand).mockRejectedValueOnce({ error: 'Code already used' });
+    await expect(referralApi.applyCode('ABCD')).rejects.toEqual({
+      success: false,
+      error: 'Code already used',
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useUser } from '../../hooks/useUser';
 import { useCoreState } from '../../providers/CoreStateProvider';
@@ -7,6 +7,14 @@ import type { ReferralRelationshipStatus, ReferralStats } from '../../types/refe
 
 function formatUsd(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+
+/** Basis points → percent for display (100 bps = 1%). */
+function formatRewardRatePercentFromBps(bps: number): string {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(bps / 100);
 }
 
 function statusBadgeClass(status: ReferralRelationshipStatus): string {
@@ -46,18 +54,30 @@ const ReferralRewardsSection = () => {
   const [applySuccess, setApplySuccess] = useState(false);
   const [copyHint, setCopyHint] = useState<string | null>(null);
 
+  const latestRequestIdRef = useRef(0);
+
   const loadStats = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      latestRequestIdRef.current += 1;
+      setLoading(false);
+      return;
+    }
+
+    latestRequestIdRef.current += 1;
+    const requestId = latestRequestIdRef.current;
+
     setLoading(true);
     setLoadError(null);
     try {
       const s = await referralApi.getStats();
+      if (requestId !== latestRequestIdRef.current) return;
       setStats(s);
       console.debug('[referral-ui] stats', {
         codeLen: s.referralCode.length,
         referrals: s.referrals.length,
       });
     } catch (err) {
+      if (requestId !== latestRequestIdRef.current) return;
       const msg =
         err && typeof err === 'object' && 'error' in err
           ? String((err as { error: string }).error)
@@ -65,7 +85,9 @@ const ReferralRewardsSection = () => {
       setLoadError(msg);
       console.debug('[referral-ui] stats error', msg);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [token]);
 
@@ -161,8 +183,8 @@ const ReferralRewardsSection = () => {
           </p>
           {stats?.rewardRateBps ? (
             <p className="text-xs text-stone-500">
-              Current reward rate: {(stats.rewardRateBps / 100).toFixed(0)}% of eligible referred
-              payments (basis points {stats.rewardRateBps}).
+              Current reward rate: {formatRewardRatePercentFromBps(stats.rewardRateBps)}% of
+              eligible referred payments (basis points {stats.rewardRateBps}).
             </p>
           ) : null}
         </div>
@@ -265,10 +287,7 @@ const ReferralRewardsSection = () => {
                     {stats.referrals.map((row, idx) => (
                       <tr key={row.id ?? row.referredUserId ?? idx} className="bg-white">
                         <td className="px-3 py-2 font-mono text-stone-800">
-                          {row.referredUserMasked ||
-                            row.referredDisplayName ||
-                            row.referredUserId ||
-                            '—'}
+                          {row.referredUserMasked || row.referredDisplayName || '—'}
                         </td>
                         <td className="px-3 py-2">
                           <span

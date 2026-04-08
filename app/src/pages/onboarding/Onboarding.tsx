@@ -29,6 +29,14 @@ function hasReferralFromProfile(
   return !!(user?.referral?.invitedBy || user?.referral?.invitedByCode);
 }
 
+/** When referral is skipped, step index 1 (apply) is not shown — treat as screen permissions (2). */
+function resolveOnboardingStep(currentStep: number, skipReferralStep: boolean): number {
+  if (skipReferralStep && currentStep === 1) {
+    return 2;
+  }
+  return currentStep;
+}
+
 const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const { setOnboardingCompletedFlag, setOnboardingTasks, snapshot } = useCoreState();
   const [currentStep, setCurrentStep] = useState(0);
@@ -36,44 +44,37 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     accessibilityPermissionGranted: false,
     connectedSources: [],
   });
-  const [skipReferralStep, setSkipReferralStep] = useState(false);
-  const [referralGateReady, setReferralGateReady] = useState(false);
+  /** Last session token for which referral stats prefetch finished (async path only). */
+  const [referralStatsToken, setReferralStatsToken] = useState<string | null>(null);
+  const [skipReferralFromStats, setSkipReferralFromStats] = useState(false);
   const [referralAppliedThisSession, setReferralAppliedThisSession] = useState(false);
 
   const token = snapshot.sessionToken;
   const currentUser = snapshot.currentUser;
 
   const profileAlreadyReferred = useMemo(() => hasReferralFromProfile(currentUser), [currentUser]);
+  const needsReferralStatsPrefetch = !!(token && !profileAlreadyReferred);
 
   useEffect(() => {
-    if (!token) {
-      setSkipReferralStep(false);
-      setReferralGateReady(true);
-      return;
-    }
-
-    if (profileAlreadyReferred) {
-      setSkipReferralStep(true);
-      setReferralGateReady(true);
+    if (!needsReferralStatsPrefetch) {
       return;
     }
 
     let cancelled = false;
-    setReferralGateReady(false);
     (async () => {
       try {
         const stats = await referralApi.getStats();
         const applied =
           typeof stats.appliedReferralCode === 'string' && stats.appliedReferralCode.trim() !== '';
         if (!cancelled) {
-          setSkipReferralStep(applied);
-          setReferralGateReady(true);
+          setSkipReferralFromStats(applied);
+          setReferralStatsToken(token);
         }
       } catch {
         console.debug('[onboarding] referral preflight failed; showing referral step');
         if (!cancelled) {
-          setSkipReferralStep(false);
-          setReferralGateReady(true);
+          setSkipReferralFromStats(false);
+          setReferralStatsToken(token);
         }
       }
     })();
@@ -81,22 +82,26 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     return () => {
       cancelled = true;
     };
-  }, [token, profileAlreadyReferred]);
+  }, [needsReferralStatsPrefetch, token, profileAlreadyReferred]);
 
-  useEffect(() => {
-    if (skipReferralStep && currentStep === 1) {
-      setCurrentStep(2);
-    }
-  }, [skipReferralStep, currentStep]);
+  const referralGateReady = !token || profileAlreadyReferred || referralStatsToken === token;
+
+  const skipReferralStep = !token
+    ? false
+    : profileAlreadyReferred
+      ? true
+      : referralStatsToken === token && skipReferralFromStats;
+
+  const resolvedStep = resolveOnboardingStep(currentStep, skipReferralStep);
 
   const totalSteps = skipReferralStep ? 3 : 4;
   const progressCurrentStep = skipReferralStep
-    ? currentStep === 0
+    ? resolvedStep === 0
       ? 0
-      : currentStep === 2
+      : resolvedStep === 2
         ? 1
         : 2
-    : currentStep;
+    : resolvedStep;
 
   const handleWelcomeNext = () => {
     if (skipReferralStep) {
@@ -107,21 +112,23 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   };
 
   const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
+    const logical = resolveOnboardingStep(currentStep, skipReferralStep);
+    if (logical < 3) {
+      setCurrentStep(logical + 1);
     }
   };
 
   const handleBack = () => {
-    if (currentStep <= 0) return;
+    const logical = resolveOnboardingStep(currentStep, skipReferralStep);
+    if (logical <= 0) return;
     if (
-      currentStep === 2 &&
+      logical === 2 &&
       (skipReferralStep || profileAlreadyReferred || referralAppliedThisSession)
     ) {
       setCurrentStep(0);
       return;
     }
-    setCurrentStep(currentStep - 1);
+    setCurrentStep(logical - 1);
   };
 
   const handleAccessibilityNext = (accessibilityPermissionGranted: boolean) => {
@@ -159,7 +166,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   };
 
   const renderStep = () => {
-    switch (currentStep) {
+    switch (resolvedStep) {
       case 0:
         return (
           <WelcomeStep

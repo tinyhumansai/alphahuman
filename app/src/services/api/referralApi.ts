@@ -7,6 +7,30 @@ import type {
 import { getOrCreateDeviceFingerprint } from '../../utils/deviceFingerprint';
 import { callCoreCommand } from '../coreCommandClient';
 
+/** Shape thrown by {@link referralApi.getStats} / {@link referralApi.applyCode} on RPC failure. */
+export type ReferralRpcFailure = { success: false; error: string };
+
+function referralRpcErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>;
+    if (typeof o.error === 'string' && o.error.trim() !== '') {
+      return o.error;
+    }
+    if (typeof o.message === 'string' && o.message.trim() !== '') {
+      return o.message;
+    }
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return String(err);
+}
+
+function throwReferralRpcFailure(err: unknown): never {
+  const failure: ReferralRpcFailure = { success: false, error: referralRpcErrorMessage(err) };
+  throw failure;
+}
+
 function num(v: unknown): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string' && v.trim() !== '') {
@@ -265,11 +289,16 @@ export const referralApi = {
    * Uses the sidecar HTTP client so the desktop WebView avoids direct `fetch` (fixes WKWebView "Load failed" / CORS to the API host).
    */
   getStats: async (): Promise<ReferralStats> => {
-    const data = await callCoreCommand<unknown>('openhuman.referral_get_stats');
-    console.debug('[referral] stats loaded via core', {
-      hasCode: !!(data && typeof data === 'object'),
-    });
-    return normalizeReferralStats(data);
+    try {
+      const data = await callCoreCommand<unknown>('openhuman.referral_get_stats');
+      console.debug('[referral] stats loaded via core', {
+        hasCode: !!(data && typeof data === 'object'),
+      });
+      return normalizeReferralStats(data);
+    } catch (err) {
+      console.debug('[referral] getStats RPC failed', referralRpcErrorMessage(err));
+      throwReferralRpcFailure(err);
+    }
   },
 
   /**
@@ -281,10 +310,15 @@ export const referralApi = {
       throw { success: false as const, error: 'Referral code is required' };
     }
     const deviceFingerprint = getOrCreateDeviceFingerprint();
-    await callCoreCommand<unknown>('openhuman.referral_apply', {
-      code: trimmed,
-      deviceFingerprint,
-    });
-    console.debug('[referral] apply succeeded', { codeLength: trimmed.length });
+    try {
+      await callCoreCommand<unknown>('openhuman.referral_apply', {
+        code: trimmed,
+        deviceFingerprint,
+      });
+      console.debug('[referral] apply succeeded', { codeLength: trimmed.length });
+    } catch (err) {
+      console.debug('[referral] apply RPC failed', referralRpcErrorMessage(err));
+      throwReferralRpcFailure(err);
+    }
   },
 };

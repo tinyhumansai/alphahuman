@@ -92,7 +92,7 @@ const WelcomeStep = ({
         <ProgressIndicator currentStep={slide} totalSteps={TOTAL_SLIDES} />
       </div>
       <OnboardingNextButton
-        label="Let Start"
+        label="Let's Start"
         onClick={onNext}
         disabled={nextDisabled}
         loading={nextLoading}
