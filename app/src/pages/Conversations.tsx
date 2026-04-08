@@ -1170,7 +1170,7 @@ const Conversations = () => {
                   <p className="text-xs text-coral-600 truncate">
                     {teamUsage.remainingUsd <= 0
                       ? 'Weekly inference budget exhausted. Top up to continue.'
-                      : `5-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
+                      : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
                   </p>
                 </div>
                 {teamUsage.remainingUsd <= 0 && (
@@ -1189,7 +1189,7 @@ const Conversations = () => {
                 {teamUsage ? (
                   <div className="flex items-center gap-2">
                     <LimitPill
-                      label="5h"
+                      label="10h"
                       usedPct={
                         teamUsage.fiveHourCapUsd > 0
                           ? Math.min(1, teamUsage.fiveHourSpendUsd / teamUsage.fiveHourCapUsd)
@@ -1216,7 +1216,7 @@ const Conversations = () => {
                   <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
                     <div className="bg-stone-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg whitespace-nowrap space-y-1.5">
                       <div className="flex items-center justify-between gap-4">
-                        <span className="text-stone-400">5-hour limit</span>
+                        <span className="text-stone-400">10-hour limit</span>
                         <span>
                           ${teamUsage.fiveHourSpendUsd.toFixed(2)} / $
                           {teamUsage.fiveHourCapUsd.toFixed(2)}
