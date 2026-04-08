@@ -84,6 +84,12 @@ pub trait Channel: Send + Sync {
         Ok(())
     }
 
+    /// Whether this channel supports native emoji reactions on messages.
+    /// Channels that return `true` must handle `[REACTION:<emoji>]` content in `send()`.
+    fn supports_reactions(&self) -> bool {
+        false
+    }
+
     /// Whether this channel supports progressive message updates via draft edits.
     fn supports_draft_updates(&self) -> bool {
         false

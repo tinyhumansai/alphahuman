@@ -13,6 +13,7 @@ use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 static INIT: Once = Once::new();
 
@@ -84,6 +85,31 @@ fn short_target(target: &str) -> &str {
     target.rsplit("::").next().unwrap_or(target)
 }
 
+fn parse_log_file_constraints() -> Vec<String> {
+    std::env::var("OPENHUMAN_LOG_FILE_CONSTRAINTS")
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn event_matches_file_constraints(meta: &tracing::Metadata<'_>, constraints: &[String]) -> bool {
+    if constraints.is_empty() {
+        return true;
+    }
+
+    let file = meta.file().unwrap_or_default();
+    let target = meta.target();
+    constraints
+        .iter()
+        .any(|constraint| file.contains(constraint) || target.contains(constraint))
+}
+
 /// Initialize `tracing` + bridge the `log` crate so existing `log::info!` calls appear.
 ///
 /// - If `RUST_LOG` is unset: uses [`CliLogDefault`] and `verbose` to pick a default filter string.
@@ -122,10 +148,14 @@ pub fn init_for_cli_run(verbose: bool, default_scope: CliLogDefault) {
         });
 
         let use_color = io::stderr().is_terminal();
+        let file_constraints = parse_log_file_constraints();
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_ansi(use_color)
-            .event_format(CleanCliFormat);
+            .event_format(CleanCliFormat)
+            .with_filter(tracing_subscriber::filter::filter_fn(move |meta| {
+                event_matches_file_constraints(meta, &file_constraints)
+            }));
 
         let sentry_layer =
             sentry::integrations::tracing::layer().event_filter(|md: &tracing::Metadata<'_>| {
