@@ -1,6 +1,5 @@
 use crate::openhuman::config::HeartbeatConfig;
 use crate::openhuman::subconscious::global::get_or_init_engine;
-use crate::openhuman::subconscious::types::Decision;
 use anyhow::Result;
 use std::path::Path;
 use tokio::time::{self, Duration};
@@ -40,10 +39,10 @@ impl HeartbeatEngine {
             }
         );
 
-        let mut interval = time::interval(Duration::from_secs(u64::from(interval_mins) * 60));
+        let sleep_secs = u64::from(interval_mins) * 60;
 
         loop {
-            interval.tick().await;
+            time::sleep(Duration::from_secs(sleep_secs)).await;
 
             if self.config.inference_enabled {
                 // Get the shared global engine (same instance as RPC handlers)
@@ -64,21 +63,12 @@ impl HeartbeatEngine {
                 };
 
                 match engine.tick().await {
-                    Ok(result) => match result.output.decision {
-                        Decision::Noop => {
-                            info!("[heartbeat] tick: noop — {}", result.output.reason);
-                        }
-                        Decision::Act => {
-                            info!(
-                                "[heartbeat] tick: act — {} ({} actions)",
-                                result.output.reason,
-                                result.output.actions.len()
-                            );
-                        }
-                        Decision::Escalate => {
-                            info!("[heartbeat] tick: escalate — {}", result.output.reason);
-                        }
-                    },
+                    Ok(result) => {
+                        info!(
+                            "[heartbeat] tick: executed={} escalated={} duration={}ms",
+                            result.executed, result.escalated, result.duration_ms
+                        );
+                    }
                     Err(e) => {
                         warn!("[heartbeat] subconscious tick error: {e}");
                     }
