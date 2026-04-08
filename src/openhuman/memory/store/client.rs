@@ -117,6 +117,15 @@ impl MemoryClient {
         Ok(document_id)
     }
 
+    /// Store a document (DB row + markdown file) without vector embedding or
+    /// graph extraction.  Use this for high-frequency, ephemeral writes where
+    /// the full pipeline would be too expensive (e.g. screen-intelligence
+    /// snapshots).  The document is still searchable by metadata/FTS but will
+    /// not appear in semantic vector queries or the knowledge graph.
+    pub async fn put_doc_light(&self, input: NamespaceDocumentInput) -> Result<String, String> {
+        self.inner.upsert_document_metadata_only(input).await
+    }
+
     /// Perform a full ingestion (chunking, embedding, extraction) synchronously.
     ///
     /// Unlike `put_doc`, this waits for the entire process to complete.

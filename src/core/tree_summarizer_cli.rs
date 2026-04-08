@@ -347,7 +347,7 @@ fn init_logging(verbose: bool) {
     if !verbose && std::env::var_os("RUST_LOG").is_none() {
         unsafe { std::env::set_var("RUST_LOG", "warn") };
     }
-    crate::core::logging::init_for_cli_run(verbose);
+    crate::core::logging::init_for_cli_run(verbose, crate::core::logging::CliLogDefault::Global);
 }
 
 fn is_help(value: &str) -> bool {

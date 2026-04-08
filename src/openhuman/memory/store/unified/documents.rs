@@ -140,6 +140,108 @@ impl UnifiedMemory {
         Ok(document_id)
     }
 
+    /// Store a document (DB row + markdown file) without chunking, embedding,
+    /// or graph extraction.  Suitable for high-frequency, low-value writes
+    /// (e.g. screen-intelligence snapshots) where the full ingestion pipeline
+    /// would be too expensive.
+    pub async fn upsert_document_metadata_only(
+        &self,
+        input: NamespaceDocumentInput,
+    ) -> Result<String, String> {
+        let namespace = Self::sanitize_namespace(&input.namespace);
+        let key = input.key.trim().to_string();
+        if key.is_empty() {
+            return Err("document key cannot be empty".to_string());
+        }
+        let existing_document_id = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT document_id FROM memory_docs WHERE namespace = ?1 AND key = ?2 LIMIT 1",
+                params![namespace, key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("lookup existing document_id: {e}"))?
+        };
+        let document_id = input
+            .document_id
+            .or(existing_document_id)
+            .unwrap_or_else(|| {
+                let ts = Self::now_ts() as u64;
+                let short = &Uuid::new_v4().to_string()[..8];
+                format!("{ts}_{short}")
+            });
+        let now = Self::now_ts();
+        let created_at = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT created_at FROM memory_docs WHERE namespace = ?1 AND key = ?2 LIMIT 1",
+                params![namespace, key],
+                |row| row.get::<_, f64>(0),
+            )
+            .optional()
+            .map_err(|e| format!("lookup existing created_at: {e}"))?
+            .unwrap_or(now)
+        };
+        let updated_at = now;
+        let markdown_rel = self
+            .write_markdown_doc(
+                &namespace,
+                &document_id,
+                &input.title,
+                &input.source_type,
+                &input.priority,
+                &input.tags,
+                created_at,
+                updated_at,
+                &input.content,
+            )
+            .map_err(|e| e.to_string())?;
+
+        let tags_json = serde_json::to_string(&input.tags).map_err(|e| e.to_string())?;
+        let metadata_json = input.metadata.to_string();
+
+        {
+            let conn = self.conn.lock();
+            conn.execute(
+                "INSERT INTO memory_docs
+                  (document_id, namespace, key, title, content, source_type, priority, tags_json, metadata_json, category, session_id, created_at, updated_at, markdown_rel_path)
+                 VALUES
+                  (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 ON CONFLICT(namespace, key) DO UPDATE SET
+                  title = excluded.title,
+                  content = excluded.content,
+                  source_type = excluded.source_type,
+                  priority = excluded.priority,
+                  tags_json = excluded.tags_json,
+                  metadata_json = excluded.metadata_json,
+                  category = excluded.category,
+                  session_id = excluded.session_id,
+                  updated_at = excluded.updated_at,
+                  markdown_rel_path = excluded.markdown_rel_path",
+                params![
+                    document_id,
+                    namespace,
+                    key,
+                    input.title,
+                    input.content,
+                    input.source_type,
+                    input.priority,
+                    tags_json,
+                    metadata_json,
+                    input.category,
+                    input.session_id,
+                    created_at,
+                    updated_at,
+                    markdown_rel
+                ],
+            )
+            .map_err(|e| format!("upsert memory_docs: {e}"))?;
+        }
+
+        Ok(document_id)
+    }
+
     pub(crate) async fn load_documents_for_scope(
         &self,
         namespace: &str,
