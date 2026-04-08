@@ -6,12 +6,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type {
-  SubconsciousEscalation,
-  SubconsciousLogEntry,
-  SubconsciousStatus,
-  SubconsciousTask,
-} from '../utils/tauriCommands/subconscious';
 import {
   isTauri,
   subconsciousEscalationsApprove,
@@ -25,6 +19,12 @@ import {
   subconsciousTasksUpdate,
   subconsciousTrigger,
 } from '../utils/tauriCommands';
+import type {
+  SubconsciousEscalation,
+  SubconsciousLogEntry,
+  SubconsciousStatus,
+  SubconsciousTask,
+} from '../utils/tauriCommands/subconscious';
 
 export interface UseSubconsciousResult {
   // Data

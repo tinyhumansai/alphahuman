@@ -2,7 +2,7 @@
  * Subconscious engine commands — task management, escalations, execution log.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { isTauri, type CommandResponse } from './common';
+import { type CommandResponse, isTauri } from './common';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,11 +52,7 @@ export interface SubconsciousStatus {
 
 export interface TickResult {
   tick_at: number;
-  evaluations: Array<{
-    task_id: string;
-    decision: string;
-    reason: string;
-  }>;
+  evaluations: Array<{ task_id: string; decision: string; reason: string }>;
   executed: number;
   escalated: number;
   duration_ms: number;

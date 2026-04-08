@@ -10,13 +10,13 @@ import {
   useSnoozeActionableItem,
   useUpdateActionableItem,
 } from '../hooks/useIntelligenceApiFallback';
-import { useSubconscious } from '../hooks/useSubconscious';
 import {
   useIntelligenceSocket,
   useIntelligenceSocketManager,
 } from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
 import { useScreenIntelligenceItems } from '../hooks/useScreenIntelligenceItems';
+import { useSubconscious } from '../hooks/useSubconscious';
 import type {
   ActionableItem,
   ActionableItemSource,
@@ -27,7 +27,8 @@ import type {
 
 type IntelligenceTab = 'memory' | 'subconscious' | 'dreams';
 
-const SKILL_KEYWORDS = /\bskill\b|\boauth\b|\bnotion\b|\bgmail\b|\bintegration\b|\bdisconnect|\breconnect|\bre-?auth/i;
+const SKILL_KEYWORDS =
+  /\bskill\b|\boauth\b|\bnotion\b|\bgmail\b|\bintegration\b|\bdisconnect|\breconnect|\bre-?auth/i;
 
 function isSkillRelated(title: string, description: string): boolean {
   return SKILL_KEYWORDS.test(title) || SKILL_KEYWORDS.test(description);
@@ -496,7 +497,10 @@ export default function Intelligence() {
                           <>
                             <span className="text-stone-300">|</span>
                             <span>
-                              Last: {new Date(subconsciousEngineStatus.last_tick_at * 1000).toLocaleTimeString()}
+                              Last:{' '}
+                              {new Date(
+                                subconsciousEngineStatus.last_tick_at * 1000
+                              ).toLocaleTimeString()}
                             </span>
                           </>
                         )}
@@ -514,8 +518,17 @@ export default function Intelligence() {
                   <div className="flex items-center gap-2">
                     {/* Interval selector */}
                     <div className="flex items-center gap-1.5">
-                      <svg className="w-3 h-3 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <svg
+                        className="w-3 h-3 text-stone-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
                       </svg>
                       <select
                         value={subconsciousEngineStatus?.interval_minutes ?? 5}
@@ -542,8 +555,17 @@ export default function Intelligence() {
                       {subconsciousTriggering ? (
                         <div className="w-3 h-3 border border-stone-400 border-t-transparent rounded-full animate-spin" />
                       ) : (
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                          />
                         </svg>
                       )}
                       Run Now
@@ -563,19 +585,22 @@ export default function Intelligence() {
                     </h3>
                     <div className="space-y-2">
                       {escalations.map(esc => (
-                        <div key={esc.id} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <div
+                          key={esc.id}
+                          className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <p className="text-sm font-medium text-stone-900">{esc.title}</p>
                               <p className="text-xs text-stone-500 mt-1">{esc.description}</p>
                               <div className="flex items-center gap-2 mt-2">
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                                  esc.priority === 'critical'
-                                    ? 'bg-coral-100 text-coral-700'
-                                    : esc.priority === 'important'
-                                      ? 'bg-amber-100 text-amber-700'
-                                      : 'bg-stone-100 text-stone-600'
-                                }`}>
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full ${
+                                    esc.priority === 'critical'
+                                      ? 'bg-coral-100 text-coral-700'
+                                      : esc.priority === 'important'
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-stone-100 text-stone-600'
+                                  }`}>
                                   {esc.priority}
                                 </span>
                                 <span className="text-[10px] text-stone-400">
@@ -632,8 +657,12 @@ export default function Intelligence() {
                             key={task.id}
                             className="flex items-center py-2 px-3 bg-stone-50 rounded-lg">
                             <div className="w-1.5 h-1.5 rounded-full bg-sage-400 flex-shrink-0 mr-2.5" />
-                            <span className="text-sm text-stone-900 truncate flex-1">{task.title}</span>
-                            <span className="text-[10px] text-stone-400 flex-shrink-0 px-1.5 py-0.5 rounded bg-stone-100">default</span>
+                            <span className="text-sm text-stone-900 truncate flex-1">
+                              {task.title}
+                            </span>
+                            <span className="text-[10px] text-stone-400 flex-shrink-0 px-1.5 py-0.5 rounded bg-stone-100">
+                              default
+                            </span>
                           </div>
                         ))}
                       {/* User tasks — toggle switch + delete */}
@@ -655,15 +684,25 @@ export default function Intelligence() {
                                   }`}
                                 />
                               </button>
-                              <span className={`text-sm truncate ${task.enabled ? 'text-stone-900' : 'text-stone-400'}`}>
+                              <span
+                                className={`text-sm truncate ${task.enabled ? 'text-stone-900' : 'text-stone-400'}`}>
                                 {task.title}
                               </span>
                             </div>
                             <button
                               onClick={() => removeSubconsciousTask(task.id)}
                               className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-coral-500 transition-all">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
                               </svg>
                             </button>
                           </div>
@@ -737,9 +776,11 @@ export default function Intelligence() {
                           />
                           <span
                             className={`break-words min-w-0 ${
-                              entry.decision === 'in_progress' ? 'text-stone-400' :
-                              entry.decision === 'failed' ? 'text-coral-500' :
-                              'text-stone-600'
+                              entry.decision === 'in_progress'
+                                ? 'text-stone-400'
+                                : entry.decision === 'failed'
+                                  ? 'text-coral-500'
+                                  : 'text-stone-600'
                             } ${entry.result && entry.result.length > 120 ? 'cursor-pointer hover:text-stone-900' : ''}`}
                             onClick={() => {
                               if (entry.result && entry.result.length > 120) {
