@@ -50,6 +50,11 @@ export interface AccessibilityConfig {
   denylist: string[];
 }
 
+export interface AccessibilityCoreProcessStatus {
+  pid: number;
+  started_at_ms: number;
+}
+
 export interface AccessibilityStatus {
   platform_supported: boolean;
   permissions: AccessibilityPermissionStatus;
@@ -60,6 +65,8 @@ export interface AccessibilityStatus {
   is_context_blocked: boolean;
   /** Absolute path of the core binary; macOS TCC applies to this executable. */
   permission_check_process_path?: string | null;
+  /** Identity of the core process currently serving RPC requests. */
+  core_process?: AccessibilityCoreProcessStatus | null;
 }
 
 export interface AccessibilityStartSessionParams {

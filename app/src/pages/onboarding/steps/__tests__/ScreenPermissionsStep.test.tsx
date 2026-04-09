@@ -14,7 +14,7 @@ import {
   type AccessibilityStatus,
   openhumanAccessibilityRequestPermission,
   openhumanAccessibilityStatus,
-  restartCoreProcess,
+  openhumanServiceRestart,
 } from '../../../../utils/tauriCommands';
 import ScreenPermissionsStep from '../ScreenPermissionsStep';
 
@@ -24,12 +24,16 @@ vi.mock('../../../../utils/tauriCommands', async importOriginal => {
     ...actual,
     openhumanAccessibilityRequestPermission: vi.fn(),
     openhumanAccessibilityStatus: vi.fn(),
-    restartCoreProcess: vi.fn(),
+    openhumanServiceRestart: vi.fn(),
   };
 });
 
 const deniedStatus: AccessibilityStatus = {
   platform_supported: true,
+  core_process: {
+    pid: 4242,
+    started_at_ms: 1712700000000,
+  },
   permissions: {
     screen_recording: 'unknown',
     accessibility: 'denied',
@@ -74,6 +78,10 @@ const deniedStatus: AccessibilityStatus = {
 
 const grantedStatus: AccessibilityStatus = {
   ...deniedStatus,
+  core_process: {
+    pid: 5252,
+    started_at_ms: 1712700060000,
+  },
   permissions: { ...deniedStatus.permissions, accessibility: 'granted' },
 };
 
@@ -106,7 +114,10 @@ function renderStep() {
 describe('ScreenPermissionsStep', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(restartCoreProcess).mockResolvedValue(undefined);
+    vi.mocked(openhumanServiceRestart).mockResolvedValue({
+      result: { accepted: true, source: 'test', reason: 'restart' },
+      logs: [],
+    } as never);
     vi.mocked(openhumanAccessibilityRequestPermission).mockResolvedValue({
       result: deniedStatus.permissions,
       logs: [],
@@ -132,7 +143,7 @@ describe('ScreenPermissionsStep', () => {
     fireEvent(window, new Event('focus'));
 
     await waitFor(() => {
-      expect(restartCoreProcess).toHaveBeenCalledTimes(1);
+      expect(openhumanServiceRestart).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {

@@ -13,6 +13,10 @@ import reducer, {
 
 const sampleStatus: AccessibilityStatus = {
   platform_supported: true,
+  core_process: {
+    pid: 4242,
+    started_at_ms: 1712700000000,
+  },
   permissions: {
     screen_recording: 'granted',
     accessibility: 'granted',
@@ -59,6 +63,7 @@ describe('accessibilitySlice', () => {
   it('has expected initial state', () => {
     const state = reducer(undefined, { type: '@@INIT' });
     expect(state.status).toBeNull();
+    expect(state.lastRestartSummary).toBeNull();
     expect(state.isLoading).toBe(false);
     expect(state.lastError).toBeNull();
   });
@@ -94,9 +99,17 @@ describe('accessibilitySlice', () => {
   it('stores permission_check_process_path after refreshPermissionsWithRestart', () => {
     const fulfilled = reducer(
       undefined,
-      refreshPermissionsWithRestart.fulfilled(sampleStatus, 'req-restart', undefined)
+      refreshPermissionsWithRestart.fulfilled(
+        {
+          status: sampleStatus,
+          restartSummary: 'Core restarted: PID 1 at 1:00:00 PM -> PID 4242 at 1:05:00 PM.',
+        },
+        'req-restart',
+        undefined
+      )
     );
     expect(fulfilled.isRestartingCore).toBe(false);
+    expect(fulfilled.lastRestartSummary).toContain('Core restarted');
     expect(fulfilled.status?.permission_check_process_path).toBe(
       '/test/app/src-tauri/binaries/openhuman-core-aarch64-apple-darwin'
     );

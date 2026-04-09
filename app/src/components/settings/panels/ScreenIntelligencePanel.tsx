@@ -13,7 +13,6 @@ import { isTauri, openhumanUpdateScreenIntelligenceSettings } from '../../../uti
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import PermissionsSection from './screen-intelligence/PermissionsSection';
-import SessionAndVisionSection from './screen-intelligence/SessionAndVisionSection';
 
 const formatRemaining = (remainingMs: number | null): string => {
   if (remainingMs === null || remainingMs <= 0) {
@@ -50,6 +49,7 @@ const ScreenIntelligencePanel = () => {
   const dispatch = useAppDispatch();
   const {
     status,
+    lastRestartSummary,
     isLoading,
     isRequestingPermissions,
     isRestartingCore,
@@ -173,6 +173,7 @@ const ScreenIntelligencePanel = () => {
           accessibility={status?.permissions.accessibility ?? 'unknown'}
           inputMonitoring={status?.permissions.input_monitoring ?? 'unknown'}
           anyPermissionDenied={anyPermissionDenied ?? false}
+          lastRestartSummary={lastRestartSummary}
           permissionCheckProcessPath={status?.permission_check_process_path}
           isRequestingPermissions={isRequestingPermissions}
           isRestartingCore={isRestartingCore}

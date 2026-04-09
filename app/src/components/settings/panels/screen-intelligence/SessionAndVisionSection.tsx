@@ -20,8 +20,6 @@ interface SessionAndVisionSectionProps {
   stopDisabled: boolean;
   remaining: string;
   screenMonitoring: boolean;
-  deviceControl: boolean;
-  predictiveInput: boolean;
   recentVisionSummaries: AccessibilityVisionSummary[];
 }
 
@@ -35,8 +33,6 @@ const SessionAndVisionSection = ({
   stopDisabled,
   remaining,
   screenMonitoring,
-  deviceControl,
-  predictiveInput,
   recentVisionSummaries,
 }: SessionAndVisionSectionProps) => {
   const dispatch = useAppDispatch();
@@ -69,8 +65,6 @@ const SessionAndVisionSection = ({
                   consent: true,
                   ttl_secs: status?.config.session_ttl_secs ?? 300,
                   screen_monitoring: screenMonitoring,
-                  device_control: deviceControl,
-                  predictive_input: predictiveInput,
                 })
               )
             }

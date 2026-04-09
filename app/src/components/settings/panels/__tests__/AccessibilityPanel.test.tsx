@@ -67,6 +67,7 @@ const createStore = () =>
     preloadedState: {
       accessibility: {
         status,
+        lastRestartSummary: null,
         recentVisionSummaries: [],
         captureTestResult: null,
         isCaptureTestRunning: false,

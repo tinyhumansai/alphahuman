@@ -21,11 +21,11 @@ import {
   openhumanAccessibilityStartSession,
   openhumanAccessibilityStatus,
   openhumanAccessibilityStopSession,
+  openhumanServiceRestart,
   openhumanAccessibilityVisionFlush,
   openhumanAccessibilityVisionRecent,
   openhumanScreenIntelligenceCaptureTest,
   openhumanUpdateScreenIntelligenceSettings,
-  restartCoreProcess,
 } from '../../../../utils/tauriCommands';
 import ScreenIntelligencePanel from '../ScreenIntelligencePanel';
 
@@ -37,15 +37,19 @@ vi.mock('../../../../utils/tauriCommands', () => ({
   openhumanAccessibilityStartSession: vi.fn(),
   openhumanAccessibilityStatus: vi.fn(),
   openhumanAccessibilityStopSession: vi.fn(),
+  openhumanServiceRestart: vi.fn(),
   openhumanAccessibilityVisionFlush: vi.fn(),
   openhumanAccessibilityVisionRecent: vi.fn(),
   openhumanScreenIntelligenceCaptureTest: vi.fn(),
   openhumanUpdateScreenIntelligenceSettings: vi.fn(),
-  restartCoreProcess: vi.fn(),
 }));
 
 const baseStatus: AccessibilityStatus = {
   platform_supported: true,
+  core_process: {
+    pid: 4242,
+    started_at_ms: 1712700000000,
+  },
   permissions: {
     screen_recording: 'granted',
     accessibility: 'granted',
@@ -93,7 +97,7 @@ const emptyVisionResponse: CommandResponse<AccessibilityVisionRecentResult> = {
   logs: [],
 };
 
-const createStore = () =>
+const createStore = (preloadedAccessibilityState?: Partial<ReturnType<typeof accessibilityReducer>>) =>
   configureStore({
     reducer: {
       auth: authReducer,
@@ -102,10 +106,30 @@ const createStore = () =>
       team: teamReducer,
       accessibility: accessibilityReducer,
     },
+    preloadedState: preloadedAccessibilityState
+      ? {
+          accessibility: {
+            status: null,
+            lastRestartSummary: null,
+            recentVisionSummaries: [],
+            captureTestResult: null,
+            isCaptureTestRunning: false,
+            isLoading: false,
+            isRequestingPermissions: false,
+            isRestartingCore: false,
+            isStartingSession: false,
+            isStoppingSession: false,
+            isLoadingVision: false,
+            isFlushingVision: false,
+            lastError: null,
+            ...preloadedAccessibilityState,
+          },
+        }
+      : undefined,
   });
 
-function renderPanel() {
-  const store = createStore();
+function renderPanel(preloadedAccessibilityState?: Partial<ReturnType<typeof accessibilityReducer>>) {
+  const store = createStore(preloadedAccessibilityState);
   render(
     <Provider store={store}>
       <MemoryRouter initialEntries={['/settings/screen-intelligence']}>
@@ -165,7 +189,10 @@ describe('ScreenIntelligencePanel', () => {
       },
       logs: [],
     });
-    vi.mocked(restartCoreProcess).mockResolvedValue(undefined);
+    vi.mocked(openhumanServiceRestart).mockResolvedValue({
+      result: { accepted: true, source: 'test', reason: 'restart' },
+      logs: [],
+    } as never);
   });
 
   it('saves screen intelligence settings and clears the saving state', async () => {
@@ -233,5 +260,14 @@ describe('ScreenIntelligencePanel', () => {
     expect(
       screen.getByText('Screen Intelligence V1 is currently supported on macOS only.')
     ).toBeInTheDocument();
+  });
+
+  it('shows the last successful restart summary', async () => {
+    renderPanel({
+      status: baseStatus,
+      lastRestartSummary: 'Core restarted: PID 4000 at 9:00:00 AM -> PID 4242 at 9:01:00 AM.',
+    });
+
+    expect(await screen.findByText(/Core restarted: PID 4000/i)).toBeInTheDocument();
   });
 });

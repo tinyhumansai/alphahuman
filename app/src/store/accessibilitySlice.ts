@@ -13,14 +13,15 @@ import {
   openhumanAccessibilityStartSession,
   openhumanAccessibilityStatus,
   openhumanAccessibilityStopSession,
+  openhumanServiceRestart,
   openhumanAccessibilityVisionFlush,
   openhumanAccessibilityVisionRecent,
   openhumanScreenIntelligenceCaptureTest,
-  restartCoreProcess,
 } from '../utils/tauriCommands';
 
 interface AccessibilityState {
   status: AccessibilityStatus | null;
+  lastRestartSummary: string | null;
   recentVisionSummaries: AccessibilityVisionSummary[];
   captureTestResult: CaptureTestResult | null;
   isCaptureTestRunning: boolean;
@@ -36,6 +37,7 @@ interface AccessibilityState {
 
 const initialState: AccessibilityState = {
   status: null,
+  lastRestartSummary: null,
   recentVisionSummaries: [],
   captureTestResult: null,
   isCaptureTestRunning: false,
@@ -63,6 +65,22 @@ const extractError = (error: unknown, fallback: string): string => {
     }
   }
   return fallback;
+};
+
+interface RefreshPermissionsResult {
+  status: AccessibilityStatus;
+  restartSummary: string;
+}
+
+const formatCoreIdentity = (status: AccessibilityStatus | null | undefined): string | null => {
+  const process = status?.core_process;
+  if (!process) {
+    return null;
+  }
+  const startedAt = Number.isFinite(process.started_at_ms)
+    ? new Date(process.started_at_ms).toLocaleTimeString()
+    : null;
+  return startedAt ? `PID ${process.pid} at ${startedAt}` : `PID ${process.pid}`;
 };
 
 export const fetchAccessibilityStatus = createAsyncThunk(
@@ -108,7 +126,7 @@ export const requestAccessibilityPermission = createAsyncThunk(
  *
  * macOS caches permission state per-process. The running sidecar never sees a
  * newly granted permission until it exits and a fresh process starts. This thunk:
- *   1. Restarts the core sidecar via the `restart_core_process` Tauri command.
+ *   1. Asks the core to restart itself via `openhuman.service_restart`.
  *   2. Waits briefly, then re-fetches status with retries while the new sidecar binds.
  *   3. Updates Redux so the UI reflects the updated grants.
  *
@@ -116,10 +134,13 @@ export const requestAccessibilityPermission = createAsyncThunk(
  */
 export const refreshPermissionsWithRestart = createAsyncThunk(
   'accessibility/refreshPermissionsWithRestart',
-  async (_, { rejectWithValue }) => {
+  async (_, { getState, rejectWithValue }) => {
     try {
-      console.debug('[accessibility] refreshPermissionsWithRestart: starting core restart');
-      await restartCoreProcess();
+      const previousStatus = (getState() as { accessibility: AccessibilityState }).accessibility
+        .status;
+      const previousProcess = previousStatus?.core_process;
+      console.debug('[accessibility] refreshPermissionsWithRestart: requesting core self-restart');
+      await openhumanServiceRestart('screen-intelligence-ui', 'refresh_permissions');
       console.debug('[accessibility] refreshPermissionsWithRestart: waiting for sidecar ready');
       await new Promise<void>(resolve => setTimeout(resolve, 400));
       console.debug('[accessibility] refreshPermissionsWithRestart: fetching updated status');
@@ -132,7 +153,31 @@ export const refreshPermissionsWithRestart = createAsyncThunk(
             response.result.permissions.accessibility,
             response.result.permissions.input_monitoring
           );
-          return response.result;
+          const currentProcess = response.result.core_process;
+          if (
+            previousProcess &&
+            currentProcess &&
+            previousProcess.pid === currentProcess.pid &&
+            previousProcess.started_at_ms === currentProcess.started_at_ms
+          ) {
+            throw new Error(
+              `Core restart command completed, but the same core instance is still serving requests (${formatCoreIdentity(response.result)}).`
+            );
+          }
+
+          const previousLabel = formatCoreIdentity(previousStatus);
+          const currentLabel = formatCoreIdentity(response.result);
+          const restartSummary =
+            previousLabel && currentLabel
+              ? `Core restarted: ${previousLabel} -> ${currentLabel}.`
+              : currentLabel
+                ? `Core restarted. Now serving from ${currentLabel}.`
+                : 'Core restarted and permissions refreshed.';
+
+          return {
+            status: response.result,
+            restartSummary,
+          } satisfies RefreshPermissionsResult;
         } catch (e) {
           if (attempt === 5) {
             throw e;
@@ -270,6 +315,7 @@ const accessibilitySlice = createSlice({
       .addCase(requestAccessibilityPermissions.fulfilled, (state, action) => {
         state.isRequestingPermissions = false;
         state.status = action.payload;
+        state.lastRestartSummary = null;
       })
       .addCase(requestAccessibilityPermissions.rejected, (state, action) => {
         state.isRequestingPermissions = false;
@@ -283,6 +329,7 @@ const accessibilitySlice = createSlice({
       .addCase(requestAccessibilityPermission.fulfilled, (state, action) => {
         state.isRequestingPermissions = false;
         state.status = action.payload;
+        state.lastRestartSummary = null;
       })
       .addCase(requestAccessibilityPermission.rejected, (state, action) => {
         state.isRequestingPermissions = false;
@@ -292,15 +339,18 @@ const accessibilitySlice = createSlice({
       .addCase(refreshPermissionsWithRestart.pending, state => {
         state.isRestartingCore = true;
         state.lastError = null;
+        state.lastRestartSummary = null;
       })
       .addCase(refreshPermissionsWithRestart.fulfilled, (state, action) => {
         state.isRestartingCore = false;
-        state.status = action.payload;
+        state.status = action.payload.status;
+        state.lastRestartSummary = action.payload.restartSummary;
       })
       .addCase(refreshPermissionsWithRestart.rejected, (state, action) => {
         state.isRestartingCore = false;
         state.lastError =
           (action.payload as string) ?? 'Failed to restart core and refresh permissions';
+        state.lastRestartSummary = null;
       })
       .addCase(startAccessibilitySession.pending, state => {
         state.isStartingSession = true;

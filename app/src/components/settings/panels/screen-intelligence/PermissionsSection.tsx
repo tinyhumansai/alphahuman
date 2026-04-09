@@ -33,6 +33,7 @@ interface PermissionsSectionProps {
   accessibility: string;
   inputMonitoring: string;
   anyPermissionDenied: boolean;
+  lastRestartSummary: string | null;
   permissionCheckProcessPath: string | null | undefined;
   isRequestingPermissions: boolean;
   isRestartingCore: boolean;
@@ -44,6 +45,7 @@ const PermissionsSection = ({
   accessibility,
   inputMonitoring,
   anyPermissionDenied,
+  lastRestartSummary,
   permissionCheckProcessPath,
   isRequestingPermissions,
   isRestartingCore,
@@ -74,6 +76,12 @@ const PermissionsSection = ({
           ) : null}
         </div>
       )}
+
+      {lastRestartSummary ? (
+        <div className="rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-700">
+          {lastRestartSummary}
+        </div>
+      ) : null}
 
       <button
         type="button"
