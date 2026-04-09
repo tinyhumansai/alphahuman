@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { useEffect, useRef, useState } from 'react';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 
+interface RotatingTetrahedronCanvasProps {
+  inverted?: boolean;
+}
+
 /** Start from a regular tetrahedron and lightly truncate each corner to create small blunted edges. */
 function bluntedTetrahedronPoints(scale: number, bluntness = 0.12): THREE.Vector3[] {
   const tetra = [
@@ -25,7 +29,9 @@ function bluntedTetrahedronPoints(scale: number, bluntness = 0.12): THREE.Vector
   return points;
 }
 
-export default function RotatingTetrahedronCanvas() {
+export default function RotatingTetrahedronCanvas({
+  inverted = false,
+}: RotatingTetrahedronCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [webglFailed, setWebglFailed] = useState(false);
 
@@ -74,17 +80,20 @@ export default function RotatingTetrahedronCanvas() {
     camera.position.set(0, 0.15, 4.8);
 
     const geometry = new ConvexGeometry(bluntedTetrahedronPoints(0.98, 0.11));
+    const fillColor = inverted ? '#0f172a' : '#dbeafe';
+    const emissiveColor = inverted ? '#020617' : '#334155';
+    const edgeColor = inverted ? '#020617' : '#f8fafc';
     const fillMaterial = new THREE.MeshLambertMaterial({
-      color: '#8e86e9',
+      color: fillColor,
       transparent: true,
-      opacity: 0.2,
-      emissive: '#0c1208',
-      emissiveIntensity: 1,
+      opacity: inverted ? 0.92 : 0.72,
+      emissive: emissiveColor,
+      emissiveIntensity: inverted ? 0.7 : 0.35,
     });
     const fillMesh = new THREE.Mesh(geometry, fillMaterial);
 
     const edgeGeometry = new THREE.EdgesGeometry(geometry);
-    const edgeMaterial = new THREE.LineBasicMaterial({ color: '#868ee9' });
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: edgeColor });
 
     const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
     fillMesh.rotation.x = 0.35;
@@ -140,7 +149,7 @@ export default function RotatingTetrahedronCanvas() {
       edgeMaterial.dispose();
       renderer.dispose();
     };
-  }, []);
+  }, [inverted]);
 
   if (webglFailed) {
     return null;

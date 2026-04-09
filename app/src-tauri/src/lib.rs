@@ -435,6 +435,14 @@ pub fn run() {
                 }
             }
 
+            if let Some(window) = app.get_webview_window("overlay") {
+                if let Err(err) = window.show() {
+                    log::warn!("[overlay] failed to show overlay on startup: {err}");
+                } else {
+                    log::info!("[overlay] overlay shown on startup");
+                }
+            }
+
             if let Err(err) = setup_tray(app.handle()) {
                 log::error!("[tray] failed to setup tray icon: {err}");
             }
