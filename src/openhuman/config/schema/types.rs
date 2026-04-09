@@ -130,11 +130,6 @@ pub struct Config {
     #[serde(default)]
     pub dictation: DictationConfig,
 
-    /// Whether to launch the overlay Tauri app (floating debug/voice panel)
-    /// when the core RPC server starts. Defaults to `true`.
-    #[serde(default = "default_true")]
-    pub overlay_enabled: bool,
-
     /// Whether the user has completed the onboarding flow.
     #[serde(default)]
     pub onboarding_completed: bool,
@@ -188,7 +183,6 @@ impl Default for Config {
             orchestrator: OrchestratorConfig::default(),
             update: UpdateConfig::default(),
             dictation: DictationConfig::default(),
-            overlay_enabled: true,
             onboarding_completed: false,
         }
     }
