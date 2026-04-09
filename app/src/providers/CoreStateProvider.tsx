@@ -175,24 +175,40 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    let isRefreshing = false;
+    const doRefresh = async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
       try {
         await refresh();
         bootstrapFailCountRef.current = 0;
-        const next = getCoreStateSnapshot();
-        if (next.snapshot.auth.isAuthenticated) {
-          await refreshTeams().catch(() => {});
-        }
       } catch (error) {
         if (!cancelled) {
           bootstrapFailCountRef.current += 1;
           console.warn(
-            `[core-state] initial refresh failed (attempt ${bootstrapFailCountRef.current}/${MAX_BOOTSTRAP_RETRIES}):`,
+            `[core-state] poll failed (attempt ${bootstrapFailCountRef.current}/${MAX_BOOTSTRAP_RETRIES}):`,
             error
           );
           if (bootstrapFailCountRef.current >= MAX_BOOTSTRAP_RETRIES) {
-            commitState(previous => ({ ...previous, isBootstrapping: false }));
+            commitState(previous => {
+              if (previous.isBootstrapping) {
+                return { ...previous, isBootstrapping: false };
+              }
+              return previous;
+            });
           }
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    };
+
+    const load = async () => {
+      await doRefresh();
+      if (!cancelled) {
+        const next = getCoreStateSnapshot();
+        if (next.snapshot.auth.isAuthenticated) {
+          await refreshTeams().catch(() => {});
         }
       }
     };
@@ -201,26 +217,7 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
     let timeoutId: number | null = null;
     const scheduleNext = () => {
       timeoutId = window.setTimeout(async () => {
-        try {
-          await refresh();
-          bootstrapFailCountRef.current = 0;
-        } catch (error) {
-          if (!cancelled) {
-            bootstrapFailCountRef.current += 1;
-            console.warn(
-              `[core-state] poll failed (attempt ${bootstrapFailCountRef.current}/${MAX_BOOTSTRAP_RETRIES}):`,
-              error
-            );
-            if (bootstrapFailCountRef.current >= MAX_BOOTSTRAP_RETRIES) {
-              commitState(previous => {
-                if (previous.isBootstrapping) {
-                  return { ...previous, isBootstrapping: false };
-                }
-                return previous;
-              });
-            }
-          }
-        }
+        await doRefresh();
         if (!cancelled) {
           scheduleNext();
         }

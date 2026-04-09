@@ -1,11 +1,26 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::openhuman::event_bus::{DomainEvent, EventHandler};
 
+/// Register the [`RestartSubscriber`] on the global event bus.
+///
+/// Owned by the service domain — called from the shared subscriber bootstrap so
+/// jsonrpc.rs stays transport-focused.
+pub fn register_restart_subscriber() {
+    if let Some(handle) = crate::openhuman::event_bus::subscribe_global(Arc::new(RestartSubscriber))
+    {
+        std::mem::forget(handle);
+    } else {
+        log::warn!("[event_bus] failed to register restart subscriber — bus not initialized");
+    }
+}
+
 /// Long-lived event-bus subscriber that turns restart requests into a real
 /// process respawn.
 ///
-/// This subscriber is registered during core JSON-RPC bootstrap so any restart
+/// This subscriber is registered during core bootstrap so any restart
 /// request published from RPC, CLI, or another internal component goes through
 /// the same execution path.
 pub struct RestartSubscriber;

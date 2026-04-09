@@ -79,26 +79,34 @@ const Invites = () => {
 
   const [redeemInput, setRedeemInput] = useState('');
   const redeemTimeoutRef = useRef<number | null>(null);
+  const loadRequestIdRef = useRef(0);
   const hasBeenInvited = !!user?.referral?.invitedBy;
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadInviteCodes = async () => {
+    const requestId = ++loadRequestIdRef.current;
     setIsLoading(true);
     setLoadError(null);
     try {
       const data = await inviteApi.getMyInviteCodes();
+      if (requestId !== loadRequestIdRef.current) return;
       setCodes(data);
     } catch (error) {
+      if (requestId !== loadRequestIdRef.current) return;
       setLoadError(error instanceof Error ? error.message : 'Failed to load invite codes');
     } finally {
-      setIsLoading(false);
+      if (requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     void loadInviteCodes();
     return () => {
+      // Invalidate any in-flight loadInviteCodes requests
+      loadRequestIdRef.current += 1;
       if (redeemTimeoutRef.current) {
         clearTimeout(redeemTimeoutRef.current);
         redeemTimeoutRef.current = null;
@@ -117,7 +125,6 @@ const Invites = () => {
       await inviteApi.redeemInviteCode(trimmed);
       await loadInviteCodes();
       setRedeemInput('');
-      await refetchUser();
       setRedeemStatus('success');
       if (redeemTimeoutRef.current) {
         clearTimeout(redeemTimeoutRef.current);
@@ -127,6 +134,8 @@ const Invites = () => {
         setRedeemStatus('idle');
         setRedeemError(null);
       }, 3000);
+      // Refresh user in background — don't let failure override the successful redeem
+      refetchUser().catch(() => {});
     } catch (error) {
       setRedeemStatus('error');
       setRedeemError(error instanceof Error ? error.message : 'Failed to redeem invite code');

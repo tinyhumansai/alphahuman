@@ -8,7 +8,6 @@ import {
   type ComponentHealth,
   type HealthSnapshot,
   setDaemonStatus,
-  setHealthTimeoutId,
   updateHealthSnapshot,
 } from '../features/daemon/store';
 import { getCoreStateSnapshot } from '../lib/coreState/store';
@@ -162,11 +161,8 @@ export class DaemonHealthService {
     this.healthTimeoutId = setTimeout(() => {
       console.warn('[DaemonHealth] Health timeout reached - setting status to disconnected');
       setDaemonStatus(userId, 'disconnected');
-      setHealthTimeoutId(userId, null);
       this.healthTimeoutId = null;
     }, this.HEALTH_TIMEOUT_MS);
-
-    setHealthTimeoutId(userId, this.healthTimeoutId.toString());
   }
 
   /**

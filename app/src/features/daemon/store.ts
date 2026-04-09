@@ -31,7 +31,6 @@ export interface DaemonUserState {
   connectionAttempts: number;
   autoStartEnabled: boolean;
   isRecovering: boolean;
-  healthTimeoutId: string | null;
 }
 
 interface DaemonState {
@@ -46,7 +45,6 @@ const initialUserState: DaemonUserState = {
   connectionAttempts: 0,
   autoStartEnabled: false,
   isRecovering: false,
-  healthTimeoutId: null,
 };
 
 let daemonState: DaemonState = { byUser: {} };
@@ -82,15 +80,14 @@ export const subscribeDaemonStore = (listener: () => void): (() => void) => {
 export const getDaemonUserState = (userId?: string): DaemonUserState =>
   currentUserState(userId || '__pending__');
 
-export function useDaemonUserState(userId?: string): DaemonUserState {
-  return useSyncExternalStore(
+export const useDaemonUserState = (userId?: string): DaemonUserState =>
+  useSyncExternalStore(
     subscribeDaemonStore,
     () => getDaemonUserState(userId),
     () => getDaemonUserState(userId)
   );
-}
 
-export function updateHealthSnapshot(userId: string, healthSnapshot: HealthSnapshot): void {
+export const updateHealthSnapshot = (userId: string, healthSnapshot: HealthSnapshot): void => {
   updateUserState(userId, current => {
     const componentStatuses = Object.values(healthSnapshot.components).map(
       component => component.status
@@ -117,9 +114,9 @@ export function updateHealthSnapshot(userId: string, healthSnapshot: HealthSnaps
       connectionAttempts: status === 'running' ? 0 : current.connectionAttempts,
     };
   });
-}
+};
 
-export function setDaemonStatus(userId: string, status: DaemonStatus): void {
+export const setDaemonStatus = (userId: string, status: DaemonStatus): void => {
   updateUserState(userId, current => ({
     ...current,
     status,
@@ -127,27 +124,23 @@ export function setDaemonStatus(userId: string, status: DaemonStatus): void {
     components: status === 'disconnected' ? {} : current.components,
     lastHealthUpdate: status === 'disconnected' ? null : current.lastHealthUpdate,
   }));
-}
+};
 
-export function incrementConnectionAttempts(userId: string): void {
+export const incrementConnectionAttempts = (userId: string): void => {
   updateUserState(userId, current => ({
     ...current,
     connectionAttempts: current.connectionAttempts + 1,
   }));
-}
+};
 
-export function resetConnectionAttempts(userId: string): void {
+export const resetConnectionAttempts = (userId: string): void => {
   updateUserState(userId, current => ({ ...current, connectionAttempts: 0 }));
-}
+};
 
-export function setAutoStartEnabled(userId: string, enabled: boolean): void {
+export const setAutoStartEnabled = (userId: string, enabled: boolean): void => {
   updateUserState(userId, current => ({ ...current, autoStartEnabled: enabled }));
-}
+};
 
-export function setIsRecovering(userId: string, isRecovering: boolean): void {
+export const setIsRecovering = (userId: string, isRecovering: boolean): void => {
   updateUserState(userId, current => ({ ...current, isRecovering }));
-}
-
-export function setHealthTimeoutId(userId: string, timeoutId: string | null): void {
-  updateUserState(userId, current => ({ ...current, healthTimeoutId: timeoutId }));
-}
+};
