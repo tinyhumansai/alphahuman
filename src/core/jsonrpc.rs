@@ -704,40 +704,43 @@ async fn run_server_inner(
                 crate::openhuman::screen_intelligence::server::start_if_enabled(&config).await;
                 crate::openhuman::autocomplete::start_if_enabled(&config).await;
 
-                // Eagerly initialize the subconscious engine so default system
-                // tasks are seeded to SQLite before any UI request, and spawn
-                // the heartbeat loop so tasks actually tick periodically.
+                // Subconscious engine + heartbeat bootstrap is now gated on
+                // login so seed_default_tasks() runs against the per-user
+                // workspace (`~/.openhuman/users/<id>/workspace/`) instead
+                // of the pre-login global workspace. The login handler in
+                // `credentials::ops` triggers the same bootstrap after it
+                // writes `active_user.toml`.
                 //
-                // Engine construction is idempotent via OnceLock; its
-                // constructor runs seed_default_tasks() which itself skips
-                // titles that already exist on repeat opens. The heartbeat
-                // loop re-acquires the shared engine each tick via
-                // get_or_init_engine() and calls engine.tick().
-                if config.heartbeat.enabled {
-                    match crate::openhuman::subconscious::global::get_or_init_engine().await {
-                        Ok(_) => log::info!(
-                            "[subconscious] initialized on startup (defaults seeded if missing)"
-                        ),
-                        Err(e) => {
-                            log::warn!("[subconscious] startup init failed: {e}")
-                        }
-                    }
-
-                    let heartbeat = crate::openhuman::heartbeat::engine::HeartbeatEngine::new(
-                        config.heartbeat.clone(),
-                        config.workspace_dir.clone(),
-                    );
-                    tokio::spawn(async move {
-                        if let Err(e) = heartbeat.run().await {
-                            log::warn!("[heartbeat] loop exited with error: {e}");
-                        }
-                    });
-                    log::info!(
-                        "[heartbeat] periodic loop spawned ({}min interval)",
-                        config.heartbeat.interval_minutes
-                    );
-                } else {
+                // If the user is already logged in from a previous session
+                // (active_user.toml exists on disk), kick the bootstrap now
+                // so the heartbeat loop starts without waiting for the user
+                // to re-authenticate.
+                if !config.heartbeat.enabled {
                     log::info!("[subconscious] disabled by config (heartbeat.enabled = false)");
+                } else {
+                    let already_logged_in =
+                        crate::openhuman::config::default_root_openhuman_dir()
+                            .ok()
+                            .and_then(|root| {
+                                crate::openhuman::config::read_active_user_id(&root)
+                            })
+                            .is_some();
+                    if already_logged_in {
+                        match crate::openhuman::subconscious::global::bootstrap_after_login()
+                            .await
+                        {
+                            Ok(()) => log::info!(
+                                "[subconscious] bootstrapped on startup (existing session)"
+                            ),
+                            Err(e) => log::warn!(
+                                "[subconscious] startup bootstrap failed: {e}"
+                            ),
+                        }
+                    } else {
+                        log::info!(
+                            "[subconscious] bootstrap deferred — waiting for login"
+                        );
+                    }
                 }
             }
             Err(err) => {
