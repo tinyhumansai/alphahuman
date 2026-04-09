@@ -49,7 +49,13 @@ const ScreenPermissionsStep = ({ onNext, onBack: _onBack }: ScreenPermissionsSte
       window.removeEventListener('focus', refreshAfterReturn);
       document.removeEventListener('visibilitychange', refreshAfterReturn);
     };
-  }, [isGranted, isLoading, isRestartingCore, refreshPermissionsWithRestart, shouldAutoRefreshOnReturn]);
+  }, [
+    isGranted,
+    isLoading,
+    isRestartingCore,
+    refreshPermissionsWithRestart,
+    shouldAutoRefreshOnReturn,
+  ]);
 
   const handleRequestPermissions = () => {
     setShouldAutoRefreshOnReturn(true);

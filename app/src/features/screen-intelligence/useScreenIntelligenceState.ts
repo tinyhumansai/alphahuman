@@ -34,7 +34,9 @@ export interface ScreenIntelligenceState {
   isFlushingVision: boolean;
   lastError: string | null;
   refreshStatus: () => Promise<AccessibilityStatus | null>;
-  requestPermission: (permission: AccessibilityPermissionKind) => Promise<AccessibilityStatus | null>;
+  requestPermission: (
+    permission: AccessibilityPermissionKind
+  ) => Promise<AccessibilityStatus | null>;
   refreshPermissionsWithRestart: () => Promise<AccessibilityStatus | null>;
   startSession: (params: AccessibilityStartSessionParams) => Promise<AccessibilityStatus | null>;
   stopSession: (reason?: string) => Promise<AccessibilityStatus | null>;

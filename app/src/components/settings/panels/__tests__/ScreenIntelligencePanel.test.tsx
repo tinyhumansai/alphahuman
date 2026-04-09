@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ScreenIntelligenceState } from '../../../../features/screen-intelligence/useScreenIntelligenceState';
 import { useScreenIntelligenceState } from '../../../../features/screen-intelligence/useScreenIntelligenceState';
-import { type ConfigSnapshot, isTauri, openhumanUpdateScreenIntelligenceSettings } from '../../../../utils/tauriCommands';
+import {
+  type ConfigSnapshot,
+  isTauri,
+  openhumanUpdateScreenIntelligenceSettings,
+} from '../../../../utils/tauriCommands';
 import ScreenIntelligencePanel from '../ScreenIntelligencePanel';
 
 vi.mock('../../../../features/screen-intelligence/useScreenIntelligenceState', () => ({
@@ -23,10 +27,7 @@ vi.mock('../../../../utils/tauriCommands', async importOriginal => {
 const baseState: ScreenIntelligenceState = {
   status: {
     platform_supported: true,
-    core_process: {
-      pid: 4242,
-      started_at_ms: 1712700000000,
-    },
+    core_process: { pid: 4242, started_at_ms: 1712700000000 },
     permissions: {
       screen_recording: 'granted',
       accessibility: 'granted',

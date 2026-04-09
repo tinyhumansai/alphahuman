@@ -13,10 +13,7 @@ vi.mock('../../../../features/screen-intelligence/useScreenIntelligenceState', (
 const deniedState: ScreenIntelligenceState = {
   status: {
     platform_supported: true,
-    core_process: {
-      pid: 4242,
-      started_at_ms: 1712700000000,
-    },
+    core_process: { pid: 4242, started_at_ms: 1712700000000 },
     permissions: {
       screen_recording: 'unknown',
       accessibility: 'denied',
