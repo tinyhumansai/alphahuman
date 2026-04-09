@@ -45,10 +45,7 @@ import {
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
-import {
-  completeOnboardingIfVisible,
-  navigateToConversations,
-} from '../helpers/shared-flows';
+import { completeOnboardingIfVisible, navigateToConversations } from '../helpers/shared-flows';
 import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 // ---------------------------------------------------------------------------
