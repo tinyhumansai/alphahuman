@@ -5,7 +5,7 @@ import { referralApi } from '../../../services/api/referralApi';
 
 interface ReferralApplyStepProps {
   onNext: () => void;
-  onBack: () => void;
+  onBack?: () => void;
   /** Called after a successful apply so onboarding can skip showing this step when navigating back. */
   onApplied?: () => void;
 }
@@ -13,7 +13,7 @@ interface ReferralApplyStepProps {
 /**
  * Optional step: attribute the signed-in user to a referrer via POST /referral/apply.
  */
-const ReferralApplyStep = ({ onNext, onBack, onApplied }: ReferralApplyStepProps) => {
+const ReferralApplyStep = ({ onNext, onApplied }: ReferralApplyStepProps) => {
   const { refresh } = useCoreState();
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
