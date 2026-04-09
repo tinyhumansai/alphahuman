@@ -8,8 +8,6 @@ pub use crate::openhuman::accessibility::{PermissionKind, PermissionState, Permi
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessibilityFeatures {
     pub screen_monitoring: bool,
-    pub device_control: bool,
-    pub predictive_input: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,8 +61,6 @@ pub struct StartSessionParams {
     pub consent: bool,
     pub ttl_secs: Option<u64>,
     pub screen_monitoring: Option<bool>,
-    pub device_control: Option<bool>,
-    pub predictive_input: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

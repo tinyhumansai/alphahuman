@@ -47,7 +47,7 @@ const sampleStatus: AccessibilityStatus = {
     accessibility: 'granted',
     input_monitoring: 'granted',
   },
-  features: { screen_monitoring: true, device_control: true, predictive_input: true },
+  features: { screen_monitoring: true },
   session: {
     active: false,
     started_at_ms: null,

@@ -39,7 +39,6 @@ impl AccessibilityEngine {
         {
             let mut state = self.inner.lock().await;
             state.config = config.clone();
-            state.features.predictive_input = state.config.autocomplete_enabled;
         }
 
         if config.enabled {
@@ -73,7 +72,6 @@ impl AccessibilityEngine {
 
                 let now = now_ms();
                 state.features.screen_monitoring = true;
-                state.features.predictive_input = state.config.autocomplete_enabled;
                 state.session = Some(new_session_runtime(&state.config, now, i64::MAX, 0));
                 state.last_event = Some("screen_intelligence_enabled".to_string());
                 state.last_error = None;
@@ -126,10 +124,6 @@ impl AccessibilityEngine {
             let now = now_ms();
             let expires_at_ms = now + (ttl_secs as i64 * 1000);
             state.features.screen_monitoring = screen_monitoring_requested;
-            state.features.device_control = params.device_control.unwrap_or(true);
-            state.features.predictive_input = params
-                .predictive_input
-                .unwrap_or(state.config.autocomplete_enabled);
 
             state.session = Some(new_session_runtime(
                 &state.config,

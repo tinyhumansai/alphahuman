@@ -61,8 +61,6 @@ const AccessibilityPanel = () => {
   } = useAppSelector(state => state.accessibility);
   const [featureOverrides, setFeatureOverrides] = useState<{
     screen_monitoring?: boolean;
-    device_control?: boolean;
-    predictive_input?: boolean;
   }>({});
 
   useEffect(() => {
@@ -90,9 +88,6 @@ const AccessibilityPanel = () => {
 
   const screenMonitoring =
     featureOverrides.screen_monitoring ?? status?.features.screen_monitoring ?? true;
-  const deviceControl = featureOverrides.device_control ?? status?.features.device_control ?? true;
-  const predictiveInput =
-    featureOverrides.predictive_input ?? status?.features.predictive_input ?? true;
 
   const remaining = useMemo(
     () => formatRemaining(status?.session.remaining_ms ?? null),
@@ -199,34 +194,6 @@ const AccessibilityPanel = () => {
               }
             />
           </label>
-
-          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-            <span className="text-sm text-stone-700">Device Control</span>
-            <input
-              type="checkbox"
-              checked={deviceControl}
-              onChange={event =>
-                setFeatureOverrides(current => ({
-                  ...current,
-                  device_control: event.target.checked,
-                }))
-              }
-            />
-          </label>
-
-          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-            <span className="text-sm text-stone-700">Predictive Input</span>
-            <input
-              type="checkbox"
-              checked={predictiveInput}
-              onChange={event =>
-                setFeatureOverrides(current => ({
-                  ...current,
-                  predictive_input: event.target.checked,
-                }))
-              }
-            />
-          </label>
         </section>
 
         <section className="space-y-3">
@@ -255,8 +222,6 @@ const AccessibilityPanel = () => {
                     consent: true,
                     ttl_secs: status?.config.session_ttl_secs ?? 300,
                     screen_monitoring: screenMonitoring,
-                    device_control: deviceControl,
-                    predictive_input: predictiveInput,
                   })
                 )
               }

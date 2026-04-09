@@ -15,8 +15,6 @@ export interface AccessibilityPermissionStatus {
 
 export interface AccessibilityFeatures {
   screen_monitoring: boolean;
-  device_control: boolean;
-  predictive_input: boolean;
 }
 
 export interface AccessibilitySessionStatus {
@@ -68,8 +66,6 @@ export interface AccessibilityStartSessionParams {
   consent: boolean;
   ttl_secs?: number;
   screen_monitoring?: boolean;
-  device_control?: boolean;
-  predictive_input?: boolean;
 }
 
 export interface AccessibilityStopSessionParams {
