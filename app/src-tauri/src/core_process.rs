@@ -120,7 +120,6 @@ impl CoreProcessHandle {
                         cmd
                     };
                     let child = cmd
-                        .env("OPENHUMAN_HOST_MANAGES_OVERLAY", "1")
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
                     *guard = Some(child);
@@ -158,7 +157,6 @@ impl CoreProcessHandle {
                     };
 
                     let child = cmd
-                        .env("OPENHUMAN_HOST_MANAGES_OVERLAY", "1")
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
 
