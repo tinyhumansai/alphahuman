@@ -15,6 +15,11 @@ pub(crate) fn spawn_supervised_listener(
     initial_backoff_secs: u64,
     max_backoff_secs: u64,
 ) -> tokio::task::JoinHandle<()> {
+    // This helper is used directly in tests and isolated runtime paths, so make
+    // sure channel health events always have a live bus + subscriber target.
+    crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
+    crate::openhuman::health::bus::register_health_subscriber();
+
     tokio::spawn(async move {
         let component = format!("channel:{}", ch.name());
         let mut backoff = initial_backoff_secs.max(1);
