@@ -180,9 +180,7 @@ const Invites = () => {
                 </p>
               </div>
 
-              {loadError && (
-                <p className="text-coral-500 text-xs text-center py-2">{loadError}</p>
-              )}
+              {loadError && <p className="text-coral-500 text-xs text-center py-2">{loadError}</p>}
 
               {isLoading ? (
                 <div className="space-y-3">
