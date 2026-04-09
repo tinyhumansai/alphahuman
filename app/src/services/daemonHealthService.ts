@@ -4,7 +4,6 @@
  * Manages health monitoring for the openhuman daemon by polling
  * `openhuman.health_snapshot` over core RPC from the frontend.
  */
-import { getCoreStateSnapshot } from '../lib/coreState/store';
 import {
   type ComponentHealth,
   type HealthSnapshot,
@@ -12,6 +11,7 @@ import {
   setHealthTimeoutId,
   updateHealthSnapshot,
 } from '../features/daemon/store';
+import { getCoreStateSnapshot } from '../lib/coreState/store';
 import { callCoreRpc } from './coreRpcClient';
 
 export class DaemonHealthService {

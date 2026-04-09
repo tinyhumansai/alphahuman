@@ -149,11 +149,17 @@ export const useDaemonHealth = (userId?: string) => {
   const isStarting = daemonState.status === 'starting';
 
   const componentCount = Object.keys(daemonState.components).length;
-  const healthyComponentCount = Object.values(daemonState.components).filter(c => c.status === 'ok').length;
-  const errorComponentCount = Object.values(daemonState.components).filter(c => c.status === 'error').length;
+  const healthyComponentCount = Object.values(daemonState.components).filter(
+    c => c.status === 'ok'
+  ).length;
+  const errorComponentCount = Object.values(daemonState.components).filter(
+    c => c.status === 'error'
+  ).length;
 
   // Get uptime in human readable format
-  const uptimeText = daemonState.healthSnapshot ? formatUptime(daemonState.healthSnapshot.uptime_seconds) : 'Unknown';
+  const uptimeText = daemonState.healthSnapshot
+    ? formatUptime(daemonState.healthSnapshot.uptime_seconds)
+    : 'Unknown';
 
   useEffect(() => {
     void probeAgentStatus();

@@ -9,10 +9,7 @@ function sampleAccessibilityStatus(
 ): AccessibilityStatus {
   return {
     platform_supported: true,
-    core_process: {
-      pid: 4242,
-      started_at_ms: 1712700000000,
-    },
+    core_process: { pid: 4242, started_at_ms: 1712700000000 },
     permissions: {
       screen_recording: 'denied',
       accessibility: 'granted',

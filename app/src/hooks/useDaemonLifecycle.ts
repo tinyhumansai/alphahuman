@@ -73,14 +73,7 @@ export const useDaemonLifecycle = (userId?: string) => {
         setIsRecovering(uid, false);
       }
     }
-  }, [
-    isAutoStartEnabled,
-    status,
-    isRecovering,
-    connectionAttempts,
-    uid,
-    daemonHealth,
-  ]);
+  }, [isAutoStartEnabled, status, isRecovering, connectionAttempts, uid, daemonHealth]);
 
   // Retry connection with exponential backoff
   const scheduleRetry = useCallback(() => {
@@ -132,14 +125,7 @@ export const useDaemonLifecycle = (userId?: string) => {
         setIsRecovering(uid, false);
       }
     }, retryDelay);
-  }, [
-    connectionAttempts,
-    status,
-    isRecovering,
-    calculateRetryDelay,
-    uid,
-    daemonHealth,
-  ]);
+  }, [connectionAttempts, status, isRecovering, calculateRetryDelay, uid, daemonHealth]);
 
   // Handle visibility change (background/foreground)
   const handleVisibilityChange = useCallback(() => {

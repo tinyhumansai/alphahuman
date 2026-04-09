@@ -62,13 +62,13 @@ function currentUserState(userId: string): DaemonUserState {
   return daemonState.byUser[userId] ?? initialUserState;
 }
 
-function updateUserState(userId: string, updater: (current: DaemonUserState) => DaemonUserState): void {
+function updateUserState(
+  userId: string,
+  updater: (current: DaemonUserState) => DaemonUserState
+): void {
   daemonState = {
     ...daemonState,
-    byUser: {
-      ...daemonState.byUser,
-      [userId]: updater(currentUserState(userId)),
-    },
+    byUser: { ...daemonState.byUser, [userId]: updater(currentUserState(userId)) },
   };
   emitChange();
 }
@@ -94,7 +94,9 @@ export function useDaemonUserState(userId?: string): DaemonUserState {
 
 export function updateHealthSnapshot(userId: string, healthSnapshot: HealthSnapshot): void {
   updateUserState(userId, current => {
-    const componentStatuses = Object.values(healthSnapshot.components).map(component => component.status);
+    const componentStatuses = Object.values(healthSnapshot.components).map(
+      component => component.status
+    );
 
     let status = current.status;
     if (componentStatuses.length === 0) {
@@ -137,29 +139,17 @@ export function incrementConnectionAttempts(userId: string): void {
 }
 
 export function resetConnectionAttempts(userId: string): void {
-  updateUserState(userId, current => ({
-    ...current,
-    connectionAttempts: 0,
-  }));
+  updateUserState(userId, current => ({ ...current, connectionAttempts: 0 }));
 }
 
 export function setAutoStartEnabled(userId: string, enabled: boolean): void {
-  updateUserState(userId, current => ({
-    ...current,
-    autoStartEnabled: enabled,
-  }));
+  updateUserState(userId, current => ({ ...current, autoStartEnabled: enabled }));
 }
 
 export function setIsRecovering(userId: string, isRecovering: boolean): void {
-  updateUserState(userId, current => ({
-    ...current,
-    isRecovering,
-  }));
+  updateUserState(userId, current => ({ ...current, isRecovering }));
 }
 
 export function setHealthTimeoutId(userId: string, timeoutId: string | null): void {
-  updateUserState(userId, current => ({
-    ...current,
-    healthTimeoutId: timeoutId,
-  }));
+  updateUserState(userId, current => ({ ...current, healthTimeoutId: timeoutId }));
 }
