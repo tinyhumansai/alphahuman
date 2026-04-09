@@ -718,28 +718,20 @@ async fn run_server_inner(
                 if !config.heartbeat.enabled {
                     log::info!("[subconscious] disabled by config (heartbeat.enabled = false)");
                 } else {
-                    let already_logged_in =
-                        crate::openhuman::config::default_root_openhuman_dir()
-                            .ok()
-                            .and_then(|root| {
-                                crate::openhuman::config::read_active_user_id(&root)
-                            })
-                            .is_some();
+                    let already_logged_in = crate::openhuman::config::default_root_openhuman_dir()
+                        .ok()
+                        .and_then(|root| crate::openhuman::config::read_active_user_id(&root))
+                        .is_some();
                     if already_logged_in {
-                        match crate::openhuman::subconscious::global::bootstrap_after_login()
-                            .await
+                        match crate::openhuman::subconscious::global::bootstrap_after_login().await
                         {
                             Ok(()) => log::info!(
                                 "[subconscious] bootstrapped on startup (existing session)"
                             ),
-                            Err(e) => log::warn!(
-                                "[subconscious] startup bootstrap failed: {e}"
-                            ),
+                            Err(e) => log::warn!("[subconscious] startup bootstrap failed: {e}"),
                         }
                     } else {
-                        log::info!(
-                            "[subconscious] bootstrap deferred — waiting for login"
-                        );
+                        log::info!("[subconscious] bootstrap deferred — waiting for login");
                     }
                 }
             }
