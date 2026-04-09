@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ScreenIntelligenceState } from '../../../features/screen-intelligence/useScreenIntelligenceState';
-import { useScreenIntelligenceState } from '../../../features/screen-intelligence/useScreenIntelligenceState';
+import {
+  type ScreenIntelligenceState,
+  useScreenIntelligenceState,
+} from '../../../features/screen-intelligence/useScreenIntelligenceState';
 import ScreenIntelligenceDebugPanel from '../ScreenIntelligenceDebugPanel';
 
 vi.mock('../../../features/screen-intelligence/useScreenIntelligenceState', () => ({

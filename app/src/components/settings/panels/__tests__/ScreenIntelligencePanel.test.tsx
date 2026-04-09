@@ -2,8 +2,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ScreenIntelligenceState } from '../../../../features/screen-intelligence/useScreenIntelligenceState';
-import { useScreenIntelligenceState } from '../../../../features/screen-intelligence/useScreenIntelligenceState';
+import {
+  type ScreenIntelligenceState,
+  useScreenIntelligenceState,
+} from '../../../../features/screen-intelligence/useScreenIntelligenceState';
 import {
   type ConfigSnapshot,
   isTauri,
