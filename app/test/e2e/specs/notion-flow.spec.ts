@@ -82,13 +82,19 @@ describe('8. Integrations (Notion) — RPC endpoint verification', () => {
       provider: 'notion',
       responseType: 'json',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.1.1 auth_oauth_connect failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.1.2 — Scope Selection: auth_oauth_list_integrations returns integration list', async () => {
     expectRpcMethod(methods, 'openhuman.auth_oauth_list_integrations');
     const res = await callOpenhumanRpc('openhuman.auth_oauth_list_integrations', {});
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.1.2 auth_oauth_list_integrations failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.1.3 — Token Storage: auth_store_provider_credentials registered', async () => {
@@ -127,7 +133,10 @@ describe('8. Integrations (Notion) — RPC endpoint verification', () => {
   it('8.3.1 — Data Fetch: skills_sync endpoint callable for notion', async () => {
     expectRpcMethod(methods, 'openhuman.skills_sync');
     const res = await callOpenhumanRpc('openhuman.skills_sync', { id: 'notion' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.3.1 skills_sync failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.3.2 — Data Write: skills_call_tool rejects write to non-running notion', async () => {
@@ -151,7 +160,10 @@ describe('8. Integrations (Notion) — RPC endpoint verification', () => {
     const res = await callOpenhumanRpc('openhuman.auth_oauth_revoke_integration', {
       integrationId: 'notion-e2e-test',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.4.1 revoke_integration failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.4.2 — Token Revocation: auth_clear_session available', async () => {
@@ -166,12 +178,18 @@ describe('8. Integrations (Notion) — RPC endpoint verification', () => {
       provider: 'notion',
       responseType: 'json',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.4.3 auth_oauth_connect (re-auth) failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.4.4 — Permission Re-Sync: skills_sync callable after reconnect', async () => {
     const res = await callOpenhumanRpc('openhuman.skills_sync', { id: 'notion' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.4.4 skills_sync failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   // Additional skill endpoints
@@ -236,86 +254,107 @@ describe('8.5 Integrations (Notion) — UI flow', () => {
     await navigateViaHash('/skills');
     await browser.pause(3_000);
 
-    const hasSection = await textExists('3rd Party Skills');
-    if (!hasSection) {
-      const tree = await dumpAccessibilityTree();
-      stepLog('3rd Party Skills not found. Tree:', tree.slice(0, 4000));
+    // Skills page uses filter tabs (All, Built-in, Channels, Other).
+    // Notion is a 3rd-party skill under the "Other" tab.
+    const hasOtherTab = await textExists('Other');
+    if (hasOtherTab) {
+      try {
+        await clickText('Other', 8_000);
+        await browser.pause(2_000);
+        stepLog('Clicked "Other" filter tab');
+      } catch {
+        stepLog('Could not click Other tab — continuing with All view');
+      }
     }
-    expect(hasSection).toBe(true);
-    stepLog('3rd Party Skills section found');
-  });
 
-  it('8.5.2 — Notion skill card visible with status and action button', async () => {
-    // 3rd Party Skills section is below Built-in Skills and Channel Integrations — scroll down
+    // Notion should now be visible (or scroll to find it)
     const { scrollToFindText } = await import('../helpers/element-helpers');
     let hasNotion = await textExists('Notion');
     if (!hasNotion) {
-      stepLog('Notion not visible — scrolling down');
       hasNotion = await scrollToFindText('Notion', 6, 400);
     }
     if (!hasNotion) {
       const tree = await dumpAccessibilityTree();
-      stepLog('Notion skill not found after scrolling. Tree:', tree.slice(0, 4000));
+      stepLog('Notion not found. Tree:', tree.slice(0, 4000));
     }
     expect(hasNotion).toBe(true);
+    stepLog('Notion skill found on Skills page');
+  });
 
-    // Status: one of Connected, Setup, Offline, Error, Disconnected, Not Auth
-    const statuses = ['Connected', 'Setup', 'Offline', 'Error', 'Disconnected', 'Not Auth'];
-    let foundStatus = null;
-    for (const status of statuses) {
-      if (await textExists(status)) {
-        foundStatus = status;
-        break;
-      }
-    }
-    stepLog('Notion skill status', { found: foundStatus });
+  it('8.5.2 — Notion skill card visible with status and action button', async () => {
+    const hasNotion = await textExists('Notion');
+    expect(hasNotion).toBe(true);
 
-    // Action button: Enable, Setup, Configure, or Retry
+    // CTA button: "Enable" (offline), "Setup" (setup_required), "Manage" (connected), "Retry" (error)
     const hasEnable = await textExists('Enable');
     const hasSetup = await textExists('Setup');
-    const hasConfigure = await textExists('Configure');
+    const hasManage = await textExists('Manage');
     const hasRetry = await textExists('Retry');
-    const hasAction = hasEnable || hasSetup || hasConfigure || hasRetry;
-    stepLog('Notion action button', {
+    const hasCta = hasEnable || hasSetup || hasManage || hasRetry;
+    stepLog('Notion CTA', {
       enable: hasEnable,
       setup: hasSetup,
-      configure: hasConfigure,
+      manage: hasManage,
       retry: hasRetry,
     });
-    expect(hasAction).toBe(true);
+    expect(hasCta).toBe(true);
   });
 
   it('8.5.3 — Click Notion skill opens SkillSetupModal', async () => {
-    // Dismiss the LocalAI download snackbar if visible — it floats at the bottom
-    // and can block skill action buttons.
     await dismissLocalAISnackbarIfVisible('[NotionFlow]');
 
-    stepLog('clicking Notion skill action button');
-    // Use aria-label text to target the Notion-specific button (not Gmail's)
-    // Buttons have aria-label="Enable Notion", "Setup Notion", "Configure Notion", "Retry Notion"
-    const actionCandidates = ['Setup Notion', 'Enable Notion', 'Configure Notion', 'Retry Notion'];
+    // Notion is a 3rd-party skill — the card is not clickable,
+    // only the "Enable" CTA button inside it opens the SkillSetupModal.
+    // Multiple skills may show "Enable" so we scroll Notion into view first,
+    // then find the Enable button nearest to it in the accessibility tree.
+    stepLog('scrolling to Notion and clicking its Enable button');
+    const { scrollToFindText } = await import('../helpers/element-helpers');
+    await scrollToFindText('Notion', 4, 300);
+    await browser.pause(500);
+
+    // On Mac2, find buttons whose sibling/nearby text is "Notion"
+    // Strategy: find all "Enable"/"Manage" buttons, click the last one
+    // (Notion appears after Gmail in the list, so its button is later in the tree)
     let clicked = false;
-    for (const label of actionCandidates) {
-      if (await textExists(label)) {
-        try {
-          await clickText(label, 10_000);
-          clicked = true;
-          stepLog(`Clicked "${label}" button`);
-          break;
-        } catch {
-          continue;
-        }
+    try {
+      const buttons = await browser.$$(
+        '//XCUIElementTypeButton[contains(@title, "Enable") or contains(@title, "Manage") or contains(@label, "Enable") or contains(@label, "Manage")]'
+      );
+      if (buttons.length > 0) {
+        // Click the last matching button (Notion is after Gmail)
+        const target = buttons[buttons.length - 1];
+        const loc = await target.getLocation();
+        const size = await target.getSize();
+        const cx = Math.round(loc.x + size.width / 2);
+        const cy = Math.round(loc.y + size.height / 2);
+        await browser.performActions([
+          {
+            type: 'pointer',
+            id: 'mouse1',
+            parameters: { pointerType: 'mouse' },
+            actions: [
+              { type: 'pointerMove', duration: 10, x: cx, y: cy },
+              { type: 'pointerDown', button: 0 },
+              { type: 'pause', duration: 50 },
+              { type: 'pointerUp', button: 0 },
+            ],
+          },
+        ]);
+        await browser.releaseActions();
+        clicked = true;
+        stepLog(`Clicked button ${buttons.length}/${buttons.length} at (${cx}, ${cy})`);
       }
+    } catch (err) {
+      stepLog('XPath button search failed:', err instanceof Error ? err.message : String(err));
     }
 
     if (!clicked) {
-      // Fallback: click the Notion skill name text in the card
+      // Fallback: try clicking Enable text directly
       try {
-        await clickText('Notion', 10_000);
-        clicked = true;
-        stepLog('Clicked "Notion" text directly');
+        await clickText('Enable', 10_000);
+        stepLog('Clicked "Enable" via text fallback');
       } catch {
-        stepLog('Could not click Notion skill');
+        stepLog('Could not click Notion Enable button');
       }
     }
 
@@ -344,7 +383,7 @@ describe('8.5 Integrations (Notion) — UI flow', () => {
     const hasManageTitle = await textExists('Manage Notion');
     stepLog('Notion modal', { connect: hasConnectTitle, manage: hasManageTitle });
 
-    expect(modalFound || clicked).toBe(true);
+    expect(modalFound).toBe(true);
 
     // Close modal
     try {

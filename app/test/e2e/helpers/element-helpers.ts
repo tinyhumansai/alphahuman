@@ -427,7 +427,7 @@ export async function hasAppChrome(): Promise<boolean> {
 /**
  * Scroll down inside the WebView / page by `amount` pixels.
  *
- * - Mac2: W3C wheel action centered on XCUIElementTypeWebView
+ * - Mac2: native CGEvent scroll (macos: scroll) centered on XCUIElementTypeWebView
  * - tauri-driver: JS window.scrollBy
  */
 export async function scrollDownInPage(amount: number = 400): Promise<void> {
@@ -440,7 +440,7 @@ export async function scrollDownInPage(amount: number = 400): Promise<void> {
     return;
   }
 
-  // Mac2: wheel action on the WebView center
+  // Mac2: native CGEvent scroll via macos: scroll (same approach as scrollElementIntoViewMac2)
   try {
     const webView = await browser.$('//XCUIElementTypeWebView');
     if (await webView.isExisting()) {
@@ -449,16 +449,13 @@ export async function scrollDownInPage(amount: number = 400): Promise<void> {
       const centerX = Math.round(location.x + size.width / 2);
       const centerY = Math.round(location.y + size.height / 2);
 
-      await (browser as any).performActions([
-        {
-          type: 'wheel',
-          id: 'scroll_wheel',
-          actions: [
-            { type: 'scroll', x: centerX, y: centerY, deltaX: 0, deltaY: amount, duration: 300 },
-          ],
-        },
-      ]);
-      await (browser as any).releaseActions();
+      // Negative deltaY scrolls page DOWN (more content from below appears)
+      await browser.execute('macos: scroll', {
+        x: centerX,
+        y: centerY,
+        deltaX: 0,
+        deltaY: -amount,
+      });
       await browser.pause(400);
       return;
     }

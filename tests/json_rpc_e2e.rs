@@ -2406,39 +2406,61 @@ async fn json_rpc_automation_and_scheduling_spec_6x() {
         post_json_rpc(&rpc_base, 3010, "openhuman.subconscious_trigger", json!({})).await;
     inner(&trigger_2, "subconscious_trigger second");
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    let logs = post_json_rpc(
-        &rpc_base,
-        3011,
-        "openhuman.subconscious_log_list",
-        json!({ "limit": 20 }),
-    )
-    .await;
-    let logs_payload = inner(&logs, "subconscious_log_list");
-    let logs_arr = logs_payload
-        .as_array()
-        .or_else(|| logs_payload.get("entries").and_then(Value::as_array))
-        .unwrap_or_else(|| panic!("expected log array payload, got: {logs_payload}"));
+    // Poll for log entries — trigger may write asynchronously
+    let poll_deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut logs_payload = serde_json::Value::Null;
+    let mut found_entries = false;
+    while std::time::Instant::now() < poll_deadline {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let logs = post_json_rpc(
+            &rpc_base,
+            3011,
+            "openhuman.subconscious_log_list",
+            json!({ "limit": 20 }),
+        )
+        .await;
+        logs_payload = inner(&logs, "subconscious_log_list");
+        let logs_arr = logs_payload
+            .as_array()
+            .or_else(|| logs_payload.get("entries").and_then(Value::as_array));
+        if let Some(arr) = logs_arr {
+            if !arr.is_empty() {
+                found_entries = true;
+                break;
+            }
+        }
+    }
     assert!(
-        !logs_arr.is_empty(),
-        "expected non-empty subconscious log entries after trigger: {logs_payload}"
+        found_entries,
+        "expected non-empty subconscious log entries after trigger (polled 10s): {logs_payload}"
     );
 
     // 6.3.1 Remote Agent Scheduling
     let cron_list = post_json_rpc(&rpc_base, 3012, "openhuman.cron_list", json!({})).await;
     inner(&cron_list, "cron_list");
 
-    // 6.3.2 Execution Trigger Handling
-    let missing_run = post_json_rpc(
+    // 6.3.2 Execution Trigger Handling — missing param validation
+    let missing_param = post_json_rpc(&rpc_base, 3013, "openhuman.cron_run", json!({})).await;
+    let missing_err = missing_param
+        .get("error")
+        .and_then(|e| e.get("message").and_then(Value::as_str))
+        .unwrap_or("");
+    assert!(
+        missing_err.contains("missing required param"),
+        "expected missing-param validation error, got: {missing_param}"
+    );
+
+    // 6.3.2b — unknown job_id
+    let unknown_run = post_json_rpc(
         &rpc_base,
-        3013,
+        3014,
         "openhuman.cron_run",
         json!({ "job_id": "missing-job-id-e2e" }),
     )
     .await;
     assert!(
-        missing_run.get("error").is_some(),
-        "expected explicit error for missing cron job id: {missing_run}"
+        unknown_run.get("error").is_some(),
+        "expected error for unknown cron job id: {unknown_run}"
     );
 
     // 6.3.3 Failure Retry Logic
@@ -2455,7 +2477,7 @@ async fn json_rpc_automation_and_scheduling_spec_6x() {
 
     let run_failure = post_json_rpc(
         &rpc_base,
-        3014,
+        3015,
         "openhuman.cron_run",
         json!({ "job_id": failing_job.id }),
     )
@@ -2478,7 +2500,7 @@ async fn json_rpc_automation_and_scheduling_spec_6x() {
 
     let run_history = post_json_rpc(
         &rpc_base,
-        3015,
+        3016,
         "openhuman.cron_runs",
         json!({ "job_id": failing_job.id, "limit": 5 }),
     )

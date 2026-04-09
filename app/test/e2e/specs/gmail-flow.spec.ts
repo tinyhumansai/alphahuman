@@ -82,13 +82,21 @@ describe('8. Integrations (Gmail) — RPC endpoint verification', () => {
       provider: 'google',
       responseType: 'json',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      // Without a backend session the RPC fails with an auth/request error —
+      // accept any defined error as proof the endpoint is reachable.
+      stepLog(`8.1.1 auth_oauth_connect failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.1.2 — Scope Selection: auth_oauth_list_integrations returns integration list', async () => {
     expectRpcMethod(methods, 'openhuman.auth_oauth_list_integrations');
     const res = await callOpenhumanRpc('openhuman.auth_oauth_list_integrations', {});
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.1.2 auth_oauth_list_integrations failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.1.3 — Token Storage: auth_store_provider_credentials registered', async () => {
@@ -128,7 +136,11 @@ describe('8. Integrations (Gmail) — RPC endpoint verification', () => {
   it('8.3.1 — Data Fetch: skills_sync endpoint callable', async () => {
     expectRpcMethod(methods, 'openhuman.skills_sync');
     const res = await callOpenhumanRpc('openhuman.skills_sync', { id: 'email' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      // Skill may not be running — expected runtime error, not a validation bug
+      stepLog(`8.3.1 skills_sync failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.3.2 — Data Write: skills_call_tool rejects write to non-running skill', async () => {
@@ -152,8 +164,11 @@ describe('8. Integrations (Gmail) — RPC endpoint verification', () => {
     const res = await callOpenhumanRpc('openhuman.auth_oauth_revoke_integration', {
       integrationId: 'email-e2e-test',
     });
-    // May error if no integration exists — endpoint is reachable
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      // No integration exists to revoke — expected, endpoint is reachable
+      stepLog(`8.4.1 revoke_integration failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.4.2 — Token Revocation: auth_clear_session available', async () => {
@@ -168,12 +183,18 @@ describe('8. Integrations (Gmail) — RPC endpoint verification', () => {
       provider: 'google',
       responseType: 'json',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.4.3 auth_oauth_connect (re-auth) failed (expected without session): ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   it('8.4.4 — Permission Re-Sync: skills_sync callable after reconnect', async () => {
     const res = await callOpenhumanRpc('openhuman.skills_sync', { id: 'email' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog(`8.4.4 skills_sync failed: ${res.error}`);
+      expect(res.error).toBeDefined();
+    }
   });
 
   // Additional skill endpoints
@@ -242,14 +263,32 @@ describe('8.5 Integrations (Gmail) — UI flow', () => {
     await navigateViaHash('/skills');
     await browser.pause(3_000);
 
-    // "3rd Party Skills" heading
-    const hasSection = await textExists('3rd Party Skills');
-    if (!hasSection) {
-      const tree = await dumpAccessibilityTree();
-      stepLog('3rd Party Skills not found. Tree:', tree.slice(0, 4000));
+    // Skills page uses filter tabs (All, Built-in, Channels, Other).
+    // Gmail is a 3rd-party skill under the "Other" tab.
+    // Click "Other" to filter, or stay on "All" and scroll to find Gmail.
+    const hasOtherTab = await textExists('Other');
+    if (hasOtherTab) {
+      try {
+        await clickText('Other', 8_000);
+        await browser.pause(2_000);
+        stepLog('Clicked "Other" filter tab');
+      } catch {
+        stepLog('Could not click Other tab — continuing with All view');
+      }
     }
-    expect(hasSection).toBe(true);
-    stepLog('3rd Party Skills section found');
+
+    // Gmail should now be visible (or scroll to find it)
+    const { scrollToFindText } = await import('../helpers/element-helpers');
+    let hasGmail = await textExists('Gmail');
+    if (!hasGmail) {
+      hasGmail = await scrollToFindText('Gmail', 6, 400);
+    }
+    if (!hasGmail) {
+      const tree = await dumpAccessibilityTree();
+      stepLog('Gmail not found. Tree:', tree.slice(0, 4000));
+    }
+    expect(hasGmail).toBe(true);
+    stepLog('Gmail skill found on Skills page');
   });
 
   it('8.5.2 — Gmail skill card visible with status and action button', async () => {
@@ -298,32 +337,20 @@ describe('8.5 Integrations (Gmail) — UI flow', () => {
     // and can block skill action buttons.
     await dismissLocalAISnackbarIfVisible('[GmailFlow]');
 
-    // Use aria-label text to target the Gmail-specific button (not Notion's)
-    // Buttons have aria-label="Enable Gmail", "Setup Gmail", "Configure Gmail", "Retry Gmail"
-    stepLog('clicking Gmail skill action button');
-    const actionCandidates = ['Setup Gmail', 'Enable Gmail', 'Configure Gmail', 'Retry Gmail'];
-    let clicked = false;
-    for (const label of actionCandidates) {
-      if (await textExists(label)) {
-        try {
-          await clickText(label, 10_000);
-          clicked = true;
-          stepLog(`Clicked "${label}" button`);
-          break;
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    if (!clicked) {
-      // Fallback: click the Gmail skill name text in the card
+    // Gmail is a 3rd-party skill — the card itself is not clickable,
+    // only the "Enable" CTA button inside it opens the SkillSetupModal.
+    // We're on the "Other" filter tab so only 3rd-party skills are visible.
+    stepLog('clicking Gmail Enable button');
+    try {
+      await clickText('Enable', 10_000);
+      stepLog('Clicked "Enable" CTA');
+    } catch {
+      // Fallback: try other CTA labels
       try {
-        await clickText('Gmail', 10_000);
-        clicked = true;
-        stepLog('Clicked "Gmail" text directly');
+        await clickText('Manage', 10_000);
+        stepLog('Clicked "Manage" CTA');
       } catch {
-        stepLog('Could not click Gmail skill');
+        stepLog('Could not click Gmail Enable/Manage button');
       }
     }
 
@@ -352,7 +379,7 @@ describe('8.5 Integrations (Gmail) — UI flow', () => {
     const hasManageTitle = await textExists('Manage Gmail');
     stepLog('Gmail modal', { connect: hasConnectTitle, manage: hasManageTitle });
 
-    expect(modalFound || clicked).toBe(true);
+    expect(modalFound).toBe(true);
 
     // Close modal
     try {

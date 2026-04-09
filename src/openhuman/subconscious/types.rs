@@ -1,5 +1,7 @@
 //! Type definitions for the subconscious task execution system.
 
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 // ── Task types ───────────────────────────────────────────────────────────────
@@ -38,6 +40,17 @@ pub enum TaskRecurrence {
     Cron(String),
     /// Not yet classified — agent will decide on first tick.
     Pending,
+}
+
+impl TaskRecurrence {
+    /// Construct a `Cron` variant after validating the expression.
+    /// Returns an error if the cron expression is malformed.
+    pub fn try_cron(expr: impl Into<String>) -> Result<Self, String> {
+        let expr = expr.into();
+        cron::Schedule::from_str(&expr)
+            .map_err(|e| format!("invalid cron expression '{expr}': {e}"))?;
+        Ok(Self::Cron(expr))
+    }
 }
 
 /// Partial update for a task.

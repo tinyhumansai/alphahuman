@@ -107,11 +107,30 @@ describe('7. Chat Interface — RPC endpoint verification', () => {
 
   it('7.2.1 — User Message Handling: web chat accepts user input payload', async () => {
     const res = await callOpenhumanRpc('openhuman.channel_web_chat', {
-      input: 'hello from e2e',
-      channel: 'web',
-      target: 'e2e-thread-a',
+      client_id: 'e2e-test-client',
+      thread_id: 'e2e-thread-a',
+      message: 'hello from e2e',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      // Chat may fail at runtime (no socket, no model) but should not fail at
+      // param validation.  A validation error contains "missing required param"
+      // or "invalid" — that would be a real bug in the test payload.
+      const isValidationError =
+        typeof res.error === 'string' &&
+        (res.error.includes('missing required param') || res.error.includes('invalid'));
+      if (isValidationError) {
+        console.log('[ChatInterfaceE2E] 7.2.1 VALIDATION ERROR — wrong payload shape:', res.error);
+      } else {
+        console.log('[ChatInterfaceE2E] 7.2.1 runtime error (expected in E2E):', res.error);
+      }
+      expect(isValidationError).toBe(false);
+    } else {
+      console.log(
+        '[ChatInterfaceE2E] 7.2.1 web chat accepted payload:',
+        JSON.stringify(res.result)
+      );
+      expect(res.ok).toBe(true);
+    }
   });
 
   it('7.2.2 — AI Response Generation: local_ai_agent_chat endpoint is registered', async () => {

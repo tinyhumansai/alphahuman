@@ -278,12 +278,23 @@ describe('System Resource Access', function () {
       if (!requireMethod(methods, 'openhuman.channel_web_chat', '4.4.4')) return;
 
       const res = await callOpenhumanRpc('openhuman.channel_web_chat', {
-        input: 'health check',
-        channel: 'web',
-        target: 'e2e',
+        client_id: 'e2e-system-resource',
+        thread_id: 'e2e-thread-system',
+        message: 'health check',
       });
-      expect(res.ok || Boolean(res.error)).toBe(true);
-      console.log(`${LOG_PREFIX} 4.4.4: channel_web_chat ok=${res.ok}`);
+      if (!res.ok) {
+        // Validation errors (wrong payload shape) are test bugs — fail hard.
+        // Runtime errors (no socket, no model) are expected in E2E.
+        const isValidationError =
+          typeof res.error === 'string' &&
+          (res.error.includes('missing required param') || res.error.includes('invalid'));
+        console.log(
+          `${LOG_PREFIX} 4.4.4: channel_web_chat failed: ${res.error} (validation=${isValidationError})`
+        );
+        expect(isValidationError).toBe(false);
+      } else {
+        console.log(`${LOG_PREFIX} 4.4.4: channel_web_chat ok`);
+      }
       console.log(`${LOG_PREFIX} 4.4.4 PASSED`);
     });
   });

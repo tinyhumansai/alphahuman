@@ -145,9 +145,14 @@ describe('Login flow — complete with mock data', function () {
       );
     }
     if (!call && process.platform === 'darwin') {
-      // On macOS, deep link delivery is less reliable — accept core auth state as equivalent
+      // On macOS, deep link delivery is less reliable — accept core auth state as equivalent,
+      // but verify the sidecar actually holds an authenticated session (not just RPC reachable).
       const state = await callOpenhumanRpc('openhuman.auth_get_state', {});
       expect(state.ok).toBe(true);
+      const inner = (state.result as Record<string, unknown>)?.result ?? state.result;
+      const isAuthed = (inner as Record<string, unknown>)?.isAuthenticated;
+      console.log('[LoginFlow] macOS fallback: auth_get_state isAuthenticated =', isAuthed);
+      expect(isAuthed).toBe(true);
       return;
     }
     expect(call).toBeDefined();
@@ -168,8 +173,13 @@ describe('Login flow — complete with mock data', function () {
       console.log('[LoginFlow] Request log:', JSON.stringify(getRequestLog(), null, 2));
     }
     if (!call && process.platform === 'darwin') {
-      const state = await callOpenhumanRpc('openhuman.auth_get_state', {});
-      expect(state.ok).toBe(true);
+      // Verify the sidecar holds a non-empty session token, not just that RPC is reachable.
+      const tokenRes = await callOpenhumanRpc('openhuman.auth_get_session_token', {});
+      expect(tokenRes.ok).toBe(true);
+      const inner = (tokenRes.result as Record<string, unknown>)?.result ?? tokenRes.result;
+      const token = (inner as Record<string, unknown>)?.token;
+      console.log('[LoginFlow] macOS fallback: session token present =', !!token);
+      expect(token).toBeTruthy();
       return;
     }
     expect(call).toBeDefined();

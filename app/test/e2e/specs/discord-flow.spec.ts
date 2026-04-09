@@ -85,7 +85,10 @@ describe('8. Integrations (Discord) — RPC endpoint verification', () => {
       authMode: 'bot_token',
       credentials: { bot_token: 'fake-e2e-discord-token' },
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.1.1 channels_connect failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 
   it('8.1.2 — Scope Selection: channels_list returns Discord definition with capabilities', async () => {
@@ -101,7 +104,10 @@ describe('8. Integrations (Discord) — RPC endpoint verification', () => {
         });
       }
     }
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.1.2 channels_list failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 
   it('8.1.3 — Token Storage: auth_store_provider_credentials registered', async () => {
@@ -115,7 +121,10 @@ describe('8. Integrations (Discord) — RPC endpoint verification', () => {
   it('8.2.1 — Read Access: channels_status returns Discord connection state', async () => {
     expectRpcMethod(methods, 'openhuman.channels_status');
     const res = await callOpenhumanRpc('openhuman.channels_status', { channel: 'discord' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.2.1 channels_status failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 
   it('8.2.2 — Write Access: channels_send_message available', async () => {
@@ -156,7 +165,10 @@ describe('8. Integrations (Discord) — RPC endpoint verification', () => {
       channel: 'discord',
       authMode: 'bot_token',
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.4.1 channels_disconnect failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 
   it('8.4.2 — Token Revocation: auth_clear_session available', async () => {
@@ -173,12 +185,18 @@ describe('8. Integrations (Discord) — RPC endpoint verification', () => {
       authMode: 'bot_token',
       credentials: { bot_token: 'fake-e2e-discord-reauth' },
     });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.4.3 channels_connect (re-auth) failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 
   it('8.4.4 — Permission Re-Sync: channels_status refreshable after reconnect', async () => {
     const res = await callOpenhumanRpc('openhuman.channels_status', { channel: 'discord' });
-    expect(res.ok || Boolean(res.error)).toBe(true);
+    if (!res.ok) {
+      stepLog('8.4.4 channels_status failed:', res.error);
+    }
+    expect(res.ok).toBe(true);
   });
 });
 
@@ -231,7 +249,20 @@ describe('8.5 Integrations (Discord) — UI flow', () => {
     await navigateViaHash('/skills');
     await browser.pause(3_000);
 
-    // Discord card should be visible in Channel Integrations
+    // Skills page uses filter tabs (All, Built-in, Channels, Other).
+    // Click the "Channels" tab to show channel cards.
+    const hasChannelsTab = await textExists('Channels');
+    if (hasChannelsTab) {
+      try {
+        await clickText('Channels', 8_000);
+        await browser.pause(2_000);
+        stepLog('Clicked "Channels" filter tab');
+      } catch {
+        stepLog('Could not click Channels tab — continuing with All view');
+      }
+    }
+
+    // Discord card should now be visible
     const hasDiscord = await textExists('Discord');
     if (!hasDiscord) {
       const tree = await dumpAccessibilityTree();
@@ -241,37 +272,29 @@ describe('8.5 Integrations (Discord) — UI flow', () => {
     stepLog('Discord channel visible on Skills page');
   });
 
-  it('8.5.2 — Discord card shows status and Configure button', async () => {
-    // Description: "Send and receive messages via Discord."
+  it('8.5.2 — Discord card shows status and action button', async () => {
     const hasDescription = await textExists('Send and receive messages via Discord');
     stepLog('Discord card description', { visible: hasDescription });
 
-    const hasConfigure = await textExists('Configure');
-    expect(hasConfigure).toBe(true);
-
-    // Status: Connected, Not configured, Connecting, Error
-    const hasConnected = await textExists('Connected');
-    const hasNotConfigured = await textExists('Not configured');
-    const hasStatus =
-      hasConnected ||
-      hasNotConfigured ||
-      (await textExists('Connecting')) ||
-      (await textExists('Error'));
-    stepLog('Discord status', { connected: hasConnected, notConfigured: hasNotConfigured });
-    expect(hasStatus).toBe(true);
+    // CTA button: "Setup" (disconnected) or "Manage" (connected)
+    const hasSetup = await textExists('Setup');
+    const hasManage = await textExists('Manage');
+    const hasCta = hasSetup || hasManage;
+    stepLog('Discord CTA', { setup: hasSetup, manage: hasManage });
+    expect(hasCta).toBe(true);
   });
 
-  it('8.5.3 — Click Discord Configure opens modal with auth modes and fields', async () => {
-    // Click the Discord card (click "Discord" text — the whole card is a button)
-    stepLog('clicking Discord card');
+  it('8.5.3 — Click Discord Setup opens modal with auth modes and fields', async () => {
+    // Click the CTA button to open the ChannelSetupModal
+    stepLog('clicking Discord card to open Setup modal');
     try {
-      // There are two "Configure" buttons (Telegram + Discord) — click "Discord" directly
-      await clickText('Discord', 10_000);
+      await clickText('Setup', 10_000);
     } catch {
-      // Fallback: scroll to find it
-      const { scrollToFindText } = await import('../helpers/element-helpers');
-      await scrollToFindText('Discord');
-      await clickText('Discord', 10_000);
+      try {
+        await clickText('Manage', 10_000);
+      } catch {
+        await clickText('Discord', 10_000);
+      }
     }
     await browser.pause(3_000);
 

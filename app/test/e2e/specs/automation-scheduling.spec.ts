@@ -137,16 +137,55 @@ describe('Automation & Scheduling', () => {
     }
 
     await expectRpcOk('openhuman.subconscious_trigger', {});
-    if (methods.has('openhuman.subconscious_log_list')) {
-      const logs = await expectRpcOk('openhuman.subconscious_log_list', { limit: 20 });
-      expect(JSON.stringify(logs || {}).length > 2).toBe(true);
+
+    // Verify log entries were recorded — but only if the method exists in this build
+    if (!methods.has('openhuman.subconscious_log_list')) {
+      console.log(
+        '[AutomationSpec] 6.2.2 — subconscious_log_list not in schema, skipping log verification'
+      );
       return;
     }
 
-    await expectUnavailable('openhuman.subconscious_log_list', { limit: 20 });
+    // Poll for log entries — the trigger may write asynchronously
+    const deadline = Date.now() + 15_000;
+    let lastResponse: unknown = null;
+    let entries: unknown[] = [];
+
+    while (Date.now() < deadline) {
+      const res = await callOpenhumanRpc('openhuman.subconscious_log_list', { limit: 20 });
+      lastResponse = res;
+
+      if (res.ok) {
+        const raw = res.result as Record<string, unknown>;
+        const inner = Array.isArray(raw) ? raw : Array.isArray(raw?.result) ? raw.result : null;
+        if (inner && inner.length > 0) {
+          entries = inner;
+          break;
+        }
+      } else if (typeof res.error === 'string' && res.error.includes('unknown method')) {
+        // Method not available in running binary — skip
+        console.log('[AutomationSpec] 6.2.2 — log_list unavailable at runtime, skipping');
+        return;
+      }
+      await new Promise(r => setTimeout(r, 1_000));
+    }
+
+    if (entries.length === 0) {
+      console.log(
+        '[AutomationSpec] 6.2.2 — log_list never returned entries.',
+        'Last response:',
+        JSON.stringify(lastResponse, null, 2)?.slice(0, 1000)
+      );
+    }
+    expect(entries.length).toBeGreaterThan(0);
   });
 
   it('6.2.3 — Missed Execution Handling: trigger endpoint remains safe across repeated calls', async () => {
+    if (!methods.has('openhuman.subconscious_trigger')) {
+      await expectUnavailable('openhuman.subconscious_trigger', {});
+      return;
+    }
+
     await expectRpcOk('openhuman.subconscious_trigger', {});
     await expectRpcOk('openhuman.subconscious_trigger', {});
   });
@@ -156,17 +195,50 @@ describe('Automation & Scheduling', () => {
     await expectRpcOk('openhuman.cron_list', {});
   });
 
-  it('6.3.2 — Execution Trigger Handling: cron run with missing job_id fails explicitly', async () => {
-    const res = await callOpenhumanRpc('openhuman.cron_run', { job_id: 'missing-job-id-e2e' });
-    expect(res.ok).toBe(false);
+  it('6.3.2 — Execution Trigger Handling: cron run validates job_id param', async () => {
+    // Missing job_id — should hit parameter validation
+    const missing = await callOpenhumanRpc('openhuman.cron_run', {});
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toBeDefined();
+    console.log('[AutomationSpec] 6.3.2 missing job_id error:', missing.error);
+
+    // Unknown job_id — should hit domain-level "not found"
+    const unknown = await callOpenhumanRpc('openhuman.cron_run', { job_id: 'missing-job-id-e2e' });
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error).toBeDefined();
+    console.log('[AutomationSpec] 6.3.2 unknown job_id error:', unknown.error);
   });
 
   it('6.3.3 — Failure Retry Logic: cron runs history endpoint remains queryable after failures', async () => {
+    // Unknown job_id returns ok with empty runs array (DB has no entries)
     const runs = await callOpenhumanRpc('openhuman.cron_runs', {
       job_id: 'missing-job-id-e2e',
       limit: 5,
     });
 
-    expect(runs.ok || Boolean(runs.error)).toBe(true);
+    if (runs.ok) {
+      // Unwrap: result may be { result: [...], logs: [...] } or [...] directly
+      const raw = runs.result as unknown;
+      const entries = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as Record<string, unknown>)?.result)
+          ? (raw as Record<string, unknown>).result
+          : null;
+      console.log(
+        '[AutomationSpec] 6.3.3 cron_runs ok, entries:',
+        Array.isArray(entries) ? entries.length : 'not an array'
+      );
+      expect(Array.isArray(entries)).toBe(true);
+    } else {
+      // cron may be disabled — accept explicit error
+      console.log('[AutomationSpec] 6.3.3 cron_runs failed:', runs.error);
+      expect(runs.error).toBeDefined();
+    }
+
+    // Empty job_id must fail validation
+    const empty = await callOpenhumanRpc('openhuman.cron_runs', { job_id: '', limit: 5 });
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toBeDefined();
+    console.log('[AutomationSpec] 6.3.3 empty job_id error:', empty.error);
   });
 });

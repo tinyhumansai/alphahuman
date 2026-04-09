@@ -9,14 +9,6 @@ use crate::core::all::{ControllerFuture, RegisteredController};
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 use crate::rpc::RpcOutcome;
 
-/// Validate a cron expression using the `cron` crate.
-fn validate_cron_expression(expr: &str) -> Result<(), String> {
-    use std::str::FromStr;
-    cron::Schedule::from_str(expr)
-        .map(|_| ())
-        .map_err(|e| format!("invalid cron expression '{expr}': {e}"))
-}
-
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         schemas("status"),
@@ -333,8 +325,7 @@ fn handle_tasks_update(params: Map<String, Value>) -> ControllerFuture {
                     Some("once") => Some(TaskRecurrence::Once),
                     Some(s) if s.starts_with("cron:") => {
                         let expr = &s["cron:".len()..];
-                        validate_cron_expression(expr)?;
-                        Some(TaskRecurrence::Cron(expr.to_string()))
+                        Some(TaskRecurrence::try_cron(expr)?)
                     }
                     Some(_) => Some(TaskRecurrence::Pending),
                     None => None,

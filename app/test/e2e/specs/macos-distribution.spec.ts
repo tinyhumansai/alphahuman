@@ -78,7 +78,10 @@ describe('macOS Application Distribution', () => {
   runMacOnlyCase('0.2.2', 'Gatekeeper Validation', async () => {
     expectRpcMethod(methods, 'openhuman.service_status');
     const status = await callOpenhumanRpc('openhuman.service_status', {});
-    expect(status.ok || Boolean(status.error)).toBe(true);
+    if (!status.ok) {
+      console.log('[macOSDist] 0.2.2 service_status failed:', status.error);
+    }
+    expect(status.ok).toBe(true);
   });
 
   runMacOnlyCase('0.2.3', 'Code Signing Verification', () => {
@@ -92,7 +95,10 @@ describe('macOS Application Distribution', () => {
   runMacOnlyCase('0.2.4', 'First Launch Permissions Prompt', async () => {
     expectRpcMethod(methods, 'openhuman.screen_intelligence_status');
     const status = await callOpenhumanRpc('openhuman.screen_intelligence_status', {});
-    expect(status.ok || Boolean(status.error)).toBe(true);
+    if (!status.ok) {
+      console.log('[macOSDist] 0.2.4 screen_intelligence_status failed:', status.error);
+    }
+    expect(status.ok).toBe(true);
   });
 
   runMacOnlyCase('0.3.1', 'Auto Update Check', () => {
@@ -106,12 +112,25 @@ describe('macOS Application Distribution', () => {
   runMacOnlyCase('0.3.3', 'Reinstall with Existing State', async () => {
     expectRpcMethod(methods, 'openhuman.app_state_snapshot');
     const snapshot = await callOpenhumanRpc('openhuman.app_state_snapshot', {});
-    expect(snapshot.ok || Boolean(snapshot.error)).toBe(true);
+    if (!snapshot.ok) {
+      // This spec runs without a mock server, so the sidecar cannot reach the
+      // backend to fetch the user profile.  A network/request error is expected
+      // and does not indicate a broken snapshot endpoint.
+      const isNetworkError =
+        typeof snapshot.error === 'string' && snapshot.error.includes('request failed');
+      console.log(
+        `[macOSDist] 0.3.3 app_state_snapshot failed: ${snapshot.error} (networkError=${isNetworkError})`
+      );
+      expect(isNetworkError).toBe(true);
+    }
   });
 
   runMacOnlyCase('0.3.4', 'Clean Uninstall', async () => {
     expectRpcMethod(methods, 'openhuman.auth_clear_session');
     const clear = await callOpenhumanRpc('openhuman.auth_clear_session', {});
-    expect(clear.ok || Boolean(clear.error)).toBe(true);
+    if (!clear.ok) {
+      console.log('[macOSDist] 0.3.4 auth_clear_session failed:', clear.error);
+    }
+    expect(clear.ok).toBe(true);
   });
 });

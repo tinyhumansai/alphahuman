@@ -282,55 +282,58 @@ describe('8.5 Integrations (Telegram) — UI flow', () => {
     await navigateViaHash('/skills');
     await browser.pause(3_000);
 
-    // "Channel Integrations" heading on Skills page
-    const hasSection = await textExists('Channel Integrations');
-    if (!hasSection) {
+    // Skills page uses filter tabs (All, Built-in, Channels, Other).
+    // Click the "Channels" filter tab to show channel integrations.
+    const hasChannelsTab = await textExists('Channels');
+    if (hasChannelsTab) {
+      try {
+        await clickText('Channels', 8_000);
+        await browser.pause(2_000);
+        stepLog('Clicked "Channels" filter tab');
+      } catch {
+        stepLog('Could not click Channels tab — continuing with All view');
+      }
+    } else {
       const tree = await dumpAccessibilityTree();
-      stepLog('Channel Integrations not found. Tree:', tree.slice(0, 4000));
+      stepLog('Channels filter tab not found. Tree:', tree.slice(0, 4000));
     }
-    expect(hasSection).toBe(true);
-    stepLog('Channel Integrations section found on Skills page');
+    expect(hasChannelsTab).toBe(true);
+    stepLog('Channels filter tab found on Skills page');
   });
 
-  it('8.5.2 — Telegram card with status and Configure button visible', async () => {
+  it('8.5.2 — Telegram card with status and action button visible', async () => {
     const hasTelegram = await textExists('Telegram');
+    if (!hasTelegram) {
+      const tree = await dumpAccessibilityTree();
+      stepLog('Telegram not found after Channels tab. Tree:', tree.slice(0, 4000));
+    }
     expect(hasTelegram).toBe(true);
 
-    // Card shows description: "Send and receive messages via Telegram."
+    // Card shows description
     const hasDescription = await textExists('Send and receive messages via Telegram');
     stepLog('Telegram card', { visible: hasTelegram, description: hasDescription });
 
-    // "Configure" button on the card
-    const hasConfigure = await textExists('Configure');
-    expect(hasConfigure).toBe(true);
-
-    // Status label: one of Connected, Connecting, Not configured, Error
-    const hasConnected = await textExists('Connected');
-    const hasNotConfigured = await textExists('Not configured');
-    const hasConnecting = await textExists('Connecting');
-    const hasError = await textExists('Error');
-    const hasStatus = hasConnected || hasNotConfigured || hasConnecting || hasError;
-    stepLog('Telegram status', {
-      connected: hasConnected,
-      notConfigured: hasNotConfigured,
-      connecting: hasConnecting,
-      error: hasError,
-    });
-    expect(hasStatus).toBe(true);
+    // CTA button: "Setup" (disconnected) or "Manage" (connected)
+    const hasSetup = await textExists('Setup');
+    const hasManage = await textExists('Manage');
+    const hasCta = hasSetup || hasManage;
+    stepLog('Telegram CTA', { setup: hasSetup, manage: hasManage });
+    expect(hasCta).toBe(true);
   });
 
-  it('8.5.3 — Click Configure opens ChannelSetupModal with auth modes, buttons, and fields', async () => {
-    // The Telegram ChannelIntegrationCard is a <button> — click it to open the modal.
-    // There may be multiple "Configure" texts (Telegram + Discord), so click "Telegram" card directly.
-    // The card text includes "Telegram" + "Configure" — clicking the card area opens the modal.
-    stepLog('clicking Telegram card to open Configure modal');
+  it('8.5.3 — Click Setup opens ChannelSetupModal with auth modes, buttons, and fields', async () => {
+    // Click the Telegram card CTA ("Setup" or "Manage") to open the modal.
+    stepLog('clicking Telegram card to open Setup modal');
 
-    // Try clicking "Telegram" text first (the card is a button, clicking anywhere on it works)
+    // Try clicking card CTA first, then fallback to card name
     try {
-      await clickText('Telegram', 10_000);
+      await clickText('Setup', 10_000);
     } catch {
-      // Fallback: try "Configure"
-      await clickText('Configure', 10_000);
+      try {
+        await clickText('Telegram', 10_000);
+      } catch {
+        await clickText('Manage', 10_000);
+      }
     }
     await browser.pause(3_000);
 

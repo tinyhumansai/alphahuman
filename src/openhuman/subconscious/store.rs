@@ -498,7 +498,12 @@ fn string_to_recurrence(s: &str) -> TaskRecurrence {
     if s == "once" {
         TaskRecurrence::Once
     } else if let Some(expr) = s.strip_prefix("cron:") {
-        TaskRecurrence::Cron(expr.to_string())
+        TaskRecurrence::try_cron(expr).unwrap_or_else(|e| {
+            log::warn!(
+                "[subconscious] persisted cron expression is invalid, treating as Pending: {e}"
+            );
+            TaskRecurrence::Pending
+        })
     } else {
         TaskRecurrence::Pending
     }
