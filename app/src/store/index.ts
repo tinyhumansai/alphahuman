@@ -13,16 +13,10 @@ import {
 import storage from 'redux-persist/lib/storage';
 
 import { IS_DEV } from '../utils/config';
-import aiReducer from './aiSlice';
 import channelConnectionsReducer from './channelConnectionsSlice';
 import daemonReducer from './daemonSlice';
-import inviteReducer from './inviteSlice';
 import socketReducer from './socketSlice';
 import threadReducer from './threadSlice';
-import webhooksReducer from './webhooksSlice';
-
-// Persist config for AI state (config only)
-const aiPersistConfig = { key: 'ai', storage, whitelist: ['config'] };
 
 // Persist config for thread data and UI prefs (includes threads and messages)
 // Note: activeThreadId is intentionally excluded as it's transient state
@@ -32,7 +26,6 @@ const threadPersistConfig = {
   whitelist: ['panelWidth', 'lastViewedAt', 'threads', 'messagesByThreadId', 'selectedThreadId'],
 };
 
-const persistedAiReducer = persistReducer(aiPersistConfig, aiReducer);
 const persistedThreadReducer = persistReducer(threadPersistConfig, threadReducer);
 const channelConnectionsPersistConfig = {
   key: 'channelConnections',
@@ -48,11 +41,8 @@ export const store = configureStore({
   reducer: {
     socket: socketReducer,
     daemon: daemonReducer,
-    ai: persistedAiReducer,
     thread: persistedThreadReducer,
-    invite: inviteReducer,
     channelConnections: persistedChannelConnectionsReducer,
-    webhooks: webhooksReducer,
   },
   middleware: getDefaultMiddleware => {
     const middleware = getDefaultMiddleware({

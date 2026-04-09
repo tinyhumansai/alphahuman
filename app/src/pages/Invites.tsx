@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 
 import { useUser } from '../hooks/useUser';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { clearRedeemStatus, fetchInviteCodes, redeemCode } from '../store/inviteSlice';
+import { inviteApi } from '../services/api/inviteApi';
 import type { InviteCode } from '../types/invite';
+
+type RedeemStatus = 'idle' | 'loading' | 'success' | 'error';
 
 const CodeRow = ({ invite }: { invite: InviteCode }) => {
   const [copied, setCopied] = useState(false);
@@ -70,26 +71,49 @@ const CodeRow = ({ invite }: { invite: InviteCode }) => {
 };
 
 const Invites = () => {
-  const dispatch = useAppDispatch();
   const { user, refetch: refetchUser } = useUser();
-  const { codes, isLoading, redeemStatus, redeemError } = useAppSelector(state => state.invite);
+  const [codes, setCodes] = useState<InviteCode[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [redeemStatus, setRedeemStatus] = useState<RedeemStatus>('idle');
+  const [redeemError, setRedeemError] = useState<string | null>(null);
 
   const [redeemInput, setRedeemInput] = useState('');
   const hasBeenInvited = !!user?.referral?.invitedBy;
 
+  const loadInviteCodes = async () => {
+    setIsLoading(true);
+    try {
+      const data = await inviteApi.getMyInviteCodes();
+      setCodes(data);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    dispatch(fetchInviteCodes());
-  }, [dispatch]);
+    void loadInviteCodes();
+  }, []);
 
   const handleRedeem = async () => {
     const trimmed = redeemInput.trim();
     if (!trimmed) return;
 
-    const result = await dispatch(redeemCode(trimmed));
-    if (redeemCode.fulfilled.match(result)) {
+    setRedeemStatus('loading');
+    setRedeemError(null);
+
+    try {
+      await inviteApi.redeemInviteCode(trimmed);
+      await loadInviteCodes();
       setRedeemInput('');
-      refetchUser();
-      setTimeout(() => dispatch(clearRedeemStatus()), 3000);
+      await refetchUser();
+      setRedeemStatus('success');
+      window.setTimeout(() => {
+        setRedeemStatus('idle');
+        setRedeemError(null);
+      }, 3000);
+    } catch (error) {
+      setRedeemStatus('error');
+      setRedeemError(error instanceof Error ? error.message : 'Failed to redeem invite code');
     }
   };
 
