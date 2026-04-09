@@ -15,8 +15,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { useEffect, useState } from 'react';
 
+import type { ComponentHealth, DaemonStatus } from '../../features/daemon/store';
 import { formatRelativeTime, useDaemonHealth } from '../../hooks/useDaemonHealth';
-import type { ComponentHealth, DaemonStatus } from '../../store/daemonSlice';
 import { IS_DEV } from '../../utils/config';
 import {
   isTauri,

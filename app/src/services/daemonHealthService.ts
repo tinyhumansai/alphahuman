@@ -4,15 +4,13 @@
  * Manages health monitoring for the openhuman daemon by polling
  * `openhuman.health_snapshot` over core RPC from the frontend.
  */
-import { getCoreStateSnapshot } from '../lib/coreState/store';
-import { store } from '../store';
 import {
   type ComponentHealth,
   type HealthSnapshot,
   setDaemonStatus,
-  setHealthTimeoutId,
   updateHealthSnapshot,
-} from '../store/daemonSlice';
+} from '../features/daemon/store';
+import { getCoreStateSnapshot } from '../lib/coreState/store';
 import { callCoreRpc } from './coreRpcClient';
 
 export class DaemonHealthService {
@@ -35,7 +33,7 @@ export class DaemonHealthService {
         const payload = await callCoreRpc<unknown>({ method: 'openhuman.health_snapshot' });
         const healthSnapshot = this.parseHealthSnapshot(payload);
         if (healthSnapshot) {
-          this.updateReduxFromHealth(healthSnapshot);
+          this.updateDaemonStoreFromHealth(healthSnapshot);
           this.startHealthTimeout();
         }
       } catch {
@@ -134,18 +132,15 @@ export class DaemonHealthService {
   }
 
   /**
-   * Update Redux state based on received health snapshot.
+   * Update daemon state based on received health snapshot.
    */
-  private updateReduxFromHealth(snapshot: HealthSnapshot): void {
+  private updateDaemonStoreFromHealth(snapshot: HealthSnapshot): void {
     const userId = this.getUserId();
 
     try {
-      // Update the health snapshot in Redux
-      store.dispatch(updateHealthSnapshot({ userId, healthSnapshot: snapshot }));
-
-      // console.log('[DaemonHealth] Updated health snapshot for user:', userId, snapshot);
+      updateHealthSnapshot(userId, snapshot);
     } catch (error) {
-      console.error('[DaemonHealth] Error updating Redux from health:', error);
+      console.error('[DaemonHealth] Error updating daemon store from health:', error);
     }
   }
 
@@ -165,13 +160,9 @@ export class DaemonHealthService {
     // Set new timeout
     this.healthTimeoutId = setTimeout(() => {
       console.warn('[DaemonHealth] Health timeout reached - setting status to disconnected');
-      store.dispatch(setDaemonStatus({ userId, status: 'disconnected' }));
-      store.dispatch(setHealthTimeoutId({ userId, timeoutId: null }));
+      setDaemonStatus(userId, 'disconnected');
       this.healthTimeoutId = null;
     }, this.HEALTH_TIMEOUT_MS);
-
-    // Store timeout ID in Redux for cleanup
-    store.dispatch(setHealthTimeoutId({ userId, timeoutId: this.healthTimeoutId.toString() }));
   }
 
   /**

@@ -6,8 +6,8 @@
  */
 import type React from 'react';
 
+import type { DaemonStatus } from '../../features/daemon/store';
 import { formatRelativeTime, useDaemonHealth } from '../../hooks/useDaemonHealth';
-import type { DaemonStatus } from '../../store/daemonSlice';
 
 interface Props {
   userId?: string;
