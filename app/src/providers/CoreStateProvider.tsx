@@ -18,8 +18,6 @@ import {
   setCoreStateSnapshot,
 } from '../lib/coreState/store';
 import { syncAnalyticsConsent } from '../services/analytics';
-
-const log = debugFactory('core-state');
 import {
   fetchCoreAppSnapshot,
   getTeamInvites,
@@ -34,6 +32,8 @@ import {
   syncMemoryClientToken,
   logout as tauriLogout,
 } from '../utils/tauriCommands';
+
+const log = debugFactory('core-state');
 
 const POLL_MS = 2000;
 const MAX_BOOTSTRAP_RETRIES = 5;
