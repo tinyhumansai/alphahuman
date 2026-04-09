@@ -73,10 +73,9 @@ fn pin_overlay_bottom_right(window: &WebviewWindow) {
         return;
     };
 
-    let margin = 20i32;
-    let work_area = monitor.work_area();
-    let x = work_area.position.x + work_area.size.width as i32 - size.width as i32 - margin;
-    let y = work_area.position.y + work_area.size.height as i32 - size.height as i32 - margin;
+    let right_margin = 20i32;
+    let x = monitor.position().x + monitor.size().width as i32 - size.width as i32 - right_margin;
+    let y = monitor.position().y + monitor.size().height as i32 - size.height as i32;
 
     if let Err(err) = window.set_position(PhysicalPosition::new(x, y)) {
         log::warn!("[overlay] failed to pin overlay bottom-right: {err}");
