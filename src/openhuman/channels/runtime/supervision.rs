@@ -15,13 +15,17 @@ pub(crate) fn spawn_supervised_listener(
     initial_backoff_secs: u64,
     max_backoff_secs: u64,
 ) -> tokio::task::JoinHandle<()> {
+    // This helper is used directly in tests and isolated runtime paths, so make
+    // sure channel health events always have a live bus + subscriber target.
+    crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
+    crate::openhuman::health::bus::register_health_subscriber();
+
     tokio::spawn(async move {
         let component = format!("channel:{}", ch.name());
         let mut backoff = initial_backoff_secs.max(1);
         let max_backoff = max_backoff_secs.max(backoff);
 
         loop {
-            crate::openhuman::health::mark_component_ok(&component);
             publish_global(DomainEvent::ChannelConnected {
                 channel: ch.name().to_string(),
             });
@@ -34,10 +38,6 @@ pub(crate) fn spawn_supervised_listener(
             match result {
                 Ok(()) => {
                     tracing::warn!("Channel {} exited unexpectedly; restarting", ch.name());
-                    crate::openhuman::health::mark_component_error(
-                        &component,
-                        "listener exited unexpectedly",
-                    );
                     publish_global(DomainEvent::ChannelDisconnected {
                         channel: ch.name().to_string(),
                         reason: "exited unexpectedly".to_string(),
@@ -47,7 +47,6 @@ pub(crate) fn spawn_supervised_listener(
                 }
                 Err(e) => {
                     tracing::error!("Channel {} error: {e}; restarting", ch.name());
-                    crate::openhuman::health::mark_component_error(&component, e.to_string());
                     publish_global(DomainEvent::ChannelDisconnected {
                         channel: ch.name().to_string(),
                         reason: e.to_string(),
@@ -55,7 +54,9 @@ pub(crate) fn spawn_supervised_listener(
                 }
             }
 
-            crate::openhuman::health::bump_component_restart(&component);
+            publish_global(DomainEvent::HealthRestarted {
+                component: component.clone(),
+            });
             tokio::time::sleep(Duration::from_secs(backoff)).await;
             // Double backoff AFTER sleeping so first error uses initial_backoff
             backoff = backoff.saturating_mul(2).min(max_backoff);

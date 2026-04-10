@@ -1,9 +1,24 @@
 import { callCoreCommand } from '../coreCommandClient';
 
+/**
+ * Credit balance payload returned by `GET /payments/credits/balance`.
+ *
+ * Mirrors the backend shape defined in
+ * `backend-1/src/services/user/balanceService.ts` → `getCreditBalance(userId)`,
+ * which in turn derives from `IUser.usage.promotionBalanceUsd` on the user
+ * model and the team-level top-up ledger.
+ */
 export interface CreditBalance {
-  balanceUsd: number;
-  topUpBalanceUsd: number;
-  topUpBaselineUsd: number | null;
+  /**
+   * Promotional credit balance on the user document (signup bonus, coupons,
+   * referral rewards). Corresponds to `IUserUsage.promotionBalanceUsd`.
+   */
+  promotionBalanceUsd: number;
+  /**
+   * Team-level top-up balance (paid credits that cover overage once the
+   * included cycle budget is exhausted). Returned by `getTeamTopup(userId)`.
+   */
+  teamTopupUsd: number;
 }
 
 export interface TeamUsage {
@@ -114,16 +129,84 @@ export interface UpdateCardPayload {
 // ── Coupon types ────────────────────────────────────────────────────────────
 
 export interface CouponRedeemResult {
-  success: boolean;
-  data: { code: string; amountUsd: number };
+  couponCode: string;
+  amountUsd: number;
+  pending: boolean;
 }
 
 export interface RedeemedCoupon {
   code: string;
   amountUsd: number;
-  redeemedAt: string;
+  redeemedAt: string | null;
   activationType: string;
   fulfilled: boolean;
+  fulfilledAt: string | null;
+  activationCondition: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+export function normalizeCouponRedeemResult(raw: unknown): CouponRedeemResult {
+  const record = asRecord(raw) ?? {};
+  const envelopeData = asRecord(record.data);
+  const payload = envelopeData ?? record;
+  return {
+    couponCode:
+      (typeof payload.couponCode === 'string' && payload.couponCode.trim()) ||
+      (typeof payload.code === 'string' && payload.code.trim()) ||
+      '',
+    amountUsd: asNumber(payload.amountUsd ?? payload.amount_usd),
+    pending: Boolean(payload.pending),
+  };
+}
+
+export function normalizeRedeemedCoupon(raw: unknown): RedeemedCoupon {
+  const record = asRecord(raw) ?? {};
+  return {
+    code:
+      (typeof record.code === 'string' && record.code.trim()) ||
+      (typeof record.couponCode === 'string' && record.couponCode.trim()) ||
+      '',
+    amountUsd: asNumber(record.amountUsd ?? record.amount_usd),
+    redeemedAt: asStringOrNull(record.redeemedAt ?? record.redeemed_at),
+    activationType:
+      (typeof record.activationType === 'string' && record.activationType.trim()) ||
+      (typeof record.activation_type === 'string' && record.activation_type.trim()) ||
+      'IMMEDIATE',
+    fulfilled: Boolean(record.fulfilled),
+    fulfilledAt: asStringOrNull(record.fulfilledAt ?? record.fulfilled_at),
+    activationCondition: asStringOrNull(record.activationCondition ?? record.activation_condition),
+  };
+}
+
+function normalizeUsd(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeCreditBalance(payload: unknown): CreditBalance {
+  const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+
+  return {
+    promotionBalanceUsd: normalizeUsd(raw.promotionBalanceUsd),
+    teamTopupUsd: normalizeUsd(raw.teamTopupUsd),
+  };
 }
 
 /**
@@ -135,7 +218,8 @@ export const creditsApi = {
    * GET /credits/balance
    */
   getBalance: async (): Promise<CreditBalance> => {
-    return await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    const result = await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    return normalizeCreditBalance(result);
   },
 
   /**
@@ -231,7 +315,8 @@ export const creditsApi = {
    * POST /coupons/redeem
    */
   redeemCoupon: async (code: string): Promise<CouponRedeemResult> => {
-    return await callCoreCommand<CouponRedeemResult>('openhuman.billing_redeem_coupon', { code });
+    const result = await callCoreCommand<unknown>('openhuman.billing_redeem_coupon', { code });
+    return normalizeCouponRedeemResult(result);
   },
 
   /**
@@ -239,6 +324,7 @@ export const creditsApi = {
    * GET /coupons/me
    */
   getUserCoupons: async (): Promise<RedeemedCoupon[]> => {
-    return await callCoreCommand<RedeemedCoupon[]>('openhuman.billing_get_coupons');
+    const coupons = await callCoreCommand<unknown[]>('openhuman.billing_get_coupons');
+    return Array.isArray(coupons) ? coupons.map(normalizeRedeemedCoupon) : [];
   },
 };
