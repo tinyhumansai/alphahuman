@@ -1546,8 +1546,9 @@ fn write_test_skill(workspace: &Path, skill_id: &str) {
             return { status: "ok", synced: true };
         }
 
-        async function onOAuthComplete(_params) {
-            return { ok: true, test: "e2e-oauth-handler-ran" };
+        /** Required by `oauth/complete` — runtime calls `start({ oauth, auth, validate: true })`. */
+        function start(_args) {
+            return { status: "complete" };
         }
 
         init();
@@ -1895,9 +1896,9 @@ async fn json_rpc_skills_oauth_complete_after_start() {
     .await;
     let oauth_result = assert_no_jsonrpc_error(&oauth, "skills_rpc oauth/complete");
     assert_eq!(
-        oauth_result.get("ok"),
-        Some(&json!(true)),
-        "onOAuthComplete should return ok: {oauth_result}"
+        oauth_result.get("status").and_then(Value::as_str),
+        Some("complete"),
+        "oauth/complete should return start() validation result: {oauth_result}"
     );
 
     let stop = post_json_rpc(

@@ -20,17 +20,19 @@ import {
 } from './skillsApi';
 
 /** Snapshot used when `skills_status` fails (skill not loaded in runtime yet, RPC error, etc.). */
-function offlineSkillSnapshot(skillId: string): SkillSnapshotRpc {
-  return {
-    skill_id: skillId,
-    name: '',
-    status: 'installed',
-    tools: [],
-    state: {},
-    setup_complete: false,
-    connection_status: 'offline',
-  };
-}
+const offlineSkillSnapshot = (
+  skillId: string,
+  previous?: SkillSnapshotRpc | null,
+): SkillSnapshotRpc => ({
+  skill_id: skillId,
+  name: previous?.name ?? '',
+  status: previous?.status ?? 'installed',
+  tools: previous?.tools ?? [],
+  state: previous?.state ?? {},
+  setup_complete: previous?.setup_complete ?? false,
+  connection_status: previous?.connection_status ?? 'offline',
+  error: previous?.error,
+});
 
 // ---------------------------------------------------------------------------
 // Legacy pure function kept for compatibility (used by sync.ts, skillsSyncUi)
@@ -97,7 +99,9 @@ export function useSkillSnapshot(skillId: string | undefined): SkillSnapshotRpc 
       // returns an error and would otherwise leave `snap` null forever.  UI such as
       // SkillSetupModal waits for a non-null snapshot before leaving its loading
       // state, so we synthesize an offline snapshot instead of staying stuck.
-      if (mountedRef.current) setSnap(offlineSkillSnapshot(skillId));
+      if (mountedRef.current) {
+        setSnap(previous => offlineSkillSnapshot(skillId, previous));
+      }
     }
   }, [skillId]);
 

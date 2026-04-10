@@ -188,29 +188,30 @@ export default function SkillSetupWizard({
     if (state.phase === "auth_managed_waiting" && isConnected) {
       if (managedOAuthAdvancedRef.current) return;
       managedOAuthAdvancedRef.current = true;
-      setTimeout(() => {
-        // Leave the waiting screen immediately; runtime start + sync can be slow.
-        setState({
-          phase: "complete",
-          message:
-            "Successfully connected! You can close this window.",
-        });
-        void (async () => {
-          try {
-            await startSkill(skillId);
-          } catch (e) {
-            console.warn("[SkillSetupWizard] post-OAuth startSkill:", e);
+      void (async () => {
+        try {
+          await startSkill(skillId);
+        } catch (e) {
+          console.warn("[SkillSetupWizard] post-OAuth startSkill:", e);
+          setState({ phase: "error", message: "Failed to start skill after OAuth." });
+          return;
+        }
+        try {
+          const firstStep = await skillManager.startSetup(skillId);
+          if (firstStep) {
+            setState({ phase: "step", step: firstStep });
+          } else {
+            await setSetupComplete(skillId, true);
+            setState({
+              phase: "complete",
+              message: "Successfully connected! You can close this window.",
+            });
           }
-          try {
-            const firstStep = await skillManager.startSetup(skillId);
-            if (firstStep) {
-              setState({ phase: "step", step: firstStep });
-            }
-          } catch (e) {
-            console.warn("[SkillSetupWizard] post-OAuth startSetup:", e);
-          }
-        })();
-      }, 0);
+        } catch (e) {
+          console.warn("[SkillSetupWizard] post-OAuth startSetup:", e);
+          setState({ phase: "error", message: "Setup failed" });
+        }
+      })();
       return;
     }
     // Legacy OAuth completion
