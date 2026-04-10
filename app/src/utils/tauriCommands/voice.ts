@@ -175,14 +175,18 @@ export async function registerDictationHotkey(shortcut: string): Promise<void> {
  * Notify the overlay of a voice/STT state change from the chat prompt button.
  * Fire-and-forget — errors are logged but never propagated.
  */
-export function notifyOverlaySttState(
+export const notifyOverlaySttState = (
   state: 'recording_started' | 'transcription_done' | 'cancelled' | 'error',
-  text?: string,
-): void {
-  callCoreRpc({ method: 'openhuman.overlay_stt_notify', params: { state, text } }).catch(
-    (err: unknown) => console.debug('[overlay_stt_notify] fire-and-forget error:', err),
-  );
-}
+  text?: string
+): void => {
+  void (async () => {
+    try {
+      await callCoreRpc({ method: 'openhuman.overlay_stt_notify', params: { state, text } });
+    } catch (err: unknown) {
+      console.debug('[overlay_stt_notify] fire-and-forget error:', err);
+    }
+  })();
+};
 
 /**
  * Unregister the global dictation hotkey if one is active.

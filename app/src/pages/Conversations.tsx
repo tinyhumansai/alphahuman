@@ -34,6 +34,7 @@ import {
 import type { ThreadMessage } from '../types/thread';
 import {
   isTauri,
+  notifyOverlaySttState,
   openhumanAutocompleteAccept,
   openhumanAutocompleteCurrent,
   openhumanLocalAiAnalyzeSentiment,
@@ -42,7 +43,6 @@ import {
   openhumanVoiceStatus,
   openhumanVoiceTranscribeBytes,
   openhumanVoiceTts,
-  notifyOverlaySttState,
 } from '../utils/tauriCommands';
 
 const DEFAULT_THREAD_ID = 'default-thread';
