@@ -1128,9 +1128,7 @@ impl Agent {
                 // `ConversationMessage`-shaped Agent path lets the
                 // signal bubble up as telemetry until a native
                 // summariser lands).
-                let outcome = self
-                    .context_pipeline
-                    .run_before_call(&mut self.history);
+                let outcome = self.context_pipeline.run_before_call(&mut self.history);
                 match &outcome {
                     super::context_pipeline::PipelineOutcome::NoOp => {}
                     super::context_pipeline::PipelineOutcome::Microcompacted(stats) => {
@@ -1201,6 +1199,12 @@ impl Agent {
                         resp.tool_calls.len()
                     );
                         log::debug!("[agent_loop] provider response: {resp:?}");
+                        // Feed the context pipeline (guard +
+                        // session-memory token accounting). No-op when
+                        // the provider doesn't return usage.
+                        if let Some(ref usage) = resp.usage {
+                            self.context_pipeline.record_usage(usage);
+                        }
                         resp
                     }
                     Err(err) => return Err(err),
@@ -1239,6 +1243,16 @@ impl Agent {
                             .store("assistant_resp", &summary, MemoryCategory::Daily, None)
                             .await;
                     }
+
+                    // Session-memory tool-call accounting. The actual
+                    // background extraction spawn happens *outside*
+                    // `turn_body` so the spawned task can take an owned
+                    // parent context without fighting the borrow
+                    // checker against `self`. We capture the decision
+                    // here and surface it via the pipeline state — the
+                    // epilogue (below) reads `should_extract_session_memory()`.
+                    self.context_pipeline
+                        .record_tool_calls(all_tool_records.len());
 
                     // Fire post-turn hooks (non-blocking)
                     if !self.post_turn_hooks.is_empty() {
@@ -1323,7 +1337,90 @@ impl Agent {
         // that any `spawn_subagent` tool call fired during the loop can
         // read the parent's provider, tools, model, and workspace via
         // the PARENT_CONTEXT task-local.
-        super::harness::with_parent_context(parent_context, turn_body).await
+        let result = super::harness::with_parent_context(parent_context, turn_body).await;
+
+        // ── Session-memory extraction (stage 5) ───────────────────────
+        //
+        // If the pipeline's deltas have crossed all three thresholds
+        // (token growth, tool calls, turn count), spawn a *background*
+        // archivist sub-agent that will distil durable facts into the
+        // workspace MEMORY.md file via the `update_memory_md` tool.
+        //
+        // The spawn is fire-and-forget: the main turn returns the
+        // user-visible response immediately, and the archivist runs
+        // asynchronously on the `agentic` tier. We optimistically mark
+        // the extraction complete right away — if it actually fails,
+        // we'll just retry on the next threshold window (a few turns
+        // later), which is the right amount of retry behaviour for a
+        // librarian task that's idempotent across reruns.
+        if result.is_ok() && self.context_pipeline.should_extract_session_memory() {
+            self.spawn_session_memory_extraction();
+        }
+
+        result
+    }
+
+    /// Spawn a background archivist sub-agent to extract durable facts
+    /// from the recent conversation into `MEMORY.md`. Fire-and-forget.
+    ///
+    /// Gated by [`super::context_pipeline::SessionMemoryState::should_extract`]
+    /// — see its docs for the threshold invariants. Safe to call from
+    /// inside `turn()` after the turn body has settled.
+    fn spawn_session_memory_extraction(&mut self) {
+        let Some(registry) = super::harness::AgentDefinitionRegistry::global() else {
+            log::debug!("[session_memory] registry not initialised — skipping extraction spawn");
+            return;
+        };
+        let Some(definition) = registry.get("archivist").cloned() else {
+            log::debug!(
+                "[session_memory] archivist definition not found — skipping extraction spawn"
+            );
+            return;
+        };
+
+        // Build a dedicated ParentExecutionContext for the background
+        // task. The in-progress turn's context has already been
+        // consumed by the `with_parent_context` scope above, so this is
+        // a fresh snapshot.
+        let parent_ctx = self.build_parent_execution_context();
+        let extraction_prompt = super::context_pipeline::ARCHIVIST_EXTRACTION_PROMPT.to_string();
+
+        // Mark in-flight. We optimistically flip to complete to avoid
+        // needing a channel back from the background task; this means
+        // a failed extraction is retried after the next threshold
+        // crossing rather than immediately. Acceptable for an
+        // idempotent librarian task.
+        self.context_pipeline
+            .session_memory
+            .mark_extraction_started();
+        self.context_pipeline
+            .session_memory
+            .mark_extraction_complete();
+
+        log::info!(
+            "[session_memory] spawning background archivist extraction (turn={}, tokens={})",
+            self.context_pipeline.session_memory.current_turn,
+            self.context_pipeline.session_memory.total_tokens
+        );
+
+        tokio::spawn(async move {
+            let options = super::harness::SubagentRunOptions::default();
+            let fut = super::harness::run_subagent(&definition, &extraction_prompt, options);
+            let result = super::harness::with_parent_context(parent_ctx, fut).await;
+            match result {
+                Ok(outcome) => tracing::info!(
+                    agent_id = %outcome.agent_id,
+                    task_id = %outcome.task_id,
+                    iterations = outcome.iterations,
+                    output_chars = outcome.output.chars().count(),
+                    "[session_memory] archivist extraction completed"
+                ),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "[session_memory] archivist extraction failed — will retry after next threshold crossing"
+                ),
+            }
+        });
     }
 
     /// Runs a single turn with the given message and returns the response.

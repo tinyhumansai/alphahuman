@@ -35,8 +35,8 @@ pub use microcompact::{
 };
 pub use pipeline::{ContextPipeline, ContextPipelineConfig, PipelineOutcome};
 pub use session_memory::{
-    SessionMemoryConfig, SessionMemoryState, ARCHIVIST_EXTRACTION_PROMPT,
-    DEFAULT_MIN_TOKEN_GROWTH, DEFAULT_MIN_TOOL_CALLS, DEFAULT_MIN_TURNS_BETWEEN,
+    SessionMemoryConfig, SessionMemoryState, ARCHIVIST_EXTRACTION_PROMPT, DEFAULT_MIN_TOKEN_GROWTH,
+    DEFAULT_MIN_TOOL_CALLS, DEFAULT_MIN_TURNS_BETWEEN,
 };
 pub use tool_result_budget::{
     apply_tool_result_budget, BudgetOutcome, DEFAULT_TOOL_RESULT_BUDGET_BYTES,

@@ -107,9 +107,7 @@ impl SessionMemoryState {
         let tool_growth = self
             .total_tool_calls
             .saturating_sub(self.tool_calls_at_last_extract);
-        let turn_growth = self
-            .current_turn
-            .saturating_sub(self.turn_at_last_extract);
+        let turn_growth = self.current_turn.saturating_sub(self.turn_at_last_extract);
 
         token_growth >= config.min_token_growth
             && tool_growth >= config.min_tool_calls
@@ -141,7 +139,8 @@ impl SessionMemoryState {
 /// The prompt the main agent hands to a spawned archivist sub-agent when
 /// session-memory extraction fires. Kept in this module so the
 /// extraction policy and the spawn wording live together.
-pub const ARCHIVIST_EXTRACTION_PROMPT: &str = "You are extracting durable facts from the recent conversation \
+pub const ARCHIVIST_EXTRACTION_PROMPT: &str =
+    "You are extracting durable facts from the recent conversation \
 into the workspace `MEMORY.md` file. Focus on:\n\n\
 - User preferences and commitments\n\
 - Decisions and their rationale\n\

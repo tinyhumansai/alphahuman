@@ -89,10 +89,7 @@ pub enum PipelineOutcome {
     },
     /// The guard's circuit breaker is tripped and the context is still
     /// above the hard threshold — the caller should abort the turn.
-    ContextExhausted {
-        utilisation_pct: u8,
-        reason: String,
-    },
+    ContextExhausted { utilisation_pct: u8, reason: String },
 }
 
 /// Stateful orchestrator. Owns a [`ContextGuard`] and a
@@ -142,7 +139,8 @@ impl ContextPipeline {
     /// Should the caller spawn a background session-memory extraction
     /// this turn?
     pub fn should_extract_session_memory(&self) -> bool {
-        self.session_memory.should_extract(&self.config.session_memory)
+        self.session_memory
+            .should_extract(&self.config.session_memory)
     }
 
     /// Run the reduction chain against `history` in place. Safe to call
@@ -243,7 +241,11 @@ mod tests {
             output_tokens: 1_000,
             context_window: 100_000,
         });
-        let mut history = vec![user("hi"), call("t1"), result("t1", "x".repeat(2_000).as_str())];
+        let mut history = vec![
+            user("hi"),
+            call("t1"),
+            result("t1", "x".repeat(2_000).as_str()),
+        ];
         let outcome = pipeline.run_before_call(&mut history);
         assert_eq!(outcome, PipelineOutcome::NoOp);
     }

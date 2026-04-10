@@ -57,10 +57,7 @@ pub struct MicrocompactStats {
 /// The clearing is idempotent: running the pass twice on the same
 /// history is a no-op on the second call because the already-cleared
 /// entries will match `CLEARED_PLACEHOLDER` and be skipped.
-pub fn microcompact(
-    history: &mut [ConversationMessage],
-    keep_recent: usize,
-) -> MicrocompactStats {
+pub fn microcompact(history: &mut [ConversationMessage], keep_recent: usize) -> MicrocompactStats {
     // First sweep: find the indices of every `ToolResults` envelope.
     let mut tool_result_indices: Vec<usize> = history
         .iter()
