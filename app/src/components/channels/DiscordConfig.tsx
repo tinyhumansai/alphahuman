@@ -122,24 +122,35 @@ const DiscordConfig = ({ definition }: DiscordConfigProps) => {
         }
 
         // Credential-based connection succeeded.
-        dispatch(
-          upsertChannelConnection({
-            channel: 'discord',
-            authMode: spec.mode,
-            patch: { status: 'connected', lastError: undefined, capabilities: ['read', 'write'] },
-          })
-        );
-
         if (result.restart_required) {
           log('restart required after connect — restarting core process');
           try {
             await restartCoreProcess();
             log('core process restarted successfully');
+            dispatch(
+              upsertChannelConnection({
+                channel: 'discord',
+                authMode: spec.mode,
+                patch: {
+                  status: 'connected',
+                  lastError: undefined,
+                  capabilities: ['read', 'write'],
+                },
+              })
+            );
           } catch (restartErr) {
             const msg = restartErr instanceof Error ? restartErr.message : String(restartErr);
             log('core restart failed: %s', msg);
             setError('Channel saved. Restart the app to activate it.');
           }
+        } else {
+          dispatch(
+            upsertChannelConnection({
+              channel: 'discord',
+              authMode: spec.mode,
+              patch: { status: 'connected', lastError: undefined, capabilities: ['read', 'write'] },
+            })
+          );
         }
       });
     },
