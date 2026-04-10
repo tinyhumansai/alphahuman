@@ -178,10 +178,14 @@ pub(crate) async fn handle_oauth_revoked(
 
 /// Handle `auth/complete` RPC.
 ///
-/// Performs a 2-step process:
-/// 1. Temporarily injects credentials and calls `onAuthComplete` for validation.
-/// 2. If validation succeeds (status != "error"), persists credentials to disk
-///    and permanently injects them into the runtime.
+/// There is no separate `onAuthComplete` JS hook anymore. The flow is:
+///   1. Temporarily inject the new credentials into the JS bridges.
+///   2. Call `start({ oauth, auth, validate: true })`. start() owns both
+///      validation (when `validate` is set) and activation (cron, etc.) — it
+///      returns `{ status: "complete" }` or `{ status: "error", errors: [...] }`.
+///   3. If start() returned an error, roll back the temporary injection and
+///      surface the result to the caller (no persistence on disk).
+///   4. Otherwise persist the credentials to disk so they survive restarts.
 pub(crate) async fn handle_auth_complete(
     rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
@@ -196,7 +200,8 @@ pub(crate) async fn handle_auth_complete(
         .map(|m| m == "managed")
         .unwrap_or(false);
 
-    // Step 1: Temporary injection for validation
+    // Step 1: Temporary injection so the JS bridges (`auth`, and `oauth` for
+    // managed mode) see the new credentials while start() runs validation.
     let temp_code = format!(
         r#"(function() {{
             if (typeof globalThis.auth !== 'undefined' && globalThis.auth.__setCredential) {{
@@ -210,8 +215,24 @@ pub(crate) async fn handle_auth_complete(
     })
     .await;
 
-    let params_str = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
-    let result = handle_js_call(rt, ctx, "onAuthComplete", &params_str).await;
+    // Step 2: Build a `{ oauth, auth, validate: true }` arg bag and call
+    // start(). We pass the freshly-submitted auth params (not what's on disk)
+    // so the validation step inside start() inspects the *new* credentials.
+    // OAuth comes from disk so the skill still has the full picture.
+    let oauth_on_disk = match std::fs::read_to_string(data_dir.join("oauth_credential.json")) {
+        Ok(s) if !s.trim().is_empty() => {
+            serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::Value::Null)
+        }
+        _ => serde_json::Value::Null,
+    };
+    let start_args_value = serde_json::json!({
+        "oauth": oauth_on_disk,
+        "auth": params,
+        "validate": true,
+    });
+    let start_args =
+        serde_json::to_string(&start_args_value).unwrap_or_else(|_| "null".to_string());
+    let result = handle_js_call(rt, ctx, "start", &start_args).await;
 
     // Evaluate validation result
     let validation_failed = match &result {
@@ -220,7 +241,8 @@ pub(crate) async fn handle_auth_complete(
     };
 
     if validation_failed {
-        // Rollback temporary injection
+        // Rollback temporary injection — credentials never made it to disk so
+        // a follow-up restart will see the skill as disconnected again.
         let clear_code = r#"(function() {
             if (typeof globalThis.auth !== 'undefined' && globalThis.auth.__setCredential) {
                 globalThis.auth.__setCredential(null);
@@ -237,7 +259,9 @@ pub(crate) async fn handle_auth_complete(
         return result;
     }
 
-    // Step 2: Permanent injection and persistence
+    // Step 3: Permanent injection and persistence. start() already activated
+    // cron etc. above; this just makes sure the bridges and disk reflect the
+    // new credentials so a future restart restores the same state.
     let managed_bridge = if is_managed {
         let creds_json = serde_json::to_string(
             params
@@ -298,18 +322,6 @@ pub(crate) async fn handle_auth_complete(
         .unwrap_or_else(|_| "null".to_string());
         let oauth_path = data_dir.join("oauth_credential.json");
         let _ = std::fs::write(&oauth_path, &oauth_cred_json);
-    }
-
-    // Validation passed and credentials are persisted — re-call start() so the
-    // skill picks up the new credentials and registers cron etc. start() is
-    // expected to be idempotent (re-registering an existing cron is a no-op
-    // because skills unregister before they register).
-    let start_args = build_start_credentials_arg(data_dir);
-    if let Err(e) = call_lifecycle(rt, ctx, "start", Some(&start_args)).await {
-        log::warn!(
-            "[skill:{}] start(creds) after auth/complete failed: {e}",
-            skill_id
-        );
     }
 
     result
