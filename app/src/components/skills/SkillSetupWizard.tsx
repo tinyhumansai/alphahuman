@@ -24,6 +24,25 @@ import SetupFormRenderer from "./SetupFormRenderer.tsx";
 import AuthModeSelector from "./AuthModeSelector.tsx";
 import { IS_DEV } from "../../utils/config.ts";
 
+const SKILL_RUNNING_WAIT_MS = 10_000;
+const SKILL_RUNNING_POLL_MS = 250;
+
+/** Poll `skills_status` until the lifecycle reports `running` (or throw on error / timeout). */
+async function waitForSkillRunning(skillId: string): Promise<void> {
+  const deadline = Date.now() + SKILL_RUNNING_WAIT_MS;
+  while (Date.now() < deadline) {
+    const snapshot = await getSkillSnapshot(skillId);
+    if (snapshot.status === "running") return;
+    if (snapshot.status === "error") {
+      throw new Error(snapshot.error ? String(snapshot.error) : "Skill failed to start");
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, SKILL_RUNNING_POLL_MS);
+    });
+  }
+  throw new Error("Timed out waiting for skill to start");
+}
+
 interface SkillSetupWizardProps {
   skillId: string;
   onComplete: () => void;
@@ -72,6 +91,7 @@ export default function SkillSetupWizard({
       // Note: if the skill is already running, startSkill returns Ok (not an
       // error), so any exception here is a real failure that must surface.
       await startSkill(skillId);
+      await waitForSkillRunning(skillId);
 
       const firstStep = await skillManager.startSetup(skillId);
       if (!firstStep) {
@@ -143,6 +163,7 @@ export default function SkillSetupWizard({
         // Note: if the skill is already running, startSkill returns Ok (not an
         // error), so any exception here is a real failure that must surface.
         await startSkill(skillId);
+        await waitForSkillRunning(skillId);
 
         // Build credential payload
         const credentials =
@@ -191,6 +212,7 @@ export default function SkillSetupWizard({
       void (async () => {
         try {
           await startSkill(skillId);
+          await waitForSkillRunning(skillId);
         } catch (e) {
           console.warn("[SkillSetupWizard] post-OAuth startSkill:", e);
           setState({ phase: "error", message: "Failed to start skill after OAuth." });
@@ -288,6 +310,7 @@ export default function SkillSetupWizard({
         try {
           await startSkill(skillId);
           console.log("[SkillSetupWizard] skill started via RPC", skillId);
+          await waitForSkillRunning(skillId);
         } catch (startErr) {
           console.warn("[SkillSetupWizard] runtime start failed:", startErr);
           if (!cancelled) {

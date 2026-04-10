@@ -495,6 +495,33 @@ fn assert_no_jsonrpc_error<'a>(v: &'a Value, context: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("{context}: missing result: {v}"))
 }
 
+/// Poll `openhuman.skills_status` until lifecycle `status` is `"running"` or timeout.
+async fn wait_for_skill_status_running(rpc_base: &str, skill_id: &str, mut next_id: i64) -> i64 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = post_json_rpc(
+            rpc_base,
+            next_id,
+            "openhuman.skills_status",
+            json!({"skill_id": skill_id}),
+        )
+        .await;
+        next_id += 1;
+        let st = assert_no_jsonrpc_error(&status, "skills_status (wait for running)");
+        let s = st.get("status").and_then(Value::as_str).unwrap_or("");
+        if s == "running" {
+            return next_id;
+        }
+        if s == "error" {
+            panic!("skill {skill_id} entered error while waiting for running: {st}");
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timed out waiting for skill {skill_id} to reach running, last: {st}");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 fn extract_string_outcome(result: &Value) -> String {
     if let Some(s) = result.as_str() {
         return s.to_string();
@@ -1877,11 +1904,11 @@ async fn json_rpc_skills_oauth_complete_after_start() {
     )
     .await;
     let _ = assert_no_jsonrpc_error(&start, "skills_start");
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    let next_after_running = wait_for_skill_status_running(&rpc_base, "e2e-runtime", 6001).await;
 
     let oauth = post_json_rpc(
         &rpc_base,
-        601,
+        next_after_running,
         "openhuman.skills_rpc",
         json!({
             "skill_id": "e2e-runtime",
@@ -1903,7 +1930,7 @@ async fn json_rpc_skills_oauth_complete_after_start() {
 
     let stop = post_json_rpc(
         &rpc_base,
-        602,
+        next_after_running + 1,
         "openhuman.skills_stop",
         json!({"skill_id": "e2e-runtime"}),
     )

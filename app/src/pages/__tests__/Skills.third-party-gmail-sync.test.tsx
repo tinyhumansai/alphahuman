@@ -5,6 +5,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import '../../test/mockDefaultSkillStatusHooks';
 import { renderWithProviders } from '../../test/test-utils';
 import Skills from '../Skills';
 
@@ -23,45 +24,6 @@ const gmailRegistryEntry = {
 const mocks = vi.hoisted(() => ({
   triggerSync: vi.fn().mockResolvedValue(undefined),
   startSkill: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('../../features/screen-intelligence/useScreenIntelligenceSkillStatus', () => ({
-  useScreenIntelligenceSkillStatus: () => ({
-    connectionStatus: 'offline',
-    statusDot: 'bg-stone-400',
-    statusLabel: 'Offline',
-    statusColor: 'text-stone-500',
-    ctaLabel: 'Enable',
-    ctaVariant: 'sage',
-    allPermissionsGranted: false,
-    platformUnsupported: false,
-  }),
-}));
-
-vi.mock('../../features/autocomplete/useAutocompleteSkillStatus', () => ({
-  useAutocompleteSkillStatus: () => ({
-    connectionStatus: 'offline',
-    statusDot: 'bg-stone-400',
-    statusLabel: 'Offline',
-    statusColor: 'text-stone-500',
-    ctaLabel: 'Enable',
-    ctaVariant: 'sage',
-    platformUnsupported: false,
-  }),
-}));
-
-vi.mock('../../features/voice/useVoiceSkillStatus', () => ({
-  useVoiceSkillStatus: () => ({
-    connectionStatus: 'offline',
-    statusDot: 'bg-stone-400',
-    statusLabel: 'Offline',
-    statusColor: 'text-stone-500',
-    ctaLabel: 'Enable',
-    ctaVariant: 'sage',
-    sttModelMissing: false,
-    voiceStatus: null,
-    serverStatus: null,
-  }),
 }));
 
 vi.mock('../../hooks/useChannelDefinitions', () => ({
