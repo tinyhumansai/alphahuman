@@ -40,6 +40,9 @@ semver = "1"
 log = "0.4"
 env_logger = "0.11"
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", default-features = false, features = ["signal"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = "0.3.2"
 objc2-core-graphics = "0.3.2"
