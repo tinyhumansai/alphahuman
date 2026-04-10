@@ -12,7 +12,7 @@
  * as a single "managed" auth mode.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSkillSnapshot } from "../../lib/skills/hooks.ts";
 import { skillManager } from "../../lib/skills/manager.ts";
 import { getSkillSnapshot, installSkill, listAvailable, setSetupComplete, startSkill } from "../../lib/skills/skillsApi.ts";
@@ -23,6 +23,25 @@ import type { SetupStep, SetupFieldError, AuthMode, SkillAuthConfig } from "../.
 import SetupFormRenderer from "./SetupFormRenderer.tsx";
 import AuthModeSelector from "./AuthModeSelector.tsx";
 import { IS_DEV } from "../../utils/config.ts";
+
+const SKILL_RUNNING_WAIT_MS = 10_000;
+const SKILL_RUNNING_POLL_MS = 250;
+
+/** Poll `skills_status` until the lifecycle reports `running` (or throw on error / timeout). */
+const waitForSkillRunning = async (skillId: string): Promise<void> => {
+  const deadline = Date.now() + SKILL_RUNNING_WAIT_MS;
+  while (Date.now() < deadline) {
+    const snapshot = await getSkillSnapshot(skillId);
+    if (snapshot.status === "running") return;
+    if (snapshot.status === "error") {
+      throw new Error(snapshot.error ? String(snapshot.error) : "Skill failed to start");
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, SKILL_RUNNING_POLL_MS);
+    });
+  }
+  throw new Error("Timed out waiting for skill to start");
+};
 
 interface SkillSetupWizardProps {
   skillId: string;
@@ -57,6 +76,15 @@ export default function SkillSetupWizard({
   onCancel,
 }: SkillSetupWizardProps) {
   const [state, setState] = useState<WizardState>({ phase: "loading" });
+  /** Ensures managed OAuth auto-advance runs once per browser-login attempt. */
+  const managedOAuthAdvancedRef = useRef(false);
+  /** Ensures legacy OAuth persistence + complete runs once per connected transition. */
+  const legacyOAuthAdvancedRef = useRef(false);
+
+  useEffect(() => {
+    managedOAuthAdvancedRef.current = false;
+    legacyOAuthAdvancedRef.current = false;
+  }, [skillId]);
 
   // Watch skill snapshot for OAuth/managed completion
   const snap = useSkillSnapshot(skillId);
@@ -66,12 +94,11 @@ export default function SkillSetupWizard({
 
   const transitionToSetup = useCallback(async () => {
     try {
-      // Ensure skill runtime is running
-      try {
-        await startSkill(skillId);
-      } catch {
-        // May already be running
-      }
+      // Ensure skill runtime is running.
+      // Note: if the skill is already running, startSkill returns Ok (not an
+      // error), so any exception here is a real failure that must surface.
+      await startSkill(skillId);
+      await waitForSkillRunning(skillId);
 
       const firstStep = await skillManager.startSetup(skillId);
       if (!firstStep) {
@@ -105,6 +132,7 @@ export default function SkillSetupWizard({
           return;
         }
         await openUrl(data.oauthUrl);
+        managedOAuthAdvancedRef.current = false;
         setState({ phase: "auth_managed_waiting", mode });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -138,12 +166,11 @@ export default function SkillSetupWizard({
       setState({ phase: "auth_submitting", mode });
 
       try {
-        // Ensure skill runtime is running
-        try {
-          await startSkill(skillId);
-        } catch {
-          // May already be running
-        }
+        // Ensure skill runtime is running.
+        // Note: if the skill is already running, startSkill returns Ok (not an
+        // error), so any exception here is a real failure that must surface.
+        await startSkill(skillId);
+        await waitForSkillRunning(skillId);
 
         // Build credential payload
         const credentials =
@@ -187,19 +214,61 @@ export default function SkillSetupWizard({
   // Detect managed OAuth completion
   useEffect(() => {
     if (state.phase === "auth_managed_waiting" && isConnected) {
-      setTimeout(() => { transitionToSetup(); }, 0);
+      if (managedOAuthAdvancedRef.current) return;
+      managedOAuthAdvancedRef.current = true;
+      void (async () => {
+        try {
+          await startSkill(skillId);
+          await waitForSkillRunning(skillId);
+        } catch (e) {
+          console.warn("[SkillSetupWizard] post-OAuth startSkill:", e);
+          setState({ phase: "error", message: "Failed to start skill after OAuth." });
+          return;
+        }
+        try {
+          const firstStep = await skillManager.startSetup(skillId);
+          if (firstStep) {
+            setState({ phase: "step", step: firstStep });
+          } else {
+            await setSetupComplete(skillId, true);
+            setState({
+              phase: "complete",
+              message: "Successfully connected! You can close this window.",
+            });
+          }
+        } catch (e) {
+          console.warn("[SkillSetupWizard] post-OAuth startSetup:", e);
+          setState({ phase: "error", message: "Setup failed" });
+        }
+      })();
+      return;
     }
     // Legacy OAuth completion
     if (
       (state.phase === "oauth" || state.phase === "oauth_waiting") &&
       isConnected
     ) {
-      setSetupComplete(skillId, true).catch(() => {});
-      setTimeout(() => {
-        setState({ phase: "complete", message: "Successfully connected!" });
-      }, 0);
+      if (legacyOAuthAdvancedRef.current) return;
+      legacyOAuthAdvancedRef.current = true;
+      void (async () => {
+        try {
+          await setSetupComplete(skillId, true);
+          setState({
+            phase: "complete",
+            message:
+              "Successfully connected! You can close this window.",
+          });
+        } catch (e) {
+          console.warn("[SkillSetupWizard] legacy OAuth setSetupComplete:", e);
+          legacyOAuthAdvancedRef.current = false;
+          setState({
+            phase: "error",
+            message: "Failed to save setup state.",
+          });
+        }
+      })();
     }
-  }, [isConnected, state.phase, skillId, transitionToSetup]);
+  }, [isConnected, state.phase, skillId]);
 
   // Start the setup flow on mount
   useEffect(() => {
@@ -259,6 +328,7 @@ export default function SkillSetupWizard({
         try {
           await startSkill(skillId);
           console.log("[SkillSetupWizard] skill started via RPC", skillId);
+          await waitForSkillRunning(skillId);
         } catch (startErr) {
           console.warn("[SkillSetupWizard] runtime start failed:", startErr);
           if (!cancelled) {
