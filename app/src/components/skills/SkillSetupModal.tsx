@@ -31,13 +31,18 @@ export default function SkillSetupModal({
   const modalRef = useRef<HTMLDivElement>(null);
   const snap = useSkillSnapshot(skillId);
   const setupComplete = snap?.setup_complete ?? false;
-  // Track whether the user has explicitly chosen to reconfigure (setup mode)
-  // even though setup is already complete.
-  const [forceSetup, setForceSetup] = useState(false);
-  // Derive mode: show manage if setup is complete (or no setup needed),
-  // unless the user explicitly chose to reconfigure.
-  const mode = forceSetup ? "setup" : (!hasSetup || setupComplete ? "manage" : "setup");
-  const setMode = (m: "manage" | "setup") => setForceSetup(m === "setup");
+  // Lock the mode in at mount time. If we opened the modal while the skill
+  // was not yet set up, we stay in the setup wizard for the whole session
+  // even after OAuth flips `setup_complete` to true — that way the wizard's
+  // own "complete" phase shows a success screen instead of being yanked
+  // out from under the user and replaced by the management panel.
+  // The user can still switch modes explicitly via `setMode` below
+  // (e.g. SkillManagementPanel's "Reconfigure" button).
+  const [sessionMode, setSessionMode] = useState<"manage" | "setup">(() =>
+    !hasSetup || setupComplete ? "manage" : "setup",
+  );
+  const mode = sessionMode;
+  const setMode = (m: "manage" | "setup") => setSessionMode(m);
 
   // Handle escape key
   useEffect(() => {
