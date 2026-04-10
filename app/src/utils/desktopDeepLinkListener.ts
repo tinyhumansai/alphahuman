@@ -199,12 +199,9 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     //    instead of spinning forever.
     let oauthResult: Awaited<ReturnType<typeof skillManager.notifyOAuthComplete>> | null = null;
     try {
-      oauthResult = await skillManager.notifyOAuthComplete(
-        skillId,
-        integrationId,
-        undefined,
-        { clientKeyShare },
-      );
+      oauthResult = await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, {
+        clientKeyShare,
+      });
     } catch (runtimeErr) {
       console.warn('[DeepLink] Runtime notify failed:', runtimeErr);
     }
@@ -223,11 +220,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
         message: summary,
         sentryEvent: buildManualSentryEvent(
           { type: 'OAuthValidationFailed', value: skillId },
-          {
-            component: 'desktopDeepLinkListener',
-            skillId,
-            errorCount: String(errs.length),
-          }
+          { component: 'desktopDeepLinkListener', skillId, errorCount: String(errs.length) }
         ),
       });
       window.dispatchEvent(
@@ -238,9 +231,7 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     } else if (oauthResult?.status === 'complete') {
       console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
       window.dispatchEvent(
-        new CustomEvent('skill:oauth-validation', {
-          detail: { skillId, status: 'complete' },
-        })
+        new CustomEvent('skill:oauth-validation', { detail: { skillId, status: 'complete' } })
       );
     }
 

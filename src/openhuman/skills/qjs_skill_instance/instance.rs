@@ -258,12 +258,8 @@ impl QjsSkillInstance {
             // explicit `{ oauth: null, auth: null }` so start() always has a
             // well-defined shape — that is the whole point of this contract.
             let start_args_value = build_start_credentials_arg(&data_dir);
-            let has_oauth = start_args_value
-                .get("oauth")
-                .is_some_and(|v| !v.is_null());
-            let has_auth = start_args_value
-                .get("auth")
-                .is_some_and(|v| !v.is_null());
+            let has_oauth = start_args_value.get("oauth").is_some_and(|v| !v.is_null());
+            let has_auth = start_args_value.get("auth").is_some_and(|v| !v.is_null());
             log::info!(
                 "[skill:{}] Calling start() with credentials (oauth={}, auth={})",
                 config.skill_id,
