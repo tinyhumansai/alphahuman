@@ -344,6 +344,22 @@ class SkillManager {
       }
     }
 
+    // Kick off an initial sync so the user sees fresh data immediately
+    // after connecting, rather than waiting for the next cron tick.
+    // The Rust core no longer auto-triggers sync on oauth/complete
+    // (removed in commit 840b1d3c), so the frontend drives it here.
+    // Fire-and-forget: any failure is logged but must not block the
+    // OAuth completion flow.
+    try {
+      console.log(`[SkillManager] kicking initial sync after OAuth for '${skillId}'`);
+      await this.triggerSync(skillId);
+    } catch (syncErr) {
+      console.warn(
+        `[SkillManager] initial post-OAuth sync failed for '${skillId}':`,
+        syncErr,
+      );
+    }
+
     emitSkillStateChange(skillId);
   }
 
