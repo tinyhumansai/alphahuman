@@ -243,10 +243,7 @@ mod tests {
     #[tokio::test]
     async fn null_loader_returns_empty_string() {
         let loader = NullMemoryLoader;
-        let context = loader
-            .load_context(&MockMemory, "anything")
-            .await
-            .unwrap();
+        let context = loader.load_context(&MockMemory, "anything").await.unwrap();
         assert!(context.is_empty());
     }
 }

@@ -159,22 +159,17 @@ pub enum PromptSource {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Model selection for a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelSpec {
     /// Use the parent agent's currently-selected model at spawn time.
+    #[default]
     Inherit,
     /// Exact model name (e.g. `"neocortex-mk1"`).
     Exact(String),
     /// Router hint (e.g. `"reasoning"`, `"coding"`, `"local"`). Resolved
     /// to a real model by the routing provider.
     Hint(String),
-}
-
-impl Default for ModelSpec {
-    fn default() -> Self {
-        Self::Inherit
-    }
 }
 
 impl ModelSpec {
@@ -194,21 +189,16 @@ impl ModelSpec {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Which tools a sub-agent is allowed to call.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolScope {
     /// All tools the parent has (subject to `disallowed_tools` and
     /// `skill_filter`).
+    #[default]
     Wildcard,
     /// An explicit allowlist of tool names. Names not present in the parent
     /// registry at spawn time are silently dropped (logged at debug).
     Named(Vec<String>),
-}
-
-impl Default for ToolScope {
-    fn default() -> Self {
-        Self::Wildcard
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,21 +208,16 @@ impl Default for ToolScope {
 /// Sandbox mode for a sub-agent's tool execution. Mirrors the existing
 /// [`super::archetypes::AgentArchetype::sandbox_mode`] string for now;
 /// in the future this may map directly into a `SecurityPolicy` builder.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxMode {
     /// No additional sandboxing beyond what the parent already enforces.
+    #[default]
     None,
     /// Read-only — write/execute tools are filtered out.
     ReadOnly,
     /// Drop privileges, restrict filesystem (Landlock / Bubblewrap).
     Sandboxed,
-}
-
-impl Default for SandboxMode {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,19 +226,14 @@ impl Default for SandboxMode {
 
 /// Where an [`AgentDefinition`] was loaded from. Used for telemetry and
 /// the `agent::list_definitions` RPC reply.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(tag = "kind", content = "path")]
 pub enum DefinitionSource {
     /// Built-in derived from an [`super::archetypes::AgentArchetype`].
+    #[default]
     Builtin,
-    /// Loaded from a YAML file at the given absolute path.
+    /// Loaded from a TOML file at the given absolute path.
     File(PathBuf),
-}
-
-impl Default for DefinitionSource {
-    fn default() -> Self {
-        Self::Builtin
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -25,9 +25,7 @@
 use super::traits::{PermissionLevel, Tool, ToolResult};
 use crate::openhuman::agent::harness::definition::AgentDefinitionRegistry;
 use crate::openhuman::agent::harness::fork_context::current_parent;
-use crate::openhuman::agent::harness::subagent_runner::{
-    run_subagent, SubagentRunError, SubagentRunOptions,
-};
+use crate::openhuman::agent::harness::subagent_runner::{run_subagent, SubagentRunOptions};
 use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use async_trait::async_trait;
 use serde_json::json;
@@ -155,10 +153,7 @@ impl Tool for SpawnSubagentTool {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let mode = args
-            .get("mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("typed");
+        let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("typed");
 
         // ── Validation ─────────────────────────────────────────────────
         if agent_id.is_empty() {
@@ -183,12 +178,15 @@ impl Tool for SpawnSubagentTool {
 
         // Resolve `mode` against the definition. Explicit `mode` argument
         // wins; otherwise we infer from the definition itself.
-        let lookup_id = if mode == "fork" { "fork" } else { agent_id.as_str() };
+        let lookup_id = if mode == "fork" {
+            "fork"
+        } else {
+            agent_id.as_str()
+        };
         let definition = match registry.get(lookup_id) {
             Some(def) => def,
             None => {
-                let available: Vec<&str> =
-                    registry.list().iter().map(|d| d.id.as_str()).collect();
+                let available: Vec<&str> = registry.list().iter().map(|d| d.id.as_str()).collect();
                 return Ok(ToolResult::error(format!(
                     "spawn_subagent: unknown agent_id '{lookup_id}'. Available: {}",
                     available.join(", ")
@@ -350,6 +348,4 @@ mod tests {
         // Should list at least one valid built-in.
         assert!(out.contains("code_executor") || out.contains("researcher"));
     }
-
-    fn _assert_runner_error_type<E: Into<SubagentRunError>>() {}
 }

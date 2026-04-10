@@ -42,8 +42,8 @@ pub fn load_from_workspace(workspace: &Path) -> Result<Vec<AgentDefinition>> {
 /// Load every `.toml` file in a single directory (non-recursive). Files
 /// that fail to parse are logged and skipped.
 pub fn load_dir(dir: &Path, out: &mut Vec<AgentDefinition>) -> Result<()> {
-    let entries = fs::read_dir(dir)
-        .with_context(|| format!("reading agents dir {}", dir.display()))?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("reading agents dir {}", dir.display()))?;
 
     for entry in entries {
         let entry = match entry {
@@ -93,8 +93,8 @@ pub fn load_dir(dir: &Path, out: &mut Vec<AgentDefinition>) -> Result<()> {
 /// Load a single TOML file as an [`AgentDefinition`]. Stamps `source` to
 /// the absolute path.
 pub fn load_file(path: &Path) -> Result<AgentDefinition> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let content =
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut def: AgentDefinition = toml::from_str(&content)
         .with_context(|| format!("parsing {} as AgentDefinition TOML", path.display()))?;
     def.source = DefinitionSource::File(path.to_path_buf());
@@ -123,26 +123,22 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
+    // NOTE: TOML parsing is positional. Top-level scalars MUST come
+    // before any `[table]` header — once a header opens, every line
+    // below it lives inside that table.
     const NOTION_TOML: &str = r#"
 id = "notion_specialist"
 when_to_use = "Delegate Notion queries to a focused specialist."
 display_name = "Notion Specialist"
+temperature = 0.4
+skill_filter = "notion"
+max_iterations = 5
 
 [system_prompt]
 inline = "You are the Notion specialist. Use only Notion tools."
 
 [model]
 hint = "agentic"
-
-temperature = 0.4
-skill_filter = "notion"
-max_iterations = 5
-
-[tools]
-wildcard = {}
-
-[sandbox_mode]
-none = {}
 "#;
 
     #[test]

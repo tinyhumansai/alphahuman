@@ -836,6 +836,19 @@ pub async fn bootstrap_skill_runtime() {
     // from both jsonrpc and repl paths) cannot double-subscribe.
     register_domain_subscribers();
 
+    // --- Sub-agent definition registry bootstrap ---
+    // Loads built-in archetype definitions plus any custom TOML files
+    // under `<workspace>/agents/*.toml`. Idempotent — safe to call from
+    // both jsonrpc and repl paths.
+    if let Err(err) = crate::openhuman::agent::harness::AgentDefinitionRegistry::init_global(
+        &base_dir.join("workspace"),
+    ) {
+        log::warn!(
+            "[runtime] AgentDefinitionRegistry::init_global failed: {err} — \
+             spawn_subagent will be unavailable until restart"
+        );
+    }
+
     // --- Socket manager bootstrap ---
     let socket_mgr = Arc::new(SocketManager::new());
     set_global_socket_manager(socket_mgr.clone());

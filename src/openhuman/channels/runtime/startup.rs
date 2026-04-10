@@ -47,6 +47,17 @@ pub async fn start_channels(config: Config) -> Result<()> {
     crate::openhuman::health::bus::register_health_subscriber();
     crate::openhuman::skills::bus::register_skill_cleanup_subscriber();
     tracing::debug!("[event_bus] global singleton initialized in start_channels");
+
+    // Initialise the sub-agent definition registry from this workspace.
+    // Idempotent — `bootstrap_skill_runtime` may also call it.
+    if let Err(err) = crate::openhuman::agent::harness::AgentDefinitionRegistry::init_global(
+        &config.workspace_dir,
+    ) {
+        tracing::warn!(
+            "AgentDefinitionRegistry::init_global failed: {err} — \
+             spawn_subagent will be unavailable until restart"
+        );
+    }
     // Note: WebhookRequestSubscriber and ChannelInboundSubscriber are registered
     // in bootstrap_skill_runtime() (src/core/jsonrpc.rs) to avoid double-registration
     // when both startup paths run in the same process.

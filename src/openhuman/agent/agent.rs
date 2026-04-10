@@ -1054,162 +1054,162 @@ impl Agent {
         let mut all_tool_records: Vec<ToolCallRecord> = Vec::new();
 
         let turn_body = async {
-        for iteration in 0..self.config.max_tool_iterations {
-            log::info!(
-                "[agent_loop] iteration start i={} history_len={}",
-                iteration + 1,
-                self.history.len()
-            );
-            let messages = self.tool_dispatcher.to_provider_messages(&self.history);
-            log::info!(
-                "[agent_loop] provider request i={} messages={} send_tool_specs={}",
-                iteration + 1,
-                messages.len(),
-                self.tool_dispatcher.should_send_tool_specs()
-            );
-            let provider_started = std::time::Instant::now();
-            let response = match self
-                .provider
-                .chat(
-                    ChatRequest {
-                        messages: &messages,
-                        tools: if self.tool_dispatcher.should_send_tool_specs() {
-                            Some(self.tool_specs.as_slice())
-                        } else {
-                            None
+            for iteration in 0..self.config.max_tool_iterations {
+                log::info!(
+                    "[agent_loop] iteration start i={} history_len={}",
+                    iteration + 1,
+                    self.history.len()
+                );
+                let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+                log::info!(
+                    "[agent_loop] provider request i={} messages={} send_tool_specs={}",
+                    iteration + 1,
+                    messages.len(),
+                    self.tool_dispatcher.should_send_tool_specs()
+                );
+                let provider_started = std::time::Instant::now();
+                let response = match self
+                    .provider
+                    .chat(
+                        ChatRequest {
+                            messages: &messages,
+                            tools: if self.tool_dispatcher.should_send_tool_specs() {
+                                Some(self.tool_specs.as_slice())
+                            } else {
+                                None
+                            },
+                            system_prompt_cache_boundary: None,
                         },
-                        system_prompt_cache_boundary: None,
-                    },
-                    &effective_model,
-                    self.temperature,
-                )
-                .await
-            {
-                Ok(resp) => {
-                    log::info!(
+                        &effective_model,
+                        self.temperature,
+                    )
+                    .await
+                {
+                    Ok(resp) => {
+                        log::info!(
                         "[agent_loop] provider response i={} elapsed_ms={} text_chars={} native_tool_calls={}",
                         iteration + 1,
                         provider_started.elapsed().as_millis(),
                         resp.text.as_ref().map_or(0, |t| t.chars().count()),
                         resp.tool_calls.len()
                     );
-                    log::debug!("[agent_loop] provider response: {resp:?}");
-                    resp
-                }
-                Err(err) => return Err(err),
-            };
-
-            let (text, calls) = self.tool_dispatcher.parse_response(&response);
-            let calls = Self::with_fallback_tool_call_ids(calls, iteration);
-            log::info!(
-                "[agent_loop] parsed response i={} parsed_text_chars={} parsed_tool_calls={}",
-                iteration + 1,
-                text.chars().count(),
-                calls.len()
-            );
-            if calls.is_empty() {
-                let final_text = if text.is_empty() {
-                    response.text.unwrap_or_default()
-                } else {
-                    text
+                        log::debug!("[agent_loop] provider response: {resp:?}");
+                        resp
+                    }
+                    Err(err) => return Err(err),
                 };
+
+                let (text, calls) = self.tool_dispatcher.parse_response(&response);
+                let calls = Self::with_fallback_tool_call_ids(calls, iteration);
                 log::info!(
-                    "[agent_loop] final response i={} final_chars={}",
+                    "[agent_loop] parsed response i={} parsed_text_chars={} parsed_tool_calls={}",
                     iteration + 1,
-                    final_text.chars().count()
+                    text.chars().count(),
+                    calls.len()
                 );
-
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        final_text.clone(),
-                    )));
-                self.trim_history();
-
-                if self.auto_save {
-                    let summary = truncate_with_ellipsis(&final_text, 100);
-                    let _ = self
-                        .memory
-                        .store("assistant_resp", &summary, MemoryCategory::Daily, None)
-                        .await;
-                }
-
-                // Fire post-turn hooks (non-blocking)
-                if !self.post_turn_hooks.is_empty() {
-                    let ctx = TurnContext {
-                        user_message: user_message.to_string(),
-                        assistant_response: final_text.clone(),
-                        tool_calls: all_tool_records,
-                        turn_duration_ms: turn_started.elapsed().as_millis() as u64,
-                        session_id: None,
-                        iteration_count: iteration + 1,
+                if calls.is_empty() {
+                    let final_text = if text.is_empty() {
+                        response.text.unwrap_or_default()
+                    } else {
+                        text
                     };
-                    hooks::fire_hooks(&self.post_turn_hooks, ctx);
+                    log::info!(
+                        "[agent_loop] final response i={} final_chars={}",
+                        iteration + 1,
+                        final_text.chars().count()
+                    );
+
+                    self.history
+                        .push(ConversationMessage::Chat(ChatMessage::assistant(
+                            final_text.clone(),
+                        )));
+                    self.trim_history();
+
+                    if self.auto_save {
+                        let summary = truncate_with_ellipsis(&final_text, 100);
+                        let _ = self
+                            .memory
+                            .store("assistant_resp", &summary, MemoryCategory::Daily, None)
+                            .await;
+                    }
+
+                    // Fire post-turn hooks (non-blocking)
+                    if !self.post_turn_hooks.is_empty() {
+                        let ctx = TurnContext {
+                            user_message: user_message.to_string(),
+                            assistant_response: final_text.clone(),
+                            tool_calls: all_tool_records,
+                            turn_duration_ms: turn_started.elapsed().as_millis() as u64,
+                            session_id: None,
+                            iteration_count: iteration + 1,
+                        };
+                        hooks::fire_hooks(&self.post_turn_hooks, ctx);
+                    }
+
+                    return Ok(final_text);
                 }
 
-                return Ok(final_text);
-            }
-
-            if !text.is_empty() {
+                if !text.is_empty() {
+                    log::info!(
+                        "[agent_loop] assistant pre-tool text i={} chars={}",
+                        iteration + 1,
+                        text.chars().count()
+                    );
+                    self.history
+                        .push(ConversationMessage::Chat(ChatMessage::assistant(
+                            text.clone(),
+                        )));
+                    print!("{text}");
+                    let _ = std::io::stdout().flush();
+                }
+                let tool_names: Vec<&str> = calls.iter().map(|call| call.name.as_str()).collect();
                 log::info!(
-                    "[agent_loop] assistant pre-tool text i={} chars={}",
+                    "[agent_loop] executing tools i={} names={:?}",
                     iteration + 1,
-                    text.chars().count()
+                    tool_names
                 );
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        text.clone(),
-                    )));
-                print!("{text}");
-                let _ = std::io::stdout().flush();
-            }
-            let tool_names: Vec<&str> = calls.iter().map(|call| call.name.as_str()).collect();
-            log::info!(
-                "[agent_loop] executing tools i={} names={:?}",
-                iteration + 1,
-                tool_names
-            );
-            let persisted_tool_calls =
-                Self::persisted_tool_calls_for_history(&response, &calls, iteration);
-            log::info!(
+                let persisted_tool_calls =
+                    Self::persisted_tool_calls_for_history(&response, &calls, iteration);
+                log::info!(
                 "[agent_loop] persisting assistant tool calls i={} persisted_tool_calls={} parsed_tool_calls={}",
                 iteration + 1,
                 persisted_tool_calls.len(),
                 calls.len()
             );
-            self.history.push(ConversationMessage::AssistantToolCalls {
-                text: if text.is_empty() {
-                    None
-                } else {
-                    Some(text.clone())
-                },
-                tool_calls: persisted_tool_calls,
-            });
+                self.history.push(ConversationMessage::AssistantToolCalls {
+                    text: if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.clone())
+                    },
+                    tool_calls: persisted_tool_calls,
+                });
 
-            let (results, records) = self.execute_tools(&calls).await;
-            all_tool_records.extend(records);
-            log::info!(
-                "[agent_loop] tool results complete i={} result_count={}",
-                iteration + 1,
-                results.len()
-            );
-            let formatted = self.tool_dispatcher.format_results(&results);
-            self.history.push(formatted);
-            self.trim_history();
-            log::info!(
-                "[agent_loop] iteration end i={} history_len={}",
-                iteration + 1,
-                self.history.len()
-            );
-        }
+                let (results, records) = self.execute_tools(&calls).await;
+                all_tool_records.extend(records);
+                log::info!(
+                    "[agent_loop] tool results complete i={} result_count={}",
+                    iteration + 1,
+                    results.len()
+                );
+                let formatted = self.tool_dispatcher.format_results(&results);
+                self.history.push(formatted);
+                self.trim_history();
+                log::info!(
+                    "[agent_loop] iteration end i={} history_len={}",
+                    iteration + 1,
+                    self.history.len()
+                );
+            }
 
-        log::warn!(
-            "[agent_loop] exceeded maximum tool iterations max={}",
-            self.config.max_tool_iterations
-        );
-        anyhow::bail!(
-            "Agent exceeded maximum tool iterations ({})",
-            self.config.max_tool_iterations
-        )
+            log::warn!(
+                "[agent_loop] exceeded maximum tool iterations max={}",
+                self.config.max_tool_iterations
+            );
+            anyhow::bail!(
+                "Agent exceeded maximum tool iterations ({})",
+                self.config.max_tool_iterations
+            )
         }; // end of `turn_body` async block
 
         // Run the turn body inside the parent-execution-context scope so

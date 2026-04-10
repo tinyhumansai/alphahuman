@@ -27,13 +27,12 @@
 //! - **Fork-mode prefix replay** — `uses_fork_context` definitions
 //!   replay the parent's exact bytes for backend prefix-cache hits.
 
-use super::definition::{AgentDefinition, ModelSpec, PromptSource, ToolScope};
+use super::definition::{AgentDefinition, PromptSource, ToolScope};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
 use crate::openhuman::agent::prompt::SystemPromptBuilder;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolSpec};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -179,10 +178,8 @@ async fn run_typed_mode(
     let started = Instant::now();
 
     // ── Resolve archetype prompt body ──────────────────────────────────
-    let archetype_prompt_body = load_prompt_source(
-        &definition.system_prompt,
-        &parent.workspace_dir,
-    )?;
+    let archetype_prompt_body =
+        load_prompt_source(&definition.system_prompt, &parent.workspace_dir)?;
 
     // ── Resolve model + temperature ────────────────────────────────────
     let model = definition.model.resolve(&parent.model_name);
@@ -226,8 +223,10 @@ async fn run_typed_mode(
     // We pass an empty tools slice and identity_config=None so the prompt
     // builder can produce a reproducible string. The ToolsSection still
     // renders our filtered tools because we pass them through PromptContext.
-    let tools_for_prompt: Vec<&Box<dyn Tool>> =
-        allowed_indices.iter().map(|&i| &parent.all_tools[i]).collect();
+    let tools_for_prompt: Vec<&Box<dyn Tool>> = allowed_indices
+        .iter()
+        .map(|&i| &parent.all_tools[i])
+        .collect();
     // PromptContext expects a slice of Box<dyn Tool>; we can't construct
     // one from a slice of references without cloning. Build a thin
     // wrapper Vec by cloning Arcs would be ideal — but Box isn't Clone.
@@ -423,7 +422,8 @@ async fn run_inner_loop(
 
         // Persist assistant message with the original tool_calls payload so
         // subsequent role=tool messages can reference call ids correctly.
-        let assistant_history_content = build_native_assistant_payload(&response_text, &native_calls);
+        let assistant_history_content =
+            build_native_assistant_payload(&response_text, &native_calls);
         history.push(ChatMessage::assistant(assistant_history_content));
 
         // Execute each call, append role=tool messages.
@@ -495,7 +495,8 @@ fn build_native_assistant_payload(text: &str, tool_calls: &[ToolCall]) -> String
 }
 
 fn parse_tool_arguments(arguments: &str) -> serde_json::Value {
-    serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::Value::Object(Default::default()))
+    serde_json::from_str(arguments)
+        .unwrap_or_else(|_| serde_json::Value::Object(Default::default()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -545,7 +546,7 @@ fn filter_tool_indices(
 /// workspace `prompts/` directory or the agent crate's bundled prompts.
 fn load_prompt_source(
     source: &PromptSource,
-    workspace_dir: &PathBuf,
+    workspace_dir: &std::path::Path,
 ) -> Result<String, SubagentRunError> {
     match source {
         PromptSource::Inline(body) => Ok(body.clone()),
@@ -600,7 +601,7 @@ fn load_prompt_source(
 /// filtered tools.
 fn render_subagent_system_prompt(
     _builder: &SystemPromptBuilder,
-    workspace_dir: &PathBuf,
+    workspace_dir: &std::path::Path,
     model_name: &str,
     allowed_indices: &[usize],
     parent_tools: &[Box<dyn Tool>],
@@ -639,12 +640,18 @@ fn render_subagent_system_prompt(
     //    NativeToolDispatcher hint that gets baked into the parent's
     //    prompt — sub-agents need it too.
     out.push('\n');
-    out.push_str("Use the provided tools to accomplish the task. Reply with a concise, dense \
+    out.push_str(
+        "Use the provided tools to accomplish the task. Reply with a concise, dense \
                  final answer when you have one — the parent agent will weave it back into the \
-                 user-visible response.\n\n");
+                 user-visible response.\n\n",
+    );
 
     // 4. Workspace + datetime so the model knows where it is and when.
-    let _ = writeln!(out, "## Workspace\n\nWorking directory: `{}`\n", workspace_dir.display());
+    let _ = writeln!(
+        out,
+        "## Workspace\n\nWorking directory: `{}`\n",
+        workspace_dir.display()
+    );
     let now = chrono::Local::now();
     let _ = writeln!(
         out,
@@ -666,6 +673,7 @@ fn render_subagent_system_prompt(
 
 #[cfg(test)]
 mod tests {
+    use super::super::definition::ModelSpec;
     use super::*;
 
     fn make_def_named_tools(names: &[&str]) -> AgentDefinition {
@@ -697,8 +705,8 @@ mod tests {
         name: &'static str,
     }
 
-    use async_trait::async_trait;
     use crate::openhuman::tools::{PermissionLevel, ToolResult};
+    use async_trait::async_trait;
 
     #[async_trait]
     impl Tool for StubTool {
@@ -725,11 +733,7 @@ mod tests {
 
     #[test]
     fn filter_named_scope_keeps_only_named() {
-        let parent: Vec<Box<dyn Tool>> = vec![
-            stub("alpha"),
-            stub("beta"),
-            stub("gamma"),
-        ];
+        let parent: Vec<Box<dyn Tool>> = vec![stub("alpha"), stub("beta"), stub("gamma")];
         let def = make_def_named_tools(&["alpha", "gamma"]);
         let idx = filter_tool_indices(&parent, &def.tools, &def.disallowed_tools, None);
         let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
@@ -781,5 +785,409 @@ mod tests {
     fn subagent_mode_as_str_roundtrip() {
         assert_eq!(SubagentMode::Typed.as_str(), "typed");
         assert_eq!(SubagentMode::Fork.as_str(), "fork");
+    }
+
+    // ── End-to-end runner tests with mock provider ────────────────────────
+
+    use crate::openhuman::providers::{
+        ChatRequest as PChatRequest, ChatResponse, Provider, ToolCall,
+    };
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    /// Mock provider whose response queue can be inspected by the test
+    /// to verify the bytes that arrive at the model.
+    struct ScriptedProvider {
+        responses: Mutex<Vec<ChatResponse>>,
+        captured: Mutex<Vec<Vec<crate::openhuman::providers::ChatMessage>>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(responses: Vec<ChatResponse>) -> Arc<Self> {
+            Arc::new(Self {
+                responses: Mutex::new(responses),
+                captured: Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl Provider for ScriptedProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("noop".into())
+        }
+
+        async fn chat(
+            &self,
+            request: PChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.captured.lock().push(request.messages.to_vec());
+            let mut q = self.responses.lock();
+            if q.is_empty() {
+                return Ok(ChatResponse {
+                    text: Some(String::new()),
+                    tool_calls: vec![],
+                    usage: None,
+                });
+            }
+            Ok(q.remove(0))
+        }
+
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+    }
+
+    fn text_response(text: &str) -> ChatResponse {
+        ChatResponse {
+            text: Some(text.into()),
+            tool_calls: vec![],
+            usage: None,
+        }
+    }
+
+    fn tool_response(name: &str, args: &str) -> ChatResponse {
+        ChatResponse {
+            text: Some(String::new()),
+            tool_calls: vec![ToolCall {
+                id: "call-1".into(),
+                name: name.into(),
+                arguments: args.into(),
+            }],
+            usage: None,
+        }
+    }
+
+    /// Build a minimal `ParentExecutionContext` suitable for runner tests.
+    /// Uses a no-op memory backend so we don't have to spin up a real one.
+    fn make_parent(
+        provider: Arc<dyn Provider>,
+        tools: Vec<Box<dyn Tool>>,
+    ) -> ParentExecutionContext {
+        let tool_specs: Vec<crate::openhuman::tools::ToolSpec> =
+            tools.iter().map(|t| t.spec()).collect();
+        ParentExecutionContext {
+            provider,
+            all_tools: Arc::new(tools),
+            all_tool_specs: Arc::new(tool_specs),
+            model_name: "test-model".into(),
+            temperature: 0.5,
+            workspace_dir: std::env::temp_dir(),
+            memory: noop_memory(),
+            agent_config: crate::openhuman::config::AgentConfig::default(),
+            identity_config: crate::openhuman::config::IdentityConfig::default(),
+            skills: Arc::new(vec![]),
+            session_id: "test-session".into(),
+            channel: "test".into(),
+        }
+    }
+
+    fn noop_memory() -> Arc<dyn crate::openhuman::memory::Memory> {
+        struct NoopMemory;
+        #[async_trait]
+        impl crate::openhuman::memory::Memory for NoopMemory {
+            async fn store(
+                &self,
+                _key: &str,
+                _content: &str,
+                _category: crate::openhuman::memory::MemoryCategory,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+            async fn recall(
+                &self,
+                _query: &str,
+                _limit: usize,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<crate::openhuman::memory::MemoryEntry>> {
+                Ok(vec![])
+            }
+            async fn get(
+                &self,
+                _key: &str,
+            ) -> anyhow::Result<Option<crate::openhuman::memory::MemoryEntry>> {
+                Ok(None)
+            }
+            async fn list(
+                &self,
+                _category: Option<&crate::openhuman::memory::MemoryCategory>,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<crate::openhuman::memory::MemoryEntry>> {
+                Ok(vec![])
+            }
+            async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+                Ok(true)
+            }
+            async fn count(&self) -> anyhow::Result<usize> {
+                Ok(0)
+            }
+            async fn health_check(&self) -> bool {
+                true
+            }
+            fn name(&self) -> &str {
+                "noop"
+            }
+        }
+        Arc::new(NoopMemory)
+    }
+
+    #[tokio::test]
+    async fn typed_mode_returns_text_through_runner() {
+        let provider = ScriptedProvider::new(vec![text_response("X is Y")]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        let def = make_def_named_tools(&[]);
+
+        let outcome = with_parent_context(parent, async {
+            run_subagent(
+                &def,
+                "summarise X",
+                SubagentRunOptions {
+                    skill_filter_override: None,
+                    context: None,
+                    task_id: Some("t1".into()),
+                },
+            )
+            .await
+        })
+        .await
+        .expect("runner should succeed");
+
+        assert_eq!(outcome.output, "X is Y");
+        assert_eq!(outcome.iterations, 1);
+        assert_eq!(outcome.mode, SubagentMode::Typed);
+        assert_eq!(outcome.task_id, "t1");
+    }
+
+    #[tokio::test]
+    async fn typed_mode_no_memory_context_in_user_message() {
+        // Verifies that NullMemoryLoader is in effect: the user message
+        // sent to the provider does NOT contain `[Memory context]`.
+        let provider = ScriptedProvider::new(vec![text_response("ok")]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        let def = make_def_named_tools(&[]);
+
+        let _ = with_parent_context(parent, async {
+            run_subagent(
+                &def,
+                "the actual task prompt",
+                SubagentRunOptions::default(),
+            )
+            .await
+        })
+        .await
+        .unwrap();
+
+        let captured = provider.captured.lock();
+        assert_eq!(captured.len(), 1);
+        let user_msg = captured[0]
+            .iter()
+            .find(|m| m.role == "user")
+            .expect("user message should be present");
+        assert!(
+            !user_msg.content.contains("[Memory context]"),
+            "subagent user message must not include memory recall section, got: {}",
+            user_msg.content
+        );
+        assert!(user_msg.content.contains("the actual task prompt"));
+    }
+
+    #[tokio::test]
+    async fn typed_mode_filters_tools_by_skill_filter() {
+        // Parent has tools spanning notion__*, gmail__*, and a generic
+        // file_read; spawn the runner with skill_filter override "notion"
+        // and assert that only the notion tools end up in the request.
+        let provider = ScriptedProvider::new(vec![text_response("done")]);
+        let parent = make_parent(
+            provider.clone(),
+            vec![
+                stub("notion__search"),
+                stub("notion__read"),
+                stub("gmail__send"),
+                stub("file_read"),
+            ],
+        );
+        let def = make_def_named_tools(&[]);
+
+        let _ = with_parent_context(parent, async {
+            run_subagent(
+                &def,
+                "lookup",
+                SubagentRunOptions {
+                    skill_filter_override: Some("notion".into()),
+                    context: None,
+                    task_id: None,
+                },
+            )
+            .await
+        })
+        .await
+        .unwrap();
+
+        // The narrow system prompt should mention the notion tools by
+        // name and NOT mention gmail/file_read.
+        let captured = provider.captured.lock();
+        let system_msg = captured[0]
+            .iter()
+            .find(|m| m.role == "system")
+            .expect("system message present");
+        assert!(system_msg.content.contains("notion__search"));
+        assert!(system_msg.content.contains("notion__read"));
+        assert!(
+            !system_msg.content.contains("gmail__send"),
+            "skill_filter should have excluded gmail__send"
+        );
+        assert!(
+            !system_msg.content.contains("file_read"),
+            "skill_filter should have excluded file_read"
+        );
+    }
+
+    #[tokio::test]
+    async fn typed_mode_executes_one_tool_then_returns() {
+        // Two-round script: round 1 returns a tool call, round 2 returns
+        // the final text. Verifies the inner tool-call loop wires up the
+        // tool result into history correctly.
+        let provider = ScriptedProvider::new(vec![
+            tool_response("file_read", "{\"path\":\"x\"}"),
+            text_response("the file contents say hello"),
+        ]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        // Allow the runner to call file_read.
+        let def = make_def_named_tools(&["file_read"]);
+
+        let outcome = with_parent_context(parent, async {
+            run_subagent(&def, "read x", SubagentRunOptions::default()).await
+        })
+        .await
+        .expect("runner should succeed");
+
+        assert!(outcome.output.contains("hello"));
+        assert_eq!(outcome.iterations, 2);
+        // Second request should include the role=tool message produced
+        // by the runner from StubTool's "ok" output.
+        let captured = provider.captured.lock();
+        assert_eq!(captured.len(), 2);
+        let second_call_messages = &captured[1];
+        let has_tool_msg = second_call_messages.iter().any(|m| m.role == "tool");
+        assert!(
+            has_tool_msg,
+            "second provider call should include role=tool message"
+        );
+    }
+
+    #[tokio::test]
+    async fn typed_mode_blocks_unallowed_tool_calls() {
+        // Provider tries to call a tool that's not in the allowlist.
+        // Runner should surface an error tool result and the next
+        // iteration should be able to recover.
+        let provider = ScriptedProvider::new(vec![
+            tool_response("forbidden_tool", "{}"),
+            text_response("oops, I'll try something else"),
+        ]);
+        let parent = make_parent(
+            provider.clone(),
+            vec![stub("file_read"), stub("forbidden_tool")],
+        );
+        // Definition only allows file_read.
+        let def = make_def_named_tools(&["file_read"]);
+
+        let outcome = with_parent_context(parent, async {
+            run_subagent(&def, "do thing", SubagentRunOptions::default()).await
+        })
+        .await
+        .expect("runner should succeed");
+
+        assert!(outcome.output.contains("oops"));
+        let captured = provider.captured.lock();
+        let second_call_messages = &captured[1];
+        let tool_msg = second_call_messages
+            .iter()
+            .find(|m| m.role == "tool")
+            .expect("tool result message should be present");
+        assert!(
+            tool_msg.content.contains("not available"),
+            "blocked tool should produce a 'not available' error message"
+        );
+    }
+
+    #[tokio::test]
+    async fn fork_mode_replays_parent_prefix_bytes() {
+        // Construct a fake fork context with a known message prefix.
+        // The runner should replay it byte-for-byte plus a single
+        // appended user message carrying the fork directive.
+        let provider = ScriptedProvider::new(vec![text_response("fork done")]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+
+        let prefix = vec![
+            crate::openhuman::providers::ChatMessage::system("PARENT_SYSTEM_PROMPT_BYTES"),
+            crate::openhuman::providers::ChatMessage::user("first user msg"),
+            crate::openhuman::providers::ChatMessage::assistant("parent assistant"),
+        ];
+
+        let fork = ForkContext {
+            system_prompt: Arc::new("PARENT_SYSTEM_PROMPT_BYTES".into()),
+            tool_specs: Arc::clone(&parent.all_tool_specs),
+            message_prefix: Arc::new(prefix.clone()),
+            cache_boundary: None,
+            fork_task_prompt: "ANALYSE THIS BRANCH".into(),
+        };
+
+        let def = super::super::builtin_definitions::fork_definition();
+
+        let outcome = with_parent_context(parent, async move {
+            with_fork_context(fork, async {
+                run_subagent(&def, "ignored — fork uses fork_task_prompt", SubagentRunOptions::default()).await
+            })
+            .await
+        })
+        .await
+        .expect("fork runner should succeed");
+
+        assert_eq!(outcome.mode, SubagentMode::Fork);
+        assert_eq!(outcome.output, "fork done");
+
+        // Verify the request that hit the provider replays the parent
+        // prefix exactly and appends only the fork directive.
+        let captured = provider.captured.lock();
+        let first_call = &captured[0];
+        assert_eq!(first_call.len(), prefix.len() + 1);
+        for (i, msg) in prefix.iter().enumerate() {
+            assert_eq!(first_call[i].role, msg.role);
+            assert_eq!(first_call[i].content, msg.content);
+        }
+        // The appended user message carries the fork directive.
+        let appended = first_call.last().unwrap();
+        assert_eq!(appended.role, "user");
+        assert_eq!(appended.content, "ANALYSE THIS BRANCH");
+    }
+
+    #[tokio::test]
+    async fn fork_mode_errors_when_no_fork_context() {
+        let provider = ScriptedProvider::new(vec![text_response("unused")]);
+        let parent = make_parent(provider, vec![stub("file_read")]);
+        let def = super::super::builtin_definitions::fork_definition();
+
+        let result = with_parent_context(parent, async {
+            run_subagent(&def, "x", SubagentRunOptions::default()).await
+        })
+        .await;
+
+        assert!(matches!(result, Err(SubagentRunError::NoForkContext)));
+    }
+
+    #[tokio::test]
+    async fn runner_errors_outside_parent_context() {
+        let def = make_def_named_tools(&[]);
+        let result = run_subagent(&def, "x", SubagentRunOptions::default()).await;
+        assert!(matches!(result, Err(SubagentRunError::NoParentContext)));
     }
 }
