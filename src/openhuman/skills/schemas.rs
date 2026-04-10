@@ -899,13 +899,23 @@ fn handle_skills_data_stats(params: Map<String, Value>) -> ControllerFuture {
 /// "setup is complete" (driven by oauth/auth completion). This handler exists
 /// as a back-compat shim for the frontend; it sets `setup_complete = true`
 /// and starts the skill in one shot.
+///
+/// `set_setup_complete(true)` is flipped *before* `start_skill` so the spawn
+/// path observes the same preference state it will after a future restart;
+/// if `start_skill` fails we roll the preference back to `false` so a
+/// crashed-on-enable skill doesn't get persistently marked as "should be
+/// running" and silently retried on the next runtime start.
 fn handle_skills_enable(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
-        engine.preferences().set_setup_complete(&p.skill_id, true);
-        engine.start_skill(&p.skill_id).await?;
+        let prefs = engine.preferences();
+        prefs.set_setup_complete(&p.skill_id, true);
+        if let Err(e) = engine.start_skill(&p.skill_id).await {
+            prefs.set_setup_complete(&p.skill_id, false);
+            return Err(e);
+        }
         Ok(serde_json::json!({ "ok": true }))
     })
 }
