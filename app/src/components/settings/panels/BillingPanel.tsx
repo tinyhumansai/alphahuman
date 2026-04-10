@@ -88,21 +88,34 @@ const BillingPanel = () => {
   // Fetch current plan, credits balance, and team usage on mount
   useEffect(() => {
     setIsLoadingCredits(true);
-    Promise.all([billingApi.getCurrentPlan(), creditsApi.getBalance(), creditsApi.getTeamUsage()])
-      .then(([plan, balance, usage]) => {
-        log(
-          '[load] plan=%s active=%s weeklyBudget=%s',
-          plan.plan,
-          plan.hasActiveSubscription,
-          plan.weeklyBudgetUsd
-        );
-        setCurrentPlan(plan);
-        setCreditBalance(balance);
-        setTeamUsage(usage);
-      })
-      .catch(error => {
-        log('[load] failed: %O', error);
-        console.error(error);
+    Promise.allSettled([
+      billingApi.getCurrentPlan(),
+      creditsApi.getBalance(),
+      creditsApi.getTeamUsage(),
+    ])
+      .then(([planResult, balanceResult, usageResult]) => {
+        if (planResult.status === 'fulfilled') {
+          const plan = planResult.value;
+          log(
+            '[load] plan=%s active=%s weeklyBudget=%s',
+            plan.plan,
+            plan.hasActiveSubscription,
+            plan.weeklyBudgetUsd
+          );
+          setCurrentPlan(plan);
+        } else {
+          log('[load] getCurrentPlan failed: %O', planResult.reason);
+        }
+        if (balanceResult.status === 'fulfilled') {
+          setCreditBalance(balanceResult.value);
+        } else {
+          log('[load] getBalance failed: %O', balanceResult.reason);
+        }
+        if (usageResult.status === 'fulfilled') {
+          setTeamUsage(usageResult.value);
+        } else {
+          log('[load] getTeamUsage failed: %O', usageResult.reason);
+        }
       })
       .finally(() => setIsLoadingCredits(false));
   }, []);
