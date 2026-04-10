@@ -451,7 +451,14 @@ impl Agent {
             .iter()
             .map(|t| t.name().to_string())
             .collect();
-        tools.extend(orchestrator_tools);
+        // De-duplicate: spawn_subagent is already in the base registry.
+        let existing_names: std::collections::HashSet<String> =
+            tools.iter().map(|t| t.name().to_string()).collect();
+        tools.extend(
+            orchestrator_tools
+                .into_iter()
+                .filter(|t| !existing_names.contains(t.name())),
+        );
 
         Agent::builder()
             .provider(provider)

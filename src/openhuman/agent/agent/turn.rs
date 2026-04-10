@@ -369,13 +369,16 @@ impl Agent {
                     results.len()
                 );
                 for r in &results {
-                    let preview = truncate_with_ellipsis(&r.output, 300);
                     log::info!(
-                        "[agent] tool response name={} success={} output_chars={}\n{}",
+                        "[agent] tool response name={} success={} output_chars={}",
                         r.name,
                         r.success,
                         r.output.chars().count(),
-                        preview
+                    );
+                    log::debug!(
+                        "[agent] tool response body name={}: {}",
+                        r.name,
+                        truncate_with_ellipsis(&r.output, 300)
                     );
                 }
                 log::info!(
@@ -469,27 +472,37 @@ impl Agent {
             None
         };
 
-        let (raw_result, success) =
-            if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
-                let exec = tool.execute(call.arguments.clone());
-                let outcome = if let Some(fork_ctx) = fork_context_for_call {
-                    harness::with_fork_context(fork_ctx, exec).await
-                } else {
-                    exec.await
-                };
-                match outcome {
-                    Ok(r) => {
-                        if !r.is_error {
-                            (r.output(), true)
-                        } else {
-                            (format!("Error: {}", r.output()), false)
-                        }
-                    }
-                    Err(e) => (format!("Error executing {}: {e}", call.name), false),
-                }
+        let (raw_result, success) = if !self.visible_tool_names.is_empty()
+            && !self.visible_tool_names.contains(&call.name)
+        {
+            log::warn!(
+                "[agent] blocked tool call '{}' — not in visible tool set",
+                call.name
+            );
+            (
+                format!("Tool '{}' is not available to this agent", call.name),
+                false,
+            )
+        } else if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
+            let exec = tool.execute(call.arguments.clone());
+            let outcome = if let Some(fork_ctx) = fork_context_for_call {
+                harness::with_fork_context(fork_ctx, exec).await
             } else {
-                (format!("Unknown tool: {}", call.name), false)
+                exec.await
             };
+            match outcome {
+                Ok(r) => {
+                    if !r.is_error {
+                        (r.output(), true)
+                    } else {
+                        (format!("Error: {}", r.output()), false)
+                    }
+                }
+                Err(e) => (format!("Error executing {}: {e}", call.name), false),
+            }
+        } else {
+            (format!("Unknown tool: {}", call.name), false)
+        };
 
         // Context pipeline stage 1: apply the per-result byte budget
         // *inline* before the result enters history. This is the only
@@ -620,7 +633,7 @@ impl Agent {
 
         harness::ForkContext {
             system_prompt: Arc::new(system_prompt),
-            tool_specs: Arc::clone(&self.tool_specs),
+            tool_specs: Arc::clone(&self.visible_tool_specs),
             message_prefix: Arc::new(messages),
             cache_boundary: None,
             fork_task_prompt,

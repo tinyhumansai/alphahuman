@@ -203,28 +203,29 @@ impl PromptSection for IdentitySection {
         // / integration quirks reference (MEMORY.md) — subagents handle
         // those concerns with their own schemas and prompts.
         let is_orchestrator = !ctx.visible_tool_names.is_empty();
-        let files: &[&str] = if is_orchestrator {
-            &[
-                "AGENTS.md",
-                "SOUL.md",
-                "IDENTITY.md",
-                "USER.md",
-                "BOOTSTRAP.md",
-            ]
+        let all_files: &[&str] = &[
+            "AGENTS.md",
+            "SOUL.md",
+            "TOOLS.md",
+            "IDENTITY.md",
+            "USER.md",
+            "HEARTBEAT.md",
+            "BOOTSTRAP.md",
+            "MEMORY.md",
+        ];
+        // Orchestrator skips these from the prompt (subagents handle
+        // them) but we still sync them to disk so they stay current.
+        let skip_in_prompt: &[&str] = if is_orchestrator {
+            &["TOOLS.md", "HEARTBEAT.md", "MEMORY.md"]
         } else {
-            &[
-                "AGENTS.md",
-                "SOUL.md",
-                "TOOLS.md",
-                "IDENTITY.md",
-                "USER.md",
-                "HEARTBEAT.md",
-                "BOOTSTRAP.md",
-                "MEMORY.md",
-            ]
+            &[]
         };
-        for file in files {
-            inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
+        for file in all_files {
+            // Always sync to disk so builtin updates ship.
+            sync_workspace_file(ctx.workspace_dir, file);
+            if !skip_in_prompt.contains(file) {
+                inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
+            }
         }
 
         Ok(prompt)
@@ -400,7 +401,6 @@ fn sync_workspace_file(workspace_dir: &Path, filename: &str) {
 }
 
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {
-    sync_workspace_file(workspace_dir, filename);
     let path = workspace_dir.join(filename);
 
     match std::fs::read_to_string(&path) {
