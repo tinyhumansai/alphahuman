@@ -11,6 +11,8 @@ import { SkillRuntime } from "./runtime";
 import { emitSkillStateChange } from "./skillEvents";
 import {
   getSkillSnapshot,
+  notifyAuthCompleteRpc,
+  notifyOAuthCompleteRpc,
   setSetupComplete as rpcSetSetupComplete,
   stopSkill as rpcStopSkill,
   revokeOAuth as rpcRevokeOAuth,
@@ -19,6 +21,7 @@ import {
   revokeAuth as rpcRevokeAuth,
   removePersistedAuthCredential,
 } from "./skillsApi";
+import type { AuthCompleteParams, SkillStartResult } from "./skillsApi";
 import { syncToolsToBackend } from "./sync";
 import type {
   SkillManifest,
@@ -331,66 +334,94 @@ class SkillManager {
   }
 
   /**
-   * Notify a skill that OAuth completed successfully.
-   * Called by the deep link handler after backend OAuth callback.
-   * For Gmail, pass extraCredential.accessToken so the skill uses the token directly.
-   * When the encrypted OAuth flow is used, pass extraCredential.clientKeyShare
-   * so the skill runtime can persist and use it for encrypted proxy requests.
+   * Notify a skill that OAuth completed and let the skill validate the
+   * credential against the upstream API.
+   *
+   * Called by the deep link handler after the backend OAuth callback. The
+   * encrypted OAuth flow surfaces a `clientKeyShare` in `extraCredential`
+   * which the skill runtime persists for use with the encrypted proxy.
+   *
+   * Lifecycle (as of openhuman PR #484 / openhuman-skills PR #12):
+   *
+   *   1. Send `oauth/complete` to the running skill — the Rust host
+   *      temp-injects the credential and calls `start({oauth, validate:true})`.
+   *   2. **Inspect the result.** A `{status:'error', errors}` payload means
+   *      validation failed; the host has already rolled the credential back,
+   *      so we must NOT flip `setup_complete` and must NOT trigger a sync.
+   *   3. Only on `{status:'complete'}` do we mark `setup_complete=true`,
+   *      activate (push tools), and kick the initial sync.
+   *
+   * The result is returned to the caller so it can drive UI (the deep link
+   * listener surfaces it via the error queue + a `skill:oauth-validation`
+   * event consumed by the setup wizard).
    */
   async notifyOAuthComplete(
     skillId: string,
     integrationId: string,
     provider?: string,
     extraCredential?: { accessToken?: string; clientKeyShare?: string },
-  ): Promise<void> {
-    // Persist setup completion via RPC (always, regardless of runtime)
-    await rpcSetSetupComplete(skillId, true).catch(() => {});
+  ): Promise<SkillStartResult> {
+    const credential = {
+      credentialId: integrationId,
+      provider: provider ?? "unknown",
+      grantedScopes: [] as string[],
+      ...extraCredential,
+    };
 
-    // Try to notify the local runtime if one exists
-    const runtime = this.runtimes.get(skillId);
-    if (runtime?.isRunning) {
-      const credential = {
-        credentialId: integrationId,
-        provider: provider ?? "unknown",
-        grantedScopes: [] as string[],
-        ...extraCredential,
+    // Step 1: Send oauth/complete and capture the validation result. We
+    // prefer the local SkillRuntime transport when a runtime is alive (so
+    // single-process tests have a deterministic path), otherwise we go
+    // through the core RPC pass-through which the Rust host routes to the
+    // QuickJS instance.
+    let result: SkillStartResult;
+    try {
+      const runtime = this.runtimes.get(skillId);
+      if (runtime?.isRunning) {
+        result = await runtime.oauthComplete(credential);
+      } else {
+        result = await notifyOAuthCompleteRpc(skillId, credential);
+      }
+    } catch (err) {
+      // Transport failure (skill not running, RPC unreachable). Treat as a
+      // validation error so callers see the same shape regardless of where
+      // the failure happened.
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[SkillManager] oauth/complete transport failed for ${skillId}:`, err);
+      emitSkillStateChange(skillId);
+      return {
+        status: "error",
+        errors: [{ field: "oauth", message }],
       };
-      try {
-        await runtime.oauthComplete(credential);
-      } catch (err) {
-        console.warn(`[SkillManager] oauthComplete RPC failed for ${skillId}:`, err);
-      }
-      await this.activateSkill(skillId);
-    } else {
-      // No local runtime — try notifying via core RPC pass-through.
-      // The credential object must use `credentialId` (not `integrationId`)
-      // to match what the JS bootstrap's oauth.fetch expects.
-      try {
-        await callCoreRpc({
-          method: "openhuman.skills_rpc",
-          params: {
-            skill_id: skillId,
-            method: "oauth/complete",
-            params: {
-              credentialId: integrationId,
-              provider: provider ?? "unknown",
-              grantedScopes: [] as string[],
-              ...extraCredential,
-            },
-          },
-        });
-      } catch {
-        // Skill may not be running in the core either — that's OK,
-        // setup_complete is already persisted above
-      }
     }
 
-    // Kick off an initial sync so the user sees fresh data immediately
-    // after connecting, rather than waiting for the next cron tick.
-    // The Rust core no longer auto-triggers sync on oauth/complete
-    // (removed in commit 840b1d3c), so the frontend drives it here.
-    // Fire-and-forget: any failure is logged but must not block the
-    // OAuth completion flow.
+    if (result.status === "error") {
+      console.warn(
+        `[SkillManager] oauth/complete validation failed for ${skillId}:`,
+        result.errors,
+      );
+      // Snapshot may have moved (e.g. host cleared a stale credential during
+      // rollback) — let listeners refresh either way.
+      emitSkillStateChange(skillId);
+      return result;
+    }
+
+    // Step 2: Validation passed — persist setup completion. We do this AFTER
+    // oauth/complete so a failed validation never leaves the user in the
+    // half-broken "setup_complete=true, no credential" state.
+    await rpcSetSetupComplete(skillId, true).catch(err => {
+      console.warn(`[SkillManager] setSetupComplete failed for ${skillId}:`, err);
+    });
+
+    // Activate (refresh tool list, push to backend) — only meaningful when
+    // we have a local SkillRuntime; the core path activates inside start().
+    if (this.runtimes.get(skillId)?.isRunning) {
+      await this.activateSkill(skillId);
+    }
+
+    // Step 3: Kick off an initial sync so the user sees fresh data right
+    // away rather than waiting for the next cron tick. The Rust core no
+    // longer auto-syncs on oauth/complete, so the frontend drives it here.
+    // Fire-and-forget: any failure is logged but must not block completion.
     try {
       console.log(`[SkillManager] kicking initial sync after OAuth for '${skillId}'`);
       await this.triggerSync(skillId);
@@ -402,6 +433,63 @@ class SkillManager {
     }
 
     emitSkillStateChange(skillId);
+    return result;
+  }
+
+  /**
+   * Notify a skill of an `auth/complete` (self_hosted / text / managed-via-auth)
+   * handshake. Same validate-then-persist contract as
+   * {@link notifyOAuthComplete} — the Rust host calls
+   * `start({auth, validate:true})` and rolls back on failure. The setup wizard
+   * already drives this for the form-based path; this helper centralizes the
+   * post-validation activation so any future caller (e.g. CLI / scripted
+   * provisioning) gets the same flow for free.
+   */
+  async notifyAuthComplete(
+    skillId: string,
+    params: AuthCompleteParams,
+  ): Promise<SkillStartResult> {
+    let result: SkillStartResult;
+    try {
+      result = await notifyAuthCompleteRpc(skillId, params);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[SkillManager] auth/complete transport failed for ${skillId}:`, err);
+      emitSkillStateChange(skillId);
+      return {
+        status: "error",
+        errors: [{ field: params.mode, message }],
+      };
+    }
+
+    if (result.status === "error") {
+      console.warn(
+        `[SkillManager] auth/complete validation failed for ${skillId}:`,
+        result.errors,
+      );
+      emitSkillStateChange(skillId);
+      return result;
+    }
+
+    await rpcSetSetupComplete(skillId, true).catch(err => {
+      console.warn(`[SkillManager] setSetupComplete failed for ${skillId}:`, err);
+    });
+
+    if (this.runtimes.get(skillId)?.isRunning) {
+      await this.activateSkill(skillId);
+    }
+
+    try {
+      await this.triggerSync(skillId);
+    } catch (syncErr) {
+      console.warn(
+        `[SkillManager] initial post-auth sync failed for '${skillId}':`,
+        syncErr,
+      );
+    }
+
+    emitSkillStateChange(skillId);
+    return result;
   }
 
   /**

@@ -189,17 +189,57 @@ export default function SkillSetupWizard({
     if (state.phase === "auth_managed_waiting" && isConnected) {
       setTimeout(() => { transitionToSetup(); }, 0);
     }
-    // Legacy OAuth completion
+    // Legacy OAuth completion. The deep link listener already flips
+    // setup_complete via SkillManager.notifyOAuthComplete after the host
+    // validates the credential, so we don't need to flip it again here —
+    // doing so would race the rollback path on a validation failure.
     if (
       (state.phase === "oauth" || state.phase === "oauth_waiting") &&
       isConnected
     ) {
-      setSetupComplete(skillId, true).catch(() => {});
       setTimeout(() => {
         setState({ phase: "complete", message: "Successfully connected!" });
       }, 0);
     }
-  }, [isConnected, state.phase, skillId, transitionToSetup]);
+  }, [isConnected, state.phase, transitionToSetup]);
+
+  // Listen for OAuth validation results dispatched by the deep link listener.
+  // The Rust host now runs `start({oauth, validate:true})` inside oauth/complete
+  // and rolls back the credential on failure — without this listener the
+  // wizard would sit in `auth_managed_waiting` / `oauth_waiting` forever
+  // because `setup_complete` never gets flipped.
+  useEffect(() => {
+    if (
+      state.phase !== "auth_managed_waiting" &&
+      state.phase !== "oauth" &&
+      state.phase !== "oauth_waiting"
+    ) {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        skillId?: string;
+        status?: string;
+        errors?: Array<{ field: string; message: string }>;
+      } | undefined;
+      if (!detail || detail.skillId !== skillId) return;
+
+      if (detail.status === "error") {
+        const errs = detail.errors ?? [];
+        const message = errs.length
+          ? errs.map(e => `${e.field}: ${e.message}`).join("\n")
+          : "OAuth credential rejected by the skill.";
+        setState({ phase: "error", message });
+      }
+      // status === 'complete' is handled by the snapshot watcher above —
+      // setup_complete will flip and `isConnected` will go true on the next
+      // poll, advancing the wizard naturally.
+    };
+
+    window.addEventListener("skill:oauth-validation", handler);
+    return () => window.removeEventListener("skill:oauth-validation", handler);
+  }, [state.phase, skillId]);
 
   // Start the setup flow on mount
   useEffect(() => {

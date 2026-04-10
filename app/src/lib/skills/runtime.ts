@@ -9,6 +9,7 @@
 
 import { callCoreRpc } from "../../services/coreRpcClient";
 import { runtimeSkillDataDir } from "../../utils/tauriCommands";
+import type { SkillStartResult } from "./skillsApi";
 import { SkillTransport, type ReverseRpcHandler } from "./transport";
 import type {
   SkillManifest,
@@ -187,16 +188,28 @@ export class SkillRuntime {
   }
 
   /**
-   * Notify the skill that OAuth completed successfully.
-   * Sets the credential on the bridge and calls onOAuthComplete.
+   * Notify the skill that OAuth completed. The Rust host responds to
+   * `oauth/complete` by temp-injecting the credential and calling the skill's
+   * `start({oauth, validate:true})` lifecycle hook to validate against the
+   * upstream API. The return value carries the validation outcome — callers
+   * MUST inspect `status` and not assume success just because the RPC didn't
+   * throw.
    */
   async oauthComplete(args: {
     credentialId: string;
     provider: string;
     grantedScopes?: string[];
     accountLabel?: string;
-  }): Promise<void> {
-    await this.transport.request("oauth/complete", args as unknown as Record<string, unknown>);
+    clientKeyShare?: string;
+  }): Promise<SkillStartResult> {
+    const result = (await this.transport.request(
+      "oauth/complete",
+      args as unknown as Record<string, unknown>,
+    )) as SkillStartResult | null;
+    if (!result || (result.status !== "complete" && result.status !== "error")) {
+      return { status: "complete" };
+    }
+    return result;
   }
 
   /**

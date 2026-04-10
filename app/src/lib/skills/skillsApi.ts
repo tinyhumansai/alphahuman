@@ -62,6 +62,35 @@ export interface InstalledSkillInfoRpc {
   runtime: string;
 }
 
+/**
+ * Result returned by `oauth/complete` and `auth/complete` RPCs.
+ *
+ * The Rust host (see `handle_oauth_complete` / `handle_auth_complete` in
+ * `openhuman/src/openhuman/skills/qjs_skill_instance/event_loop/rpc_handlers.rs`)
+ * temp-injects credentials, then calls the skill's `start({oauth, auth, validate:true})`
+ * lifecycle hook to validate them against the upstream API. Only on a
+ * `{status:'complete'}` return are credentials persisted to disk; a
+ * `{status:'error'}` return triggers a rollback. The frontend must inspect
+ * this shape — silently treating any non-throwing RPC as success would leave
+ * the user staring at a "connecting…" spinner that never finishes.
+ */
+export type SkillStartResult =
+  | { status: 'complete'; message?: string }
+  | { status: 'error'; errors: Array<{ field: string; message: string }> };
+
+export interface OAuthCompleteParams {
+  credentialId: string;
+  provider: string;
+  grantedScopes?: string[];
+  accountLabel?: string;
+  clientKeyShare?: string;
+}
+
+export interface AuthCompleteParams {
+  mode: string;
+  credentials: Record<string, unknown>;
+}
+
 // --- Read operations ---
 
 export async function getSkillSnapshot(skillId: string): Promise<SkillSnapshotRpc> {
@@ -131,6 +160,56 @@ export async function setSetupComplete(skillId: string, complete: boolean): Prom
     method: 'openhuman.skills_set_setup_complete',
     params: { skill_id: skillId, complete },
   });
+}
+
+/**
+ * Send `oauth/complete` to the running skill via the core RPC pass-through.
+ * Returns the typed `{status, errors?}` result so callers can react to
+ * validation failures (e.g. show field errors, leave setup_complete unset).
+ *
+ * Throws on transport-level failures (skill not running, RPC unreachable).
+ */
+export async function notifyOAuthCompleteRpc(
+  skillId: string,
+  params: OAuthCompleteParams,
+): Promise<SkillStartResult> {
+  const result = (await callCoreRpc({
+    method: 'openhuman.skills_rpc',
+    params: {
+      skill_id: skillId,
+      method: 'oauth/complete',
+      params,
+    },
+  })) as SkillStartResult | null;
+  // Treat null / missing-status as legacy success — older skill bundles that
+  // predate the validate-then-persist contract just return undefined here,
+  // and we don't want to false-fail them.
+  if (!result || (result.status !== 'complete' && result.status !== 'error')) {
+    return { status: 'complete' };
+  }
+  return result;
+}
+
+/**
+ * Send `auth/complete` to the running skill via the core RPC pass-through.
+ * Same `{status, errors?}` contract as {@link notifyOAuthCompleteRpc}.
+ */
+export async function notifyAuthCompleteRpc(
+  skillId: string,
+  params: AuthCompleteParams,
+): Promise<SkillStartResult> {
+  const result = (await callCoreRpc({
+    method: 'openhuman.skills_rpc',
+    params: {
+      skill_id: skillId,
+      method: 'auth/complete',
+      params,
+    },
+  })) as SkillStartResult | null;
+  if (!result || (result.status !== 'complete' && result.status !== 'error')) {
+    return { status: 'complete' };
+  }
+  return result;
 }
 
 export async function revokeOAuth(skillId: string, integrationId: string): Promise<void> {

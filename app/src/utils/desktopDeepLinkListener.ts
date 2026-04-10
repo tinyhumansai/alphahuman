@@ -180,7 +180,8 @@ const handleOAuthDeepLink = async (parsed: URL) => {
     );
 
     // 2. Start the skill in the core QuickJS runtime (if not already running).
-    //    This also sets enabled=true via the preferences store.
+    //    The Rust host's `handle_oauth_complete` (called below) needs the
+    //    instance up so it can run `start({oauth, validate:true})` against it.
     try {
       await startSkill(skillId);
       console.log(`[DeepLink] Skill '${skillId}' started in core runtime`);
@@ -188,15 +189,59 @@ const handleOAuthDeepLink = async (parsed: URL) => {
       console.warn(`[DeepLink] Could not start skill '${skillId}' in runtime:`, startErr);
     }
 
-    // 3. Notify the running skill of the OAuth credential, mark setup_complete,
-    //    activate (list tools, sync tools to backend), and kick an initial sync.
-    //    The initial sync is driven by SkillManager.notifyOAuthComplete — the
-    //    Rust core no longer auto-syncs on oauth/complete (removed in 840b1d3c).
+    // 3. Send oauth/complete and inspect the validation result. The Rust host
+    //    runs `start({validate:true})` against the credential and rolls it
+    //    back if the upstream API rejects it — the manager surfaces that as
+    //    a `{status:'error', errors:[...]}` payload. We must NOT silently
+    //    leave the user with a half-finished setup; surface validation
+    //    failures via the error queue and broadcast a custom event the
+    //    setup wizard listens for so any open wizard transitions to error
+    //    instead of spinning forever.
+    let oauthResult: Awaited<ReturnType<typeof skillManager.notifyOAuthComplete>> | null = null;
     try {
-      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, { clientKeyShare });
-      console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
+      oauthResult = await skillManager.notifyOAuthComplete(
+        skillId,
+        integrationId,
+        undefined,
+        { clientKeyShare },
+      );
     } catch (runtimeErr) {
       console.warn('[DeepLink] Runtime notify failed:', runtimeErr);
+    }
+
+    if (oauthResult?.status === 'error') {
+      const errs = oauthResult.errors ?? [];
+      const summary = errs.length
+        ? errs.map(e => `${e.field}: ${e.message}`).join('\n')
+        : 'OAuth credential rejected by the skill.';
+      console.error(`[DeepLink] OAuth validation failed for skill='${skillId}':`, summary);
+      enqueueError({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'manual',
+        title: `Could not connect ${skillId}`,
+        message: summary,
+        sentryEvent: buildManualSentryEvent(
+          { type: 'OAuthValidationFailed', value: skillId },
+          {
+            component: 'desktopDeepLinkListener',
+            skillId,
+            errorCount: String(errs.length),
+          }
+        ),
+      });
+      window.dispatchEvent(
+        new CustomEvent('skill:oauth-validation', {
+          detail: { skillId, status: 'error', errors: errs },
+        })
+      );
+    } else if (oauthResult?.status === 'complete') {
+      console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
+      window.dispatchEvent(
+        new CustomEvent('skill:oauth-validation', {
+          detail: { skillId, status: 'complete' },
+        })
+      );
     }
 
     emitSkillStateChange(skillId);
