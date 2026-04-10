@@ -618,9 +618,21 @@ fn load_prompt_source(
 /// `Box<dyn Tool>` and we already have indices into the parent's vec
 /// (which would force an awkward Vec<&Box<dyn Tool>> intermediate).
 ///
-/// The rendered prompt mirrors the layout of `for_subagent` but is
-/// composed inline so the sub-agent's tool catalogue contains only the
-/// filtered tools.
+/// # KV cache stability
+///
+/// The rendered bytes MUST be a pure function of:
+/// - the `definition` (archetype role prompt)
+/// - the filtered tool set (names, descriptions, schemas)
+/// - the workspace directory
+/// - the resolved model name
+///
+/// Anything that varies across invocations at the *same* call site (e.g.
+/// `chrono::Local::now()`, hostnames, pids, turn counters) is forbidden
+/// here. Repeat spawns of the same sub-agent within a session must
+/// produce byte-identical system prompts so the inference backend's
+/// automatic prefix caching can reuse the prefill from the previous run.
+/// Time-of-day information, if a sub-agent needs it, belongs in the user
+/// message — not the system prompt.
 fn render_subagent_system_prompt(
     _builder: &SystemPromptBuilder,
     workspace_dir: &std::path::Path,
@@ -645,7 +657,9 @@ fn render_subagent_system_prompt(
     // body is injected by the caller before invoking the runner via the
     // SystemPromptBuilder for_subagent() variant.)
 
-    // 2. Filtered tool catalogue.
+    // 2. Filtered tool catalogue. Indices are taken in ascending order
+    //    from `allowed_indices`, which itself preserves `parent_tools`
+    //    order, so the rendering is deterministic.
     out.push_str("## Tools\n\n");
     for &i in allowed_indices {
         let tool = &parent_tools[i];
@@ -668,22 +682,16 @@ fn render_subagent_system_prompt(
                  user-visible response.\n\n",
     );
 
-    // 4. Workspace + datetime so the model knows where it is and when.
+    // 4. Workspace so the model knows where it is. Intentionally stable:
+    //    no datetime, no hostname, no pid — see the KV-cache note above.
     let _ = writeln!(
         out,
         "## Workspace\n\nWorking directory: `{}`\n",
         workspace_dir.display()
     );
-    let now = chrono::Local::now();
-    let _ = writeln!(
-        out,
-        "## Current Date & Time\n\n{} ({})\n",
-        now.format("%Y-%m-%d %H:%M:%S"),
-        now.format("%Z")
-    );
 
-    // 5. Runtime banner — model name only (no host info; sub-agents
-    //    don't need that).
+    // 5. Runtime banner — model name only. Stable for the lifetime of
+    //    this sub-agent's definition.
     let _ = writeln!(out, "## Runtime\n\nModel: {model_name}");
 
     out

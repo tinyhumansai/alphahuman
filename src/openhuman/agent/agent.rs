@@ -53,6 +53,14 @@ pub struct Agent {
     learning_enabled: bool,
     event_session_id: String,
     event_channel: String,
+    /// Layered context reduction pipeline (tool-result budget →
+    /// microcompact → autocompact signal → session-memory extraction
+    /// trigger). Owned by the agent so its state (token counters,
+    /// session-memory extraction deltas, compaction circuit breaker)
+    /// persists across turns. See
+    /// [`crate::openhuman::agent::context_pipeline`] for the stage
+    /// ordering and cache-safety contract.
+    context_pipeline: super::context_pipeline::ContextPipeline,
 }
 
 /// A builder for creating `Agent` instances with custom configuration.
@@ -284,6 +292,7 @@ impl AgentBuilder {
                 .event_session_id
                 .unwrap_or_else(|| "standalone".to_string()),
             event_channel: self.event_channel.unwrap_or_else(|| "internal".to_string()),
+            context_pipeline: super::context_pipeline::ContextPipeline::default(),
         })
     }
 }
@@ -970,6 +979,13 @@ impl Agent {
     }
 
     /// Classifies the user message to determine if a specific model hint should be used.
+    ///
+    /// Currently unused by `turn()` — we pin the main agent to its configured
+    /// model for KV-cache stability (see the rationale in `turn()` where
+    /// `effective_model` is set). Kept around because the classifier config
+    /// is still surfaced via `AgentBuilder::classification_config` and
+    /// external callers (e.g. eval harnesses) may want to probe it directly.
+    #[allow(dead_code)]
     fn classify_model(&self, user_message: &str) -> String {
         if let Some(hint) = super::classifier::classify(&self.classification_config, user_message) {
             if self.available_hints.contains(&hint) {
@@ -1007,15 +1023,21 @@ impl Agent {
                 .push(ConversationMessage::Chat(ChatMessage::system(
                     system_prompt,
                 )));
-        } else if self.learning_enabled {
-            // Rebuild system prompt on subsequent turns to include newly learned context
-            let system_prompt = self.build_system_prompt(learned)?;
-            if let Some(pos) = self.history.iter().position(
-                |msg| matches!(msg, ConversationMessage::Chat(chat) if chat.role == "system"),
-            ) {
-                self.history[pos] = ConversationMessage::Chat(ChatMessage::system(system_prompt));
-                log::debug!("[agent_loop] system prompt refreshed with learned context");
-            }
+        } else {
+            // Deliberately do NOT rebuild the system prompt on subsequent
+            // turns. The rendered prompt is the KV-cache prefix the inference
+            // backend has already tokenised; replacing its bytes (even
+            // cosmetically) forces the backend to re-prefill from scratch.
+            //
+            // Dynamic turn-to-turn context (memory recall, learned snippets)
+            // rides on the user message via `memory_loader.load_context()`
+            // — that's where the caller should inject anything that varies
+            // between turns.
+            let _ = learned;
+            log::trace!(
+                "[agent_loop] system prompt reused (history_len={}) — KV cache prefix preserved",
+                self.history.len()
+            );
         }
 
         if self.auto_save {
@@ -1040,8 +1062,20 @@ impl Agent {
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
-        let effective_model = self.classify_model(user_message);
-        log::info!("[agent_loop] model selected model={}", effective_model);
+        // Pin the main agent to its configured model for the lifetime of
+        // the session. Per-turn classification used to run here, but it
+        // would flip `effective_model` mid-conversation (e.g. reasoning →
+        // coding based on a single keyword). Every flip invalidates the
+        // backend's KV cache namespace for this session, costing full
+        // re-prefill on the very next turn. The main agent's job is to
+        // decide *which sub-agent* to spawn — that routing lives in the
+        // model prompt, not in the Rust-side classifier. Sub-agents pick
+        // their own tier via `ModelSpec::Hint(...)` in their definition.
+        let effective_model = self.model_name.clone();
+        log::info!(
+            "[agent_loop] model pinned model={} (per-turn classification disabled for KV cache stability)",
+            effective_model
+        );
 
         // Snapshot the parent's runtime once per turn so any
         // `spawn_subagent` invocation that fires inside this turn can
@@ -1363,6 +1397,62 @@ mod tests {
         }
     }
 
+    /// Provider that records the system prompt bytes and model name of
+    /// every `chat()` call. Used by KV-cache stability tests — anything
+    /// that varies between turns (timestamps, re-rendered memory context,
+    /// flipped model hints) will show up as a diff between captures.
+    #[derive(Default)]
+    struct RecordingProvider {
+        captures: Mutex<Vec<CapturedCall>>,
+        responses: Mutex<Vec<crate::openhuman::providers::ChatResponse>>,
+    }
+
+    #[derive(Clone)]
+    struct CapturedCall {
+        system_prompt: Option<String>,
+        model: String,
+    }
+
+    #[async_trait]
+    impl Provider for RecordingProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            Ok("ok".into())
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            model: &str,
+            _temperature: f64,
+        ) -> Result<crate::openhuman::providers::ChatResponse> {
+            let system_prompt = request
+                .messages
+                .iter()
+                .find(|m| m.role == "system")
+                .map(|m| m.content.clone());
+            self.captures.lock().push(CapturedCall {
+                system_prompt,
+                model: model.to_string(),
+            });
+
+            let mut guard = self.responses.lock();
+            if guard.is_empty() {
+                return Ok(crate::openhuman::providers::ChatResponse {
+                    text: Some("done".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                });
+            }
+            Ok(guard.remove(0))
+        }
+    }
+
     struct MockTool;
 
     #[async_trait]
@@ -1629,5 +1719,100 @@ mod tests {
             tool_result_contains_subagent_output,
             "parent history should contain a tool-result entry with the sub-agent's output"
         );
+    }
+
+    /// KV-cache invariant: across multiple turns in the same session,
+    /// the system-prompt bytes submitted to the provider must be
+    /// byte-identical, and the model name must not flip. Both are
+    /// required for the backend's automatic prefix cache to hit — if
+    /// either changes, the backend must re-prefill the entire prompt
+    /// every turn.
+    ///
+    /// This test guards against two regressions:
+    ///   1. A future edit that reintroduces the subsequent-turn system
+    ///      prompt rebuild (see the `learning_enabled` branch we
+    ///      deliberately removed in `turn()`).
+    ///   2. A future edit that reintroduces per-message model
+    ///      classification on the main agent (which would flip the
+    ///      effective model between turns).
+    #[tokio::test]
+    async fn system_prompt_and_model_are_byte_stable_across_turns() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let workspace_path = workspace.path().to_path_buf();
+
+        let provider = Arc::new(RecordingProvider {
+            responses: Mutex::new(vec![
+                crate::openhuman::providers::ChatResponse {
+                    text: Some("first".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+                crate::openhuman::providers::ChatResponse {
+                    text: Some("second".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+                crate::openhuman::providers::ChatResponse {
+                    text: Some("third".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+            ]),
+            captures: Mutex::new(Vec::new()),
+        });
+
+        let memory_cfg = crate::openhuman::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::openhuman::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::openhuman::memory::create_memory(&memory_cfg, &workspace_path, None).unwrap(),
+        );
+
+        let mut agent = Agent::builder()
+            .provider_arc(provider.clone() as Arc<dyn Provider>)
+            .tools(vec![])
+            .memory(mem)
+            .tool_dispatcher(Box::new(NativeToolDispatcher))
+            .workspace_dir(workspace_path)
+            // Learning flag is explicitly enabled to prove that the
+            // former "rebuild system prompt on subsequent turns" branch
+            // is gone — we should still see byte-stable prompts.
+            .learning_enabled(true)
+            .build()
+            .unwrap();
+
+        for prompt in ["first question", "second question", "third question"] {
+            agent.turn(prompt).await.unwrap();
+        }
+
+        let captures = provider.captures.lock().clone();
+        assert_eq!(
+            captures.len(),
+            3,
+            "expected one provider call per turn, got {}",
+            captures.len()
+        );
+
+        let first_system = captures[0]
+            .system_prompt
+            .as_ref()
+            .expect("first turn should have a system prompt");
+        for (idx, cap) in captures.iter().enumerate() {
+            let sys = cap
+                .system_prompt
+                .as_ref()
+                .expect("every turn should carry the system prompt");
+            assert_eq!(
+                sys, first_system,
+                "system prompt drifted on turn {} — KV cache prefix broken",
+                idx
+            );
+            assert_eq!(
+                cap.model, captures[0].model,
+                "model name flipped on turn {} — KV cache namespace broken",
+                idx
+            );
+        }
     }
 }
