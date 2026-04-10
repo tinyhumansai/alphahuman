@@ -1,10 +1,96 @@
 //! System prompt construction for channel interactions.
 
 use crate::openhuman::agent::identity;
+use crate::openhuman::memory::store::profile::{self, FacetType, ProfileFacet};
+use crate::openhuman::memory::MemoryClient;
+use std::fmt::Write as _;
 use std::path::Path;
 
 /// Maximum characters per injected workspace file (matches `OpenClaw` default).
 pub(crate) const BOOTSTRAP_MAX_CHARS: usize = 20_000;
+
+/// Maximum number of owner-namespace documents surfaced in the system
+/// prompt. More than this and the prompt starts fighting the real
+/// conversation for space.
+const OWNER_NAMESPACE_MAX_CHUNKS: u32 = 10;
+
+/// Build the `## Owner` section of the system prompt from live memory.
+///
+/// Reads two sources and emits one concatenated markdown block:
+/// 1. `Identity` facets from the `user_profile` SQLite table (name,
+///    company, timezone, email, …).
+/// 2. Rich documents from the `owner` memory namespace (bios,
+///    email-signature scrapes, discovery-agent summaries).
+///
+/// Returns an empty string when no owner data exists yet so callers can
+/// safely `push_str` without emitting a lone heading. The returned
+/// content always begins with `## Owner\n` when non-empty so it can be
+/// appended directly after `build_system_prompt`.
+///
+/// This is the canonical reader for all owner identity data. Both live
+/// inference call sites (`agent/loop_/session.rs`, `channels/runtime/startup.rs`)
+/// invoke it after `build_system_prompt` so Gmail/Notion skills that push
+/// identity via `memory.updateOwner` show up on the very next turn.
+pub async fn build_owner_section(client: &MemoryClient) -> String {
+    let mut out = String::new();
+
+    // Identity facets — synchronous SQLite read, very cheap.
+    match client.profile_load_all() {
+        Ok(facets) => {
+            let identity_facets: Vec<ProfileFacet> = facets
+                .into_iter()
+                .filter(|f| f.facet_type == FacetType::Identity)
+                .collect();
+            if !identity_facets.is_empty() {
+                let rendered = profile::render_profile_context(&identity_facets);
+                if !rendered.trim().is_empty() {
+                    out.push_str(&rendered);
+                    out.push_str("\n\n");
+                }
+            }
+        }
+        Err(e) => {
+            log::debug!("[owner-section] profile_load_all failed: {e}");
+        }
+    }
+
+    // Rich owner-namespace documents — async recall against the memory
+    // store. Keep this best-effort so a recall failure never blocks the
+    // system prompt entirely.
+    match client.recall_owner_docs(OWNER_NAMESPACE_MAX_CHUNKS).await {
+        Ok(Some(text)) if !text.trim().is_empty() => {
+            if !out.is_empty() {
+                out.push_str("---\n\n");
+            }
+            let _ = writeln!(out, "### Owner Documents\n\n{}", text.trim());
+        }
+        Ok(_) => {
+            log::debug!("[owner-section] no owner-namespace documents");
+        }
+        Err(e) => {
+            log::debug!("[owner-section] recall_owner_docs failed: {e}");
+        }
+    }
+
+    if out.trim().is_empty() {
+        return String::new();
+    }
+
+    format!("\n## Owner\n\n{}\n", out.trim_end())
+}
+
+/// Convenience wrapper that resolves the global memory client and builds
+/// the owner section, swallowing errors into an empty string. Used by the
+/// async call sites so they don't have to import `memory::global`.
+pub async fn build_owner_section_global() -> String {
+    match crate::openhuman::memory::global::client_if_ready() {
+        Some(client) => build_owner_section(&client).await,
+        None => {
+            log::debug!("[owner-section] global memory client not ready");
+            String::new()
+        }
+    }
+}
 
 /// Load OpenClaw format bootstrap files into the prompt.
 fn load_openclaw_bootstrap_files(

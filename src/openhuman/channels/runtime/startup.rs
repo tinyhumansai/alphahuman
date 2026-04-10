@@ -19,7 +19,7 @@ use crate::openhuman::channels::linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 use crate::openhuman::channels::matrix::MatrixChannel;
 use crate::openhuman::channels::mattermost::MattermostChannel;
-use crate::openhuman::channels::prompt::build_system_prompt;
+use crate::openhuman::channels::prompt::{build_owner_section_global, build_system_prompt};
 use crate::openhuman::channels::qq::QQChannel;
 use crate::openhuman::channels::signal::SignalChannel;
 use crate::openhuman::channels::slack::SlackChannel;
@@ -183,6 +183,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
         bootstrap_max_chars,
     );
     system_prompt.push_str(&build_tool_instructions(tools_registry.as_ref()));
+    // Append live owner-identity block — surfaces profile facets and
+    // `owner`-namespace documents pushed by skills via memory.updateOwner.
+    system_prompt.push_str(&build_owner_section_global().await);
 
     if !skills.is_empty() {
         println!(

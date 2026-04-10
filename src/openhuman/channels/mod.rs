@@ -59,5 +59,5 @@ pub use whatsapp_web::WhatsAppWebChannel;
 
 pub use commands::doctor_channels;
 pub use controllers::{ChannelAuthMode, ChannelDefinition};
-pub use prompt::build_system_prompt;
+pub use prompt::{build_owner_section, build_owner_section_global, build_system_prompt};
 pub use runtime::start_channels;

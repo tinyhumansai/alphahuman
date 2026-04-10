@@ -236,6 +236,11 @@ pub async fn run(
     // Append structured tool-use instructions with schemas
     system_prompt.push_str(&build_tool_instructions(&tools_registry));
 
+    // Append the live owner-identity block so the model always knows who
+    // it's talking to — sourced from profile facets and the `owner`
+    // namespace populated by skills' `memory.updateOwner` calls.
+    system_prompt.push_str(&crate::openhuman::channels::build_owner_section_global().await);
+
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = ApprovalManager::from_config(&config.autonomy);
 
@@ -582,6 +587,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         bootstrap_max_chars,
     );
     system_prompt.push_str(&build_tool_instructions(&tools_registry));
+    system_prompt.push_str(&crate::openhuman::channels::build_owner_section_global().await);
 
     let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
     let context = mem_context;
