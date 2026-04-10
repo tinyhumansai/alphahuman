@@ -789,6 +789,7 @@ mod tests {
 
     // ── End-to-end runner tests with mock provider ────────────────────────
 
+    use super::super::fork_context::{with_fork_context, with_parent_context};
     use crate::openhuman::providers::{
         ChatRequest as PChatRequest, ChatResponse, Provider, ToolCall,
     };
@@ -1015,7 +1016,9 @@ mod tests {
                 stub("file_read"),
             ],
         );
-        let def = make_def_named_tools(&[]);
+        // Wildcard scope so skill_filter is the only restrictor.
+        let mut def = make_def_named_tools(&[]);
+        def.tools = ToolScope::Wildcard;
 
         let _ = with_parent_context(parent, async {
             run_subagent(
@@ -1145,7 +1148,12 @@ mod tests {
 
         let outcome = with_parent_context(parent, async move {
             with_fork_context(fork, async {
-                run_subagent(&def, "ignored — fork uses fork_task_prompt", SubagentRunOptions::default()).await
+                run_subagent(
+                    &def,
+                    "ignored — fork uses fork_task_prompt",
+                    SubagentRunOptions::default(),
+                )
+                .await
             })
             .await
         })

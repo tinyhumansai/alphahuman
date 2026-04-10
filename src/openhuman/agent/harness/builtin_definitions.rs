@@ -10,6 +10,10 @@ use super::definition::{
     AgentDefinition, DefinitionSource, ModelSpec, PromptSource, SandboxMode, ToolScope,
 };
 
+// `PromptSource::File` is unused in this module — built-ins use
+// `PromptSource::Inline` with text baked in by `include_str!`. Custom
+// definitions loaded from TOML may still use `File`.
+
 /// All built-in definitions, in stable order.
 pub fn all() -> Vec<AgentDefinition> {
     let mut out: Vec<AgentDefinition> = AgentArchetype::all()
@@ -23,15 +27,15 @@ pub fn all() -> Vec<AgentDefinition> {
 /// Construct an [`AgentDefinition`] for one [`AgentArchetype`].
 ///
 /// Reads `default_model_hint`, `allowed_tools`, `default_max_iterations`,
-/// `sandbox_mode`, and `system_prompt_path` from the existing archetype
-/// metadata so this stays a single source of truth.
+/// and `sandbox_mode` from the existing archetype metadata so this stays
+/// a single source of truth. The system prompt body is baked into the
+/// binary via [`archetype_prompt_body`] so built-in sub-agents work
+/// regardless of workspace state.
 pub fn from_archetype(arch: AgentArchetype) -> AgentDefinition {
     let id = arch.to_string();
     let when_to_use = when_to_use_for(arch).to_string();
     let display_name = Some(display_name_for(arch).to_string());
-    let system_prompt = PromptSource::File {
-        path: arch.system_prompt_path().to_string(),
-    };
+    let system_prompt = PromptSource::Inline(archetype_prompt_body(arch).to_string());
 
     let tools = match arch.allowed_tools() {
         // SkillsAgent: dynamic — at spawn time the runner picks up all
@@ -124,6 +128,28 @@ pub fn fork_definition() -> AgentDefinition {
         background: false,
         uses_fork_context: true,
         source: DefinitionSource::Builtin,
+    }
+}
+
+/// Returns the bundled markdown body for an archetype's system prompt.
+///
+/// Files are baked into the binary via `include_str!` at compile time so
+/// built-in sub-agents always have a prompt to work with, even when the
+/// workspace `agent/prompts/` directory doesn't exist or has been
+/// modified.
+fn archetype_prompt_body(arch: AgentArchetype) -> &'static str {
+    match arch {
+        AgentArchetype::Orchestrator => include_str!("../prompts/ORCHESTRATOR.md"),
+        AgentArchetype::Planner => include_str!("../prompts/PLANNER.md"),
+        AgentArchetype::CodeExecutor => include_str!("../prompts/archetypes/code_executor.md"),
+        AgentArchetype::SkillsAgent => include_str!("../prompts/archetypes/skills_agent.md"),
+        // ToolMaker shares the code_executor prompt — both write code in
+        // a sandbox; ToolMaker's bounded scope is enforced via
+        // `max_iterations` and `disallowed_tools`.
+        AgentArchetype::ToolMaker => include_str!("../prompts/archetypes/code_executor.md"),
+        AgentArchetype::Researcher => include_str!("../prompts/archetypes/researcher.md"),
+        AgentArchetype::Critic => include_str!("../prompts/archetypes/critic.md"),
+        AgentArchetype::Archivist => include_str!("../prompts/archetypes/archivist.md"),
     }
 }
 

@@ -1524,4 +1524,110 @@ mod tests {
         assert_eq!(persisted_calls.len(), 1);
         assert_eq!(persisted_calls[0].name, "echo");
     }
+
+    /// End-to-end: parent Agent issues a `spawn_subagent` tool call,
+    /// the runner dispatches a built-in sub-agent (`researcher`) using
+    /// the same MockProvider, and the parent's next turn folds the
+    /// sub-agent's text output into the final response.
+    ///
+    /// This is the highest-level test that exercises:
+    /// - Agent::turn → execute_tool_call → SpawnSubagentTool::execute
+    /// - PARENT_CONTEXT task-local visibility
+    /// - AgentDefinitionRegistry::global lookup
+    /// - run_subagent → run_inner_loop with the parent's provider
+    /// - Result returned as a ToolResult and threaded back into history
+    #[tokio::test]
+    async fn turn_dispatches_spawn_subagent_through_full_path() {
+        use crate::openhuman::agent::harness::AgentDefinitionRegistry;
+        use crate::openhuman::tools::SpawnSubagentTool;
+
+        // Idempotent — other tests may have already initialised it.
+        AgentDefinitionRegistry::init_global_builtins().unwrap();
+
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let workspace_path = workspace.path().to_path_buf();
+
+        // Scripted responses, in the exact order MockProvider will see them:
+        //   1. Parent turn iter 0 — emit a spawn_subagent tool call.
+        //   2. Sub-agent (researcher) iter 0 — return final text "X is Y".
+        //   3. Parent turn iter 1 — fold sub-agent result into "Based on the research, X is Y."
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![
+                crate::openhuman::providers::ChatResponse {
+                    text: Some(String::new()),
+                    tool_calls: vec![crate::openhuman::providers::ToolCall {
+                        id: "call-spawn".into(),
+                        name: "spawn_subagent".into(),
+                        arguments: serde_json::json!({
+                            "agent_id": "researcher",
+                            "prompt": "find out about X"
+                        })
+                        .to_string(),
+                    }],
+                    usage: None,
+                },
+                crate::openhuman::providers::ChatResponse {
+                    text: Some("X is Y".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+                crate::openhuman::providers::ChatResponse {
+                    text: Some("Based on the research, X is Y.".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+            ]),
+        });
+
+        let memory_cfg = crate::openhuman::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::openhuman::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::openhuman::memory::create_memory(&memory_cfg, &workspace_path, None).unwrap(),
+        );
+
+        // Tools include SpawnSubagentTool so the parent can call it.
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(SpawnSubagentTool::new())];
+
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(tools)
+            .memory(mem)
+            .tool_dispatcher(Box::new(NativeToolDispatcher))
+            .workspace_dir(workspace_path)
+            .build()
+            .unwrap();
+
+        let response = agent.turn("tell me about X").await.unwrap();
+        assert_eq!(response, "Based on the research, X is Y.");
+
+        // The parent's history should contain the spawn_subagent
+        // assistant tool call AND a tool-result message carrying the
+        // sub-agent's compact output.
+        let has_spawn_call = agent.history().iter().any(|msg| match msg {
+            ConversationMessage::AssistantToolCalls { tool_calls, .. } => {
+                tool_calls.iter().any(|c| c.name == "spawn_subagent")
+            }
+            _ => false,
+        });
+        assert!(
+            has_spawn_call,
+            "parent history should contain the spawn_subagent assistant tool call"
+        );
+
+        let tool_result_contains_subagent_output = agent.history().iter().any(|msg| match msg {
+            ConversationMessage::ToolResults(results) => {
+                results.iter().any(|r| r.content.contains("X is Y"))
+            }
+            ConversationMessage::Chat(chat) if chat.role == "tool" => {
+                chat.content.contains("X is Y")
+            }
+            _ => false,
+        });
+        assert!(
+            tool_result_contains_subagent_output,
+            "parent history should contain a tool-result entry with the sub-agent's output"
+        );
+    }
 }
