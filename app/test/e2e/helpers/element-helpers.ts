@@ -364,7 +364,10 @@ export async function clickByTestId(
 ): Promise<ChainablePromiseElement> {
   if (isTauriDriver()) {
     const el = await browser.$(`[data-testid="${testId}"]`);
-    await el.waitForExist({ timeout, timeoutMsg: `Element [data-testid="${testId}"] not found within ${timeout}ms` });
+    await el.waitForExist({
+      timeout,
+      timeoutMsg: `Element [data-testid="${testId}"] not found within ${timeout}ms`,
+    });
     await clickAtElement(el);
     return el;
   }
@@ -375,8 +378,7 @@ export async function clickByTestId(
 
   const literal = xpathStringLiteral('Settings');
   const xpath =
-    `//XCUIElementTypeButton[contains(@label, ${literal}) or ` +
-    `contains(@title, ${literal})]`;
+    `//XCUIElementTypeButton[contains(@label, ${literal}) or ` + `contains(@title, ${literal})]`;
 
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -387,7 +389,9 @@ export async function clickByTestId(
     }
     await browser.pause(500);
   }
-  throw new Error(`Built-in skill CTA "${testId}" (index ${index}) not found within ${timeout}ms — fewer than ${index + 1} "Settings" buttons visible`);
+  throw new Error(
+    `Built-in skill CTA "${testId}" (index ${index}) not found within ${timeout}ms — fewer than ${index + 1} "Settings" buttons visible`
+  );
 }
 
 /**

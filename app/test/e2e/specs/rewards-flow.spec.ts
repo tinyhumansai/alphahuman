@@ -19,12 +19,7 @@ import {
   dismissLocalAISnackbarIfVisible,
   navigateViaHash,
 } from '../helpers/shared-flows';
-import {
-  clearRequestLog,
-  getRequestLog,
-  startMockServer,
-  stopMockServer,
-} from '../mock-server';
+import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 function stepLog(message: string, context?: unknown) {
   const stamp = new Date().toISOString();
@@ -79,10 +74,7 @@ async function navigateToRewardsAndWait() {
       const tree = await dumpAccessibilityTree();
       const requests = getRequestLog();
       stepLog('Rewards page not loaded after retry. Tree:', tree.slice(0, 3000));
-      stepLog(
-        'Rewards page not loaded after retry. Recent requests:',
-        requests.slice(-20)
-      );
+      stepLog('Rewards page not loaded after retry. Recent requests:', requests.slice(-20));
       throw new Error(
         `Could not navigate to Rewards page\n` +
           `Accessibility tree (truncated):\n${tree.slice(0, 3000)}\n` +

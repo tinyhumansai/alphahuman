@@ -24,12 +24,7 @@ import {
   navigateToSkills,
   navigateViaHash,
 } from '../helpers/shared-flows';
-import {
-  clearRequestLog,
-  getRequestLog,
-  startMockServer,
-  stopMockServer,
-} from '../mock-server';
+import { clearRequestLog, getRequestLog, startMockServer, stopMockServer } from '../mock-server';
 
 function stepLog(message: string, context?: unknown) {
   const stamp = new Date().toISOString();

@@ -97,7 +97,10 @@ describe('Screen Intelligence', () => {
       await navigateViaHash('/skills');
       await browser.pause(2_000);
 
-      const hasBuiltIn = await waitForAnyText(['Built-in Skills', 'Built-in', 'Screen Intelligence'], 15_000);
+      const hasBuiltIn = await waitForAnyText(
+        ['Built-in Skills', 'Built-in', 'Screen Intelligence'],
+        15_000
+      );
       stepLog(`Skills page built-in section (attempt ${attempt})`, { found: hasBuiltIn });
       expect(hasBuiltIn).not.toBeNull();
 
@@ -146,7 +149,10 @@ describe('Screen Intelligence', () => {
       const tree = await dumpAccessibilityTree();
       const requests = getRequestLog();
       stepLog('Failed to open Screen Intelligence from Skills. Tree:', tree.slice(0, 4000));
-      stepLog('Failed to open Screen Intelligence from Skills. Recent requests:', requests.slice(-20));
+      stepLog(
+        'Failed to open Screen Intelligence from Skills. Recent requests:',
+        requests.slice(-20)
+      );
       throw new Error(
         `Failed to open Screen Intelligence from Skills card\n` +
           `Last error: ${String(lastError)}\n` +
