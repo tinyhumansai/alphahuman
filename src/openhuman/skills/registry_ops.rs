@@ -182,7 +182,10 @@ async fn fetch_url_bytes(url: &str) -> Result<Vec<u8>, String> {
         .map(|b| b.to_vec())
         .map_err(|e| format!("[registry] failed to read response body from {url}: {e}"))?;
 
-    log::debug!("[registry] fetch_url_bytes: {} bytes from {url}", bytes.len());
+    log::debug!(
+        "[registry] fetch_url_bytes: {} bytes from {url}",
+        bytes.len()
+    );
     Ok(bytes)
 }
 
