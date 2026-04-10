@@ -392,15 +392,11 @@ fn sync_workspace_file(workspace_dir: &Path, filename: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(e) = std::fs::write(&path, default_content) {
-        log::warn!(
-            "[agent:prompt] failed to write workspace file {filename}: {e}"
-        );
+        log::warn!("[agent:prompt] failed to write workspace file {filename}: {e}");
         return;
     }
     let _ = std::fs::write(&hash_path, &current_hash);
-    log::info!(
-        "[agent:prompt] updated workspace file {filename} (builtin content changed)"
-    );
+    log::info!("[agent:prompt] updated workspace file {filename} (builtin content changed)");
 }
 
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {

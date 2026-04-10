@@ -248,9 +248,7 @@ pub fn all_tools_with_runtime(
 /// `orchestrator_tools::collect_orchestrator_tools()` to generate
 /// the visible tool set dynamically. Kept for backward compatibility
 /// with callers that reference this constant.
-pub const MAIN_AGENT_TOOL_ALLOWLIST: &[&str] = &[
-    "spawn_subagent",
-];
+pub const MAIN_AGENT_TOOL_ALLOWLIST: &[&str] = &["spawn_subagent"];
 
 /// Filter a full tool registry down to only the tools the main agent
 /// should see. Sub-agents receive the unfiltered registry via

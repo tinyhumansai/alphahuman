@@ -41,9 +41,7 @@ impl Agent {
     /// and returns the final assistant response.
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
         let turn_started = std::time::Instant::now();
-        log::info!(
-            "[agent] turn started — awaiting user message processing"
-        );
+        log::info!("[agent] turn started — awaiting user message processing");
         log::info!(
             "[agent_loop] turn start message_chars={} history_len={} max_tool_iterations={}",
             user_message.chars().count(),
