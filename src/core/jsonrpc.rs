@@ -760,6 +760,37 @@ async fn run_server_inner(
         }
     });
 
+    // Realtime channel listeners (Telegram getUpdates, Discord gateway, etc.) live in
+    // `start_channels`. Without this task, `openhuman run` would only expose RPC while
+    // inbound bot messages are never polled.
+    if std::env::var("OPENHUMAN_DISABLE_CHANNEL_LISTENERS")
+        .ok()
+        .filter(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .is_none()
+    {
+        tokio::spawn(async move {
+            let config = match crate::openhuman::config::Config::load_or_init().await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!("[channels] could not load config for listeners: {e}");
+                    return;
+                }
+            };
+            if !config.channels_config.has_listening_integrations() {
+                log::debug!(
+                    "[channels] no channel integrations configured; not spawning listeners"
+                );
+                return;
+            }
+            log::info!("[channels] spawning in-process realtime listeners (Telegram, Discord, …)");
+            if let Err(e) = crate::openhuman::channels::start_channels(config).await {
+                log::error!("[channels] start_channels ended with error: {e}");
+            }
+        });
+    } else {
+        log::info!("[channels] OPENHUMAN_DISABLE_CHANNEL_LISTENERS set — skipping start_channels");
+    }
+
     axum::serve(listener, app)
         .with_graceful_shutdown(crate::core::shutdown::signal())
         .await?;

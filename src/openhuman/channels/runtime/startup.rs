@@ -210,6 +210,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
+        tracing::info!(
+            channel = "telegram",
+            allowed_users_count = tg.allowed_users.len(),
+            mention_only = tg.mention_only,
+            stream_mode = ?tg.stream_mode,
+            draft_update_interval_ms = tg.draft_update_interval_ms,
+            "[channels] telegram enabled in core config (bot token not logged)"
+        );
         channels.push(Arc::new(
             TelegramChannel::new(
                 tg.bot_token.clone(),
@@ -218,6 +226,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
             )
             .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
         ));
+    } else {
+        tracing::info!(
+            "[channels] telegram not configured (no channels_config.telegram in saved config)"
+        );
     }
 
     if let Some(ref dc) = config.channels_config.discord {
