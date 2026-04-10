@@ -643,10 +643,7 @@ impl Config {
                 match parse_proxy_scope(trimmed) {
                     Some(scope) => self.proxy.scope = scope,
                     None => {
-                        tracing::warn!(
-                            "Invalid OPENHUMAN_PROXY_SCOPE value {:?} ignored",
-                            trimmed
-                        );
+                        tracing::warn!("Invalid OPENHUMAN_PROXY_SCOPE value {:?} ignored", trimmed);
                     }
                 }
             }
