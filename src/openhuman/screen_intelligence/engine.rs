@@ -17,6 +17,7 @@ use super::types::{
     AccessibilityStatus, AppContextInfo, CaptureFrame, CaptureImageRefResult, CaptureNowResult,
     CaptureTestResult, CoreProcessStatus, SessionStatus, StartSessionParams,
 };
+use crate::openhuman::accessibility::request_microphone_access;
 use crate::openhuman::accessibility::{
     capture_screen_image_ref_for_context, detect_permissions, foreground_context,
     permission_to_str, AppContext, PermissionKind, PermissionState, PermissionStatus,
@@ -202,6 +203,7 @@ impl AccessibilityEngine {
                 screen_recording: PermissionState::Unsupported,
                 accessibility: PermissionState::Unsupported,
                 input_monitoring: PermissionState::Unsupported,
+                microphone: PermissionState::Unsupported,
             });
         }
 
@@ -225,6 +227,7 @@ impl AccessibilityEngine {
                 screen_recording: PermissionState::Unsupported,
                 accessibility: PermissionState::Unsupported,
                 input_monitoring: PermissionState::Unsupported,
+                microphone: PermissionState::Unsupported,
             });
         }
 
@@ -241,6 +244,9 @@ impl AccessibilityEngine {
                 }
                 PermissionKind::InputMonitoring => {
                     open_macos_privacy_pane("Privacy_ListenEvent");
+                }
+                PermissionKind::Microphone => {
+                    request_microphone_access();
                 }
             }
         }
