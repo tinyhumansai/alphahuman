@@ -7,6 +7,7 @@ vi.mock('../../coreCommandClient', () => ({
 }));
 
 const { billingApi } = await import('../billingApi');
+const { creditsApi } = await import('../creditsApi');
 
 describe('billingApi', () => {
   beforeEach(() => {
@@ -196,6 +197,27 @@ describe('billingApi', () => {
       await expect(billingApi.createCoinbaseCharge('BASIC', 'annual')).rejects.toThrow(
         'Crypto payments are only available for annual plans'
       );
+    });
+  });
+});
+
+describe('creditsApi.getBalance', () => {
+  beforeEach(() => {
+    mockCallCoreCommand.mockReset();
+  });
+
+  it('normalizes missing numeric fields so billing UI does not crash', async () => {
+    mockCallCoreCommand.mockResolvedValue({
+      topUpBalanceUsd: 3,
+    });
+
+    const result = await creditsApi.getBalance();
+
+    expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_get_balance');
+    expect(result).toEqual({
+      balanceUsd: 0,
+      topUpBalanceUsd: 3,
+      topUpBaselineUsd: null,
     });
   });
 });

@@ -21,11 +21,11 @@ export default function GlobalUpsellBanner() {
     const bannerId = 'global-upgrade';
     if (!shouldShowBanner(bannerId, COOLDOWN_UPGRADE_MS) || dismissed[bannerId]) return null;
     return (
-      <div className="fixed top-0 left-0 right-0 z-[9997] px-4 pt-2">
+      <div className="relative z-20 px-4 pt-2">
         <UpsellBanner
           variant="upgrade"
-          title="Usage limit reached"
-          message="Upgrade to continue chatting."
+          title="You've reached your usage limit"
+          message="Upgrade your plan or top up credits to continue"
           ctaLabel="Upgrade"
           onCtaClick={() => navigate('/settings/billing')}
           dismissible
@@ -43,7 +43,7 @@ export default function GlobalUpsellBanner() {
     if (!shouldShowBanner(bannerId, COOLDOWN_WARNING_MS) || dismissed[bannerId]) return null;
     const pct = Math.round(Math.max(usagePct10h, usagePct7d) * 100);
     return (
-      <div className="fixed top-0 left-0 right-0 z-[9997] px-4 pt-2">
+      <div className="relative z-20 px-4 pt-2">
         <UpsellBanner
           variant="warning"
           title="Approaching usage limit"

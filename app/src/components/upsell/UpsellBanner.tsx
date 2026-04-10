@@ -24,11 +24,11 @@ const VARIANT_STYLES = {
     cta: 'bg-amber-500 hover:bg-amber-400 text-white',
   },
   upgrade: {
-    container: 'bg-coral-50 border-coral-200',
-    icon: 'text-coral-400',
-    title: 'text-coral-700',
-    text: 'text-coral-600',
-    cta: 'bg-coral-500 hover:bg-coral-400 text-white',
+    container: 'bg-amber-50 border-amber-200',
+    icon: 'text-amber-400',
+    title: 'text-amber-700',
+    text: 'text-amber-600',
+    cta: 'bg-amber-500 hover:bg-amber-400 text-white',
   },
 };
 

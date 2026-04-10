@@ -126,6 +126,25 @@ export interface RedeemedCoupon {
   fulfilled: boolean;
 }
 
+function normalizeUsd(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeNullableUsd(value: unknown): number | null {
+  if (value == null) return null;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeCreditBalance(payload: unknown): CreditBalance {
+  const raw = payload && typeof payload === 'object' ? (payload as Partial<CreditBalance>) : {};
+
+  return {
+    balanceUsd: normalizeUsd(raw.balanceUsd),
+    topUpBalanceUsd: normalizeUsd(raw.topUpBalanceUsd),
+    topUpBaselineUsd: normalizeNullableUsd(raw.topUpBaselineUsd),
+  };
+}
+
 /**
  * Credits API endpoints
  */
@@ -135,7 +154,8 @@ export const creditsApi = {
    * GET /credits/balance
    */
   getBalance: async (): Promise<CreditBalance> => {
-    return await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    const result = await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    return normalizeCreditBalance(result);
   },
 
   /**
