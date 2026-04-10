@@ -83,7 +83,13 @@ impl Tool for SkillDelegationTool {
             )));
         }
 
-        dispatch_subagent("skills_agent", &self.tool_name, &prompt, Some(&self.skill_id)).await
+        dispatch_subagent(
+            "skills_agent",
+            &self.tool_name,
+            &prompt,
+            Some(&self.skill_id),
+        )
+        .await
     }
 }
 
@@ -183,7 +189,9 @@ async fn dispatch_subagent(
 
     // Validate skill filter if set.
     if let Some(skill) = skill_filter {
-        if let Err(err) = crate::openhuman::tools::spawn_subagent::validate_skill_filter_public(skill) {
+        if let Err(err) =
+            crate::openhuman::tools::spawn_subagent::validate_skill_filter_public(skill)
+        {
             return Ok(ToolResult::error(err));
         }
     }
@@ -242,9 +250,7 @@ async fn dispatch_subagent(
                 agent_id: definition.id.clone(),
                 error: message.clone(),
             });
-            Ok(ToolResult::error(format!(
-                "{tool_name} failed: {message}"
-            )))
+            Ok(ToolResult::error(format!("{tool_name} failed: {message}")))
         }
     }
 }
