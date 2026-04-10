@@ -62,11 +62,7 @@ describe('creditsApi coupon helpers', () => {
   it('redeemCoupon also unwraps nested success/data payloads', async () => {
     mockCallCoreCommand.mockResolvedValueOnce({
       success: true,
-      data: {
-        code: 'APRL-2026',
-        amountUsd: 5,
-        pending: false,
-      },
+      data: { code: 'APRL-2026', amountUsd: 5, pending: false },
     });
 
     await expect(creditsApi.redeemCoupon('APRL-2026')).resolves.toEqual({
