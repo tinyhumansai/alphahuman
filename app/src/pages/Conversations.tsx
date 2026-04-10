@@ -1218,7 +1218,7 @@ const Conversations = () => {
               </div>
             )}
           {teamUsage &&
-            (teamUsage.remainingUsd <= 0 ||
+            ((teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0) ||
               (!teamUsage.bypassCycleLimit &&
                 teamUsage.fiveHourCapUsd > 0 &&
                 teamUsage.cycleLimit5hr >= teamUsage.fiveHourCapUsd)) && (
@@ -1237,12 +1237,12 @@ const Conversations = () => {
                     />
                   </svg>
                   <p className="text-xs text-coral-600 truncate">
-                    {teamUsage.remainingUsd <= 0
-                      ? 'Weekly inference budget exhausted. Top up to continue.'
+                    {teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0
+                      ? 'Included weekly inference budget exhausted. Top up to continue.'
                       : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
                   </p>
                 </div>
-                {teamUsage.remainingUsd <= 0 && (
+                {teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0 && (
                   <button
                     onClick={() => navigate('/settings/billing')}
                     className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">

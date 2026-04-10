@@ -43,9 +43,9 @@ describe('billingApi', () => {
         hasActiveSubscription: false,
         planExpiry: null,
         subscription: null,
-        monthlyBudgetUsd: 1,
-        weeklyBudgetUsd: 0.5,
-        fiveHourCapUsd: 0.15,
+        monthlyBudgetUsd: 0,
+        weeklyBudgetUsd: 0,
+        fiveHourCapUsd: 0,
       };
       mockCallCoreCommand.mockResolvedValue(planData);
 
@@ -54,7 +54,7 @@ describe('billingApi', () => {
       expect(result.plan).toBe('FREE');
       expect(result.hasActiveSubscription).toBe(false);
       expect(result.subscription).toBeNull();
-      expect(result.weeklyBudgetUsd).toBe(0.5);
+      expect(result.weeklyBudgetUsd).toBe(0);
     });
 
     it('should propagate errors', async () => {

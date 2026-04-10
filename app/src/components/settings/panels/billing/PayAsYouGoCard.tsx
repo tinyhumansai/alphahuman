@@ -20,6 +20,9 @@ const PayAsYouGoCard = ({
   onTopUp,
   onBalanceRefresh,
 }: PayAsYouGoCardProps) => {
+  const availableCredits =
+    (creditBalance?.balanceUsd ?? 0) + (creditBalance?.topUpBalanceUsd ?? 0);
+
   // Coupon state (local — no need to share with other sections)
   const [couponCode, setCouponCode] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
@@ -64,8 +67,12 @@ const PayAsYouGoCard = ({
       {/* Balance display */}
       {creditBalance ? (
         <div className="space-y-1.5 mb-3">
+          <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-2.5 py-2">
+            <span className="text-xs text-stone-500">Available credits</span>
+            <span className="text-sm font-semibold text-stone-900">${availableCredits.toFixed(2)}</span>
+          </div>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-stone-400">General credits</span>
+            <span className="text-xs text-stone-400">Signup + promo credits</span>
             <span className="text-xs font-medium text-stone-900">
               ${creditBalance.balanceUsd.toFixed(2)}
             </span>
@@ -114,8 +121,8 @@ const PayAsYouGoCard = ({
       )}
 
       <p className="mb-3 text-[11px] text-stone-500">
-        No subscription needed — buy credits as you need them. If you have a subscription, your
-        included budget is consumed first.
+        No subscription needed. Free users spend from any signup or promo credit first, then from
+        top-ups. Paid plans still consume included budget before pay-as-you-go credits.
       </p>
 
       {/* Top-up buttons */}
