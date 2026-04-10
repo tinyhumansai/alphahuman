@@ -287,7 +287,7 @@ const RewardsCouponSection = () => {
               </tbody>
             </table>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );

@@ -91,4 +91,48 @@ describe('RewardsCouponSection', () => {
     expect(mocks.mockCreditsApi.getBalance).toHaveBeenCalledTimes(1);
     expect(refetch).not.toHaveBeenCalled();
   });
+
+  it('shows pending coupon copy and keeps the current balance until the reward is fulfilled', async () => {
+    mocks.mockCreditsApi.getBalance
+      .mockResolvedValueOnce({ balanceUsd: 3, topUpBalanceUsd: 0, topUpBaselineUsd: null })
+      .mockResolvedValueOnce({ balanceUsd: 3, topUpBalanceUsd: 0, topUpBaselineUsd: null });
+    mocks.mockCreditsApi.getUserCoupons
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          code: 'APRL-2026',
+          amountUsd: 5,
+          redeemedAt: '2026-04-09T19:00:00.000Z',
+          activationType: 'CONDITIONAL',
+          activationCondition: 'SUBSCRIBE_PAID_PLAN',
+          fulfilled: false,
+          fulfilledAt: null,
+        },
+      ]);
+    mocks.mockCreditsApi.redeemCoupon.mockResolvedValueOnce({
+      couponCode: 'APRL-2026',
+      amountUsd: 5,
+      pending: true,
+    });
+
+    render(<RewardsCouponSection />);
+
+    expect(await screen.findByText('$3.00')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Promo code'), { target: { value: 'aprl-2026' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+
+    expect(
+      await screen.findByText(
+        'APRL-2026 accepted. $5.00 will unlock after the required action is completed.'
+      )
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getAllByText('$3.00')).toHaveLength(1);
+    });
+    expect(screen.getByText('APRL-2026')).toBeInTheDocument();
+    expect(screen.getByText('Pending action')).toBeInTheDocument();
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
 });

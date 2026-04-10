@@ -59,6 +59,27 @@ describe('creditsApi coupon helpers', () => {
     });
   });
 
+  it('redeemCoupon also unwraps nested success/data payloads', async () => {
+    mockCallCoreCommand.mockResolvedValueOnce({
+      success: true,
+      data: {
+        code: 'APRL-2026',
+        amountUsd: 5,
+        pending: false,
+      },
+    });
+
+    await expect(creditsApi.redeemCoupon('APRL-2026')).resolves.toEqual({
+      couponCode: 'APRL-2026',
+      amountUsd: 5,
+      pending: false,
+    });
+
+    expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_redeem_coupon', {
+      code: 'APRL-2026',
+    });
+  });
+
   it('getUserCoupons normalizes coupon history rows', async () => {
     mockCallCoreCommand.mockResolvedValueOnce([
       {
