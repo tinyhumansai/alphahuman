@@ -50,7 +50,7 @@ const InferenceBudget = ({ teamUsage, isLoadingCredits }: InferenceBudgetProps) 
         )}
       </>
     ) : isLoadingCredits ? (
-      <div className="h-1.5 w-full rounded-full bg-stone-700/60 animate-pulse" />
+      <div className="h-1.5 w-full rounded-full bg-stone-200 animate-pulse" />
     ) : (
       <p className="text-xs text-stone-500">Unable to load usage data</p>
     )}

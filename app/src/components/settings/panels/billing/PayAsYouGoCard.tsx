@@ -100,8 +100,7 @@ const PayAsYouGoCard = ({
       )}
 
       <p className="mb-3 text-[11px] text-stone-500">
-        No subscription needed. Free users spend from any signup or promo credit first, then from
-        top-ups. Paid plans still consume included budget before pay-as-you-go credits.
+        Credits are used after any included subscription budget is consumed.
       </p>
 
       {/* Top-up buttons */}

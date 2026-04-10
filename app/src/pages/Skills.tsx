@@ -2,11 +2,17 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import ChannelSetupModal from '../components/channels/ChannelSetupModal';
+import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
+import ScreenIntelligenceSetupModal from '../components/skills/ScreenIntelligenceSetupModal';
 import { SKILL_ICONS, type SkillListEntry } from '../components/skills/shared';
 import UnifiedSkillCard, { ThirdPartySkillCard } from '../components/skills/SkillCard';
 import SkillCategoryFilter, { type SkillCategory } from '../components/skills/SkillCategoryFilter';
 import SkillSearchBar from '../components/skills/SkillSearchBar';
 import SkillSetupModal from '../components/skills/SkillSetupModal';
+import VoiceSetupModal from '../components/skills/VoiceSetupModal';
+import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
+import { useScreenIntelligenceSkillStatus } from '../features/screen-intelligence/useScreenIntelligenceSkillStatus';
+import { useVoiceSkillStatus } from '../features/voice/useVoiceSkillStatus';
 import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import { useAvailableSkills } from '../lib/skills/hooks';
 import { installSkill } from '../lib/skills/skillsApi';
@@ -147,6 +153,12 @@ export default function Skills() {
   const [activeSkillHasSetup, setActiveSkillHasSetup] = useState(false);
   const [channelModalDef, setChannelModalDef] = useState<ChannelDefinition | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [screenIntelligenceModalOpen, setScreenIntelligenceModalOpen] = useState(false);
+  const [autocompleteModalOpen, setAutocompleteModalOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const screenIntelligenceStatus = useScreenIntelligenceSkillStatus();
+  const autocompleteStatus = useAutocompleteSkillStatus();
+  const voiceStatus = useVoiceSkillStatus();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<SkillCategory>('All');
@@ -318,6 +330,90 @@ export default function Skills() {
                   <div className="space-y-2">
                     {items.map(item => {
                       if (item.kind === 'builtin') {
+                        // Screen Intelligence gets a state-aware card
+                        if (item.id === 'screen-intelligence') {
+                          return (
+                            <UnifiedSkillCard
+                              key={item.id}
+                              icon={item.icon}
+                              title={item.name}
+                              description={item.description}
+                              statusDot={screenIntelligenceStatus.statusDot}
+                              statusLabel={screenIntelligenceStatus.statusLabel}
+                              statusColor={screenIntelligenceStatus.statusColor}
+                              ctaLabel={screenIntelligenceStatus.ctaLabel}
+                              ctaVariant={screenIntelligenceStatus.ctaVariant}
+                              onCtaClick={() => {
+                                if (screenIntelligenceStatus.platformUnsupported) {
+                                  navigate(item.route!);
+                                  return;
+                                }
+                                if (
+                                  screenIntelligenceStatus.connectionStatus === 'connected' ||
+                                  screenIntelligenceStatus.connectionStatus === 'disconnected'
+                                ) {
+                                  navigate(item.route!);
+                                  return;
+                                }
+                                setScreenIntelligenceModalOpen(true);
+                              }}
+                            />
+                          );
+                        }
+                        // Text Auto-Complete gets a state-aware card
+                        if (item.id === 'text-autocomplete') {
+                          return (
+                            <UnifiedSkillCard
+                              key={item.id}
+                              icon={item.icon}
+                              title={item.name}
+                              description={item.description}
+                              statusDot={autocompleteStatus.statusDot}
+                              statusLabel={autocompleteStatus.statusLabel}
+                              statusColor={autocompleteStatus.statusColor}
+                              ctaLabel={autocompleteStatus.ctaLabel}
+                              ctaVariant={autocompleteStatus.ctaVariant}
+                              onCtaClick={() => {
+                                if (
+                                  autocompleteStatus.platformUnsupported ||
+                                  autocompleteStatus.connectionStatus === 'connected' ||
+                                  autocompleteStatus.connectionStatus === 'disconnected'
+                                ) {
+                                  navigate(item.route!);
+                                  return;
+                                }
+                                setAutocompleteModalOpen(true);
+                              }}
+                            />
+                          );
+                        }
+                        // Voice Intelligence gets a state-aware card
+                        if (item.id === 'voice-stt') {
+                          return (
+                            <UnifiedSkillCard
+                              key={item.id}
+                              icon={item.icon}
+                              title={item.name}
+                              description={item.description}
+                              statusDot={voiceStatus.statusDot}
+                              statusLabel={voiceStatus.statusLabel}
+                              statusColor={voiceStatus.statusColor}
+                              ctaLabel={voiceStatus.ctaLabel}
+                              ctaVariant={voiceStatus.ctaVariant}
+                              onCtaClick={() => {
+                                if (
+                                  voiceStatus.connectionStatus === 'connected' ||
+                                  voiceStatus.connectionStatus === 'connecting' ||
+                                  voiceStatus.connectionStatus === 'disconnected'
+                                ) {
+                                  navigate(item.route!);
+                                  return;
+                                }
+                                setVoiceModalOpen(true);
+                              }}
+                            />
+                          );
+                        }
                         return (
                           <UnifiedSkillCard
                             key={item.id}
@@ -379,6 +475,21 @@ export default function Skills() {
 
       {channelModalDef && (
         <ChannelSetupModal definition={channelModalDef} onClose={() => setChannelModalDef(null)} />
+      )}
+
+      {screenIntelligenceModalOpen && (
+        <ScreenIntelligenceSetupModal
+          onClose={() => setScreenIntelligenceModalOpen(false)}
+          initialStep={screenIntelligenceStatus.allPermissionsGranted ? 'enable' : 'permissions'}
+        />
+      )}
+
+      {autocompleteModalOpen && (
+        <AutocompleteSetupModal onClose={() => setAutocompleteModalOpen(false)} />
+      )}
+
+      {voiceModalOpen && (
+        <VoiceSetupModal onClose={() => setVoiceModalOpen(false)} skillStatus={voiceStatus} />
       )}
     </div>
   );
