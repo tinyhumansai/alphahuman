@@ -28,8 +28,8 @@ describe('RewardsCouponSection', () => {
 
   it('loads balances and refreshes history after a successful redemption', async () => {
     mocks.mockCreditsApi.getBalance
-      .mockResolvedValueOnce({ balanceUsd: 3, topUpBalanceUsd: 1, topUpBaselineUsd: null })
-      .mockResolvedValueOnce({ balanceUsd: 8, topUpBalanceUsd: 1, topUpBaselineUsd: null });
+      .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 1 })
+      .mockResolvedValueOnce({ promotionBalanceUsd: 8, teamTopupUsd: 1 });
     mocks.mockCreditsApi.getUserCoupons
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -71,9 +71,8 @@ describe('RewardsCouponSection', () => {
 
   it('shows backend redemption errors without clearing the existing state', async () => {
     mocks.mockCreditsApi.getBalance.mockResolvedValue({
-      balanceUsd: 3,
-      topUpBalanceUsd: 0,
-      topUpBaselineUsd: null,
+      promotionBalanceUsd: 3,
+      teamTopupUsd: 0,
     });
     mocks.mockCreditsApi.getUserCoupons.mockResolvedValue([]);
     mocks.mockCreditsApi.redeemCoupon.mockRejectedValueOnce({
@@ -94,8 +93,8 @@ describe('RewardsCouponSection', () => {
 
   it('shows pending coupon copy and keeps the current balance until the reward is fulfilled', async () => {
     mocks.mockCreditsApi.getBalance
-      .mockResolvedValueOnce({ balanceUsd: 3, topUpBalanceUsd: 0, topUpBaselineUsd: null })
-      .mockResolvedValueOnce({ balanceUsd: 3, topUpBalanceUsd: 0, topUpBaselineUsd: null });
+      .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 0 })
+      .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 0 });
     mocks.mockCreditsApi.getUserCoupons
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
