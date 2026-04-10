@@ -209,6 +209,35 @@ function normalizeCreditBalance(payload: unknown): CreditBalance {
   };
 }
 
+export function normalizeTeamUsage(payload: unknown): TeamUsage {
+  const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  return {
+    remainingUsd: normalizeUsd(raw.remainingUsd ?? raw.remaining_usd),
+    cycleBudgetUsd: normalizeUsd(raw.cycleBudgetUsd ?? raw.cycle_budget_usd),
+    cycleLimit5hr: normalizeUsd(
+      raw.cycleLimit5hr ?? raw.fiveHourSpendUsd ?? raw.five_hour_spend_usd
+    ),
+    cycleLimit7day: normalizeUsd(raw.cycleLimit7day ?? raw.cycle_limit_7day),
+    fiveHourCapUsd: normalizeUsd(raw.fiveHourCapUsd ?? raw.five_hour_cap_usd),
+    fiveHourResetsAt: asStringOrNull(raw.fiveHourResetsAt ?? raw.five_hour_resets_at),
+    cycleStartDate:
+      typeof raw.cycleStartDate === 'string'
+        ? raw.cycleStartDate
+        : typeof raw.cycle_start_date === 'string'
+          ? raw.cycle_start_date
+          : new Date().toISOString(),
+    cycleEndsAt:
+      typeof raw.cycleEndsAt === 'string'
+        ? raw.cycleEndsAt
+        : typeof raw.cycle_ends_at === 'string'
+          ? raw.cycle_ends_at
+          : new Date().toISOString(),
+    bypassCycleLimit: Boolean(
+      raw.bypassCycleLimit ?? raw.bypassRateLimit ?? raw.bypass_cycle_limit
+    ),
+  };
+}
+
 /**
  * Credits API endpoints
  */
@@ -227,7 +256,8 @@ export const creditsApi = {
    * GET /teams/me/usage
    */
   getTeamUsage: async (): Promise<TeamUsage> => {
-    return await callCoreCommand<TeamUsage>('openhuman.team_get_usage');
+    const result = await callCoreCommand<TeamUsage>('openhuman.team_get_usage');
+    return normalizeTeamUsage(result);
   },
 
   /**

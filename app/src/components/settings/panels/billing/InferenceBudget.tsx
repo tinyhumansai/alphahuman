@@ -13,7 +13,7 @@ const InferenceBudget = ({ teamUsage, isLoadingCredits }: InferenceBudgetProps) 
       {teamUsage && !isLoadingCredits && (
         <span className="text-xs text-stone-400">
           {teamUsage.cycleBudgetUsd > 0
-            ? `$${teamUsage.remainingUsd.toFixed(2)} / $${teamUsage.cycleBudgetUsd.toFixed(2)} remaining`
+            ? `$${(teamUsage.remainingUsd ?? 0).toFixed(2)} / $${(teamUsage.cycleBudgetUsd ?? 0).toFixed(2)} remaining`
             : 'No recurring plan budget'}
         </span>
       )}
@@ -40,8 +40,8 @@ const InferenceBudget = ({ teamUsage, isLoadingCredits }: InferenceBudgetProps) 
           </div>
           <div className="mt-1 flex items-center justify-between">
             <span className="text-[11px] text-stone-500">
-              5-hour cap: ${teamUsage.cycleLimit5hr.toFixed(2)} / $
-              {teamUsage.fiveHourCapUsd.toFixed(2)}
+              5-hour cap: ${(teamUsage.cycleLimit5hr ?? 0).toFixed(2)} / $
+              {(teamUsage.fiveHourCapUsd ?? 0).toFixed(2)}
             </span>
             <span className="text-[11px] text-stone-500">
               Cycle ends {new Date(teamUsage.cycleEndsAt).toLocaleDateString('en-US')}
