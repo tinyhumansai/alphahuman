@@ -1,4 +1,4 @@
-import { type ComponentProps, useEffect, useRef, useState } from 'react';
+import { type ComponentProps, useRef, useState } from 'react';
 
 import ScreenIntelligenceDebugPanel from '../../../components/intelligence/ScreenIntelligenceDebugPanel';
 import { useScreenIntelligenceState } from '../../../features/screen-intelligence/useScreenIntelligenceState';
@@ -49,25 +49,20 @@ const ScreenAwarenessDebugPanel = () => {
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
-  // CoreStateProvider polls every 2s, producing a new `status` object reference on
-  // every tick even when the config is unchanged. Compare the serialized value instead
-  // so we only re-sync when the server config has actually changed.
-  const lastSyncedConfigSigRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!status?.config) {
-      return;
-    }
-    const sig = JSON.stringify(status.config);
-    if (lastSyncedConfigSigRef.current === sig) {
-      return;
-    }
-    lastSyncedConfigSigRef.current = sig;
+  // Initialize form state from server config once on first render where config
+  // is available. After initialization, form state is user-controlled until save.
+  // This runs during render (not in useEffect) so it is synchronous and avoids
+  // the set-state-in-effect lint rule.
+  const initializedRef = useRef(false);
+  if (!initializedRef.current && status?.config) {
+    initializedRef.current = true;
+    // One-time assignment — React batches these with the current render.
     setBaselineFps(String(status.config.baseline_fps ?? 1));
     setUseVisionModel(status.config.use_vision_model ?? true);
     setKeepScreenshots(status.config.keep_screenshots ?? false);
     setAllowlistText((status.config.allowlist ?? []).join('\n'));
     setDenylistText((status.config.denylist ?? []).join('\n'));
-  }, [status?.config]);
+  }
 
   const saveConfig = async () => {
     if (!isTauri()) return;

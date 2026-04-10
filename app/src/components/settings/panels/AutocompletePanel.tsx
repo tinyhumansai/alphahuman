@@ -70,8 +70,10 @@ const AutocompletePanel = () => {
   );
   const [acceptWithTab, setAcceptWithTab] = useState<boolean>(DEFAULT_CONFIG.accept_with_tab);
 
-  // Hold full config so we can pass through unchanged advanced values on save
+  // Hold full config so we can pass through unchanged advanced values on save.
+  // configLoaded tracks whether we've received real config from the backend.
   const fullConfigRef = useRef<AutocompleteConfig>(DEFAULT_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   const load = async () => {
     if (!isTauri()) return;
@@ -86,6 +88,7 @@ const AutocompletePanel = () => {
         (configResponse.result.config as Record<string, unknown> | undefined)?.autocomplete
       );
       fullConfigRef.current = config;
+      setConfigLoaded(true);
       setEnabled(config.enabled);
       setStylePreset(config.style_preset);
       setDisabledAppsText(config.disabled_apps.join('\n'));
@@ -245,7 +248,7 @@ const AutocompletePanel = () => {
           <button
             type="button"
             onClick={() => void saveConfig()}
-            disabled={isSaving}
+            disabled={isSaving || !configLoaded}
             className="rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600 disabled:opacity-50">
             {isSaving ? 'Saving…' : 'Save Settings'}
           </button>
@@ -261,7 +264,7 @@ const AutocompletePanel = () => {
             <button
               type="button"
               onClick={() => void start()}
-              disabled={!status?.platform_supported || Boolean(status?.running)}
+              disabled={!configLoaded || !status?.platform_supported || Boolean(status?.running)}
               className="rounded-lg border border-green-500/60 bg-green-50 px-3 py-2 text-sm text-green-700 disabled:opacity-50">
               Start
             </button>

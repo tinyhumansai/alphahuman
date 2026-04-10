@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   openhumanGetVoiceServerSettings,
-  openhumanLocalAiAssetsStatus,
   openhumanUpdateVoiceServerSettings,
   openhumanVoiceServerStatus,
   openhumanVoiceStatus,
@@ -45,7 +44,6 @@ const VoiceDebugPanel = () => {
         openhumanGetVoiceServerSettings(),
         openhumanVoiceServerStatus(),
         openhumanVoiceStatus(),
-        openhumanLocalAiAssetsStatus(),
       ]);
       // Only overwrite local settings if there are no unsaved edits,
       // or if explicitly forced (e.g. after save or initial load).

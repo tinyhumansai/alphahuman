@@ -372,9 +372,13 @@ const AutocompleteDebugPanel = () => {
       const response = await openhumanAutocompleteDebugFocus();
       appendLogs(response.logs);
       setFocusDebug(JSON.stringify(response.result, null, 2));
-      appendUiLog(
-        `focus app=${response.result.app_name ?? 'n/a'} role=${response.result.role ?? 'n/a'} chars=${String(response.result.context.length)}`
-      );
+      if (response.result) {
+        appendUiLog(
+          `focus app=${response.result.app_name ?? 'n/a'} role=${response.result.role ?? 'n/a'} chars=${String(response.result.context.length)}`
+        );
+      } else {
+        appendUiLog('focus debug returned no focused element');
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to inspect focused element';
       appendUiLog(`debug focus failed: ${msg}`);

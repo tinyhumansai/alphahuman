@@ -142,13 +142,9 @@ const LocalModelDebugPanel = () => {
       setStatus(statusResponse.result);
       setAssets(assetsResponse.result);
       setDownloads(downloadsResponse.result);
-      setStatusError('');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to read local model status';
-      setStatusError(message);
-      setStatus(null);
-      setAssets(null);
-      setDownloads(null);
+    } catch {
+      // Poll failures are non-critical — don't clear action errors.
+      // Status/assets/downloads retain their last known values.
     }
   };
 
