@@ -11,19 +11,16 @@ use tokio::sync::mpsc;
 
 use crate::openhuman::{memory::MemoryClientRef, skills::quickjs_libs::qjs_ops};
 
-use super::super::instance::build_start_credentials_arg;
-use super::super::js_handlers::{call_lifecycle, handle_js_call, handle_js_void_call};
+use super::super::js_handlers::{handle_js_call, handle_js_void_call};
 use super::{persist_state_to_memory, MemoryWriteJob};
 
 /// Handle `oauth/complete` RPC.
 ///
-/// 1. Injects the new OAuth credential into the JS runtime.
-/// 2. Persists the credential to `{data_dir}/oauth_credential.json`.
-/// 3. Injects and persists the `clientKeyShare` if present.
-/// 4. Invokes `start({ oauth, auth })` in JS so the skill activates.
-///
-/// There is no separate `onOAuthComplete` JS hook anymore — `start()` is the
-/// single entry point that receives credentials and owns activation.
+/// Mirrors `handle_auth_complete`: temp-inject the new credentials into the
+/// JS bridges, ask `start({ oauth, validate: true })` to validate them
+/// against the upstream API, and only persist to disk if start() returns
+/// `{ status: "complete" }`. There is no separate `onOAuthComplete` JS hook
+/// — `start()` is the single entry point for "this skill is now connected".
 pub(crate) async fn handle_oauth_complete(
     rt: &rquickjs::AsyncRuntime,
     ctx: &rquickjs::AsyncContext,
@@ -33,7 +30,9 @@ pub(crate) async fn handle_oauth_complete(
 ) -> Result<serde_json::Value, String> {
     let cred_json = serde_json::to_string(&params).unwrap_or_else(|_| "null".to_string());
 
-    // Extract client key share (required for encrypted OAuth proxy requests)
+    // Extract client key share (required for encrypted OAuth proxy requests).
+    // We have to inject it before start() runs because the proxy validation
+    // call inside start() needs it to encrypt the outgoing request.
     let client_key = params
         .get("clientKeyShare")
         .and_then(|v| v.as_str())
@@ -48,8 +47,9 @@ pub(crate) async fn handle_oauth_complete(
         String::new()
     };
 
-    // Inject credentials into both the bridge-level `oauth` object and the general `state` object
-    let code = format!(
+    // Step 1: Temporary injection so the JS `oauth` bridge sees the new
+    // credential while start() runs validation through the proxy.
+    let inject_code = format!(
         r#"(function() {{
             if (typeof globalThis.oauth !== 'undefined' && globalThis.oauth.__setCredential) {{
                 globalThis.oauth.__setCredential({cred});
@@ -63,11 +63,60 @@ pub(crate) async fn handle_oauth_complete(
         client_key_js = client_key_js,
     );
     ctx.with(|js_ctx| {
-        let _ = js_ctx.eval::<rquickjs::Value, _>(code.as_bytes());
+        let _ = js_ctx.eval::<rquickjs::Value, _>(inject_code.as_bytes());
     })
     .await;
 
-    // Persist to disk for restoration after skill/app restart
+    // Step 2: Build a `{ oauth, auth, validate: true }` arg bag and call
+    // start(). Auth comes from disk so the skill still has the full picture
+    // if it's already connected via auth/complete; oauth is the freshly
+    // submitted credential we want validated.
+    let auth_on_disk = match std::fs::read_to_string(data_dir.join("auth_credential.json")) {
+        Ok(s) if !s.trim().is_empty() => {
+            serde_json::from_str::<serde_json::Value>(&s).unwrap_or(serde_json::Value::Null)
+        }
+        _ => serde_json::Value::Null,
+    };
+    let start_args_value = serde_json::json!({
+        "oauth": params,
+        "auth": auth_on_disk,
+        "validate": true,
+    });
+    let start_args =
+        serde_json::to_string(&start_args_value).unwrap_or_else(|_| "null".to_string());
+    let result = handle_js_call(rt, ctx, "start", &start_args).await;
+
+    // Evaluate validation result
+    let validation_failed = match &result {
+        Err(_) => true,
+        Ok(val) => val.get("status").and_then(|s| s.as_str()) == Some("error"),
+    };
+
+    if validation_failed {
+        // Rollback temporary injection — credential never made it to disk so
+        // a follow-up restart will see the skill as disconnected again.
+        let clear_code = r#"(function() {
+            if (typeof globalThis.oauth !== 'undefined' && globalThis.oauth.__setCredential) {
+                globalThis.oauth.__setCredential(null);
+            }
+            if (typeof globalThis.state !== 'undefined' && globalThis.state.set) {
+                globalThis.state.set('__oauth_credential', '');
+            }
+            globalThis.__oauthClientKey = null;
+        })()"#;
+        ctx.with(|js_ctx| {
+            let _ = js_ctx.eval::<rquickjs::Value, _>(clear_code.as_bytes());
+        })
+        .await;
+        log::info!(
+            "[skill:{}] oauth/complete validation failed, credential not persisted",
+            skill_id
+        );
+        return result;
+    }
+
+    // Step 3: Validation passed — persist credentials and client key to disk
+    // so they survive restarts.
     let cred_path = data_dir.join("oauth_credential.json");
     if let Err(e) = std::fs::write(&cred_path, &cred_json) {
         log::error!(
@@ -99,21 +148,7 @@ pub(crate) async fn handle_oauth_complete(
         }
     }
 
-    // Invoke start({ oauth, auth }) so the skill picks up the new credential
-    // and activates (registers cron, etc.). start() is the single entry point
-    // for "this skill is now connected"; there is no separate onOAuthComplete
-    // hook — the skill just reads args.oauth in start() to grab metadata like
-    // credentialId / accountLabel.
-    let start_args = build_start_credentials_arg(data_dir);
-    if let Err(e) = call_lifecycle(rt, ctx, "start", Some(&start_args)).await {
-        log::warn!(
-            "[skill:{}] start(creds) after oauth/complete failed: {e}",
-            skill_id
-        );
-        return Err(e);
-    }
-
-    Ok(serde_json::json!({ "ok": true }))
+    result
 }
 
 /// Handle `oauth/revoked` RPC.
