@@ -12,7 +12,7 @@
  * as a single "managed" auth mode.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSkillSnapshot } from "../../lib/skills/hooks.ts";
 import { skillManager } from "../../lib/skills/manager.ts";
 import { getSkillSnapshot, installSkill, listAvailable, setSetupComplete, startSkill } from "../../lib/skills/skillsApi.ts";
@@ -57,6 +57,8 @@ export default function SkillSetupWizard({
   onCancel,
 }: SkillSetupWizardProps) {
   const [state, setState] = useState<WizardState>({ phase: "loading" });
+  /** Ensures managed OAuth auto-advance runs once per browser-login attempt. */
+  const managedOAuthAdvancedRef = useRef(false);
 
   // Watch skill snapshot for OAuth/managed completion
   const snap = useSkillSnapshot(skillId);
@@ -66,12 +68,10 @@ export default function SkillSetupWizard({
 
   const transitionToSetup = useCallback(async () => {
     try {
-      // Ensure skill runtime is running
-      try {
-        await startSkill(skillId);
-      } catch {
-        // May already be running
-      }
+      // Ensure skill runtime is running.
+      // Note: if the skill is already running, startSkill returns Ok (not an
+      // error), so any exception here is a real failure that must surface.
+      await startSkill(skillId);
 
       const firstStep = await skillManager.startSetup(skillId);
       if (!firstStep) {
@@ -105,6 +105,7 @@ export default function SkillSetupWizard({
           return;
         }
         await openUrl(data.oauthUrl);
+        managedOAuthAdvancedRef.current = false;
         setState({ phase: "auth_managed_waiting", mode });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -138,12 +139,10 @@ export default function SkillSetupWizard({
       setState({ phase: "auth_submitting", mode });
 
       try {
-        // Ensure skill runtime is running
-        try {
-          await startSkill(skillId);
-        } catch {
-          // May already be running
-        }
+        // Ensure skill runtime is running.
+        // Note: if the skill is already running, startSkill returns Ok (not an
+        // error), so any exception here is a real failure that must surface.
+        await startSkill(skillId);
 
         // Build credential payload
         const credentials =
@@ -187,7 +186,32 @@ export default function SkillSetupWizard({
   // Detect managed OAuth completion
   useEffect(() => {
     if (state.phase === "auth_managed_waiting" && isConnected) {
-      setTimeout(() => { transitionToSetup(); }, 0);
+      if (managedOAuthAdvancedRef.current) return;
+      managedOAuthAdvancedRef.current = true;
+      setTimeout(() => {
+        // Leave the waiting screen immediately; runtime start + sync can be slow.
+        setState({
+          phase: "complete",
+          message:
+            "Successfully connected! Initial sync runs in the background — you can close this window.",
+        });
+        void (async () => {
+          try {
+            await startSkill(skillId);
+          } catch (e) {
+            console.warn("[SkillSetupWizard] post-OAuth startSkill:", e);
+          }
+          try {
+            const firstStep = await skillManager.startSetup(skillId);
+            if (firstStep) {
+              setState({ phase: "step", step: firstStep });
+            }
+          } catch (e) {
+            console.warn("[SkillSetupWizard] post-OAuth startSetup:", e);
+          }
+        })();
+      }, 0);
+      return;
     }
     // Legacy OAuth completion
     if (
@@ -196,10 +220,14 @@ export default function SkillSetupWizard({
     ) {
       setSetupComplete(skillId, true).catch(() => {});
       setTimeout(() => {
-        setState({ phase: "complete", message: "Successfully connected!" });
+        setState({
+          phase: "complete",
+          message:
+            "Successfully connected! Initial sync runs in the background — you can close this window.",
+        });
       }, 0);
     }
-  }, [isConnected, state.phase, skillId, transitionToSetup]);
+  }, [isConnected, state.phase, skillId]);
 
   // Start the setup flow on mount
   useEffect(() => {

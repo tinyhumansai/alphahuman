@@ -113,6 +113,20 @@ describe('Skill execution (UI + core RPC)', () => {
     expect(stop.result?.success === true).toBe(true);
   });
 
+  it('skills_set_setup_complete + skills_status without start (OAuth persistence path)', async () => {
+    const set = await callOpenhumanRpc('openhuman.skills_set_setup_complete', {
+      skill_id: E2E_RUNTIME_SKILL_ID,
+      complete: true,
+    });
+    expect(set.ok).toBe(true);
+
+    const st = await callOpenhumanRpc('openhuman.skills_status', {
+      skill_id: E2E_RUNTIME_SKILL_ID,
+    });
+    expect(st.ok).toBe(true);
+    expect(st.result?.setup_complete === true).toBe(true);
+  });
+
   it('Skills page loads (UI surface for installed tools)', async () => {
     await navigateToSkills();
     await browser.pause(2_000);

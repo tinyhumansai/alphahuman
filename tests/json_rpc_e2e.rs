@@ -1546,6 +1546,10 @@ fn write_test_skill(workspace: &Path, skill_id: &str) {
             return { status: "ok", synced: true };
         }
 
+        async function onOAuthComplete(_params) {
+            return { ok: true, test: "e2e-oauth-handler-ran" };
+        }
+
         init();
     "#;
     std::fs::write(skill_dir.join("index.js"), js).expect("write index.js");
@@ -1767,6 +1771,143 @@ async fn json_rpc_skills_runtime_start_tools_call_stop() {
     .await;
     let stop_result = assert_no_jsonrpc_error(&stop, "skills_stop");
     assert_eq!(stop_result.get("success"), Some(&json!(true)));
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
+/// After `skills_set_setup_complete`, `skills_status` must succeed even when the skill was never
+/// started — the same persisted flag OAuth uses before QuickJS has registered the instance.
+#[tokio::test]
+async fn json_rpc_skills_status_reflects_setup_complete_without_runtime() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+    let workspace = openhuman_home.join("workspace");
+    std::fs::create_dir_all(workspace.join("skills")).expect("create skills dir");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", &workspace);
+    let _wm_guard = EnvVarGuard::unset("OPENHUMAN_SKILLS_WORKING_MEMORY_ENABLED");
+
+    write_test_skill(&workspace, "e2e-runtime");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let skills_data_dir = workspace.join("skills_data");
+    std::fs::create_dir_all(&skills_data_dir).expect("create skills_data dir");
+    let engine =
+        std::sync::Arc::new(RuntimeEngine::new(skills_data_dir).expect("create RuntimeEngine"));
+    engine.set_workspace_dir(workspace.clone());
+    set_global_engine(engine);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let set_done = post_json_rpc(
+        &rpc_base,
+        500,
+        "openhuman.skills_set_setup_complete",
+        json!({"skill_id": "e2e-runtime", "complete": true}),
+    )
+    .await;
+    let set_result = assert_no_jsonrpc_error(&set_done, "skills_set_setup_complete");
+    assert_eq!(set_result.get("success"), Some(&json!(true)));
+
+    let status = post_json_rpc(
+        &rpc_base,
+        501,
+        "openhuman.skills_status",
+        json!({"skill_id": "e2e-runtime"}),
+    )
+    .await;
+    let st = assert_no_jsonrpc_error(&status, "skills_status");
+    assert_eq!(
+        st.get("setup_complete").and_then(Value::as_bool),
+        Some(true),
+        "status should surface persisted setup_complete without skills_start: {st}"
+    );
+
+    mock_join.abort();
+    rpc_join.abort();
+}
+
+/// `oauth/complete` is delivered via `openhuman.skills_rpc` after `skills_start` (browser OAuth →
+/// deep link / host uses the same RPC in production).
+#[tokio::test]
+async fn json_rpc_skills_oauth_complete_after_start() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    let tmp = tempdir().expect("tempdir");
+    let home = tmp.path();
+    let openhuman_home = home.join(".openhuman");
+    let workspace = openhuman_home.join("workspace");
+    std::fs::create_dir_all(workspace.join("skills")).expect("create skills dir");
+
+    let _home_guard = EnvVarGuard::set_to_path("HOME", home);
+    let _workspace_guard = EnvVarGuard::set_to_path("OPENHUMAN_WORKSPACE", &workspace);
+    let _wm_guard = EnvVarGuard::unset("OPENHUMAN_SKILLS_WORKING_MEMORY_ENABLED");
+
+    write_test_skill(&workspace, "e2e-runtime");
+
+    let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
+    let mock_origin = format!("http://{}", mock_addr);
+    write_min_config(&openhuman_home, &mock_origin);
+
+    let skills_data_dir = workspace.join("skills_data");
+    std::fs::create_dir_all(&skills_data_dir).expect("create skills_data dir");
+    let engine =
+        std::sync::Arc::new(RuntimeEngine::new(skills_data_dir).expect("create RuntimeEngine"));
+    engine.set_workspace_dir(workspace.clone());
+    set_global_engine(engine);
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let rpc_base = format!("http://{}", rpc_addr);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let start = post_json_rpc(
+        &rpc_base,
+        600,
+        "openhuman.skills_start",
+        json!({"skill_id": "e2e-runtime"}),
+    )
+    .await;
+    let _ = assert_no_jsonrpc_error(&start, "skills_start");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let oauth = post_json_rpc(
+        &rpc_base,
+        601,
+        "openhuman.skills_rpc",
+        json!({
+            "skill_id": "e2e-runtime",
+            "method": "oauth/complete",
+            "params": {
+                "credentialId": "e2e-oauth-integration-id",
+                "provider": "google",
+                "grantedScopes": []
+            }
+        }),
+    )
+    .await;
+    let oauth_result = assert_no_jsonrpc_error(&oauth, "skills_rpc oauth/complete");
+    assert_eq!(
+        oauth_result.get("ok"),
+        Some(&json!(true)),
+        "onOAuthComplete should return ok: {oauth_result}"
+    );
+
+    let stop = post_json_rpc(
+        &rpc_base,
+        602,
+        "openhuman.skills_stop",
+        json!({"skill_id": "e2e-runtime"}),
+    )
+    .await;
+    let _ = assert_no_jsonrpc_error(&stop, "skills_stop");
 
     mock_join.abort();
     rpc_join.abort();
