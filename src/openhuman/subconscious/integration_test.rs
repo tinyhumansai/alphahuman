@@ -56,7 +56,7 @@ mod tests {
                 conn,
                 "Check email",
                 TaskSource::User,
-                TaskRecurrence::Cron("0 8 * * *".into()),
+                TaskRecurrence::try_cron("0 8 * * *").unwrap(),
             )?;
 
             // Execute and set next run

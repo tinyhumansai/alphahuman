@@ -24,7 +24,12 @@ import {
   navigateToSkills,
   navigateViaHash,
 } from '../helpers/shared-flows';
-import { clearRequestLog, startMockServer, stopMockServer } from '../mock-server';
+import {
+  clearRequestLog,
+  getRequestLog,
+  startMockServer,
+  stopMockServer,
+} from '../mock-server';
 
 function stepLog(message: string, context?: unknown) {
   const stamp = new Date().toISOString();
@@ -64,13 +69,80 @@ async function navigateToSettingsPanel(hash: string, markers: string[], context:
   await expectAnyText(markers, context);
 }
 
+async function loginAndNavigateToSettings() {
+  clearRequestLog();
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    stepLog(`trigger deep link (attempt ${attempt})`);
+    await triggerAuthDeepLinkBypass(`e2e-settings-flow-${attempt}`);
+    await waitForWindowVisible(25_000);
+    await waitForWebView(15_000);
+    await waitForAppReady(15_000);
+    await browser.pause(3_000);
+
+    const onLoginPage =
+      (await textExists("Sign in! Let's Cook")) || (await textExists('Continue with email'));
+    if (!onLoginPage) {
+      stepLog(`Auth succeeded on attempt ${attempt}`);
+      break;
+    }
+    if (attempt === 3) {
+      const tree = await dumpAccessibilityTree();
+      const requests = getRequestLog();
+      stepLog('Still on login page. Tree:', tree.slice(0, 3000));
+      stepLog('Still on login page. Recent requests:', requests.slice(-20));
+      throw new Error(
+        `Auth deep link did not navigate past sign-in page\n` +
+          `Accessibility tree (truncated):\n${tree.slice(0, 3000)}\n` +
+          `Recent request log (${requests.length} total):\n${JSON.stringify(
+            requests.slice(-20),
+            null,
+            2
+          )}`
+      );
+    }
+    stepLog('Still on login page — retrying');
+    await browser.pause(2_000);
+  }
+
+  await completeOnboardingIfVisible('[SettingsFlow]');
+  await dismissLocalAISnackbarIfVisible('[SettingsFlow]');
+
+  await navigateToSettings();
+  await browser.pause(3_000);
+
+  const settingsMarkers = ['Account & Security', 'Automation & Channels', 'AI & Skills', 'Log out'];
+  const found = await waitForAnyText(settingsMarkers, 15_000);
+  if (!found) {
+    stepLog('Settings page not loaded — retrying');
+    await navigateToSettings();
+    await browser.pause(3_000);
+    const retry = await waitForAnyText(settingsMarkers, 15_000);
+    if (!retry) {
+      const tree = await dumpAccessibilityTree();
+      const requests = getRequestLog();
+      stepLog('Settings page not loaded after retry. Tree:', tree.slice(0, 3000));
+      stepLog('Settings page not loaded after retry. Recent requests:', requests.slice(-20));
+      throw new Error(
+        `Could not navigate to Settings page\n` +
+          `Accessibility tree (truncated):\n${tree.slice(0, 3000)}\n` +
+          `Recent request log (${requests.length} total):\n${JSON.stringify(
+            requests.slice(-20),
+            null,
+            2
+          )}`
+      );
+    }
+  }
+  await expectAnyText(settingsMarkers, 'Settings home loaded');
+}
+
 describe('11. Settings & Configuration', () => {
   before(async () => {
     stepLog('starting mock server');
     await startMockServer();
     stepLog('waiting for app');
     await waitForApp();
-    clearRequestLog();
   });
 
   after(async () => {
@@ -78,51 +150,12 @@ describe('11. Settings & Configuration', () => {
     await stopMockServer();
   });
 
-  // ── Auth + navigate to Settings ────────────────────────────────────
+  beforeEach(async () => {
+    await loginAndNavigateToSettings();
+  });
 
   it('opens Settings page after login and onboarding', async () => {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      stepLog(`trigger deep link (attempt ${attempt})`);
-      await triggerAuthDeepLinkBypass(`e2e-settings-flow-${attempt}`);
-      await waitForWindowVisible(25_000);
-      await waitForWebView(15_000);
-      await waitForAppReady(15_000);
-      await browser.pause(3_000);
-
-      const onLoginPage =
-        (await textExists("Sign in! Let's Cook")) || (await textExists('Continue with email'));
-      if (!onLoginPage) {
-        stepLog(`Auth succeeded on attempt ${attempt}`);
-        break;
-      }
-      if (attempt === 3) {
-        const tree = await dumpAccessibilityTree();
-        stepLog('Still on login page. Tree:', tree.slice(0, 3000));
-        throw new Error('Auth deep link did not navigate past sign-in page');
-      }
-      stepLog('Still on login page — retrying');
-      await browser.pause(2_000);
-    }
-
-    await completeOnboardingIfVisible('[SettingsFlow]');
-    await dismissLocalAISnackbarIfVisible('[SettingsFlow]');
-
-    await navigateToSettings();
-    await browser.pause(3_000);
-
-    const settingsMarkers = [
-      'Account & Security',
-      'Automation & Channels',
-      'AI & Skills',
-      'Log out',
-    ];
-    const found = await waitForAnyText(settingsMarkers, 15_000);
-    if (!found) {
-      stepLog('Settings page not loaded — retrying');
-      await navigateToSettings();
-      await browser.pause(3_000);
-    }
-    await expectAnyText(settingsMarkers, 'Settings home loaded');
+    await expectAnyText(['Account & Security', 'Automation & Channels'], 'Settings home shell');
   });
 
   // ── 11.1 Account Settings ─────────────────────────────────────────

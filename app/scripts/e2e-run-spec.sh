@@ -2,8 +2,9 @@
 #
 # Run a single WebDriverIO E2E spec.
 #
-# - macOS: Appium mac2 driver (started locally, port 4723)
-# - Linux: tauri-driver (started locally, port 4444)
+# - macOS:   Appium mac2 driver (started locally, port 4723)
+# - Linux:   tauri-driver (started locally, port 4444)
+# - Windows: tauri-driver (started locally, port 4444)
 #
 # Usage:
 #   ./app/scripts/e2e-run-spec.sh test/e2e/specs/login-flow.spec.ts [log-suffix]
@@ -70,23 +71,38 @@ if [ "$OS" = "Darwin" ]; then
 fi
 
 echo "Cleaning cached app data..."
-if [ "$OS" = "Darwin" ]; then
-  rm -rf ~/Library/WebKit/com.openhuman.app
-  rm -rf ~/Library/Caches/com.openhuman.app
-  rm -rf "$HOME/Library/Application Support/com.openhuman.app"
-  rm -rf "$HOME/Library/Saved Application State/com.openhuman.app.savedState"
-else
-  rm -rf "$HOME/.local/share/com.openhuman.app" 2>/dev/null || true
-  rm -rf "$HOME/.cache/com.openhuman.app" 2>/dev/null || true
-  rm -rf "$HOME/.config/com.openhuman.app" 2>/dev/null || true
-fi
+case "$OS" in
+  Darwin)
+    rm -rf ~/Library/WebKit/com.openhuman.app
+    rm -rf ~/Library/Caches/com.openhuman.app
+    rm -rf "$HOME/Library/Application Support/com.openhuman.app"
+    rm -rf "$HOME/Library/Saved Application State/com.openhuman.app.savedState"
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    rm -rf "$LOCALAPPDATA/com.openhuman.app" 2>/dev/null || true
+    rm -rf "$APPDATA/com.openhuman.app" 2>/dev/null || true
+    ;;
+  *)
+    rm -rf "$HOME/.local/share/com.openhuman.app" 2>/dev/null || true
+    rm -rf "$HOME/.cache/com.openhuman.app" 2>/dev/null || true
+    rm -rf "$HOME/.config/com.openhuman.app" 2>/dev/null || true
+    ;;
+esac
 
 # Write config.toml into the default ~/.openhuman/ so the core process
 # uses the mock server URL. Appium Mac2 launches the .app via XCUITest
 # which does NOT inherit shell environment variables, so BACKEND_URL
 # never reaches the core sidecar. Writing api_url to the config file
 # is the reliable cross-platform approach.
-E2E_CONFIG_DIR="$HOME/.openhuman"
+# Windows: use APPDATA for config; macOS/Linux: ~/.openhuman
+case "$OS" in
+  MINGW*|MSYS*|CYGWIN*)
+    E2E_CONFIG_DIR="${APPDATA:?APPDATA must be set}/.openhuman"
+    ;;
+  *)
+    E2E_CONFIG_DIR="$HOME/.openhuman"
+    ;;
+esac
 E2E_CONFIG_FILE="$E2E_CONFIG_DIR/config.toml"
 E2E_CONFIG_BACKUP=""
 mkdir -p "$E2E_CONFIG_DIR"
@@ -129,21 +145,29 @@ if ! grep -q "127.0.0.1:${E2E_MOCK_PORT}" "$DIST_JS"; then
 fi
 echo "Verified: frontend bundle contains mock server URL."
 
-if [ "$OS" = "Linux" ]; then
+if [ "$OS" = "Linux" ] || [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]] || [[ "$OS" == CYGWIN* ]]; then
   # ---------------------------------------------------------------------------
-  # Linux: start tauri-driver
+  # Linux / Windows: start tauri-driver
   # ---------------------------------------------------------------------------
   export TAURI_DRIVER_PORT="${TAURI_DRIVER_PORT:-4444}"
   DRIVER_LOG="/tmp/tauri-driver-e2e-${LOG_SUFFIX}.log"
 
   TAURI_DRIVER_BIN="$(command -v tauri-driver 2>/dev/null || true)"
   if [ -z "${TAURI_DRIVER_BIN:-}" ] || [ ! -x "$TAURI_DRIVER_BIN" ]; then
-    # Try cargo bin path
-    TAURI_DRIVER_BIN="$HOME/.cargo/bin/tauri-driver"
+    # Try cargo bin path (with .exe suffix on Windows)
+    if [[ "$OS" == MINGW* ]] || [[ "$OS" == MSYS* ]] || [[ "$OS" == CYGWIN* ]]; then
+      TAURI_DRIVER_BIN="$HOME/.cargo/bin/tauri-driver.exe"
+    else
+      TAURI_DRIVER_BIN="$HOME/.cargo/bin/tauri-driver"
+    fi
   fi
-  if [ ! -x "$TAURI_DRIVER_BIN" ]; then
+  if [ ! -x "$TAURI_DRIVER_BIN" ] && ! command -v tauri-driver >/dev/null 2>&1; then
     echo "ERROR: tauri-driver not found. Install with: cargo install tauri-driver" >&2
     exit 1
+  fi
+  # Fallback to PATH if the explicit path doesn't work
+  if [ ! -x "$TAURI_DRIVER_BIN" ]; then
+    TAURI_DRIVER_BIN="tauri-driver"
   fi
 
   echo "Starting tauri-driver on port $TAURI_DRIVER_PORT..."

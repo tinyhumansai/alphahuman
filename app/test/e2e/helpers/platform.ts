@@ -20,7 +20,8 @@
  * a secondary indicator.
  */
 export function isTauriDriver(): boolean {
-  if (typeof browser === 'undefined') return process.platform === 'linux';
+  if (typeof browser === 'undefined')
+    return process.platform === 'linux' || process.platform === 'win32';
 
   const caps = browser.capabilities as Record<string, unknown>;
   const automation = String(

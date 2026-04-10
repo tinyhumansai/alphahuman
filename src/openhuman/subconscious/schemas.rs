@@ -322,11 +322,9 @@ fn handle_tasks_update(params: Map<String, Value>) -> ControllerFuture {
             recurrence: {
                 let raw = params.get("recurrence").and_then(|v| v.as_str());
                 match raw {
-                    Some("once") => Some(TaskRecurrence::Once),
-                    Some(s) if s.starts_with("cron:") => {
-                        let expr = &s["cron:".len()..];
-                        Some(TaskRecurrence::try_cron(expr)?)
-                    }
+                    Some("once") => Some(TaskRecurrence::try_from("once")?),
+                    Some("pending") => Some(TaskRecurrence::try_from("pending")?),
+                    Some(s) if s.starts_with("cron:") => Some(TaskRecurrence::try_from(s)?),
                     Some(_) => Some(TaskRecurrence::Pending),
                     None => None,
                 }

@@ -2,8 +2,9 @@
 #
 # Build the app for E2E tests with the mock server URL baked in.
 #
-# - macOS: builds a .app bundle (Appium Mac2)
-# - Linux: builds a debug binary (tauri-driver)
+# - macOS:   builds a .app bundle (Appium Mac2)
+# - Linux:   builds a debug binary (tauri-driver)
+# - Windows: builds a debug binary (tauri-driver)
 #
 # Cargo incremental builds are used by default for faster iteration.
 #
@@ -45,14 +46,22 @@ TAURI_CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
 case "${CI:-}" in 1) export CI=true ;; 0) export CI=false ;; esac
 
 OS="$(uname)"
-if [ "$OS" = "Linux" ]; then
-  # Linux: build debug binary only (no bundle needed for tauri-driver)
-  echo "Building for Linux (debug binary, no bundle)..."
-  npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --debug --no-bundle
-else
-  # macOS: build .app bundle for Appium Mac2
-  echo "Building for macOS (.app bundle)..."
-  npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles app --debug
-fi
+case "$OS" in
+  Linux)
+    # Linux: build debug binary only (no bundle needed for tauri-driver)
+    echo "Building for Linux (debug binary, no bundle)..."
+    npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --debug --no-bundle
+    ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    # Windows: build debug binary only (tauri-driver, like Linux)
+    echo "Building for Windows (debug binary, no bundle)..."
+    npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --debug --no-bundle
+    ;;
+  *)
+    # macOS: build .app bundle for Appium Mac2
+    echo "Building for macOS (.app bundle)..."
+    npx tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles app --debug
+    ;;
+esac
 
 echo "E2E build complete."

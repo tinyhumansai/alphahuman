@@ -726,7 +726,7 @@ mod tests {
                 id: "t1".into(),
                 title: "Check email".into(),
                 source: TaskSource::User,
-                recurrence: TaskRecurrence::Cron("0 8 * * *".into()),
+                recurrence: TaskRecurrence::try_cron("0 8 * * *").unwrap(),
                 enabled: true,
                 last_run_at: None,
                 next_run_at: None,

@@ -14,6 +14,14 @@ on:
         options:
           - 'false'
           - 'true'
+      run_windows_e2e:
+        description: 'Run Windows E2E tests (tauri-driver)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: read
@@ -215,42 +223,177 @@ jobs:
           fi
           echo "Core E2E specs passed"
 
-#   e2e-macos:
-#     name: E2E (macOS / Appium)
-#     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_macos_e2e == 'true'
-#     runs-on: macos-latest
-#     timeout-minutes: 90
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-#         with:
-#           fetch-depth: 1
-#           submodules: recursive
+  e2e-macos:
+    name: E2E (macOS / Appium)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_macos_e2e == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
 
-#       - name: Setup Node.js 24.x
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 24.x
-#           cache: "yarn"
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "yarn"
 
-#       - name: Install Rust (rust-toolchain.toml)
-#         uses: dtolnay/rust-toolchain@1.93.0
+      - name: Install Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.93.0
 
-#       - name: Install dependencies
-#         run: yarn install --frozen-lockfile
+      - name: Cargo.lock fingerprint (deps only)
+        id: cargo-lock-fingerprint
+        shell: bash
+        run: |
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
-#       - name: Ensure .env exists for E2E build
-#         run: |
-#           touch .env
-#           touch app/.env
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2e-cargo-${{ steps.cargo-lock-fingerprint.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-e2e-cargo-
 
-#       - name: Install Appium and mac2 driver
-#         run: |
-#           npm install -g appium
-#           appium driver install mac2
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
 
-#       - name: Build E2E app bundle
-#         run: yarn workspace openhuman-app test:e2e:build
+      - name: Ensure .env exists for E2E build
+        run: |
+          touch .env
+          touch app/.env
 
-#       - name: Run all E2E flows
-#         run: yarn workspace openhuman-app test:e2e:all:flows
+      - name: Install Appium and mac2 driver
+        run: |
+          npm install -g appium
+          appium driver install mac2
+
+      - name: Build E2E app bundle
+        run: yarn workspace openhuman-app test:e2e:build
+
+      - name: Run E2E core specs
+        run: |
+          cd app
+          FAILED=0
+          for spec in \
+            test/e2e/specs/login-flow.spec.ts \
+            test/e2e/specs/smoke.spec.ts \
+            test/e2e/specs/navigation.spec.ts \
+            test/e2e/specs/telegram-flow.spec.ts; do
+            SPEC_NAME=$(basename "$spec" .spec.ts)
+            echo "=== Running $SPEC_NAME ==="
+            bash scripts/e2e-run-spec.sh "$spec" "$SPEC_NAME" || {
+              echo "FAILED: $SPEC_NAME"
+              cat /tmp/appium-e2e-${SPEC_NAME}.log 2>/dev/null || true
+              FAILED=1
+            }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "E2E specs failed on macOS"
+            exit 1
+          fi
+          echo "macOS E2E specs passed"
+
+  e2e-windows:
+    name: E2E (Windows / tauri-driver)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_windows_e2e == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "yarn"
+
+      - name: Install Rust (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cargo.lock fingerprint (deps only)
+        id: cargo-lock-fingerprint
+        shell: bash
+        run: |
+          echo "hash=$(tail -n +8 Cargo.lock | openssl dgst -sha256 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2e-cargo-${{ steps.cargo-lock-fingerprint.outputs.hash }}
+          restore-keys: |
+            ${{ runner.os }}-e2e-cargo-
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --version 2.0.5
+
+      - name: Install JS dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Ensure .env exists for E2E build
+        run: |
+          echo.> .env
+          echo.> app\.env
+        shell: cmd
+
+      - name: Build E2E app
+        run: yarn workspace openhuman-app test:e2e:build
+        shell: bash
+
+      - name: Stage sidecar next to app binary
+        shell: bash
+        run: |
+          # Copy the sidecar so the app can find it at runtime
+          SIDECAR_SRC="$(ls app/src-tauri/binaries/openhuman-core-*.exe 2>/dev/null | head -1)"
+          if [ -z "$SIDECAR_SRC" ]; then
+            echo "WARNING: No Windows sidecar found in binaries/, attempting to stage from target/"
+            SIDECAR_SRC="$(ls target/debug/openhuman-core.exe 2>/dev/null | head -1)"
+          fi
+          if [ -n "$SIDECAR_SRC" ]; then
+            cp "$SIDECAR_SRC" app/src-tauri/target/debug/openhuman-core-x86_64-pc-windows-msvc.exe
+            echo "Sidecar staged:"
+            ls -la app/src-tauri/target/debug/openhuman-core-*.exe app/src-tauri/target/debug/OpenHuman.exe
+          else
+            echo "WARNING: No sidecar binary found — tests that require core RPC will fail"
+          fi
+
+      - name: Run E2E tests
+        shell: bash
+        run: |
+          export RUST_BACKTRACE=1
+          cd app
+          FAILED=0
+          for spec in \
+            test/e2e/specs/login-flow.spec.ts \
+            test/e2e/specs/smoke.spec.ts \
+            test/e2e/specs/navigation.spec.ts \
+            test/e2e/specs/telegram-flow.spec.ts; do
+            SPEC_NAME=$(basename "$spec" .spec.ts)
+            echo "=== Running $SPEC_NAME ==="
+            bash scripts/e2e-run-spec.sh "$spec" "$SPEC_NAME" || {
+              echo "FAILED: $SPEC_NAME"
+              cat /tmp/tauri-driver-e2e-${SPEC_NAME}.log 2>/dev/null || true
+              FAILED=1
+            }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "E2E specs failed on Windows"
+            exit 1
+          fi
+          echo "Windows E2E specs passed"

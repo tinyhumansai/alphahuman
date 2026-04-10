@@ -43,13 +43,53 @@ pub enum TaskRecurrence {
 }
 
 impl TaskRecurrence {
+    /// Validate a cron expression (5-field or 6-field).
+    pub fn validate_cron_expression(expr: &str) -> Result<(), String> {
+        let normalized = normalize_cron_expr(expr);
+        cron::Schedule::from_str(&normalized)
+            .map_err(|e| format!("invalid cron expression '{expr}': {e}"))?;
+        Ok(())
+    }
+
     /// Construct a `Cron` variant after validating the expression.
     /// Returns an error if the cron expression is malformed.
     pub fn try_cron(expr: impl Into<String>) -> Result<Self, String> {
         let expr = expr.into();
-        cron::Schedule::from_str(&expr)
-            .map_err(|e| format!("invalid cron expression '{expr}': {e}"))?;
+        Self::validate_cron_expression(&expr)?;
         Ok(Self::Cron(expr))
+    }
+}
+
+impl std::convert::TryFrom<&str> for TaskRecurrence {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "once" => Ok(Self::Once),
+            "pending" => Ok(Self::Pending),
+            s if s.starts_with("cron:") => {
+                let expr = &s["cron:".len()..];
+                Self::try_cron(expr)
+            }
+            _ => Err(format!("invalid recurrence value '{value}'")),
+        }
+    }
+}
+
+impl std::str::FromStr for TaskRecurrence {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+fn normalize_cron_expr(expr: &str) -> String {
+    let fields: Vec<&str> = expr.split_whitespace().collect();
+    if fields.len() == 5 {
+        format!("0 {expr}")
+    } else {
+        expr.to_string()
     }
 }
 

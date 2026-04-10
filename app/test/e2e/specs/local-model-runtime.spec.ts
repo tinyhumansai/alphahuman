@@ -112,6 +112,17 @@ describe('3. Local AI Runtime (Ollama)', function () {
     // Mock server is stopped by process exit — stopping it here kills the
     // backend while the app is still running, which invalidates the Appium
     // session before WDIO can cleanly delete it (UND_ERR_CLOSED).
+
+    // Explicitly delete the session so WDIO's endSession (which checks
+    // browser.sessionId) becomes a no-op.  On Mac2 the XCUITest agent
+    // sometimes drops the connection before the runner reaches teardown.
+    try {
+      await browser.deleteSession();
+    } catch {
+      // Session already gone — clear sessionId so the runner skips its
+      // own DELETE call and avoids the UND_ERR_CLOSED crash.
+      (browser as unknown as { sessionId: string | undefined }).sessionId = undefined;
+    }
   });
 
   it('3.1.1 Model Detection', async () => {

@@ -461,7 +461,13 @@ fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<SubconsciousTask> {
         id: row.get(0)?,
         title: row.get(1)?,
         source: string_to_source(&source_str),
-        recurrence: string_to_recurrence(&recurrence_str),
+        recurrence: string_to_recurrence(&recurrence_str).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+            )
+        })?,
         enabled: row.get::<_, bool>(4)?,
         last_run_at: row.get(5)?,
         next_run_at: row.get(6)?,
@@ -494,18 +500,15 @@ fn recurrence_to_string(r: &TaskRecurrence) -> String {
     }
 }
 
-fn string_to_recurrence(s: &str) -> TaskRecurrence {
-    if s == "once" {
-        TaskRecurrence::Once
-    } else if let Some(expr) = s.strip_prefix("cron:") {
-        TaskRecurrence::try_cron(expr).unwrap_or_else(|e| {
-            log::warn!(
-                "[subconscious] persisted cron expression is invalid, treating as Pending: {e}"
-            );
-            TaskRecurrence::Pending
-        })
+fn string_to_recurrence(s: &str) -> Result<TaskRecurrence> {
+    if s.starts_with("cron:") {
+        // Cron expressions must validate at construction boundary.
+        TaskRecurrence::try_from(s).map_err(anyhow::Error::msg)
     } else {
-        TaskRecurrence::Pending
+        Ok(match s {
+            "once" => TaskRecurrence::Once,
+            _ => TaskRecurrence::Pending,
+        })
     }
 }
 
@@ -704,18 +707,31 @@ mod tests {
     #[test]
     fn recurrence_roundtrip() {
         assert_eq!(
-            string_to_recurrence(&recurrence_to_string(&TaskRecurrence::Once)),
+            string_to_recurrence(&recurrence_to_string(&TaskRecurrence::Once)).unwrap(),
             TaskRecurrence::Once
         );
         assert_eq!(
-            string_to_recurrence(&recurrence_to_string(&TaskRecurrence::Pending)),
+            string_to_recurrence(&recurrence_to_string(&TaskRecurrence::Pending)).unwrap(),
             TaskRecurrence::Pending
         );
+        let cron = TaskRecurrence::try_cron("0 8 * * *").unwrap();
         assert_eq!(
-            string_to_recurrence(&recurrence_to_string(&TaskRecurrence::Cron(
-                "0 8 * * *".into()
-            ))),
-            TaskRecurrence::Cron("0 8 * * *".into())
+            string_to_recurrence(&recurrence_to_string(&cron)).unwrap(),
+            cron
         );
+    }
+
+    #[test]
+    fn invalid_persisted_cron_fails_task_deserialization() {
+        let conn = test_conn();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO subconscious_tasks (id, title, source, recurrence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, "Bad cron", "user", "cron:not-a-cron", now_secs()],
+        )
+        .unwrap();
+
+        assert!(get_task(&conn, &id).is_err());
     }
 }

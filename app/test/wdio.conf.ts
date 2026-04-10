@@ -54,11 +54,11 @@ function getAppPath(): string {
 /**
  * Build capabilities for the current platform.
  *
- * - Linux: tauri-driver (W3C WebDriver, port 4444)
+ * - Linux / Windows: tauri-driver (W3C WebDriver, port 4444)
  * - macOS: Appium Mac2 (XCUITest, port 4723)
  */
 function getPlatformCapabilities(): Record<string, unknown>[] {
-  if (process.platform === 'linux') {
+  if (process.platform === 'linux' || process.platform === 'win32') {
     return [{ 'tauri:options': { application: getAppPath() } }];
   }
 
@@ -75,7 +75,7 @@ function getPlatformCapabilities(): Record<string, unknown>[] {
 
 /** Port for the automation driver: tauri-driver (4444) or Appium (4723). */
 const driverPort =
-  process.platform === 'linux'
+  process.platform === 'linux' || process.platform === 'win32'
     ? parseInt(process.env.TAURI_DRIVER_PORT || '4444', 10)
     : parseInt(process.env.APPIUM_PORT || '4723', 10);
 

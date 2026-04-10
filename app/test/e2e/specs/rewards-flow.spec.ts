@@ -19,7 +19,12 @@ import {
   dismissLocalAISnackbarIfVisible,
   navigateViaHash,
 } from '../helpers/shared-flows';
-import { clearRequestLog, startMockServer, stopMockServer } from '../mock-server';
+import {
+  clearRequestLog,
+  getRequestLog,
+  startMockServer,
+  stopMockServer,
+} from '../mock-server';
 
 function stepLog(message: string, context?: unknown) {
   const stamp = new Date().toISOString();
@@ -72,13 +77,67 @@ async function navigateToRewardsAndWait() {
     const retry = await waitForAnyText(rewardsMarkers, 15_000);
     if (!retry) {
       const tree = await dumpAccessibilityTree();
+      const requests = getRequestLog();
       stepLog('Rewards page not loaded after retry. Tree:', tree.slice(0, 3000));
-      throw new Error('Could not navigate to Rewards page');
+      stepLog(
+        'Rewards page not loaded after retry. Recent requests:',
+        requests.slice(-20)
+      );
+      throw new Error(
+        `Could not navigate to Rewards page\n` +
+          `Accessibility tree (truncated):\n${tree.slice(0, 3000)}\n` +
+          `Recent request log (${requests.length} total):\n${JSON.stringify(
+            requests.slice(-20),
+            null,
+            2
+          )}`
+      );
     }
     stepLog(`Rewards page loaded on retry — found "${retry}"`);
   } else {
     stepLog(`Rewards page loaded — found "${found}"`);
   }
+}
+
+async function loginAndNavigateToRewards() {
+  clearRequestLog();
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    stepLog(`trigger deep link (attempt ${attempt})`);
+    await triggerAuthDeepLinkBypass(`e2e-rewards-flow-${attempt}`);
+    await waitForWindowVisible(25_000);
+    await waitForWebView(15_000);
+    await waitForAppReady(15_000);
+    await browser.pause(3_000);
+
+    const onLoginPage =
+      (await textExists("Sign in! Let's Cook")) || (await textExists('Continue with email'));
+    if (!onLoginPage) {
+      stepLog(`Auth succeeded on attempt ${attempt}`);
+      break;
+    }
+    if (attempt === 3) {
+      const tree = await dumpAccessibilityTree();
+      const requests = getRequestLog();
+      stepLog('Still on login page. Tree:', tree.slice(0, 3000));
+      stepLog('Still on login page. Recent requests:', requests.slice(-20));
+      throw new Error(
+        `Auth deep link did not navigate past sign-in page\n` +
+          `Accessibility tree (truncated):\n${tree.slice(0, 3000)}\n` +
+          `Recent request log (${requests.length} total):\n${JSON.stringify(
+            requests.slice(-20),
+            null,
+            2
+          )}`
+      );
+    }
+    stepLog('Still on login page — retrying');
+    await browser.pause(2_000);
+  }
+
+  await completeOnboardingIfVisible('[RewardsFlow]');
+  await dismissLocalAISnackbarIfVisible('[RewardsFlow]');
+  await navigateToRewardsAndWait();
 }
 
 describe('10. Rewards & Progression', () => {
@@ -87,7 +146,6 @@ describe('10. Rewards & Progression', () => {
     await startMockServer();
     stepLog('waiting for app');
     await waitForApp();
-    clearRequestLog();
   });
 
   after(async () => {
@@ -95,35 +153,12 @@ describe('10. Rewards & Progression', () => {
     await stopMockServer();
   });
 
-  // ── Auth + navigate to Rewards ─────────────────────────────────────
+  beforeEach(async () => {
+    await loginAndNavigateToRewards();
+  });
 
   it('opens Rewards page after login and onboarding', async () => {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      stepLog(`trigger deep link (attempt ${attempt})`);
-      await triggerAuthDeepLinkBypass(`e2e-rewards-flow-${attempt}`);
-      await waitForWindowVisible(25_000);
-      await waitForWebView(15_000);
-      await waitForAppReady(15_000);
-      await browser.pause(3_000);
-
-      const onLoginPage =
-        (await textExists("Sign in! Let's Cook")) || (await textExists('Continue with email'));
-      if (!onLoginPage) {
-        stepLog(`Auth succeeded on attempt ${attempt}`);
-        break;
-      }
-      if (attempt === 3) {
-        const tree = await dumpAccessibilityTree();
-        stepLog('Still on login page. Tree:', tree.slice(0, 3000));
-        throw new Error('Auth deep link did not navigate past sign-in page');
-      }
-      stepLog('Still on login page — retrying');
-      await browser.pause(2_000);
-    }
-
-    await completeOnboardingIfVisible('[RewardsFlow]');
-    await dismissLocalAISnackbarIfVisible('[RewardsFlow]');
-    await navigateToRewardsAndWait();
+    await expectAnyText(['Earn community roles', 'Discord Rewards'], 'Rewards page shell');
   });
 
   // ── 10.1 Role Unlocking ────────────────────────────────────────────
