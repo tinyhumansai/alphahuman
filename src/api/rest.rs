@@ -715,16 +715,12 @@ fn key_bytes_from_string(key: &str) -> Result<Vec<u8>> {
 
     // Raw 32-byte ASCII key
     if trimmed.len() == 32
-        && !trimmed.contains(|c: char| {
-            c == '+' || c == '/' || c == '-' || c == '_' || c == '='
-        })
+        && !trimmed.contains(|c: char| c == '+' || c == '/' || c == '-' || c == '_' || c == '=')
     {
         return Ok(trimmed.as_bytes().to_vec());
     }
 
-    use base64::engine::general_purpose::{
-        STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD,
-    };
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 
     // `base64::Engine` has generic methods and therefore isn't
     // dyn-compatible, so we unroll the attempts instead of looping over
@@ -759,9 +755,9 @@ mod key_bytes_from_string_tests {
     fn decodes_base64url_no_pad() {
         // A 32-byte key that, when base64url-encoded, contains both `-` and `_`.
         let raw = [
-            0xff_u8, 0xfb, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
-            0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0xff_u8, 0xfb, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa,
+            0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+            0x0a, 0x0b, 0x0c, 0x0d,
         ];
         let url_key = URL_SAFE_NO_PAD.encode(raw);
         assert!(url_key.contains('-') || url_key.contains('_'));
