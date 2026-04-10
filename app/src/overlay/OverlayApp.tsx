@@ -1,10 +1,20 @@
-import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import {
+  currentMonitor,
+  getCurrentWindow,
+  LogicalPosition,
+  LogicalSize,
+} from '@tauri-apps/api/window';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
 
-const OVERLAY_WIDTH = 248;
-const OVERLAY_HEIGHT = 228;
+const OVERLAY_IDLE_WIDTH = 50;
+const OVERLAY_IDLE_HEIGHT = 50;
+const OVERLAY_ACTIVE_WIDTH = 224;
+const OVERLAY_ACTIVE_HEIGHT = 208;
+const OVERLAY_IDLE_MARGIN = 10;
+const OVERLAY_ACTIVE_MARGIN = 20;
+const OVERLAY_IDLE_OPACITY = 0.6;
 const SCENARIO_THREE_TEXT = '"Noted. Need milk."';
 
 type OverlayStatus = 'idle' | 'active';
@@ -68,20 +78,7 @@ function OverlayBubbleChip({ bubble }: { bubble: OverlayBubble }) {
 
 export default function OverlayApp() {
   const [scenario, setScenario] = useState<OverlayScenario>(1);
-
-  useEffect(() => {
-    const appWindow = getCurrentWindow();
-    const size = new LogicalSize(OVERLAY_WIDTH, OVERLAY_HEIGHT);
-    void appWindow.setSize(size).catch(error => {
-      console.warn('[overlay] failed to resize overlay window', error);
-    });
-    void appWindow.setMinSize(size).catch(error => {
-      console.warn('[overlay] failed to set overlay min size', error);
-    });
-    void appWindow.setMaxSize(size).catch(error => {
-      console.warn('[overlay] failed to set overlay max size', error);
-    });
-  }, []);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -98,6 +95,51 @@ export default function OverlayApp() {
   }, [scenario]);
 
   const status: OverlayStatus = scenario === 1 ? 'idle' : 'active';
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    const isActive = status === 'active';
+    const width = isActive ? OVERLAY_ACTIVE_WIDTH : OVERLAY_IDLE_WIDTH;
+    const height = isActive ? OVERLAY_ACTIVE_HEIGHT : OVERLAY_IDLE_HEIGHT;
+    const margin = isActive ? OVERLAY_ACTIVE_MARGIN : OVERLAY_IDLE_MARGIN;
+    const size = new LogicalSize(width, height);
+
+    const updateWindowFrame = async () => {
+      try {
+        await appWindow.setSize(size);
+      } catch (error) {
+        console.warn('[overlay] failed to resize overlay window', error);
+      }
+
+      try {
+        await appWindow.setMinSize(size);
+      } catch (error) {
+        console.warn('[overlay] failed to set overlay min size', error);
+      }
+
+      try {
+        await appWindow.setMaxSize(size);
+      } catch (error) {
+        console.warn('[overlay] failed to set overlay max size', error);
+      }
+
+      try {
+        const monitor = await currentMonitor();
+        if (!monitor) {
+          console.warn('[overlay] could not resolve current monitor for positioning');
+          return;
+        }
+
+        const x = monitor.workArea.position.x + monitor.workArea.size.width - width - margin;
+        const y = monitor.workArea.position.y + monitor.workArea.size.height - height - margin;
+        await appWindow.setPosition(new LogicalPosition(x, y));
+      } catch (error) {
+        console.warn('[overlay] failed to pin overlay bottom-right after resize', error);
+      }
+    };
+
+    void updateWindowFrame();
+  }, [status]);
 
   const bubbles = useMemo<OverlayBubble[]>(() => {
     if (scenario === 1) {
@@ -124,11 +166,17 @@ export default function OverlayApp() {
     return 'border-slate-950 bg-slate-800';
   }, [status]);
   const tetrahedronInverted = status === 'active';
+  const orbSizeClassName = status === 'active' ? 'h-[52px] w-[52px]' : 'h-[40px] w-[40px]';
+  const orbCanvasClassName = status === 'active' ? 'h-[92%] w-[92%]' : 'h-[88%] w-[88%]';
+  const orbStyle =
+    status === 'idle' ? { opacity: isHovered ? 1 : OVERLAY_IDLE_OPACITY } : undefined;
 
   return (
     <div className="flex h-screen w-screen items-end justify-end bg-transparent px-0 py-0">
-      <div className="relative flex select-none flex-col items-end gap-3">
-        <div className="flex max-w-[190px] flex-col items-end gap-2">
+      <div
+        className={`relative flex select-none flex-col items-end ${status === 'active' ? 'gap-3' : 'gap-0'}`}>
+        <div
+          className={`flex flex-col items-end gap-2 transition-all duration-200 ${status === 'active' ? 'max-w-[184px] opacity-100' : 'max-w-0 opacity-0'}`}>
           {bubbles.map(bubble => (
             <div key={bubble.id} className="animate-[overlay-bubble-in_220ms_ease-out]">
               <OverlayBubbleChip bubble={bubble} />
@@ -143,9 +191,17 @@ export default function OverlayApp() {
             onClick={() => {
               setScenario(2);
             }}
-            className={`group relative flex h-[56px] w-[56px] cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all duration-200 ${orbClassName}`}
+            onMouseEnter={() => {
+              setIsHovered(true);
+            }}
+            onMouseLeave={() => {
+              setIsHovered(false);
+            }}
+            className={`group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all duration-200 ${orbClassName} ${orbSizeClassName}`}
+            style={orbStyle}
             title="Click to start the demo.">
-            <div className="pointer-events-none h-[92%] w-[92%] opacity-95 transition-transform duration-300 group-hover:scale-105">
+            <div
+              className={`pointer-events-none opacity-95 transition-transform duration-300 group-hover:scale-105 ${orbCanvasClassName}`}>
               <RotatingTetrahedronCanvas inverted={tetrahedronInverted} />
             </div>
           </button>
