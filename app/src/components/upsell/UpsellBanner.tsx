@@ -5,6 +5,7 @@ interface UpsellBannerProps {
   ctaLabel?: string;
   onCtaClick?: () => void;
   dismissible?: boolean;
+  rounded?: boolean;
   onDismiss?: () => void;
 }
 
@@ -40,12 +41,13 @@ export default function UpsellBanner({
   onCtaClick,
   dismissible,
   onDismiss,
+  rounded = true,
 }: UpsellBannerProps) {
   const styles = VARIANT_STYLES[variant];
 
   return (
     <div
-      className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${styles.container}`}>
+      className={`p-3 ${rounded ? 'rounded-xl' : ''} border flex items-center justify-between gap-3 ${styles.container}`}>
       <div className="flex items-center gap-2 min-w-0">
         <svg
           className={`w-4 h-4 flex-shrink-0 ${styles.icon}`}

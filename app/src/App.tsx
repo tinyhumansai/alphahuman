@@ -36,8 +36,8 @@ function App() {
                   <div className="relative h-screen flex flex-col overflow-hidden">
                     <MeshGradient />
                     <div className="app-dotted-canvas relative z-10 flex-1 flex flex-col overflow-hidden">
-                      <GlobalUpsellBanner />
                       <div className="flex-1 overflow-y-auto pb-16">
+                        <GlobalUpsellBanner />
                         <AppRoutes />
                       </div>
                       <BottomTabBar />
