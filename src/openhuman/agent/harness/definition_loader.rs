@@ -12,8 +12,8 @@
 //! to parse rather than aborting startup, so a single broken specialist
 //! never breaks the rest of the system.
 
-use super::definition::{AgentDefinition, DefinitionSource};
-use anyhow::{Context, Result};
+use super::definition::{AgentDefinition, DefinitionSource, PromptSource};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -92,11 +92,28 @@ pub fn load_dir(dir: &Path, out: &mut Vec<AgentDefinition>) -> Result<()> {
 
 /// Load a single TOML file as an [`AgentDefinition`]. Stamps `source` to
 /// the absolute path.
+///
+/// Rejects definitions that omit (or leave blank) their `system_prompt`
+/// — built-in agents are loaded separately and have their prompts
+/// injected by [`crate::openhuman::agent::agents::load_builtins`], so a
+/// file-loaded definition that arrives with the
+/// [`defaults::empty_inline_prompt`] placeholder is always a caller
+/// mistake. Custom definitions must set either
+/// `[system_prompt] inline = "…"` or `[system_prompt] file = "…"`.
 pub fn load_file(path: &Path) -> Result<AgentDefinition> {
     let content =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut def: AgentDefinition = toml::from_str(&content)
         .with_context(|| format!("parsing {} as AgentDefinition TOML", path.display()))?;
+    if let PromptSource::Inline(body) = &def.system_prompt {
+        if body.is_empty() {
+            bail!(
+                "{}: missing `system_prompt` — custom definitions must set an inline string \
+                 or a file path",
+                path.display()
+            );
+        }
+    }
     def.source = DefinitionSource::File(path.to_path_buf());
     Ok(def)
 }
@@ -208,6 +225,27 @@ hint = "agentic"
         assert!(reg.get("notion_specialist").is_some());
         assert!(reg.get("code_executor").is_some());
         assert!(reg.get("fork").is_some());
+    }
+
+    #[test]
+    fn rejects_definition_with_missing_system_prompt() {
+        let ws = fresh_workspace();
+        let agents_dir = ws.path().join("agents");
+        fs::create_dir_all(&agents_dir).unwrap();
+        // No `[system_prompt]` table — serde falls back to the empty
+        // inline placeholder, which the loader must reject.
+        write_toml(
+            &agents_dir.join("broken.toml"),
+            r#"
+id = "broken"
+when_to_use = "should be rejected"
+"#,
+        );
+        let defs = load_from_workspace(ws.path()).unwrap();
+        assert!(
+            defs.is_empty(),
+            "expected loader to reject definition without system_prompt"
+        );
     }
 
     #[test]

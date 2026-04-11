@@ -16,9 +16,11 @@ use super::definition::{
 
 /// All built-in definitions, in stable order.
 ///
-/// Panics if the baked-in built-in TOML fails to parse — a compile-time
-/// invariant enforced by the unit tests in
-/// [`crate::openhuman::agent::agents::tests`].
+/// Panics if the baked-in built-in TOML fails to parse. `include_str!`
+/// guarantees at compile time that each file exists, but the actual
+/// TOML parse happens at runtime; the unit tests in
+/// [`crate::openhuman::agent::agents`] verify in CI that every entry in
+/// [`crate::openhuman::agent::agents::BUILTINS`] still parses cleanly.
 pub fn all() -> Vec<AgentDefinition> {
     let mut out = crate::openhuman::agent::agents::load_builtins()
         .expect("built-in agent TOML must always parse (see agents/*/agent.toml)");

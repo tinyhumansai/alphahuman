@@ -24,8 +24,10 @@ fn load_openclaw_bootstrap_files(
 
     // MEMORY.md — the archivist agent writes long-term curated knowledge here.
     // It starts out missing on a fresh install, so inject silently (no
-    // missing-file marker).
-    if workspace_dir.join("MEMORY.md").exists() {
+    // missing-file marker). `is_file` (rather than `exists`) rejects a
+    // stray directory with the same name that would otherwise route
+    // through the error path in `inject_workspace_file`.
+    if workspace_dir.join("MEMORY.md").is_file() {
         inject_workspace_file(prompt, workspace_dir, "MEMORY.md", max_chars_per_file);
     }
 }
