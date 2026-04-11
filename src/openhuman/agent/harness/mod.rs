@@ -27,24 +27,23 @@
 //! harness module is a thin wrapper that loads those files and appends
 //! the synthetic `fork` definition (used for prefix-cache reuse).
 
-pub mod archivist;
-pub mod builtin_definitions;
+pub(crate) mod archivist;
+pub(crate) mod builtin_definitions;
 pub(crate) mod context_guard;
 mod credentials;
 pub mod definition;
-pub mod definition_loader;
+pub(crate) mod definition_loader;
 pub mod fork_context;
 mod instructions;
 pub mod interrupt;
 pub(crate) mod memory_context;
 mod parse;
-pub mod self_healing;
+pub(crate) mod self_healing;
 pub mod session;
-pub mod session_queue;
+pub(crate) mod session_queue;
 pub mod subagent_runner;
 mod tool_loop;
 
-pub use archivist::ArchivistHook;
 pub use definition::{
     AgentDefinition, AgentDefinitionRegistry, DefinitionSource, ModelSpec, PromptSource,
     SandboxMode, ToolScope,
@@ -54,8 +53,6 @@ pub use fork_context::{
     ParentExecutionContext,
 };
 pub use interrupt::{check_interrupt, InterruptFence, InterruptedError};
-pub use self_healing::SelfHealingInterceptor;
-pub use session_queue::SessionQueue;
 pub use subagent_runner::{run_subagent, SubagentRunError, SubagentRunOptions};
 
 pub(crate) use instructions::build_tool_instructions;

@@ -178,25 +178,14 @@ impl PromptSection for IdentitySection {
         );
         // When the visible-tool filter is active the main agent is a pure
         // orchestrator: it routes via spawn_subagent, synthesises results,
-        // and talks to the user. It does NOT need tool docs (TOOLS.md),
-        // periodic-task config (HEARTBEAT.md), or the memory-layer protocol
-        // / integration quirks reference (MEMORY.md) — subagents handle
-        // those concerns with their own schemas and prompts.
+        // and talks to the user. It does NOT need the periodic-task config
+        // (HEARTBEAT.md) — subagents handle their own concerns.
         let is_orchestrator = !ctx.visible_tool_names.is_empty();
-        let all_files: &[&str] = &[
-            "AGENTS.md",
-            "SOUL.md",
-            "TOOLS.md",
-            "IDENTITY.md",
-            "USER.md",
-            "HEARTBEAT.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ];
-        // Orchestrator skips these from the prompt (subagents handle
-        // them) but we still sync them to disk so they stay current.
+        let all_files: &[&str] = &["SOUL.md", "IDENTITY.md", "USER.md", "HEARTBEAT.md"];
+        // Orchestrator skips these from the prompt but we still sync them
+        // to disk so they stay current.
         let skip_in_prompt: &[&str] = if is_orchestrator {
-            &["TOOLS.md", "HEARTBEAT.md", "MEMORY.md"]
+            &["HEARTBEAT.md"]
         } else {
             &[]
         };
@@ -418,16 +407,12 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
 
 fn default_workspace_file_content(filename: &str) -> &'static str {
     match filename {
-        "AGENTS.md" => include_str!("prompts/AGENTS.md"),
         "SOUL.md" => include_str!("prompts/SOUL.md"),
-        "TOOLS.md" => include_str!("prompts/TOOLS.md"),
         "IDENTITY.md" => include_str!("prompts/IDENTITY.md"),
         "USER.md" => include_str!("prompts/USER.md"),
         "HEARTBEAT.md" => {
             "# Periodic Tasks\n\n# Add tasks below (one per line, starting with `- `)\n"
         }
-        "BOOTSTRAP.md" => include_str!("prompts/BOOTSTRAP.md"),
-        "MEMORY.md" => include_str!("prompts/MEMORY.md"),
         _ => "",
     }
 }
@@ -504,25 +489,16 @@ mod tests {
         let section = IdentitySection;
         let _ = section.build(&ctx).unwrap();
 
-        for file in [
-            "AGENTS.md",
-            "SOUL.md",
-            "TOOLS.md",
-            "IDENTITY.md",
-            "USER.md",
-            "HEARTBEAT.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ] {
+        for file in ["SOUL.md", "IDENTITY.md", "USER.md", "HEARTBEAT.md"] {
             assert!(
                 workspace.join(file).exists(),
                 "expected workspace file to be created: {file}"
             );
         }
-        let agents = std::fs::read_to_string(workspace.join("AGENTS.md")).unwrap();
+        let soul = std::fs::read_to_string(workspace.join("SOUL.md")).unwrap();
         assert!(
-            agents.starts_with("# OpenHuman Orchestrator"),
-            "AGENTS.md should be seeded from src/openhuman/agent/prompts/AGENTS.md"
+            soul.starts_with("# OpenHuman"),
+            "SOUL.md should be seeded from src/openhuman/agent/prompts/SOUL.md"
         );
 
         let _ = std::fs::remove_dir_all(workspace);
