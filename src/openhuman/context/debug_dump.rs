@@ -49,7 +49,7 @@ use crate::openhuman::agent::host_runtime::{self, RuntimeAdapter};
 use crate::openhuman::config::Config;
 use crate::openhuman::context::prompt::{
     extract_cache_boundary, render_subagent_system_prompt, LearnedContextData, PromptContext,
-    PromptTool, SubagentRenderOptions, SystemPromptBuilder,
+    PromptTool, SubagentRenderOptions, SystemPromptBuilder, ToolCallFormat,
     USER_MEMORY_PER_NAMESPACE_MAX_CHARS, USER_MEMORY_TOTAL_MAX_CHARS,
 };
 use crate::openhuman::composio::client::ComposioClient;
@@ -336,6 +336,11 @@ fn render_main_agent_dump(
         dispatcher_instructions: "",
         learned,
         visible_tool_names: &empty_filter,
+        // The dump matches what runtime would produce. P-Format is the
+        // global default for text-based dispatchers, so the orchestrator
+        // dump renders with positional signatures unless the user has
+        // overridden `agent.tool_dispatcher = "xml"` in config.
+        tool_call_format: ToolCallFormat::PFormat,
     };
 
     let rendered = SystemPromptBuilder::with_defaults()

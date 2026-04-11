@@ -8,7 +8,7 @@
 
 use super::types::{Agent, AgentBuilder};
 use crate::openhuman::agent::dispatcher::{
-    NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher,
+    NativeToolDispatcher, PFormatToolDispatcher, ToolDispatcher, XmlToolDispatcher,
 };
 use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
@@ -349,13 +349,35 @@ impl Agent {
             &provider_runtime_options,
         )?;
 
+        // P-format ("Parameter-Format") is the default text-based
+        // dispatcher: it's the same `<tool_call>` tag flow as the
+        // legacy XML dispatcher but with a vastly cheaper call body
+        // (`name[arg1|arg2]` vs the verbose JSON object). Native
+        // structured tool calls still win when the provider supports
+        // them — the dispatcher only applies to text-based fallback.
+        //
+        // The p-format parser needs a `name → params` lookup at parse
+        // time, so we precompute it here from the tool slice that is
+        // about to be moved into the agent. The lookup is owned by
+        // the dispatcher (no Arc back into the live tools), which
+        // keeps lifetime/ownership rules trivial.
+        let pformat_registry =
+            crate::openhuman::agent::pformat::build_registry(&tools);
         let dispatcher_choice = config.agent.tool_dispatcher.as_str();
         let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
             "native" => Box::new(NativeToolDispatcher),
             "xml" => Box::new(XmlToolDispatcher),
+            "pformat" => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
             _ if provider.supports_native_tools() => Box::new(NativeToolDispatcher),
-            _ => Box::new(XmlToolDispatcher),
+            // Default for text-only providers: P-Format. Flip the
+            // `agent.tool_dispatcher` config to `"xml"` to revert.
+            _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
         };
+        log::info!(
+            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
+             default_text_format=pformat pformat_registry_entries={}",
+            pformat_registry.len()
+        );
 
         // Build prompt builder, optionally with learning sections
         let mut prompt_builder = SystemPromptBuilder::with_defaults();

@@ -782,6 +782,7 @@ impl Agent {
             dispatcher_instructions: &instructions,
             learned,
             visible_tool_names: &self.visible_tool_names,
+            tool_call_format: self.tool_dispatcher.tool_call_format(),
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,

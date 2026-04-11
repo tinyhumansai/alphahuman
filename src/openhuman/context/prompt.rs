@@ -95,6 +95,28 @@ impl<'a> PromptTool<'a> {
     }
 }
 
+/// How the [`ToolsSection`] should render each tool entry. Driven by
+/// the dispatcher choice on the agent — JSON-schema rendering is the
+/// historic format; P-Format is the new default text protocol.
+///
+/// `Native` is for providers that ship structured tool calls directly,
+/// in which case the catalogue body is informational only and the
+/// renderer falls back to JSON-schema (it's the most descriptive form).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolCallFormat {
+    /// `tool_name[arg1|arg2|...]` — compact, positional, ~80% fewer
+    /// tokens than JSON. The default.
+    #[default]
+    PFormat,
+    /// Legacy JSON-in-tag rendering. Each tool entry shows the full
+    /// JSON schema. Kept for backwards compatibility with prompts
+    /// tuned against the old format.
+    Json,
+    /// Provider supplies structured tool calls — the catalogue is
+    /// informational. Renders in the same JSON-schema form as `Json`.
+    Native,
+}
+
 pub struct PromptContext<'a> {
     pub workspace_dir: &'a Path,
     pub model_name: &'a str,
@@ -107,6 +129,9 @@ pub struct PromptContext<'a> {
     /// Skills section is omitted when a filter is active (the main agent
     /// delegates skill work to sub-agents).
     pub visible_tool_names: &'a std::collections::HashSet<String>,
+    /// How [`ToolsSection`] should render each tool entry. Defaults to
+    /// [`ToolCallFormat::PFormat`] when not set.
+    pub tool_call_format: ToolCallFormat,
 }
 
 pub trait PromptSection: Send + Sync {
@@ -328,14 +353,36 @@ impl PromptSection for ToolsSection {
             if has_filter && !ctx.visible_tool_names.contains(tool.name) {
                 continue;
             }
-            if let Some(schema) = &tool.parameters_schema {
-                let _ = writeln!(
-                    out,
-                    "- **{}**: {}\n  Parameters: `{}`",
-                    tool.name, tool.description, schema
-                );
-            } else {
-                let _ = writeln!(out, "- **{}**: {}", tool.name, tool.description);
+
+            match ctx.tool_call_format {
+                ToolCallFormat::PFormat => {
+                    // P-Format renders a positional signature line:
+                    // `**name[a|b]**: description`. The signature comes
+                    // straight from the parameter schema (alphabetical
+                    // by property name — see `pformat` module docs for
+                    // why), so the model and the parser agree on
+                    // argument ordering. We deliberately do NOT print
+                    // the full JSON schema here: that's exactly the
+                    // ~25-token-per-tool overhead p-format exists to
+                    // eliminate.
+                    let signature = render_pformat_signature_for_prompt(tool);
+                    let _ = writeln!(
+                        out,
+                        "- **{}**: {}\n  Call as: `{}`",
+                        tool.name, tool.description, signature
+                    );
+                }
+                ToolCallFormat::Json | ToolCallFormat::Native => {
+                    if let Some(schema) = &tool.parameters_schema {
+                        let _ = writeln!(
+                            out,
+                            "- **{}**: {}\n  Parameters: `{}`",
+                            tool.name, tool.description, schema
+                        );
+                    } else {
+                        let _ = writeln!(out, "- **{}**: {}", tool.name, tool.description);
+                    }
+                }
             }
         }
         if !ctx.dispatcher_instructions.is_empty() {
@@ -343,6 +390,29 @@ impl PromptSection for ToolsSection {
             out.push_str(ctx.dispatcher_instructions);
         }
         Ok(out)
+    }
+}
+
+/// Build a P-Format signature line (`name[a|b|c]`) from a [`PromptTool`].
+/// Local to this module so [`ToolsSection`] doesn't have to depend on
+/// the agent crate's `pformat` helper. The two implementations stay in
+/// lockstep — both use BTreeMap iteration order on the schema's
+/// `properties` field.
+fn render_pformat_signature_for_prompt(tool: &PromptTool<'_>) -> String {
+    let names: Vec<String> = tool
+        .parameters_schema
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| {
+            v.get("properties")
+                .and_then(|p| p.as_object())
+                .map(|m| m.keys().cloned().collect())
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        format!("{}[]", tool.name)
+    } else {
+        format!("{}[{}]", tool.name, names.join("|"))
     }
 }
 
@@ -818,6 +888,7 @@ mod tests {
             dispatcher_instructions: "instr",
             learned: LearnedContextData::default(),
             visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
         };
         let rendered = SystemPromptBuilder::with_defaults()
             .build_with_cache_metadata(&ctx)
@@ -845,6 +916,7 @@ mod tests {
             dispatcher_instructions: "",
             learned: LearnedContextData::default(),
             visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
         };
 
         let section = IdentitySection;
@@ -877,6 +949,7 @@ mod tests {
             dispatcher_instructions: "instr",
             learned: LearnedContextData::default(),
             visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
         };
 
         let rendered = DateTimeSection.build(&ctx).unwrap();
@@ -893,6 +966,139 @@ mod tests {
         let rendered = extract_cache_boundary("static\n\n<!-- CACHE_BOUNDARY -->\n\ndynamic\n");
         assert_eq!(rendered.text, "static\n\ndynamic\n");
         assert_eq!(rendered.cache_boundary, Some("static\n\n".len()));
+    }
+
+    #[test]
+    fn tools_section_pformat_renders_signature_not_schema() {
+        // ToolsSection must render `name[arg1|arg2]` signatures when
+        // `tool_call_format = PFormat`, NOT the verbose JSON schema —
+        // that's where most of the prompt token saving comes from.
+        struct ParamTool;
+        #[async_trait]
+        impl Tool for ParamTool {
+            fn name(&self) -> &str {
+                "make_tea"
+            }
+            fn description(&self) -> &str {
+                "brew a cup of tea"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "kind": { "type": "string" },
+                        "sugar": { "type": "boolean" }
+                    }
+                })
+            }
+            async fn execute(
+                &self,
+                _args: serde_json::Value,
+            ) -> anyhow::Result<crate::openhuman::tools::ToolResult> {
+                Ok(crate::openhuman::tools::ToolResult::success("ok"))
+            }
+        }
+
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(ParamTool)];
+        let prompt_tools = PromptTool::from_tools(&tools);
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/tmp"),
+            model_name: "test-model",
+            tools: &prompt_tools,
+            skills: &[],
+            dispatcher_instructions: "",
+            learned: LearnedContextData::default(),
+            visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
+        };
+
+        let rendered = ToolsSection.build(&ctx).unwrap();
+        // Alphabetical: kind, sugar.
+        assert!(
+            rendered.contains("Call as: `make_tea[kind|sugar]`"),
+            "expected p-format signature in tools section, got:\n{rendered}"
+        );
+        // Should NOT contain the raw JSON schema dump.
+        assert!(
+            !rendered.contains("\"properties\""),
+            "tools section should drop the raw JSON schema in p-format mode, got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn tools_section_json_renders_full_schema() {
+        // The legacy `Json` mode must keep emitting full schemas so
+        // existing prompts that depend on the verbose form are not
+        // silently changed.
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
+        let prompt_tools = PromptTool::from_tools(&tools);
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/tmp"),
+            model_name: "test-model",
+            tools: &prompt_tools,
+            skills: &[],
+            dispatcher_instructions: "",
+            learned: LearnedContextData::default(),
+            visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::Json,
+        };
+
+        let rendered = ToolsSection.build(&ctx).unwrap();
+        assert!(
+            rendered.contains("Parameters:"),
+            "JSON mode should still print Parameters lines, got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("\"type\""),
+            "JSON mode should print the schema body, got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn user_memory_section_renders_namespaces_with_headings() {
+        let learned = LearnedContextData {
+            tree_root_summaries: vec![
+                ("user".into(), "Steven prefers terse Rust answers.".into()),
+                ("conversations".into(), "Recent thread: prompt rework.".into()),
+            ],
+            ..Default::default()
+        };
+        let prompt_tools: Vec<PromptTool<'_>> = Vec::new();
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/tmp"),
+            model_name: "test-model",
+            tools: &prompt_tools,
+            skills: &[],
+            dispatcher_instructions: "",
+            learned,
+            visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
+        };
+        let rendered = UserMemorySection.build(&ctx).unwrap();
+        assert!(rendered.starts_with("## User Memory\n\n"));
+        assert!(rendered.contains("### user\n\nSteven prefers terse Rust answers."));
+        assert!(rendered.contains("### conversations\n\nRecent thread: prompt rework."));
+    }
+
+    #[test]
+    fn user_memory_section_returns_empty_when_no_summaries() {
+        // Empty learned context → section returns empty string and is
+        // skipped by the prompt builder, so the cache boundary stays
+        // exactly where it was for workspaces with no tree summaries.
+        let learned = LearnedContextData::default();
+        let prompt_tools: Vec<PromptTool<'_>> = Vec::new();
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/tmp"),
+            model_name: "test-model",
+            tools: &prompt_tools,
+            skills: &[],
+            dispatcher_instructions: "",
+            learned,
+            visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
+        };
+        let rendered = UserMemorySection.build(&ctx).unwrap();
+        assert!(rendered.is_empty());
     }
 
     #[test]
