@@ -19,7 +19,6 @@ use crate::openhuman::channels::linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 use crate::openhuman::channels::matrix::MatrixChannel;
 use crate::openhuman::channels::mattermost::MattermostChannel;
-use crate::openhuman::context::channels_prompt::build_system_prompt;
 use crate::openhuman::channels::qq::QQChannel;
 use crate::openhuman::channels::signal::SignalChannel;
 use crate::openhuman::channels::slack::SlackChannel;
@@ -30,6 +29,7 @@ use crate::openhuman::channels::whatsapp::WhatsAppChannel;
 use crate::openhuman::channels::whatsapp_web::WhatsAppWebChannel;
 use crate::openhuman::channels::Channel;
 use crate::openhuman::config::Config;
+use crate::openhuman::context::channels_prompt::build_system_prompt;
 use crate::openhuman::event_bus::{self, DomainEvent, TracingSubscriber, DEFAULT_CAPACITY};
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{self, Provider};

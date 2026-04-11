@@ -33,9 +33,9 @@
 //! firing resets the stable prefix to the new, smaller history so
 //! subsequent turns hit the cache again.
 
+use super::guard::{ContextCheckResult, ContextGuard};
 use super::microcompact::{microcompact, MicrocompactStats, DEFAULT_KEEP_RECENT_TOOL_RESULTS};
 use super::session_memory::{SessionMemoryConfig, SessionMemoryState};
-use super::guard::{ContextCheckResult, ContextGuard};
 use crate::openhuman::providers::{ConversationMessage, UsageInfo};
 
 /// Pipeline configuration. Defaults are tuned for an `agentic-v1`

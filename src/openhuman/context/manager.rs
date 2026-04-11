@@ -63,10 +63,7 @@ pub enum ReductionOutcome {
     /// compaction circuit breaker has been nudged. If this happens
     /// three times in a row the breaker trips and subsequent calls
     /// return [`ReductionOutcome::Exhausted`].
-    SummarizationFailed {
-        utilisation_pct: u8,
-        reason: String,
-    },
+    SummarizationFailed { utilisation_pct: u8, reason: String },
     /// The circuit breaker is tripped and the context is still above
     /// the hard limit — the agent turn should abort.
     Exhausted { utilisation_pct: u8, reason: String },
@@ -142,10 +139,7 @@ impl ContextManager {
             },
         };
 
-        let summarizer_model = config
-            .summarizer_model
-            .clone()
-            .unwrap_or(main_model);
+        let summarizer_model = config.summarizer_model.clone().unwrap_or(main_model);
 
         Self {
             pipeline: ContextPipeline::new(pipeline_config),
@@ -463,12 +457,18 @@ mod tests {
         let outcome = manager.reduce_before_call(&mut history).await.unwrap();
 
         match outcome {
-            ReductionOutcome::Microcompacted { envelopes_cleared, .. } => {
+            ReductionOutcome::Microcompacted {
+                envelopes_cleared, ..
+            } => {
                 assert!(envelopes_cleared > 0);
             }
             other => panic!("expected Microcompacted, got {other:?}"),
         }
-        assert_eq!(summarizer.call_count(), 0, "microcompact must not invoke summarizer");
+        assert_eq!(
+            summarizer.call_count(),
+            0,
+            "microcompact must not invoke summarizer"
+        );
     }
 
     #[tokio::test]
@@ -495,7 +495,11 @@ mod tests {
             other => panic!("expected Summarized, got {other:?}"),
         }
         assert_eq!(summarizer.call_count(), 1);
-        assert_eq!(history.len(), 1, "mock replaced history with a single summary msg");
+        assert_eq!(
+            history.len(),
+            1,
+            "mock replaced history with a single summary msg"
+        );
         // Guard breaker should NOT be tripped on success.
         assert!(!manager.pipeline.guard.is_compaction_disabled());
     }

@@ -45,7 +45,8 @@ pub const DEFAULT_SUMMARIZER_TEMPERATURE: f64 = 0.2;
 /// The system prompt pinned to every summarization call. Intentionally
 /// short so it burns as few tokens as possible on a call whose whole
 /// purpose is to *free* tokens.
-pub const SUMMARIZER_SYSTEM_PROMPT: &str = "You are a conversation summarizer. Your job is to take \
+pub const SUMMARIZER_SYSTEM_PROMPT: &str =
+    "You are a conversation summarizer. Your job is to take \
 a chronological history of a conversation between a user and an AI assistant (including any tool \
 calls and their results) and produce a compact, information-dense summary that preserves: \
 (1) the user's goals and constraints, (2) decisions made so far, (3) important facts discovered \
@@ -208,9 +209,8 @@ impl Summarizer for ProviderSummarizer {
             anyhow::bail!("summarizer returned empty response");
         }
 
-        let summary_body = format!(
-            "[auto-compacted] Summary of {head_len} earlier messages:\n\n{summary}"
-        );
+        let summary_body =
+            format!("[auto-compacted] Summary of {head_len} earlier messages:\n\n{summary}");
         let summary_chars = summary_body.len();
         let approx_tokens_freed = (approx_input_bytes as u64)
             .saturating_sub(summary_chars as u64)
@@ -248,24 +248,22 @@ impl Summarizer for ProviderSummarizer {
 fn snap_split_forward(history: &[ConversationMessage], proposed_head: usize) -> usize {
     let mut head = proposed_head.min(history.len());
     // If the message immediately *before* the split is an
-    // AssistantToolCalls, the matching ToolResults must be included in
-    // the head.
-    while head > 0 && head < history.len() {
-        let prev = &history[head - 1];
-        if matches!(prev, ConversationMessage::AssistantToolCalls { .. }) {
-            // Advance past the next ToolResults.
-            if matches!(history[head], ConversationMessage::ToolResults(_)) {
-                head += 1;
-                break;
-            } else {
-                // No matching ToolResults right after — unusual; leave
-                // as-is.
-                break;
-            }
-        }
-        break;
+    // AssistantToolCalls and the message *at* the split is its
+    // matching ToolResults, advance past the pair so we don't break
+    // the API invariant mid-pair. Any other shape (no prev, prev not
+    // a tool call, or tool call without a matching result right after)
+    // leaves the split where it was.
+    if head > 0
+        && head < history.len()
+        && matches!(
+            &history[head - 1],
+            ConversationMessage::AssistantToolCalls { .. }
+        )
+        && matches!(&history[head], ConversationMessage::ToolResults(_))
+    {
+        head += 1;
     }
-    // Don't consume the whole history.
+    // Don't consume the whole history — there'd be no tail to preserve.
     if head >= history.len() {
         0
     } else {

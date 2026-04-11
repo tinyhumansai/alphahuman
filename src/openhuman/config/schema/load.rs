@@ -903,8 +903,7 @@ impl Config {
         // value and the new field is still at its default, copy the old
         // value forward and emit a deprecation warning so the user knows
         // to move it. Once both are set the new field wins.
-        let context_default =
-            crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES;
+        let context_default = crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES;
         if self.context.tool_result_budget_bytes == context_default
             && self.agent.tool_result_budget_bytes != context_default
         {

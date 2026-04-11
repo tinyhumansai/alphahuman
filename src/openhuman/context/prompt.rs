@@ -48,11 +48,7 @@ impl<'a> PromptTool<'a> {
         }
     }
 
-    pub fn with_schema(
-        name: &'a str,
-        description: &'a str,
-        parameters_schema: String,
-    ) -> Self {
+    pub fn with_schema(name: &'a str, description: &'a str, parameters_schema: String) -> Self {
         Self {
             name,
             description,

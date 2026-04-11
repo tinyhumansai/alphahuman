@@ -22,9 +22,9 @@
 use super::types::Agent;
 use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
 use crate::openhuman::agent::harness;
-use crate::openhuman::context::{ReductionOutcome, ARCHIVIST_EXTRACTION_PROMPT};
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
 use crate::openhuman::context::prompt::{LearnedContextData, PromptContext, PromptTool};
+use crate::openhuman::context::{ReductionOutcome, ARCHIVIST_EXTRACTION_PROMPT};
 use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::memory::MemoryCategory;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, ConversationMessage};
@@ -317,8 +317,7 @@ impl Agent {
                     // here and surface it via the manager's session
                     // state — the epilogue (below) reads
                     // `should_extract_session_memory()`.
-                    self.context
-                        .record_tool_calls(all_tool_records.len());
+                    self.context.record_tool_calls(all_tool_records.len());
 
                     // Fire post-turn hooks (non-blocking)
                     if !self.post_turn_hooks.is_empty() {
