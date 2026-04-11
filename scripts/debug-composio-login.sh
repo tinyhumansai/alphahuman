@@ -185,7 +185,11 @@ else
     # ── Step 3: authorize ───────────────────────────────────────────
     echo ""
     echo "--- Step 3: POST /agent-integrations/composio/authorize ---"
-    call POST "/agent-integrations/composio/authorize" "{\"toolkit\":\"$TOOLKIT\"}"
+    # Build the JSON payload via jq -n so quotes/backslashes in $TOOLKIT
+    # can never break the body. (Normally slugs are plain, but treating
+    # interpolation as trusted in a debug script is a bad habit.)
+    AUTHORIZE_BODY="$(jq -nc --arg tk "$TOOLKIT" '{toolkit: $tk}')"
+    call POST "/agent-integrations/composio/authorize" "$AUTHORIZE_BODY"
     require_success "authorize"
 
     AUTH_JSON="$(envelope_data "$RESP_BODY")"
@@ -220,9 +224,16 @@ else
         call GET "/agent-integrations/composio/connections"
         if [ "$RESP_CODE" = "200" ]; then
             CONNECTIONS_JSON="$(envelope_data "$RESP_BODY")"
+            # Prefer the exact connection we just created (match on .id),
+            # and only fall back to a toolkit-wide match if that id is not
+            # present yet. Without this fallback ordering, `head -n1`
+            # could latch onto a stale PENDING record from a previous run
+            # and never notice our new connection going ACTIVE.
             STATUS="$(echo "$CONNECTIONS_JSON" | jq -r --arg tk "$TOOLKIT" --arg cid "$CONNECTION_ID" \
-                '.connections[]? | select(.id == $cid or (.toolkit|ascii_downcase) == ($tk|ascii_downcase)) | .status' \
-                2>/dev/null | head -n1)"
+                '([.connections[]? | select(.id == $cid) | .status][0]) //
+                 ([.connections[]? | select((.toolkit|ascii_downcase) == ($tk|ascii_downcase)) | .status][0]) //
+                 ""' \
+                2>/dev/null)"
             printf "    [tick %d] status=%s\n" "$TICK" "${STATUS:-<missing>}"
             if [ "$STATUS" = "ACTIVE" ] || [ "$STATUS" = "CONNECTED" ]; then
                 ACTIVE_ID="$CONNECTION_ID"
@@ -260,8 +271,8 @@ echo ""
 # ── Step 5: optional execute ────────────────────────────────────────
 if [ -n "$EXECUTE_TOOL" ]; then
     echo "--- Step 5: POST /agent-integrations/composio/execute ($EXECUTE_TOOL) ---"
-    call POST "/agent-integrations/composio/execute" \
-        "{\"tool\":\"$EXECUTE_TOOL\",\"arguments\":{}}"
+    EXECUTE_BODY="$(jq -nc --arg tool "$EXECUTE_TOOL" '{tool: $tool, arguments: {}}')"
+    call POST "/agent-integrations/composio/execute" "$EXECUTE_BODY"
     require_success "execute"
 
     EXEC_JSON="$(envelope_data "$RESP_BODY")"

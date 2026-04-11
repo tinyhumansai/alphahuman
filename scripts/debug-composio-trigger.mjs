@@ -55,31 +55,16 @@
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-// ── CLI argument parsing ────────────────────────────────────────────
-
-const args = process.argv.slice(2);
-const flag = (name) => args.includes(name);
-const valueOf = (name, fallback) => {
-  const idx = args.indexOf(name);
-  if (idx === -1 || idx === args.length - 1) return fallback;
-  return args[idx + 1];
-};
-
-const DEBUG = flag('--debug');
-const TIMEOUT_SECS = parseInt(valueOf('--timeout', '0'), 10); // 0 = forever
-const MAX_EVENTS = parseInt(valueOf('--max-events', '0'), 10); // 0 = unlimited
-const TRIGGER_SLUG = (valueOf('--trigger', process.env.TRIGGER_SLUG || 'GMAIL_NEW_GMAIL_MESSAGE')).trim();
-
-function dbg(...a) {
-  if (DEBUG) console.log('  [debug]', ...a);
-}
-
 // ── Env loader (matches test-channel-receive.mjs) ───────────────────
+//
+// Declared + invoked BEFORE the CLI constants below read `process.env`,
+// otherwise values defined in `.env` / `app/.env.local` (like
+// TRIGGER_SLUG) would be ignored on the first run of the script.
 
 function loadEnv(filepath) {
   if (!existsSync(filepath)) return;
@@ -97,6 +82,26 @@ function loadEnv(filepath) {
 
 loadEnv(path.join(ROOT, '.env'));
 loadEnv(path.join(ROOT, 'app', '.env.local'));
+
+// ── CLI argument parsing ────────────────────────────────────────────
+
+const args = process.argv.slice(2);
+const flag = (name) => args.includes(name);
+const valueOf = (name, fallback) => {
+  const idx = args.indexOf(name);
+  if (idx === -1 || idx === args.length - 1) return fallback;
+  return args[idx + 1];
+};
+
+const DEBUG = flag('--debug');
+const TIMEOUT_SECS = parseInt(valueOf('--timeout', '0'), 10); // 0 = forever
+const MAX_EVENTS = parseInt(valueOf('--max-events', '0'), 10); // 0 = unlimited
+const TRIGGER_SLUG = (valueOf('--trigger', process.env.TRIGGER_SLUG || 'GMAIL_NEW_GMAIL_MESSAGE')).trim();
+const TOOLKIT_OVERRIDE = (valueOf('--toolkit', process.env.COMPOSIO_TOOLKIT || '')).trim();
+
+function dbg(...a) {
+  if (DEBUG) console.log('  [debug]', ...a);
+}
 
 const BACKEND_URL = (
   process.env.BACKEND_URL ||
@@ -228,9 +233,23 @@ try {
   process.exit(1);
 }
 
-// ── Verify gmail connection is ACTIVE ───────────────────────────────
+// ── Verify target toolkit has a connection ─────────────────────────
+//
+// The "target toolkit" is explicit if the caller passed `--toolkit`;
+// otherwise we derive it from the trigger slug prefix (e.g.
+// GMAIL_NEW_GMAIL_MESSAGE → "gmail"). We no longer hard-exit for any
+// toolkit other than gmail — missing non-gmail connections drop to a
+// warning so a broader socket listener can keep running.
 
-header('3. Verify Gmail Connection');
+const desiredToolkit = (
+  TOOLKIT_OVERRIDE ||
+  (TRIGGER_SLUG.includes('_') ? TRIGGER_SLUG.split('_')[0] : '') ||
+  'gmail'
+)
+  .toLowerCase()
+  .trim();
+
+header(`3. Verify ${desiredToolkit || 'target'} connection`);
 
 try {
   const resp = await fetch(`${BACKEND_URL}/agent-integrations/composio/connections`, {
@@ -242,22 +261,36 @@ try {
     process.exit(1);
   }
   const connections = data.data?.connections ?? [];
-  const gmail = connections.find((c) => c.toolkit?.toLowerCase() === 'gmail');
-  if (!gmail) {
-    fail('no gmail connection found for this user');
+  const match = connections.find(
+    (c) => (c.toolkit || '').toLowerCase() === desiredToolkit,
+  );
+  if (!match) {
+    // Only gmail is considered a blocking prerequisite — the legacy
+    // script behaviour — because `debug-composio-login.sh` defaults to
+    // connecting gmail. For every other toolkit, warn and keep going
+    // so the listener can still receive events from whatever IS
+    // connected.
+    if (desiredToolkit === 'gmail') {
+      fail('no gmail connection found for this user');
+      console.log(
+        `${C.yellow}    Run: bash scripts/debug-composio-login.sh first to connect gmail.${C.reset}`,
+      );
+      process.exit(1);
+    }
     console.log(
-      `${C.yellow}    Run: bash scripts/debug-composio-login.sh first to connect gmail.${C.reset}`,
+      `${C.yellow}  ⚠ no ${desiredToolkit} connection found — listener will still run,\n` +
+        `    but no ${TRIGGER_SLUG} events will arrive until one is connected.${C.reset}`,
     );
-    process.exit(1);
-  }
-  const status = String(gmail.status).toUpperCase();
-  if (status === 'ACTIVE' || status === 'CONNECTED') {
-    ok(`gmail ACTIVE (id=${gmail.id})`);
   } else {
-    console.log(
-      `${C.yellow}  ⚠ gmail connection status is "${gmail.status}" — trigger may not fire.${C.reset}`,
-    );
-    info('connection id', gmail.id);
+    const status = String(match.status).toUpperCase();
+    if (status === 'ACTIVE' || status === 'CONNECTED') {
+      ok(`${desiredToolkit} ACTIVE (id=${match.id})`);
+    } else {
+      console.log(
+        `${C.yellow}  ⚠ ${desiredToolkit} connection status is "${match.status}" — trigger may not fire.${C.reset}`,
+      );
+      info('connection id', match.id);
+    }
   }
 } catch (err) {
   fail(`connection check failed: ${err.message}`);
@@ -301,9 +334,11 @@ const socketIoPath = path.join(
 let io;
 try {
   // Prefer the version co-located with the app workspace — same binary
-  // the React client uses at runtime.
+  // the React client uses at runtime. Convert the filesystem path to a
+  // `file://` URL via `pathToFileURL` so Node ESM accepts it on Windows
+  // (bare OS paths work on macOS/Linux but fail on Windows).
   if (existsSync(socketIoPath)) {
-    const mod = await import(socketIoPath);
+    const mod = await import(pathToFileURL(socketIoPath).href);
     io = mod.io || mod.default;
     dbg('loaded socket.io-client from', socketIoPath);
   } else {

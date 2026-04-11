@@ -8,10 +8,16 @@
 //! These ops are also callable directly from other domains (e.g. the
 //! agent harness) when they need composio data at runtime.
 
-use anyhow::Result;
-
 use crate::openhuman::config::Config;
 use crate::rpc::RpcOutcome;
+
+/// Result alias used by every `composio_*` op in this module.
+///
+/// We deliberately return a plain `String` error instead of
+/// `anyhow::Error` — the controller layer in `schemas.rs` forwards
+/// these straight into the RPC envelope, and `String` keeps the shape
+/// obvious at a glance.
+type OpResult<T> = std::result::Result<T, String>;
 
 use super::client::{build_composio_client, ComposioClient};
 use super::types::{
@@ -21,7 +27,7 @@ use super::types::{
 
 /// Resolve a [`ComposioClient`] from `config.integrations`, or return an
 /// error string that the caller can surface over RPC.
-fn resolve_client(config: &Config) -> Result<ComposioClient, String> {
+fn resolve_client(config: &Config) -> OpResult<ComposioClient> {
     build_composio_client(&config.integrations).ok_or_else(|| {
         "composio is disabled (integrations.enabled or integrations.composio.enabled is off, \
          or backend_url/auth_token missing)"
@@ -33,7 +39,7 @@ fn resolve_client(config: &Config) -> Result<ComposioClient, String> {
 
 pub async fn composio_list_toolkits(
     config: &Config,
-) -> Result<RpcOutcome<ComposioToolkitsResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioToolkitsResponse>> {
     tracing::debug!("[composio] rpc list_toolkits");
     let client = resolve_client(config)?;
     let resp = client
@@ -51,7 +57,7 @@ pub async fn composio_list_toolkits(
 
 pub async fn composio_list_connections(
     config: &Config,
-) -> Result<RpcOutcome<ComposioConnectionsResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioConnectionsResponse>> {
     tracing::debug!("[composio] rpc list_connections");
     let client = resolve_client(config)?;
     let resp = client
@@ -75,7 +81,7 @@ pub async fn composio_list_connections(
 pub async fn composio_authorize(
     config: &Config,
     toolkit: &str,
-) -> Result<RpcOutcome<ComposioAuthorizeResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioAuthorizeResponse>> {
     tracing::debug!(toolkit = %toolkit, "[composio] rpc authorize");
     let client = resolve_client(config)?;
     let resp = client
@@ -102,7 +108,7 @@ pub async fn composio_authorize(
 pub async fn composio_delete_connection(
     config: &Config,
     connection_id: &str,
-) -> Result<RpcOutcome<ComposioDeleteResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioDeleteResponse>> {
     tracing::debug!(connection_id = %connection_id, "[composio] rpc delete_connection");
     let client = resolve_client(config)?;
     let resp = client
@@ -120,7 +126,7 @@ pub async fn composio_delete_connection(
 pub async fn composio_list_tools(
     config: &Config,
     toolkits: Option<Vec<String>>,
-) -> Result<RpcOutcome<ComposioToolsResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioToolsResponse>> {
     tracing::debug!(?toolkits, "[composio] rpc list_tools");
     let client = resolve_client(config)?;
     let resp = client
@@ -140,7 +146,7 @@ pub async fn composio_execute(
     config: &Config,
     tool: &str,
     arguments: Option<serde_json::Value>,
-) -> Result<RpcOutcome<ComposioExecuteResponse>, String> {
+) -> OpResult<RpcOutcome<ComposioExecuteResponse>> {
     tracing::debug!(tool = %tool, "[composio] rpc execute");
     let client = resolve_client(config)?;
     let started = std::time::Instant::now();
