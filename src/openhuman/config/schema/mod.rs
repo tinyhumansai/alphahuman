@@ -9,7 +9,6 @@ mod autonomy;
 mod channels;
 mod defaults;
 mod dictation;
-mod hardware;
 mod heartbeat_cron;
 mod identity_cost;
 mod learning;
@@ -39,7 +38,6 @@ pub use channels::{
     TelegramConfig, WebhookConfig, WhatsAppConfig,
 };
 pub use dictation::{DictationActivationMode, DictationConfig};
-pub use hardware::{HardwareConfig, HardwareTransport};
 pub use heartbeat_cron::{CronConfig, HeartbeatConfig};
 pub use identity_cost::{CostConfig, ModelPricing, PeripheralBoardConfig, PeripheralsConfig};
 pub use learning::{LearningConfig, ReflectionSource};
