@@ -251,6 +251,10 @@ impl ContextManager {
                 reason,
             }),
 
+            PipelineOutcome::AutocompactionDisabled { utilisation_pct } => {
+                Ok(ReductionOutcome::NotAttempted { utilisation_pct })
+            }
+
             PipelineOutcome::AutocompactionRequested { utilisation_pct } => {
                 // Dispatch the summarizer. If it succeeds we reset the
                 // guard's circuit breaker so a prior string of failures
@@ -539,6 +543,45 @@ mod tests {
         let mut history = vec![user("x")];
         let outcome = manager.reduce_before_call(&mut history).await.unwrap();
         assert!(matches!(outcome, ReductionOutcome::Exhausted { .. }));
+    }
+
+    #[tokio::test]
+    async fn disabled_autocompact_returns_not_attempted() {
+        let summarizer = MockSummarizer::ok();
+        let mut config = ContextConfig::default();
+        // Keep master switch on but disable just the autocompact stage
+        // so the pipeline routes through AutocompactionDisabled instead
+        // of NoOp.
+        config.autocompact_enabled = false;
+        let mut manager = ContextManager::new(
+            &config,
+            summarizer.clone(),
+            "test-model".into(),
+            SystemPromptBuilder::with_defaults(),
+        );
+
+        manager.record_usage(&UsageInfo {
+            input_tokens: 92_000,
+            output_tokens: 4_000,
+            context_window: 100_000,
+        });
+
+        // No old tool-result envelopes — microcompact cannot free
+        // anything, so the pipeline lands in the autocompact branch.
+        let mut history = vec![user("one"), user("two"), user("three")];
+        let outcome = manager.reduce_before_call(&mut history).await.unwrap();
+
+        match outcome {
+            ReductionOutcome::NotAttempted { utilisation_pct } => {
+                assert!(utilisation_pct >= 90);
+            }
+            other => panic!("expected NotAttempted, got {other:?}"),
+        }
+        assert_eq!(
+            summarizer.call_count(),
+            0,
+            "summarizer must not run when autocompact is disabled"
+        );
     }
 
     #[tokio::test]

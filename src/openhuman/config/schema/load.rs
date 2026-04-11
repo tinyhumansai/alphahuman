@@ -915,19 +915,57 @@ impl Config {
                 _ => {}
             }
         }
-        if let Ok(val) = std::env::var("OPENHUMAN_CONTEXT_COMPACTION_TRIGGER_PCT") {
-            if let Ok(pct) = val.trim().parse::<u8>() {
-                if pct <= 100 {
-                    self.context.compaction_trigger_pct = pct;
+        // Parse both percentage env vars into temporaries so we can
+        // enforce the `compaction < hard_limit` invariant before
+        // touching the live config. Each slot is independently
+        // validated (1..=100, rejecting 0 so we never arm the guard at
+        // an always-true trigger) and then cross-validated as a pair.
+        // On any failure we leave the existing values intact and emit a
+        // warning naming the offending env var + value.
+        let compaction_raw = std::env::var("OPENHUMAN_CONTEXT_COMPACTION_TRIGGER_PCT").ok();
+        let hard_limit_raw = std::env::var("OPENHUMAN_CONTEXT_HARD_LIMIT_PCT").ok();
+
+        let parse_pct = |name: &str, raw: &str| -> Option<u8> {
+            match raw.trim().parse::<u8>() {
+                Ok(pct) if (1..=100).contains(&pct) => Some(pct),
+                _ => {
+                    tracing::warn!(
+                        env = %name,
+                        value = %raw,
+                        "[context:config] invalid percentage — must be integer in 1..=100; ignoring"
+                    );
+                    None
                 }
             }
-        }
-        if let Ok(val) = std::env::var("OPENHUMAN_CONTEXT_HARD_LIMIT_PCT") {
-            if let Ok(pct) = val.trim().parse::<u8>() {
-                if pct <= 100 {
-                    self.context.hard_limit_pct = pct;
-                }
+        };
+
+        let new_compaction = compaction_raw
+            .as_deref()
+            .and_then(|v| parse_pct("OPENHUMAN_CONTEXT_COMPACTION_TRIGGER_PCT", v));
+        let new_hard_limit = hard_limit_raw
+            .as_deref()
+            .and_then(|v| parse_pct("OPENHUMAN_CONTEXT_HARD_LIMIT_PCT", v));
+
+        // Effective pair after applying whichever overrides parsed
+        // cleanly, falling back to the current live values for any
+        // unset side.
+        let effective_compaction =
+            new_compaction.unwrap_or(self.context.compaction_trigger_pct);
+        let effective_hard_limit = new_hard_limit.unwrap_or(self.context.hard_limit_pct);
+
+        if effective_compaction < effective_hard_limit {
+            if let Some(pct) = new_compaction {
+                self.context.compaction_trigger_pct = pct;
             }
+            if let Some(pct) = new_hard_limit {
+                self.context.hard_limit_pct = pct;
+            }
+        } else {
+            tracing::warn!(
+                compaction_trigger_pct = effective_compaction,
+                hard_limit_pct = effective_hard_limit,
+                "[context:config] refusing env overrides — compaction_trigger_pct must be strictly less than hard_limit_pct; leaving existing values unchanged"
+            );
         }
         if let Ok(val) = std::env::var("OPENHUMAN_CONTEXT_RESERVE_OUTPUT_TOKENS") {
             if let Ok(n) = val.trim().parse::<u64>() {
@@ -949,11 +987,18 @@ impl Config {
         // Migration: `agent.tool_result_budget_bytes` used to own this
         // knob before it moved to `context.tool_result_budget_bytes`. If
         // an existing config.toml sets the old field to a non-default
-        // value and the new field is still at its default, copy the old
-        // value forward and emit a deprecation warning so the user knows
-        // to move it. Once both are set the new field wins.
+        // value and the new field is still at its default AND the env
+        // var is not present, copy the old value forward and emit a
+        // deprecation warning so the user knows to move it. The env var
+        // check is important: without it a user who explicitly sets
+        // `OPENHUMAN_CONTEXT_TOOL_RESULT_BUDGET_BYTES` to the default
+        // value would have their env override silently clobbered by the
+        // agent-field migration.
         let context_default = crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES;
-        if self.context.tool_result_budget_bytes == context_default
+        let context_env_set =
+            std::env::var_os("OPENHUMAN_CONTEXT_TOOL_RESULT_BUDGET_BYTES").is_some();
+        if !context_env_set
+            && self.context.tool_result_budget_bytes == context_default
             && self.agent.tool_result_budget_bytes != context_default
         {
             tracing::warn!(

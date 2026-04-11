@@ -432,10 +432,21 @@ pub fn render_subagent_system_prompt(
 
     // 2. Filtered tool catalogue. Indices are taken in ascending order
     //    from `allowed_indices`, which itself preserves `parent_tools`
-    //    order, so the rendering is deterministic.
+    //    order, so the rendering is deterministic. We use `.get(i)`
+    //    defensively even though the current caller (subagent_runner)
+    //    only produces in-range indices — a future caller that derives
+    //    indices from a different source must not be able to panic this
+    //    renderer with a stale index.
     out.push_str("## Tools\n\n");
     for &i in allowed_indices {
-        let tool = &parent_tools[i];
+        let Some(tool) = parent_tools.get(i) else {
+            tracing::warn!(
+                index = i,
+                tool_count = parent_tools.len(),
+                "[context::prompt] dropping out-of-range tool index in subagent render"
+            );
+            continue;
+        };
         let _ = writeln!(
             out,
             "- **{}**: {}\n  Parameters: `{}`",

@@ -87,6 +87,11 @@ pub enum PipelineOutcome {
         /// The last-known context utilisation as a 0..=100 percentage.
         utilisation_pct: u8,
     },
+    /// The guard is above the soft threshold but autocompaction is
+    /// disabled by config, so no summariser will run. Surfaced as a
+    /// distinct variant so the caller can log/observe the situation
+    /// instead of silently falling back to `NoOp`.
+    AutocompactionDisabled { utilisation_pct: u8 },
     /// The guard's circuit breaker is tripped and the context is still
     /// above the hard threshold — the caller should abort the turn.
     ContextExhausted { utilisation_pct: u8, reason: String },
@@ -171,13 +176,16 @@ impl ContextPipeline {
                 // Stage 4: if microcompact didn't free anything (no old
                 // tool results to clear), signal autocompaction to the
                 // caller. The pipeline deliberately does not issue the
-                // LLM call itself.
+                // LLM call itself. When autocompact is disabled we
+                // still surface the situation as a distinct variant so
+                // the manager can log/observe it rather than silently
+                // dropping back to `NoOp`.
+                let pct = self
+                    .guard
+                    .utilization()
+                    .map(|u| (u * 100.0).round() as u8)
+                    .unwrap_or(0);
                 if self.config.autocompact_enabled {
-                    let pct = self
-                        .guard
-                        .utilization()
-                        .map(|u| (u * 100.0).round() as u8)
-                        .unwrap_or(0);
                     tracing::info!(
                         utilisation_pct = pct,
                         "[context_pipeline] autocompaction requested"
@@ -187,7 +195,13 @@ impl ContextPipeline {
                     };
                 }
 
-                PipelineOutcome::NoOp
+                tracing::warn!(
+                    utilisation_pct = pct,
+                    "[context_pipeline] above soft threshold but autocompact disabled"
+                );
+                PipelineOutcome::AutocompactionDisabled {
+                    utilisation_pct: pct,
+                }
             }
             ContextCheckResult::ContextExhausted {
                 utilization_pct,
