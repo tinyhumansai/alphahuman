@@ -799,8 +799,8 @@ async fn run_server_inner(
 
 /// Registers all long-lived domain event-bus subscribers exactly once.
 ///
-/// Guarded by `std::sync::Once` so repeated calls (e.g. jsonrpc + repl paths
-/// both invoking `bootstrap_skill_runtime`) are safe and idempotent.
+/// Guarded by `std::sync::Once` so repeated calls to `bootstrap_skill_runtime`
+/// are safe and idempotent.
 fn register_domain_subscribers() {
     use std::sync::{Arc, Once};
 
@@ -878,14 +878,14 @@ pub async fn bootstrap_skill_runtime() {
     // Ensure the global event bus is initialized (no-op if already done by start_channels).
     crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
     // Register domain subscribers for cross-module event handling.
-    // Uses a Once guard so repeated calls to bootstrap_skill_runtime() (e.g.
-    // from both jsonrpc and repl paths) cannot double-subscribe.
+    // Uses a Once guard so repeated calls to bootstrap_skill_runtime()
+    // cannot double-subscribe.
     register_domain_subscribers();
 
     // --- Sub-agent definition registry bootstrap ---
     // Loads built-in archetype definitions plus any custom TOML files
-    // under `<workspace>/agents/*.toml`. Idempotent — safe to call from
-    // both jsonrpc and repl paths. Uses the per-user scoped workspace_dir.
+    // under `<workspace>/agents/*.toml`. Idempotent — safe to call
+    // multiple times. Uses the per-user scoped workspace_dir.
     if let Err(err) =
         crate::openhuman::agent::harness::AgentDefinitionRegistry::init_global(&workspace_dir)
     {

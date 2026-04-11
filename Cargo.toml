@@ -67,7 +67,6 @@ regex = "1.10"
 ndarray = "0.17.2"
 tokenizers = "0.21.0"
 hostname = "0.4.2"
-rustyline = { version = "15", features = ["with-file-history"] }
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pki-types = "1.14.0"
 tokio-rustls = "0.26.4"

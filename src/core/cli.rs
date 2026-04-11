@@ -2,7 +2,7 @@
 //!
 //! This module handles argument parsing, subcommand dispatching, and help printing
 //! for the CLI. It supports commands for running the server, making RPC calls,
-//! starting a REPL, and invoking domain-specific functionality across various namespaces.
+//! and invoking domain-specific functionality across various namespaces.
 
 use anyhow::Result;
 use serde_json::{Map, Value};
@@ -31,7 +31,7 @@ Contribute & Star us on GitHub: https://github.com/tinyhumansai/openhuman
 ///
 /// This is the entry point for CLI argument handling. It prints the banner,
 /// checks for help requests, and dispatches to specific command handlers
-/// like `run`, `call`, `repl`, `skills`, or namespace-based commands.
+/// like `run`, `call`, `skills`, or namespace-based commands.
 ///
 /// # Arguments
 ///
@@ -54,7 +54,6 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     match args[0].as_str() {
         "run" | "serve" => run_server_command(&args[1..]),
         "call" => run_call_command(&args[1..]),
-        "repl" | "shell" => crate::core::repl::run_repl(&args[1..]),
         "skills" => crate::core::skills_cli::run_skills_command(&args[1..]),
         "screen-intelligence" => {
             crate::core::screen_intelligence_cli::run_screen_intelligence_command(&args[1..])
@@ -430,11 +429,6 @@ fn parse_function_params(
     Ok(out)
 }
 
-/// Re-exported alias for parsing input values, used by the REPL.
-pub fn parse_input_value_for_repl(ty: &TypeSchema, raw: &str) -> Result<Value, String> {
-    parse_input_value(ty, raw)
-}
-
 /// Parses a raw string value into a JSON `Value` based on the target `TypeSchema`.
 ///
 /// Supports basic types like string, bool, and numbers, as well as complex JSON
@@ -499,7 +493,6 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("OpenHuman core CLI\n");
     println!("Usage:");
     println!("  openhuman run [--host <addr>] [--port <u16>] [--jsonrpc-only] [--verbose]");
-    println!("  openhuman repl [--verbose] [--eval '<cmd>'] [--batch]");
     println!("  openhuman call --method <name> [--params '<json>']");
     println!("  openhuman skills <subcommand> [options]   (skill development runtime)");
     println!("  openhuman voice [--hotkey <combo>] [--mode <tap|push>]  (voice dictation server)");
