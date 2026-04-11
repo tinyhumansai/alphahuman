@@ -327,17 +327,6 @@ impl Agent {
             config,
         );
 
-        // Bridge skill tools (Notion, Gmail, etc.) from the QuickJS runtime
-        // into the agent's tool registry so the LLM can call them.
-        let skill_tools = tools::collect_skill_tools();
-        if !skill_tools.is_empty() {
-            log::info!(
-                "[agent] Injecting {} skill tool(s) into agent registry",
-                skill_tools.len()
-            );
-            tools.extend(skill_tools);
-        }
-
         let model_name = config
             .default_model
             .as_deref()

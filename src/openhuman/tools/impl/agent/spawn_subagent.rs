@@ -18,10 +18,6 @@
 //!   homogeneous task; relies on the inference backend's automatic
 //!   prefix caching for token savings.
 //!
-//! API specialists (Notion, Gmail, …) ride on the built-in `skills_agent`
-//! definition by passing `skill_filter: "<skill_id>"`, which restricts
-//! the resolved tool list to tools whose names start with `{skill}__`.
-
 use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::harness::definition::AgentDefinitionRegistry;
 use crate::openhuman::agent::harness::fork_context::current_parent;
@@ -102,14 +98,10 @@ impl Tool for SpawnSubagentTool {
                     "type": "string",
                     "description": "Optional context blob from prior task results. Rendered as a `[Context]` block before the prompt."
                 },
-                "skill_filter": {
-                    "type": "string",
-                    "description": "Optional skill id (e.g. `notion`, `gmail`) — when set, the sub-agent's tool list is restricted to tools named `{skill}__*`. Pair with `agent_id: skills_agent` for an API specialist."
-                },
                 "category_filter": {
                     "type": "string",
                     "enum": ["system", "skill"],
-                    "description": "Optional tool-category restriction. `skill` scopes the sub-agent to QuickJS skill-bridge tools (Notion, Gmail, Telegram, …); `system` scopes it to built-in Rust tools (shell, file_*, memory_*, …). Overrides the definition's `category_filter` for this single spawn."
+                    "description": "Optional tool-category restriction. `skill` scopes the sub-agent to integration tools (for example Composio-backed SaaS actions); `system` scopes it to built-in Rust tools. Overrides the definition's `category_filter` for this single spawn."
                 },
                 "mode": {
                     "type": "string",
@@ -143,11 +135,6 @@ impl Tool for SpawnSubagentTool {
 
         let context = args
             .get("context")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let skill_filter_override = args
-            .get("skill_filter")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -203,13 +190,6 @@ impl Tool for SpawnSubagentTool {
             }
         };
 
-        // ── Validate skill filter against the runtime if set ───────────
-        if let Some(skill) = skill_filter_override.as_deref() {
-            if let Err(err) = validate_skill_filter(skill) {
-                return Ok(ToolResult::error(err));
-            }
-        }
-
         // ── Publish SubagentSpawned event ──────────────────────────────
         let parent_session = current_parent()
             .map(|p| p.session_id.clone())
@@ -226,7 +206,7 @@ impl Tool for SpawnSubagentTool {
 
         // ── Run the sub-agent ──────────────────────────────────────────
         let options = SubagentRunOptions {
-            skill_filter_override,
+            skill_filter_override: None,
             category_filter_override,
             context,
             task_id: Some(task_id.clone()),
@@ -259,40 +239,6 @@ impl Tool for SpawnSubagentTool {
                 )))
             }
         }
-    }
-}
-
-/// Validate that the requested skill_filter matches a currently-loaded
-/// skill in the global skill runtime, if a runtime is available. When
-/// no runtime is available (e.g. tests, CLI), this is a no-op.
-///
-/// Public alias for use by `orchestrator_tools`.
-pub fn validate_skill_filter_public(skill_id: &str) -> Result<(), String> {
-    validate_skill_filter(skill_id)
-}
-
-fn validate_skill_filter(skill_id: &str) -> Result<(), String> {
-    let Some(engine) = crate::openhuman::skills::qjs_engine::global_engine() else {
-        // No runtime registered — skip validation.
-        return Ok(());
-    };
-    // `engine.all_tools()` returns `(skill_id, ToolDefinition)` pairs
-    // where `skill_id` is the skill prefix (e.g. "gmail", "notion")
-    // and `ToolDefinition.name` is the raw tool name (e.g. "get-emails").
-    let mut known: Vec<String> = engine
-        .all_tools()
-        .into_iter()
-        .map(|(skill_id, _)| skill_id)
-        .collect();
-    known.sort();
-    known.dedup();
-    if known.iter().any(|s| s == skill_id) {
-        Ok(())
-    } else {
-        Err(format!(
-            "skill_filter '{skill_id}' does not match any installed skill. Available: {}",
-            known.join(", ")
-        ))
     }
 }
 

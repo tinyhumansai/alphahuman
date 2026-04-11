@@ -34,16 +34,12 @@ const {
   mockGenerateMnemonicPhrase,
   mockValidateMnemonicPhrase,
   mockDeriveAesKey,
-  mockDeriveEvm,
-  mockSetWalletAddress,
   mockSetEncryptionKey,
   mockUseCoreState,
 } = vi.hoisted(() => ({
   mockGenerateMnemonicPhrase: vi.fn(() => FIXED_MNEMONIC),
   mockValidateMnemonicPhrase: vi.fn(() => true),
   mockDeriveAesKey: vi.fn(() => 'aes-key-hex'),
-  mockDeriveEvm: vi.fn(() => '0xDeAdBeEf'),
-  mockSetWalletAddress: vi.fn().mockResolvedValue(undefined),
   mockSetEncryptionKey: vi.fn().mockResolvedValue(undefined),
   mockUseCoreState: vi.fn(),
 }));
@@ -53,11 +49,6 @@ vi.mock('../src/utils/cryptoKeys', () => ({
   generateMnemonicPhrase: mockGenerateMnemonicPhrase,
   validateMnemonicPhrase: mockValidateMnemonicPhrase,
   deriveAesKeyFromMnemonic: mockDeriveAesKey,
-  deriveEvmAddressFromMnemonic: mockDeriveEvm,
-}));
-
-vi.mock('../src/lib/skills/manager', () => ({
-  skillManager: { setWalletAddress: mockSetWalletAddress },
 }));
 
 vi.mock('../src/providers/CoreStateProvider', () => ({ useCoreState: () => mockUseCoreState() }));
@@ -101,8 +92,6 @@ beforeEach(() => {
   mockGenerateMnemonicPhrase.mockClear();
   mockValidateMnemonicPhrase.mockClear();
   mockDeriveAesKey.mockClear();
-  mockDeriveEvm.mockClear();
-  mockSetWalletAddress.mockClear();
   mockSetEncryptionKey.mockClear();
   mockUseCoreState.mockReturnValue({
     snapshot: { currentUser: mockUser, sessionToken: 'jwt-token' },
@@ -425,11 +414,10 @@ describe('Mnemonic — import mode: validation', () => {
 
 describe('Mnemonic — handleContinue: generate mode', () => {
   it('shows loading text while processing', async () => {
-    // Make setWalletAddress hang so we can observe the loading state
-    let resolveWallet!: () => void;
-    mockSetWalletAddress.mockReturnValueOnce(
+    let resolveEncryptionKey!: () => void;
+    mockSetEncryptionKey.mockReturnValueOnce(
       new Promise<void>(res => {
-        resolveWallet = res;
+        resolveEncryptionKey = res;
       })
     );
 
@@ -443,7 +431,7 @@ describe('Mnemonic — handleContinue: generate mode', () => {
     await waitFor(() => expect(screen.getByText('Securing Your Data...')).toBeInTheDocument());
 
     await act(async () => {
-      resolveWallet();
+      resolveEncryptionKey();
     });
   });
 
@@ -455,11 +443,10 @@ describe('Mnemonic — handleContinue: generate mode', () => {
       fireEvent.click(continueButton());
     });
 
-    await waitFor(() => expect(mockSetWalletAddress).toHaveBeenCalled());
     expect(mockSetEncryptionKey).toHaveBeenCalledWith('aes-key-hex');
   });
 
-  it('calls deriveAesKeyFromMnemonic and deriveEvmAddressFromMnemonic with the mnemonic', async () => {
+  it('calls deriveAesKeyFromMnemonic with the generated mnemonic', async () => {
     renderWithUser();
     fireEvent.click(screen.getByRole('checkbox'));
 
@@ -467,20 +454,7 @@ describe('Mnemonic — handleContinue: generate mode', () => {
       fireEvent.click(continueButton());
     });
 
-    await waitFor(() => expect(mockSetWalletAddress).toHaveBeenCalled());
     expect(mockDeriveAesKey).toHaveBeenCalledWith(FIXED_MNEMONIC);
-    expect(mockDeriveEvm).toHaveBeenCalledWith(FIXED_MNEMONIC);
-  });
-
-  it('calls skillManager.setWalletAddress with the derived EVM address', async () => {
-    renderWithUser();
-    fireEvent.click(screen.getByRole('checkbox'));
-
-    await act(async () => {
-      fireEvent.click(continueButton());
-    });
-
-    await waitFor(() => expect(mockSetWalletAddress).toHaveBeenCalledWith('0xDeAdBeEf'));
   });
 
   it('shows "User not loaded" error when user._id is missing', async () => {
@@ -523,7 +497,6 @@ describe('Mnemonic — handleContinue: generate mode', () => {
 
     // No dispatch should have happened
     await new Promise(r => setTimeout(r, 50));
-    expect(mockSetWalletAddress).not.toHaveBeenCalled();
     expect(mockSetEncryptionKey).not.toHaveBeenCalled();
   });
 });
@@ -537,7 +510,7 @@ describe('Mnemonic — handleContinue: import mode', () => {
     mockValidateMnemonicPhrase.mockReturnValue(true);
   });
 
-  it('derives keys from the imported phrase and navigates to /home', async () => {
+  it('derives the encryption key from the imported phrase and navigates to /home', async () => {
     renderWithUser();
     switchToImport();
     fillAllImportWords();
@@ -546,7 +519,6 @@ describe('Mnemonic — handleContinue: import mode', () => {
       fireEvent.click(continueButton());
     });
 
-    await waitFor(() => expect(mockSetWalletAddress).toHaveBeenCalledWith('0xDeAdBeEf'));
     expect(mockDeriveAesKey).toHaveBeenCalledWith(FIXED_MNEMONIC);
   });
 
@@ -559,7 +531,6 @@ describe('Mnemonic — handleContinue: import mode', () => {
       fireEvent.click(continueButton());
     });
 
-    await waitFor(() => expect(mockSetWalletAddress).toHaveBeenCalled());
     expect(mockSetEncryptionKey).toHaveBeenCalledWith('aes-key-hex');
   });
 
@@ -596,8 +567,8 @@ describe('Mnemonic — handleContinue: import mode', () => {
     await waitFor(() => expect(screen.getByText(/user not loaded/i)).toBeInTheDocument());
   });
 
-  it('shows an error when skillManager.setWalletAddress throws during import', async () => {
-    mockSetWalletAddress.mockRejectedValueOnce(new Error('wallet error'));
+  it('shows an error when setEncryptionKey throws during import', async () => {
+    mockSetEncryptionKey.mockRejectedValueOnce(new Error('encryption error'));
 
     renderWithUser();
     switchToImport();
@@ -607,7 +578,7 @@ describe('Mnemonic — handleContinue: import mode', () => {
       fireEvent.click(continueButton());
     });
 
-    await waitFor(() => expect(screen.getByText('wallet error')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('encryption error')).toBeInTheDocument());
   });
 });
 
@@ -617,10 +588,10 @@ describe('Mnemonic — handleContinue: import mode', () => {
 
 describe('Mnemonic — loading state', () => {
   it('disables Continue button while loading', async () => {
-    let resolveWallet!: () => void;
-    mockSetWalletAddress.mockReturnValueOnce(
+    let resolveEncryptionKey!: () => void;
+    mockSetEncryptionKey.mockReturnValueOnce(
       new Promise<void>(res => {
-        resolveWallet = res;
+        resolveEncryptionKey = res;
       })
     );
 
@@ -635,7 +606,7 @@ describe('Mnemonic — loading state', () => {
     expect(btn).toBeDisabled();
 
     await act(async () => {
-      resolveWallet();
+      resolveEncryptionKey();
     });
   });
 

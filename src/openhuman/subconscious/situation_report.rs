@@ -253,70 +253,7 @@ async fn build_graph_section(client: &MemoryClient, last_tick_at: f64) -> String
 }
 
 async fn build_skills_section() -> String {
-    // Call the skills_list RPC internally via the controller registry
-    let params = serde_json::Map::new();
-    let result = crate::core::all::try_invoke_registered_rpc("openhuman.skills_list", params).await;
-
-    let skills_value = match result {
-        Some(Ok(value)) => value,
-        Some(Err(_)) | None => {
-            return "## Skills Runtime\n\nSkill registry unavailable.\n".to_string();
-        }
-    };
-
-    let skills = match skills_value.as_array() {
-        Some(arr) => arr,
-        None => {
-            return "## Skills Runtime\n\nNo skills data.\n".to_string();
-        }
-    };
-
-    if skills.is_empty() {
-        return "## Skills Runtime\n\nNo skills installed.\n".to_string();
-    }
-
-    let mut section = String::from("## Skills Runtime\n\n");
-    for skill in skills {
-        let name = skill
-            .get("skill_id")
-            .or_else(|| skill.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let status = skill
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let setup = skill
-            .get("setup_complete")
-            .and_then(|v| v.as_bool())
-            .map(|b| if b { "ready" } else { "not setup" })
-            .unwrap_or("?");
-        let connection = skill
-            .get("connection_status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let mut line = format!("- {name}: {status}");
-        if !connection.is_empty() && connection != status {
-            line.push_str(&format!(" ({connection})"));
-        }
-        if setup == "not setup" {
-            line.push_str(" [not setup]");
-        }
-
-        if let Some(err) = skill
-            .get("connection_error")
-            .or_else(|| skill.get("lastError"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-        {
-            let truncated_err = truncate_at_char_boundary(err, 100);
-            line.push_str(&format!(" ERROR: {truncated_err}"));
-        }
-
-        let _ = writeln!(section, "{line}");
-    }
-    section
+    "## Integrations\n\nLocal QuickJS skills have been removed. Use the Composio and channel sections for current integration state.\n".to_string()
 }
 
 fn append_section(report: &mut String, remaining: &mut usize, section: &str) {

@@ -1,7 +1,6 @@
 mod archetype_delegation;
 mod ask_clarification;
 mod delegate;
-mod skill_delegation;
 mod spawn_subagent;
 
 use crate::core::event_bus::{publish_global, DomainEvent};
@@ -37,7 +36,7 @@ pub(crate) async fn dispatch_subagent(
     agent_id: &str,
     tool_name: &str,
     prompt: &str,
-    skill_filter: Option<&str>,
+    _skill_filter: Option<&str>,
 ) -> anyhow::Result<ToolResult> {
     let registry = match AgentDefinitionRegistry::global() {
         Some(reg) => reg,
@@ -58,12 +57,6 @@ pub(crate) async fn dispatch_subagent(
             )));
         }
     };
-
-    if let Some(skill) = skill_filter {
-        if let Err(err) = spawn_subagent::validate_skill_filter_public(skill) {
-            return Ok(ToolResult::error(err));
-        }
-    }
 
     let parent_session = current_parent()
         .map(|p| p.session_id.clone())
@@ -86,7 +79,7 @@ pub(crate) async fn dispatch_subagent(
     );
 
     let options = SubagentRunOptions {
-        skill_filter_override: skill_filter.map(|s| s.to_string()),
+        skill_filter_override: None,
         category_filter_override: None,
         context: None,
         task_id: Some(task_id.clone()),
@@ -124,20 +117,7 @@ pub(crate) async fn dispatch_subagent(
     }
 }
 
-pub(crate) fn skill_description(skill_id: &str) -> String {
-    match skill_id {
-        "notion" => "Interact with Notion: search pages, create and update pages and databases, manage blocks and comments.".into(),
-        "gmail" => "Interact with Gmail: read emails, send messages, search inbox, manage labels.".into(),
-        "slack" => "Interact with Slack: send messages, read channels, manage conversations.".into(),
-        "google-calendar" | "calendar" => "Interact with Google Calendar: view events, create meetings, manage schedules.".into(),
-        "google-drive" | "drive" => "Interact with Google Drive: manage files, folders, and sharing.".into(),
-        "github" => "Interact with GitHub: manage repos, issues, pull requests, and code.".into(),
-        _ => format!("Interact with the {skill_id} integration."),
-    }
-}
-
 pub use archetype_delegation::ArchetypeDelegationTool;
 pub use ask_clarification::AskClarificationTool;
 pub use delegate::DelegateTool;
-pub use skill_delegation::SkillDelegationTool;
-pub use spawn_subagent::{validate_skill_filter_public, SpawnSubagentTool};
+pub use spawn_subagent::SpawnSubagentTool;

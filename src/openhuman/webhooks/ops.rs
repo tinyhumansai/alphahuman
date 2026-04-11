@@ -2,7 +2,6 @@ use crate::api::config::effective_api_url;
 use crate::api::jwt::get_session_token;
 use crate::api::BackendOAuthClient;
 use crate::openhuman::config::Config;
-use crate::openhuman::skills::global_engine;
 use crate::openhuman::webhooks::{
     WebhookDebugLogListResult, WebhookDebugLogsClearedResult, WebhookDebugRegistrationsResult,
     WebhookRequest, WebhookResponseData,
@@ -42,9 +41,8 @@ async fn get_authed_value(
 }
 
 pub async fn list_registrations() -> Result<RpcOutcome<WebhookDebugRegistrationsResult>, String> {
-    let engine = global_engine().ok_or_else(|| "skill runtime not initialized".to_string())?;
-    let registrations = engine.webhook_router().list_all();
-    let count = registrations.len();
+    let registrations = Vec::new();
+    let count = 0usize;
 
     Ok(RpcOutcome::single_log(
         WebhookDebugRegistrationsResult { registrations },
@@ -55,9 +53,9 @@ pub async fn list_registrations() -> Result<RpcOutcome<WebhookDebugRegistrations
 pub async fn list_logs(
     limit: Option<usize>,
 ) -> Result<RpcOutcome<WebhookDebugLogListResult>, String> {
-    let engine = global_engine().ok_or_else(|| "skill runtime not initialized".to_string())?;
-    let logs = engine.webhook_router().list_logs(limit);
-    let count = logs.len();
+    let _ = limit;
+    let logs = Vec::new();
+    let count = 0usize;
 
     Ok(RpcOutcome::single_log(
         WebhookDebugLogListResult { logs },
@@ -66,8 +64,7 @@ pub async fn list_logs(
 }
 
 pub async fn clear_logs() -> Result<RpcOutcome<WebhookDebugLogsClearedResult>, String> {
-    let engine = global_engine().ok_or_else(|| "skill runtime not initialized".to_string())?;
-    let cleared = engine.webhook_router().clear_logs();
+    let cleared = 0usize;
 
     Ok(RpcOutcome::single_log(
         WebhookDebugLogsClearedResult { cleared },
@@ -80,10 +77,8 @@ pub async fn register_echo(
     tunnel_name: Option<String>,
     backend_tunnel_id: Option<String>,
 ) -> Result<RpcOutcome<WebhookDebugRegistrationsResult>, String> {
-    let engine = global_engine().ok_or_else(|| "skill runtime not initialized".to_string())?;
-    let router = engine.webhook_router();
-    router.register_echo(tunnel_uuid, tunnel_name, backend_tunnel_id)?;
-    let registrations = router.list_all();
+    let _ = (tunnel_name, backend_tunnel_id);
+    let registrations = Vec::new();
 
     Ok(RpcOutcome::single_log(
         WebhookDebugRegistrationsResult { registrations },
@@ -94,10 +89,7 @@ pub async fn register_echo(
 pub async fn unregister_echo(
     tunnel_uuid: &str,
 ) -> Result<RpcOutcome<WebhookDebugRegistrationsResult>, String> {
-    let engine = global_engine().ok_or_else(|| "skill runtime not initialized".to_string())?;
-    let router = engine.webhook_router();
-    router.unregister(tunnel_uuid, "echo")?;
-    let registrations = router.list_all();
+    let registrations = Vec::new();
 
     Ok(RpcOutcome::single_log(
         WebhookDebugRegistrationsResult { registrations },

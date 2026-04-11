@@ -3,9 +3,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 import { getCoreStateSnapshot } from '../lib/coreState/store';
-import { skillManager } from '../lib/skills/manager';
-import { emitSkillStateChange } from '../lib/skills/skillEvents';
-import { startSkill } from '../lib/skills/skillsApi';
 import { consumeLoginToken } from '../services/api/authApi';
 import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
 import { evaluateOAuthAppVersionGate } from './oauthAppVersionGate';
@@ -105,7 +102,7 @@ const handlePaymentDeepLink = async (parsed: URL) => {
 };
 
 /**
- * Handle `openhuman://oauth/success?integrationId=...&skillId=...`
+ * Handle `openhuman://oauth/success?...`
  * and `openhuman://oauth/error?error=...&provider=...` deep links.
  */
 const handleOAuthDeepLink = async (parsed: URL) => {
@@ -116,11 +113,11 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
   if (path === 'success') {
     const integrationId = parsed.searchParams.get('integrationId');
-    const skillId = parsed.searchParams.get('skillId');
+    const toolkit = parsed.searchParams.get('toolkit') || parsed.searchParams.get('provider');
 
-    if (!integrationId || !skillId) {
-      // Do not log full URL — query can contain secrets (e.g. clientKey).
-      console.error('[DeepLink] OAuth success missing integrationId or skillId');
+    if (!integrationId) {
+      // Do not log full URL — query can contain secrets.
+      console.error('[DeepLink] OAuth success missing integrationId');
       return;
     }
 
@@ -164,40 +161,17 @@ const handleOAuthDeepLink = async (parsed: URL) => {
             current: versionGate.current,
             minimum: versionGate.minimum,
             downloadUrl: versionGate.downloadUrl,
-            skillId,
             integrationId,
           },
         })
       );
       return;
     }
-
-    // Extract client key share from URL params (returned directly by backend in OAuth callback).
-    const clientKeyShare = parsed.searchParams.get('clientKey') || undefined;
-
     console.log(
-      `[DeepLink] OAuth success for skill=${skillId} integration=${integrationId} encrypted=${!!clientKeyShare}`
+      `[DeepLink] OAuth success for integration=${integrationId}${toolkit ? ` toolkit=${toolkit}` : ''}`
     );
-
-    // 2. Start the skill in the core QuickJS runtime (if not already running).
-    //    This also sets enabled=true via the preferences store.
-    try {
-      await startSkill(skillId);
-      console.log(`[DeepLink] Skill '${skillId}' started in core runtime`);
-    } catch (startErr) {
-      console.warn(`[DeepLink] Could not start skill '${skillId}' in runtime:`, startErr);
-    }
-
-    // 3. Notify the running skill of the OAuth credential and mark setup_complete.
-    //    Initial data sync is left to the user / cron / skill UI — not auto-run here.
-    try {
-      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, { clientKeyShare });
-      console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
-    } catch (runtimeErr) {
-      console.warn('[DeepLink] Runtime notify failed:', runtimeErr);
-    }
-
-    emitSkillStateChange(skillId);
+    window.dispatchEvent(new CustomEvent('oauth:success', { detail: { integrationId, toolkit } }));
+    window.location.hash = '/skills';
   } else if (path === 'error') {
     const error = parsed.searchParams.get('error') ?? 'Unknown error';
     const provider = parsed.searchParams.get('provider') ?? 'unknown';
@@ -273,7 +247,7 @@ export const setupDesktopDeepLinkListener = async () => {
 
     if (typeof window !== 'undefined') {
       // window.__simulateDeepLink('openhuman://auth?token=1234567890')
-      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69cafd0b103bd070232d3223&skillId=notion')
+      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69cafd0b103bd070232d3223&provider=notion')
       const win = window as Window & { __simulateDeepLink?: (url: string) => Promise<void> };
       win.__simulateDeepLink = (url: string) => handleDeepLinkUrls([url]);
     }

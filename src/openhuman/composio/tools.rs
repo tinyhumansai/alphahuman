@@ -58,8 +58,8 @@ impl Tool for ComposioListToolkitsTool {
     }
     fn category(&self) -> ToolCategory {
         // Composio proxies to external SaaS (Gmail, Notion, …), so it
-        // lives in the Skill category alongside QuickJS skill tools and
-        // is picked up by sub-agents with `category_filter = "skill"`.
+        // lives in the Skill category and is picked up by sub-agents
+        // with `category_filter = "skill"`.
         ToolCategory::Skill
     }
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {

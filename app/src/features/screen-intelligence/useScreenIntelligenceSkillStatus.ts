@@ -4,8 +4,8 @@
  */
 import { useMemo } from 'react';
 
-import type { SkillConnectionStatus } from '../../lib/skills/types';
 import { useCoreState } from '../../providers/CoreStateProvider';
+import type { SkillConnectionStatus } from '../../types/skillStatus';
 
 export interface ScreenIntelligenceSkillStatus {
   connectionStatus: SkillConnectionStatus;

@@ -7,9 +7,8 @@
  * `/agent-integrations/composio/*` routes, so the frontend never talks
  * to Composio directly and never handles the API key.
  *
- * This mirrors the shape of `lib/skills/skillsApi.ts`. Keep the two
- * files stylistically consistent so the parallel domain stays easy to
- * grok.
+ * Keep this file stylistically consistent with the other RPC wrappers
+ * in `app/src/utils/tauriCommands` so the domain stays easy to grok.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
 import type {

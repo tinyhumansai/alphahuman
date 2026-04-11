@@ -489,32 +489,11 @@ async fn events_handler(
 
 /// Handler for the webhook debug events SSE endpoint.
 async fn webhook_events_handler() -> Response {
-    let Some(engine) = crate::openhuman::skills::global_engine() else {
-        let stream = tokio_stream::once(Ok::<Event, std::convert::Infallible>(
-            Event::default()
-                .event("webhooks_debug")
-                .data("{\"event_type\":\"runtime_unavailable\"}"),
-        ));
-        return Sse::new(stream)
-            .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(10)))
-            .into_response();
-    };
-
-    let rx = engine.webhook_router().subscribe_debug_events();
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |item| {
-        let event = match item {
-            Ok(ev) => ev,
-            Err(_) => return None,
-        };
-        let data = match serde_json::to_string(&event) {
-            Ok(data) => data,
-            Err(_) => return None,
-        };
-        Some(Ok::<Event, std::convert::Infallible>(
-            Event::default().event("webhooks_debug").data(data),
-        ))
-    });
-
+    let stream = tokio_stream::once(Ok::<Event, std::convert::Infallible>(
+        Event::default()
+            .event("webhooks_debug")
+            .data("{\"event_type\":\"runtime_removed\"}"),
+    ));
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(10)))
         .into_response()
@@ -581,7 +560,7 @@ fn core_host() -> String {
 /// Runs the HTTP/JSON-RPC server.
 ///
 /// This function binds to the specified host and port, initializes the router,
-/// bootstraps the skill runtime, and starts serving requests.
+/// bootstraps long-lived runtime infrastructure, and starts serving requests.
 pub async fn run_server(
     host: Option<&str>,
     port: Option<u16>,
@@ -825,7 +804,6 @@ fn register_domain_subscribers(workspace_dir: std::path::PathBuf) {
         }
 
         crate::openhuman::health::bus::register_health_subscriber();
-        crate::openhuman::skills::bus::register_skill_cleanup_subscriber();
         crate::openhuman::memory::conversations::register_conversation_persistence_subscriber(
             workspace_dir,
         );
@@ -841,47 +819,23 @@ fn register_domain_subscribers(workspace_dir: std::path::PathBuf) {
         crate::openhuman::agent::bus::register_agent_handlers();
 
         log::info!(
-            "[event_bus] webhook, channel, health, skill, composio, restart subscribers + agent native handlers registered"
+            "[event_bus] webhook, channel, health, conversation persistence, composio, restart subscribers + agent native handlers registered"
         );
     });
 }
 
-/// Initializes the QuickJS skill runtime, socket manager, and registers them
-/// globally so RPC handlers (`openhuman.skills_*`, `openhuman.socket_*`) can
-/// reach them.
+/// Initializes long-lived socket/event-bus infrastructure.
 pub async fn bootstrap_skill_runtime() {
-    use crate::openhuman::skills::paths::resolve_runtime_paths;
-    use crate::openhuman::skills::qjs_engine::{set_global_engine, RuntimeEngine};
     use crate::openhuman::socket::{set_global_socket_manager, SocketManager};
     use std::sync::Arc;
-
-    // Resolve per-user scoped paths via Config so `skills_data` lives under
-    // `~/.openhuman/users/{user_id}/skills_data` when an active user is set,
-    // matching how config, workspace, and auth are scoped.
-    let paths = resolve_runtime_paths().await;
-    let skills_data_dir = paths.skills_data_dir.clone();
-    let workspace_dir = paths.workspace_dir.clone();
-
-    if let Err(e) = std::fs::create_dir_all(&skills_data_dir) {
-        log::error!(
-            "[runtime] Failed to create skills data dir {}: {e}",
-            skills_data_dir.display()
-        );
-        return;
-    }
-
-    let engine = match RuntimeEngine::new(skills_data_dir) {
-        Ok(e) => Arc::new(e),
+    let cfg = match crate::openhuman::config::Config::load_or_init().await {
+        Ok(cfg) => cfg,
         Err(e) => {
-            log::error!("[runtime] Failed to create RuntimeEngine: {e}");
+            log::error!("[runtime] Failed to load config for socket manager: {e}");
             return;
         }
     };
-
-    // Point the engine at the (also scoped) workspace directory for
-    // user-installed skills.
-    let _ = std::fs::create_dir_all(&workspace_dir);
-    engine.set_workspace_dir(workspace_dir.clone());
+    let workspace_dir = cfg.workspace_dir.clone();
 
     // --- Event bus bootstrap ---
     // Ensure the global event bus is initialized (no-op if already done by start_channels).
@@ -908,23 +862,6 @@ pub async fn bootstrap_skill_runtime() {
     let socket_mgr = Arc::new(SocketManager::new());
     set_global_socket_manager(socket_mgr.clone());
     log::info!("[socket] SocketManager initialized and registered globally");
-
-    // Register engine globally so RPC handlers can access it.
-    set_global_engine(engine.clone());
-
-    // Start the ping scheduler (background health checks).
-    engine.ping_scheduler().start();
-
-    // Start the cron scheduler.
-    engine.cron_scheduler().start();
-
-    log::info!("[runtime] Skill runtime initialized");
-
-    // Auto-start skills in the background so it doesn't block server startup.
-    let engine_for_skills = engine.clone();
-    tokio::spawn(async move {
-        engine_for_skills.auto_start_skills().await;
-    });
 
     // Auto-connect socket to backend if a session token is already stored.
     // This runs in the background so it doesn't block server startup.

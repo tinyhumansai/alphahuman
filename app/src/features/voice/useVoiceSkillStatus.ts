@@ -7,8 +7,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { SkillConnectionStatus } from '../../lib/skills/types';
 import { useCoreState } from '../../providers/CoreStateProvider';
+import type { SkillConnectionStatus } from '../../types/skillStatus';
 import { isTauri } from '../../utils/tauriCommands/common';
 import {
   openhumanVoiceServerStatus,

@@ -54,7 +54,6 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     match args[0].as_str() {
         "run" | "serve" => run_server_command(&args[1..]),
         "call" => run_call_command(&args[1..]),
-        "skills" => crate::core::skills_cli::run_skills_command(&args[1..]),
         "screen-intelligence" => {
             crate::core::screen_intelligence_cli::run_screen_intelligence_command(&args[1..])
         }

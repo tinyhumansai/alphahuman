@@ -1,6 +1,5 @@
 import { useState } from 'react';
 
-import { skillManager } from '../../lib/skills/manager';
 import { useCoreState } from '../../providers/CoreStateProvider';
 import { persistor } from '../../store';
 import { resetOpenHumanDataAndRestartCore } from '../../utils/tauriCommands';
@@ -41,14 +40,6 @@ const SettingsHome = () => {
     } catch (err) {
       console.warn('[Settings] Failed to reset OpenHuman data dir and restart core:', err);
       throw err;
-    }
-
-    // Best-effort cleanup for in-memory and browser-side caches that live outside the Rust core.
-    try {
-      await skillManager.clearAllSkillsData();
-    } catch (error) {
-      console.warn('Failed to clear skills data:', error);
-      // Continue even if skill cleanup fails because the backend reset already completed.
     }
 
     await persistor.purge();
@@ -247,7 +238,7 @@ const SettingsHome = () => {
                 <p>This will sign you out and permanently delete local app data including:</p>
                 <ul className="list-disc pl-5 mt-2 space-y-1">
                   <li>App settings and conversations</li>
-                  <li>All skills data</li>
+                  <li>All local integration cache data</li>
                   <li>Workspace data</li>
                   <li>All other local data</li>
                 </ul>

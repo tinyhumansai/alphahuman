@@ -1,22 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-
-import SkillDebugModal from './SkillDebugModal';
-import { DefaultIcon, STATUS_DISPLAY, type SkillListEntry } from './shared';
-import {
-  useSkillConnectionStatus,
-  useSkillDataDirectoryStats,
-  useSkillState,
-} from '../../lib/skills/hooks';
-import { skillManager } from '../../lib/skills/manager';
-import type { SkillConnectionStatus, SkillHostConnectionState } from '../../lib/skills/types';
-import {
-  deriveSkillSyncSummaryText,
-  deriveSkillSyncUiState,
-  type SkillSyncStatsLike,
-} from '../../pages/skillsSyncUi';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export interface UnifiedSkillCardProps {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
   statusDot?: string;
@@ -27,7 +12,7 @@ export interface UnifiedSkillCardProps {
   onCtaClick: () => void;
   secondaryActions?: Array<{
     label: string;
-    icon: React.ReactNode;
+    icon: ReactNode;
     onClick: () => void;
     disabled?: boolean;
     testId?: string;
@@ -80,28 +65,26 @@ export function UnifiedSkillCard({
   const ctaStyle = CTA_STYLES[ctaVariant] ?? CTA_STYLES.primary;
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-stone-100 hover:bg-stone-50 transition-colors">
-      <div className="w-8 h-8 flex items-center justify-center text-stone-600 flex-shrink-0">
+    <div className="flex items-center gap-3 rounded-xl border border-stone-100 bg-white p-3 transition-colors hover:bg-stone-50">
+      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center text-stone-600">
         {icon}
       </div>
 
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-stone-900 truncate">{title}</span>
-          {statusDot && (
-            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
-          )}
+          <span className="truncate text-sm font-semibold text-stone-900">{title}</span>
+          {statusDot && <div className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${statusDot}`} />}
           {statusLabel && (
-            <span className={`text-xs flex-shrink-0 ${statusColor ?? 'text-stone-400'}`}>
+            <span className={`flex-shrink-0 text-xs ${statusColor ?? 'text-stone-400'}`}>
               {statusLabel}
             </span>
           )}
         </div>
         {description && (
-          <p className="mt-1 text-xs leading-relaxed text-stone-600 line-clamp-2">{description}</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-stone-600">{description}</p>
         )}
         {syncSummaryText && !syncProgress?.active && (
-          <p className="text-[11px] text-stone-500 truncate mt-1">{syncSummaryText}</p>
+          <p className="mt-1 truncate text-[11px] text-stone-500">{syncSummaryText}</p>
         )}
         {syncProgress?.active && (
           <div className="mt-1.5">
@@ -112,20 +95,22 @@ export function UnifiedSkillCard({
                   style={{ width: `${syncProgress.percent}%` }}
                 />
               ) : (
-                <div className="h-full w-1/2 rounded-full bg-primary-400/80 animate-pulse" />
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-primary-400/80" />
               )}
             </div>
             {syncProgress.message && (
-              <p className="text-[11px] text-primary-600 truncate mt-1">{syncProgress.message}</p>
+              <p className="mt-1 truncate text-[11px] text-primary-600">{syncProgress.message}</p>
             )}
             {syncProgress.metricsText && (
-              <p className="text-[11px] text-stone-500 truncate mt-0.5">{syncProgress.metricsText}</p>
+              <p className="mt-0.5 truncate text-[11px] text-stone-500">
+                {syncProgress.metricsText}
+              </p>
             )}
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center gap-1">
         {secondaryActions && secondaryActions.length > 0 && (
           <div className="relative" ref={menuRef}>
             <button
@@ -134,9 +119,9 @@ export function UnifiedSkillCard({
                 e.stopPropagation();
                 setMenuOpen(prev => !prev);
               }}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
               title="More actions">
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
                 <circle cx="5" cy="12" r="2" />
                 <circle cx="12" cy="12" r="2" />
                 <circle cx="19" cy="12" r="2" />
@@ -171,168 +156,11 @@ export function UnifiedSkillCard({
             e.stopPropagation();
             onCtaClick();
           }}
-          className={`flex-shrink-0 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors ${ctaStyle} ${ctaDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          className={`flex-shrink-0 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors ${ctaStyle} ${ctaDisabled ? 'cursor-not-allowed opacity-50' : ''}`}>
           {ctaLabel}
         </button>
       </div>
     </div>
-  );
-}
-
-// Wrapper that handles all skill hooks and maps to UnifiedSkillCard
-interface ThirdPartySkillCardProps {
-  skill: SkillListEntry;
-  onSetup: () => void;
-  isInstalling?: boolean;
-}
-
-export function ThirdPartySkillCard({ skill, onSetup, isInstalling }: ThirdPartySkillCardProps) {
-  const connectionStatus = useSkillConnectionStatus(skill.id);
-  const statusDisplay = STATUS_DISPLAY[connectionStatus] ?? STATUS_DISPLAY.offline;
-  const skillState = useSkillState<SkillHostConnectionState & Record<string, unknown>>(skill.id);
-  const diskStats = useSkillDataDirectoryStats(skill.id, connectionStatus === 'connected');
-  const syncStats = useMemo((): SkillSyncStatsLike | undefined => {
-    const base: SkillSyncStatsLike = { ...diskStats };
-    const sc = skillState?.syncCount;
-    if (typeof sc === 'number' && Number.isFinite(sc)) base.syncCount = sc;
-    const last =
-      typeof skillState?.lastSyncAtMs === 'number'
-        ? skillState.lastSyncAtMs
-        : typeof skillState?.lastSyncTime === 'number'
-          ? skillState.lastSyncTime
-          : undefined;
-    if (last != null && Number.isFinite(last)) base.lastSyncAtMs = last;
-    if (
-      base.syncCount == null &&
-      base.lastSyncAtMs == null &&
-      base.localDataBytes == null &&
-      base.localFileCount == null
-    ) {
-      return undefined;
-    }
-    return base;
-  }, [diskStats, skillState]);
-
-  const [manualSyncing, setManualSyncing] = useState(false);
-  const [debugOpen, setDebugOpen] = useState(false);
-  const syncUi = useMemo(() => deriveSkillSyncUiState(skill.id, skillState), [skill.id, skillState]);
-  const syncSummaryText = useMemo(
-    () => deriveSkillSyncSummaryText(skillState, syncStats),
-    [skillState, syncStats]
-  );
-  const isSyncing = manualSyncing || syncUi.isSyncing;
-
-  const handleSync = async () => {
-    setManualSyncing(true);
-    try {
-      await skillManager.triggerSync(skill.id);
-    } catch (err) {
-      console.error(`Sync failed for ${skill.id}:`, err);
-    } finally {
-      setManualSyncing(false);
-    }
-  };
-
-  function statusDotClass(status: SkillConnectionStatus): string {
-    switch (status) {
-      case 'connected': return 'bg-sage-500';
-      case 'connecting': return 'bg-amber-500 animate-pulse';
-      case 'error': return 'bg-coral-500';
-      default: return 'bg-stone-400';
-    }
-  }
-
-  function ctaLabel(): string {
-    if (isInstalling) return 'Enabling...';
-    switch (connectionStatus) {
-      case 'offline': return 'Enable';
-      case 'setup_required': return 'Setup';
-      case 'error': return 'Retry';
-      default: return 'Manage';
-    }
-  }
-
-  function ctaVariant(): 'primary' | 'sage' | 'amber' {
-    if (connectionStatus === 'offline') return 'sage';
-    if (connectionStatus === 'error') return 'amber';
-    return 'primary';
-  }
-
-  const secondaryActions =
-    connectionStatus === 'connected'
-      ? [
-          {
-            label: 'Sync',
-            icon: (
-              <svg
-                className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-            ),
-            onClick: () => void handleSync(),
-            disabled: isSyncing,
-            testId: `skill-sync-button-${skill.id}`,
-          },
-          {
-            label: 'Debug',
-            icon: (
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            ),
-            onClick: () => setDebugOpen(true),
-            testId: `skill-debug-button-${skill.id}`,
-          },
-        ]
-      : undefined;
-
-  return (
-    <>
-      <UnifiedSkillCard
-        icon={skill.icon ?? <DefaultIcon />}
-        title={skill.name}
-        description={skill.description}
-        statusDot={statusDotClass(connectionStatus)}
-        statusLabel={statusDisplay.text}
-        statusColor={statusDisplay.color}
-        ctaLabel={ctaLabel()}
-        ctaVariant={ctaVariant()}
-        ctaDisabled={isInstalling}
-        onCtaClick={() => onSetup()}
-        secondaryActions={secondaryActions}
-        syncProgress={
-          isSyncing
-            ? {
-                active: true,
-                percent: syncUi.progressPercent ?? undefined,
-                message: syncUi.progressMessage ?? undefined,
-                metricsText: syncUi.metricsText ?? undefined,
-              }
-            : { active: false }
-        }
-        syncSummaryText={syncSummaryText ?? undefined}
-      />
-      {debugOpen && (
-        <SkillDebugModal
-          skillId={skill.id}
-          skillName={skill.name}
-          onClose={() => setDebugOpen(false)}
-        />
-      )}
-    </>
   );
 }
 

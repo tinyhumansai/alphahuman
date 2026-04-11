@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import type { ReactElement } from 'react';
 
 import BinanceIcon from '../../../assets/icons/binance.svg';
 import GoogleIcon from '../../../assets/icons/GoogleIcon';
 import MetamaskIcon from '../../../assets/icons/metamask.svg';
 import NotionIcon from '../../../assets/icons/notion.svg';
-import type { SkillConnectionStatus } from '../../../lib/skills/types';
-import SkillSetupModal from '../../skills/SkillSetupModal';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -13,62 +11,10 @@ interface ConnectOption {
   id: string;
   name: string;
   description: string;
-  icon: React.ReactElement;
+  icon: ReactElement;
   comingSoon?: boolean;
   skillId?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Status badge mapping
-// ---------------------------------------------------------------------------
-
-const STATUS_BADGE_CONFIG: Record<
-  SkillConnectionStatus,
-  { label: string; bg: string; text: string; border: string }
-> = {
-  connected: {
-    label: 'Connected',
-    bg: 'bg-sage-500/20',
-    text: 'text-sage-400',
-    border: 'border-sage-500/30',
-  },
-  connecting: {
-    label: 'Connecting...',
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
-    border: 'border-amber-500/30',
-  },
-  not_authenticated: {
-    label: 'Not Authenticated',
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
-    border: 'border-amber-500/30',
-  },
-  disconnected: {
-    label: 'Disconnected',
-    bg: 'bg-stone-500/20',
-    text: 'text-stone-400',
-    border: 'border-stone-500/30',
-  },
-  error: {
-    label: 'Error',
-    bg: 'bg-coral-500/20',
-    text: 'text-coral-400',
-    border: 'border-coral-500/30',
-  },
-  offline: {
-    label: 'Offline',
-    bg: 'bg-stone-500/20',
-    text: 'text-stone-400',
-    border: 'border-stone-500/30',
-  },
-  setup_required: {
-    label: 'Setup Required',
-    bg: 'bg-primary-500/20',
-    text: 'text-primary-400',
-    border: 'border-primary-500/30',
-  },
-};
 
 /**
  * Renders a connection option row with its real-time status badge.
@@ -85,31 +31,17 @@ function ConnectionOptionRow({
   isLast: boolean;
   onConnect: (option: ConnectOption) => void;
 }) {
-  const connectionStatus = 'setup_required' as SkillConnectionStatus;
   const isDisabled = option.comingSoon;
 
-  let badge: React.ReactElement;
-  if (option.comingSoon) {
-    badge = (
-      <span className="px-2 py-1 text-xs font-medium rounded-full border bg-stone-500/20 text-stone-400 border-stone-500/30">
-        Coming Soon
-      </span>
-    );
-  } else if (option.skillId) {
-    const config = STATUS_BADGE_CONFIG[connectionStatus];
-    badge = (
-      <span
-        className={`px-2 py-1 text-xs font-medium rounded-full border ${config.bg} ${config.text} ${config.border}`}>
-        {config.label}
-      </span>
-    );
-  } else {
-    badge = (
-      <span className="px-2 py-1 text-xs font-medium rounded-full border bg-primary-500/20 text-primary-400 border-primary-500/30">
-        Connect
-      </span>
-    );
-  }
+  const badge = option.comingSoon ? (
+    <span className="px-2 py-1 text-xs font-medium rounded-full border bg-stone-500/20 text-stone-400 border-stone-500/30">
+      Coming Soon
+    </span>
+  ) : (
+    <span className="px-2 py-1 text-xs font-medium rounded-full border bg-primary-500/20 text-primary-400 border-primary-500/30">
+      Connect
+    </span>
+  );
 
   return (
     <button
@@ -140,11 +72,6 @@ function ConnectionOptionRow({
 
 const ConnectionsPanel = () => {
   const { navigateBack, breadcrumbs } = useSettingsNavigation();
-
-  const [setupModalOpen, setSetupModalOpen] = useState(false);
-  const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
-  const [activeSkillName, setActiveSkillName] = useState<string>('');
-  const [activeSkillDescription, setActiveSkillDescription] = useState<string>('');
 
   const connectOptions: ConnectOption[] = [
     {
@@ -178,13 +105,11 @@ const ConnectionsPanel = () => {
   ];
 
   const handleConnect = (option: ConnectOption) => {
+    // TODO(connections): replace these early returns with the real connect flow.
+    // When `option.comingSoon` is false or `option.skillId` is wired, this should
+    // open the connection modal, route, or dispatch the connect action.
     if (option.comingSoon) return;
-    if (option.skillId) {
-      setActiveSkillId(option.skillId);
-      setActiveSkillName(option.name);
-      setActiveSkillDescription(option.description);
-      setSetupModalOpen(true);
-    }
+    if (option.skillId) return;
   };
 
   return (
@@ -237,19 +162,6 @@ const ConnectionsPanel = () => {
           </div>
         </div>
       </div>
-
-      {/* Setup modal */}
-      {setupModalOpen && activeSkillId && (
-        <SkillSetupModal
-          skillId={activeSkillId}
-          skillName={activeSkillName}
-          skillDescription={activeSkillDescription}
-          onClose={() => {
-            setSetupModalOpen(false);
-            setActiveSkillId(null);
-          }}
-        />
-      )}
     </div>
   );
 };

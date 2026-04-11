@@ -1,10 +1,8 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { skillManager } from '../../../lib/skills/manager';
 import { useCoreState } from '../../../providers/CoreStateProvider';
 import {
   deriveAesKeyFromMnemonic,
-  deriveEvmAddressFromMnemonic,
   generateMnemonicPhrase,
   MNEMONIC_GENERATE_WORD_COUNT,
   validateMnemonicPhrase,
@@ -177,14 +175,11 @@ const RecoveryPhrasePanel = () => {
       }
 
       const aesKey = deriveAesKeyFromMnemonic(phraseToUse);
-      const walletAddress = deriveEvmAddressFromMnemonic(phraseToUse);
-
       if (!user?._id) {
         setError('User not loaded. Please sign in again or refresh the page.');
         return;
       }
       await setEncryptionKey(aesKey);
-      await skillManager.setWalletAddress(walletAddress);
       setSuccess(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');

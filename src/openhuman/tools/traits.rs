@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-// Re-export the unified ToolResult from the skills module so all tools use one type.
+// Re-export the unified ToolResult from the lightweight skills types module so all tools use one type.
 pub use crate::openhuman::skills::types::{ToolContent, ToolResult};
 
 /// Controls where a tool is available.
@@ -24,10 +24,8 @@ pub enum ToolScope {
 /// - **System tools** are built-in Rust implementations (shell, file_read,
 ///   file_write, cron_*, memory_*, …) that run inside the core process
 ///   with direct host access.
-/// - **Skill tools** are QuickJS skill exports bridged through
-///   [`crate::openhuman::tools::SkillToolBridge`]. They
-///   talk to external services (Notion, Gmail, Telegram, …) via
-///   user-installed skill packages.
+/// - **Skill tools** are integration-facing tools that talk to external
+///   services (for example Composio-backed SaaS actions).
 ///
 /// The orchestrator uses this category to spawn dedicated tool-execution
 /// sub-agents: one scoped to `Skill` for service integrations (running
@@ -39,7 +37,7 @@ pub enum ToolCategory {
     /// Built-in Rust tools with direct host access.
     #[default]
     System,
-    /// QuickJS skill tools bridged from the runtime engine.
+    /// Integration-facing tools that reach external services.
     Skill,
 }
 
@@ -92,7 +90,7 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
-/// Core tool trait — implement for any capability (built-in or skill-based).
+/// Core tool trait — implement for any capability (built-in or integration-based).
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// Tool name (used in LLM function calling)
@@ -122,12 +120,7 @@ pub trait Tool: Send + Sync {
     }
 
     /// Category of this tool — `System` for built-in Rust tools (default)
-    /// or `Skill` for tools bridged from the QuickJS skill runtime.
-    ///
-    /// The sub-agent runner uses this to filter the parent's tool
-    /// registry when a sub-agent definition sets `category_filter`.
-    /// Skill-bridged tools override this to return
-    /// [`ToolCategory::Skill`].
+    /// or `Skill` for integration-facing tools.
     fn category(&self) -> ToolCategory {
         ToolCategory::System
     }

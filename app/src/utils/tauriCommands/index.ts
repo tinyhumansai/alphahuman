@@ -15,5 +15,4 @@ export * from './cron';
 export * from './service';
 export * from './accessibility';
 export * from './autocomplete';
-export * from './skills';
 export * from './voice';
