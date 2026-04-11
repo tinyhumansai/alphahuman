@@ -2,15 +2,16 @@
 //!
 //! The [`EventBus`] is a **singleton** — one instance handles all events for
 //! the entire application. Call [`init_global`] once at startup, then use
-//! [`publish_global`], [`subscribe_global`], [`request_global`], and
-//! [`global`] from anywhere.
+//! [`publish_global`], [`subscribe_global`], and [`global`] from anywhere.
+//!
+//! For typed request/response calls between modules, see the parallel
+//! [`super::native_request`] surface — in-process Rust-typed dispatch that
+//! passes trait objects and channels through unchanged (no serialization).
 
 use super::events::DomainEvent;
-use super::request::{ControllerCall, ControllerResponse, EventBusRequestError};
+use super::native_request::init_native_registry;
 use super::subscriber::{EventHandler, FnSubscriber, SubscriptionHandle};
 use futures::FutureExt;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::broadcast;
@@ -27,7 +28,14 @@ pub const DEFAULT_CAPACITY: usize = 256;
 ///
 /// Subsequent calls return the already-initialized bus without changing
 /// the capacity. Panics are impossible — `OnceLock` guarantees single init.
+///
+/// This also initializes the native request registry so that any domain
+/// can immediately register handlers and dispatch requests without worrying
+/// about startup ordering.
 pub fn init_global(capacity: usize) -> &'static EventBus {
+    // Initialize the native request registry first so handler registration
+    // is always safe from anywhere in the process once the bus is up.
+    init_native_registry();
     GLOBAL_BUS.get_or_init(|| {
         tracing::debug!(capacity, "[event_bus] initializing global singleton");
         EventBus::create(capacity)
@@ -55,32 +63,6 @@ pub fn publish_global(event: DomainEvent) {
 /// Silently does nothing and returns `None` if the bus is not yet initialized.
 pub fn subscribe_global(handler: Arc<dyn EventHandler>) -> Option<SubscriptionHandle> {
     GLOBAL_BUS.get().map(|bus| bus.subscribe(handler))
-}
-
-/// Execute a typed controller request on the global bus.
-pub async fn request_global<TReq, TRes>(
-    request: ControllerCall<TReq>,
-) -> Result<ControllerResponse<TRes>, EventBusRequestError>
-where
-    TReq: Serialize,
-    TRes: DeserializeOwned,
-{
-    let bus = GLOBAL_BUS
-        .get()
-        .ok_or(EventBusRequestError::NotInitialized)?;
-    bus.request(request).await
-}
-
-/// Execute a typed controller request by method name and payload.
-pub async fn request_controller_global<TReq, TRes>(
-    method: impl Into<String>,
-    payload: TReq,
-) -> Result<ControllerResponse<TRes>, EventBusRequestError>
-where
-    TReq: Serialize,
-    TRes: DeserializeOwned,
-{
-    request_global(ControllerCall::new(method, payload)).await
 }
 
 // ── EventBus struct ─────────────────────────────────────────────────────
@@ -115,28 +97,6 @@ impl EventBus {
             std::mem::discriminant(&event)
         );
         let _ = self.tx.send(event);
-    }
-
-    /// Execute a typed controller request against the shared registered
-    /// controller registry that also backs JSON-RPC.
-    pub async fn request<TReq, TRes>(
-        &self,
-        request: ControllerCall<TReq>,
-    ) -> Result<ControllerResponse<TRes>, EventBusRequestError>
-    where
-        TReq: Serialize,
-        TRes: DeserializeOwned,
-    {
-        tracing::debug!(
-            method = %request.method,
-            "[event_bus:request] dispatching typed controller request"
-        );
-        request.execute().await
-    }
-
-    /// Return the controller schemas available through the bus request API.
-    pub fn controller_schemas(&self) -> Vec<crate::core::ControllerSchema> {
-        crate::core::all::all_controller_schemas()
     }
 
     /// Subscribe with an [`EventHandler`] implementation.
@@ -237,7 +197,6 @@ impl EventBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::Serialize;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{sleep, Duration};
 
@@ -384,69 +343,4 @@ mod tests {
         assert_eq!(bus.subscriber_count(), 0);
     }
 
-    #[derive(Debug, Serialize)]
-    struct AboutAppListRequest {
-        category: Option<String>,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct UnknownHealthParamRequest {
-        unexpected: bool,
-    }
-
-    #[tokio::test]
-    async fn typed_request_uses_registered_controller_registry() {
-        let bus = EventBus::create(16);
-
-        let response = bus
-            .request::<_, Vec<serde_json::Value>>(ControllerCall::new(
-                "openhuman.about_app_list",
-                AboutAppListRequest { category: None },
-            ))
-            .await
-            .expect("about_app.list should succeed");
-
-        assert_eq!(response.method, "openhuman.about_app_list");
-        assert_eq!(response.schema.namespace, "about_app");
-        assert_eq!(response.schema.function, "list");
-        assert!(
-            !response.value.is_empty(),
-            "capability catalog should not be empty"
-        );
-        assert!(
-            !response.logs.is_empty(),
-            "controller logs should be preserved separately from the typed payload"
-        );
-    }
-
-    #[tokio::test]
-    async fn typed_request_rejects_unknown_params_before_handler() {
-        let bus = EventBus::create(16);
-
-        let error = bus
-            .request::<_, serde_json::Value>(ControllerCall::new(
-                "openhuman.health_snapshot",
-                UnknownHealthParamRequest { unexpected: true },
-            ))
-            .await
-            .expect_err("health.snapshot should reject extra params");
-
-        assert!(
-            matches!(error, EventBusRequestError::InvalidParams(_)),
-            "expected InvalidParams, got {error:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn controller_schema_catalog_is_available_from_bus() {
-        let bus = EventBus::create(16);
-        let schemas = bus.controller_schemas();
-
-        assert!(
-            schemas
-                .iter()
-                .any(|schema| schema.namespace == "about_app" && schema.function == "list"),
-            "controller schema catalog should include registered about_app.list"
-        );
-    }
 }
