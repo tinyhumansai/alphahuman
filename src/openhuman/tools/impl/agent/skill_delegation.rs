@@ -1,0 +1,66 @@
+use async_trait::async_trait;
+use serde_json::json;
+
+use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolCategory, ToolResult};
+
+pub struct SkillDelegationTool {
+    pub tool_name: String,
+    pub skill_id: String,
+    pub tool_description: String,
+}
+
+#[async_trait]
+impl Tool for SkillDelegationTool {
+    fn name(&self) -> &str {
+        &self.tool_name
+    }
+
+    fn description(&self) -> &str {
+        &self.tool_description
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "required": ["prompt"],
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Clear instruction for what to do. Include all relevant context — the sub-agent has no memory of your conversation."
+                }
+            }
+        })
+    }
+
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::Execute
+    }
+
+    fn category(&self) -> ToolCategory {
+        ToolCategory::System
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if prompt.is_empty() {
+            return Ok(ToolResult::error(format!(
+                "{}: `prompt` is required",
+                self.tool_name
+            )));
+        }
+
+        super::dispatch_subagent(
+            "skills_agent",
+            &self.tool_name,
+            &prompt,
+            Some(&self.skill_id),
+        )
+        .await
+    }
+}

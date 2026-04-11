@@ -17,7 +17,7 @@
 //! Both contexts are stashed in `Arc`s so that cloning into the child
 //! costs a refcount bump rather than a full copy.
 
-use crate::openhuman::config::{AgentConfig, IdentityConfig};
+use crate::openhuman::config::AgentConfig;
 use crate::openhuman::memory::Memory;
 use crate::openhuman::providers::{ChatMessage, Provider};
 use crate::openhuman::skills::Skill;
@@ -60,20 +60,22 @@ pub struct ParentExecutionContext {
     pub workspace_dir: PathBuf,
 
     /// Parent's memory backing store. Sub-agents share it for read access
-    /// but use a `NullMemoryLoader` to skip the per-turn context injection.
+    /// but skip the per-turn context injection to save tokens — the
+    /// parent has already recalled and injected the relevant context.
     pub memory: Arc<dyn Memory>,
 
     /// Parent's agent config (for `max_tool_iterations`, `max_memory_context_chars`,
     /// dispatcher choice, …).
     pub agent_config: AgentConfig,
 
-    /// Parent's identity config — handed to sub-agents that opt out of
-    /// `omit_identity` so the prompt builder can resolve workspace files.
-    pub identity_config: IdentityConfig,
-
     /// Skills loaded into the parent. Sub-agents that don't strip the
     /// skills catalog inherit this list.
     pub skills: Arc<Vec<Skill>>,
+
+    /// Memory context loaded for the current turn. Auto-injected into
+    /// subagent prompts so they have access to conversation history and
+    /// skill sync data without running their own memory queries.
+    pub memory_context: Option<String>,
 
     /// Parent's event-bus session id (for tracing & DomainEvents).
     pub session_id: String,
@@ -299,8 +301,8 @@ mod tests {
             workspace_dir: std::path::PathBuf::from("/tmp"),
             memory: Arc::new(StubMemory),
             agent_config: AgentConfig::default(),
-            identity_config: IdentityConfig::default(),
             skills: Arc::new(vec![]),
+            memory_context: None,
             session_id: "test-session".into(),
             channel: "test-channel".into(),
         }

@@ -103,9 +103,6 @@ pub struct Config {
     pub proxy: ProxyConfig,
 
     #[serde(default)]
-    pub identity: IdentityConfig,
-
-    #[serde(default)]
     pub cost: CostConfig,
 
     #[serde(default)]
@@ -178,7 +175,6 @@ impl Default for Config {
             multimodal: MultimodalConfig::default(),
             web_search: WebSearchConfig::default(),
             proxy: ProxyConfig::default(),
-            identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),

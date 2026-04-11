@@ -41,13 +41,11 @@ pub use channels::{
 pub use dictation::{DictationActivationMode, DictationConfig};
 pub use hardware::{HardwareConfig, HardwareTransport};
 pub use heartbeat_cron::{CronConfig, HeartbeatConfig};
-pub use identity_cost::{
-    CostConfig, IdentityConfig, ModelPricing, PeripheralBoardConfig, PeripheralsConfig,
-};
+pub use identity_cost::{CostConfig, ModelPricing, PeripheralBoardConfig, PeripheralsConfig};
 pub use learning::{LearningConfig, ReflectionSource};
 pub use local_ai::LocalAiConfig;
 pub use observability::ObservabilityConfig;
-pub use orchestrator::{ArchetypeConfig, OrchestratorConfig};
+pub use orchestrator::OrchestratorConfig;
 pub use proxy::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,
     build_runtime_proxy_client_with_timeouts, runtime_proxy_config, set_runtime_proxy_config,

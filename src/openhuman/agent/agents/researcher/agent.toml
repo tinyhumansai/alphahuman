@@ -1,0 +1,16 @@
+id = "researcher"
+display_name = "Researcher"
+when_to_use = "Web & docs crawler — reads real documentation, compresses to dense markdown. Use for any task that requires looking up external knowledge."
+temperature = 0.4
+max_iterations = 8
+sandbox_mode = "none"
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = true
+omit_skills_catalog = true
+
+[model]
+hint = "agentic"
+
+[tools]
+named = ["http_request", "web_search", "file_read", "memory_recall"]

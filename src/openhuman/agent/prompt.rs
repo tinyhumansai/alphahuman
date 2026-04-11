@@ -1,5 +1,3 @@
-use super::identity;
-use crate::openhuman::config::IdentityConfig;
 use crate::openhuman::skills::Skill;
 use crate::openhuman::tools::Tool;
 use anyhow::Result;
@@ -25,10 +23,13 @@ pub struct PromptContext<'a> {
     pub model_name: &'a str,
     pub tools: &'a [Box<dyn Tool>],
     pub skills: &'a [Skill],
-    pub identity_config: Option<&'a IdentityConfig>,
     pub dispatcher_instructions: &'a str,
     /// Pre-fetched learned context (empty when learning is disabled).
     pub learned: LearnedContextData,
+    /// When non-empty, only tools in this set are rendered in the prompt.
+    /// Skills section is omitted when a filter is active (the main agent
+    /// delegates skill work to sub-agents).
+    pub visible_tool_names: &'a std::collections::HashSet<String>,
 }
 
 pub trait PromptSection: Send + Sync {
@@ -172,36 +173,28 @@ impl PromptSection for IdentitySection {
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
         let mut prompt = String::from("## Project Context\n\n");
-        let mut has_aieos = false;
-        if let Some(config) = ctx.identity_config {
-            if identity::is_aieos_configured(config) {
-                if let Ok(Some(aieos)) = identity::load_aieos_identity(config, ctx.workspace_dir) {
-                    let rendered = identity::aieos_to_system_prompt(&aieos);
-                    if !rendered.is_empty() {
-                        prompt.push_str(&rendered);
-                        prompt.push_str("\n\n");
-                        has_aieos = true;
-                    }
-                }
+        prompt.push_str(
+            "The following workspace files define your identity, behavior, and context.\n\n",
+        );
+        // When the visible-tool filter is active the main agent is a pure
+        // orchestrator: it routes via spawn_subagent, synthesises results,
+        // and talks to the user. It does NOT need the periodic-task config
+        // (HEARTBEAT.md) — subagents handle their own concerns.
+        let is_orchestrator = !ctx.visible_tool_names.is_empty();
+        let all_files: &[&str] = &["SOUL.md", "IDENTITY.md", "USER.md", "HEARTBEAT.md"];
+        // Orchestrator skips these from the prompt but we still sync them
+        // to disk so they stay current.
+        let skip_in_prompt: &[&str] = if is_orchestrator {
+            &["HEARTBEAT.md"]
+        } else {
+            &[]
+        };
+        for file in all_files {
+            // Always sync to disk so builtin updates ship.
+            sync_workspace_file(ctx.workspace_dir, file);
+            if !skip_in_prompt.contains(file) {
+                inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
             }
-        }
-
-        if !has_aieos {
-            prompt.push_str(
-                "The following workspace files define your identity, behavior, and context.\n\n",
-            );
-        }
-        for file in [
-            "AGENTS.md",
-            "SOUL.md",
-            "TOOLS.md",
-            "IDENTITY.md",
-            "USER.md",
-            "HEARTBEAT.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ] {
-            inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
         }
 
         Ok(prompt)
@@ -215,7 +208,12 @@ impl PromptSection for ToolsSection {
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
         let mut out = String::from("## Tools\n\n");
+        let has_filter = !ctx.visible_tool_names.is_empty();
         for tool in ctx.tools {
+            // Skip tools not in the visible set when a filter is active.
+            if has_filter && !ctx.visible_tool_names.contains(tool.name()) {
+                continue;
+            }
             let _ = writeln!(
                 out,
                 "- **{}**: {}\n  Parameters: `{}`",
@@ -248,7 +246,9 @@ impl PromptSection for SkillsSection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        if ctx.skills.is_empty() {
+        // When a visible-tool filter is active the main agent delegates
+        // all skill work to sub-agents — skip the skills catalog.
+        if ctx.skills.is_empty() || !ctx.visible_tool_names.is_empty() {
             return Ok(String::new());
         }
 
@@ -324,14 +324,53 @@ fn is_dynamic_section(name: &str) -> bool {
     matches!(name, "workspace" | "datetime" | "runtime")
 }
 
+/// Ensure the workspace file is up-to-date with the compiled-in default.
+///
+/// On first install the file doesn't exist → write it. On subsequent runs
+/// we store a hash of the compiled-in content in a sidecar file
+/// (`.{filename}.builtin-hash`). If the hash changes (code was updated),
+/// the disk file is overwritten so prompt improvements ship automatically.
+/// User edits between code releases are preserved — we only overwrite when
+/// the built-in default itself changes.
+fn sync_workspace_file(workspace_dir: &Path, filename: &str) {
+    let default_content = default_workspace_file_content(filename);
+    if default_content.is_empty() {
+        return;
+    }
+
+    let path = workspace_dir.join(filename);
+    let hash_path = workspace_dir.join(format!(".{filename}.builtin-hash"));
+
+    // Compute a simple hash of the current compiled-in content.
+    let current_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        default_content.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    };
+
+    // Read the last-written hash (if any).
+    let stored_hash = std::fs::read_to_string(&hash_path).unwrap_or_default();
+
+    if stored_hash.trim() == current_hash && path.exists() {
+        // Built-in hasn't changed and file exists — nothing to do.
+        return;
+    }
+
+    // Either first install, or the compiled-in default changed → write it.
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&path, default_content) {
+        log::warn!("[agent:prompt] failed to write workspace file {filename}: {e}");
+        return;
+    }
+    let _ = std::fs::write(&hash_path, &current_hash);
+    log::info!("[agent:prompt] updated workspace file {filename} (builtin content changed)");
+}
+
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {
     let path = workspace_dir.join(filename);
-    if !path.exists() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&path, default_workspace_file_content(filename));
-    }
 
     match std::fs::read_to_string(&path) {
         Ok(content) => {
@@ -368,16 +407,12 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
 
 fn default_workspace_file_content(filename: &str) -> &'static str {
     match filename {
-        "AGENTS.md" => include_str!("prompts/AGENTS.md"),
         "SOUL.md" => include_str!("prompts/SOUL.md"),
-        "TOOLS.md" => include_str!("prompts/TOOLS.md"),
         "IDENTITY.md" => include_str!("prompts/IDENTITY.md"),
         "USER.md" => include_str!("prompts/USER.md"),
         "HEARTBEAT.md" => {
             "# Periodic Tasks\n\n# Add tasks below (one per line, starting with `- `)\n"
         }
-        "BOOTSTRAP.md" => include_str!("prompts/BOOTSTRAP.md"),
-        "MEMORY.md" => include_str!("prompts/MEMORY.md"),
         _ => "",
     }
 }
@@ -387,6 +422,10 @@ mod tests {
     use super::*;
     use crate::openhuman::tools::traits::Tool;
     use async_trait::async_trait;
+    use std::collections::HashSet;
+    use std::sync::LazyLock;
+
+    static NO_FILTER: LazyLock<HashSet<String>> = LazyLock::new(HashSet::new);
 
     struct TestTool;
 
@@ -413,49 +452,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_section_with_aieos_includes_workspace_files() {
-        let workspace =
-            std::env::temp_dir().join(format!("openhuman_prompt_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&workspace).unwrap();
-        std::fs::write(
-            workspace.join("AGENTS.md"),
-            "Always respond with: AGENTS_MD_LOADED",
-        )
-        .unwrap();
-
-        let identity_config = crate::openhuman::config::IdentityConfig {
-            format: "aieos".into(),
-            aieos_path: None,
-            aieos_inline: Some(r#"{"identity":{"names":{"first":"Nova"}}}"#.into()),
-        };
-
-        let tools: Vec<Box<dyn Tool>> = vec![];
-        let ctx = PromptContext {
-            workspace_dir: &workspace,
-            model_name: "test-model",
-            tools: &tools,
-            skills: &[],
-            identity_config: Some(&identity_config),
-            dispatcher_instructions: "",
-            learned: LearnedContextData::default(),
-        };
-
-        let section = IdentitySection;
-        let output = section.build(&ctx).unwrap();
-
-        assert!(
-            output.contains("Nova"),
-            "AIEOS identity should be present in prompt"
-        );
-        assert!(
-            output.contains("AGENTS_MD_LOADED"),
-            "AGENTS.md content should be present even when AIEOS is configured"
-        );
-
-        let _ = std::fs::remove_dir_all(workspace);
-    }
-
-    #[test]
     fn prompt_builder_assembles_sections() {
         let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
         let ctx = PromptContext {
@@ -463,9 +459,9 @@ mod tests {
             model_name: "test-model",
             tools: &tools,
             skills: &[],
-            identity_config: None,
             dispatcher_instructions: "instr",
             learned: LearnedContextData::default(),
+            visible_tool_names: &NO_FILTER,
         };
         let prompt = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
         assert!(prompt.contains("## Tools"));
@@ -485,33 +481,24 @@ mod tests {
             model_name: "test-model",
             tools: &tools,
             skills: &[],
-            identity_config: None,
             dispatcher_instructions: "",
             learned: LearnedContextData::default(),
+            visible_tool_names: &NO_FILTER,
         };
 
         let section = IdentitySection;
         let _ = section.build(&ctx).unwrap();
 
-        for file in [
-            "AGENTS.md",
-            "SOUL.md",
-            "TOOLS.md",
-            "IDENTITY.md",
-            "USER.md",
-            "HEARTBEAT.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ] {
+        for file in ["SOUL.md", "IDENTITY.md", "USER.md", "HEARTBEAT.md"] {
             assert!(
                 workspace.join(file).exists(),
                 "expected workspace file to be created: {file}"
             );
         }
-        let agents = std::fs::read_to_string(workspace.join("AGENTS.md")).unwrap();
+        let soul = std::fs::read_to_string(workspace.join("SOUL.md")).unwrap();
         assert!(
-            agents.starts_with("# OpenHuman Agents"),
-            "AGENTS.md should be seeded from src/openhuman/agent/prompts/AGENTS.md"
+            soul.starts_with("# OpenHuman"),
+            "SOUL.md should be seeded from src/openhuman/agent/prompts/SOUL.md"
         );
 
         let _ = std::fs::remove_dir_all(workspace);
@@ -525,9 +512,9 @@ mod tests {
             model_name: "test-model",
             tools: &tools,
             skills: &[],
-            identity_config: None,
             dispatcher_instructions: "instr",
             learned: LearnedContextData::default(),
+            visible_tool_names: &NO_FILTER,
         };
 
         let rendered = DateTimeSection.build(&ctx).unwrap();

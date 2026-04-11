@@ -4,6 +4,8 @@
 //! skills registry and runtime: skill installation, and runtime control
 //! (start, stop, tool calls, etc.).
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -13,6 +15,7 @@ use crate::openhuman::config::rpc as config_rpc;
 
 use super::qjs_engine::require_engine;
 use super::registry_ops;
+use super::types::{derive_connection_status, SkillSnapshot, SkillStatus};
 
 /// Returns all controller schemas defined in this module.
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
@@ -632,6 +635,20 @@ fn handle_skills_install(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let config = config_rpc::load_config_with_timeout().await?;
+
+        // Sync the engine's workspace_dir with the current config so that a
+        // subsequent `skills_start` call finds the files we are about to write.
+        // This is necessary when the user logged in *after* the core bootstrapped:
+        // the engine was initialised with the pre-login (unscoped) workspace path,
+        // but config.workspace_dir now points to the user-scoped directory.
+        if let Ok(engine) = require_engine() {
+            log::debug!(
+                "[skills_install] syncing engine workspace_dir to {:?}",
+                config.workspace_dir
+            );
+            engine.set_workspace_dir(config.workspace_dir.clone());
+        }
+
         registry_ops::skill_install(&config.workspace_dir, &p.skill_id).await?;
         Ok(serde_json::json!({
             "success": true,
@@ -692,6 +709,23 @@ fn handle_skills_start(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
+
+        // Refresh the engine's workspace_dir from config every time a skill is
+        // started.  The engine's workspace_dir is set once at bootstrap using
+        // the paths resolved at that moment.  If the user was not yet logged in
+        // at startup the engine ends up with the unscoped legacy workspace path
+        // (`~/.openhuman/workspace`), while `skills_install` writes to the
+        // user-scoped path derived from `config.workspace_dir`.  Without this
+        // sync `start_skill` cannot find the installed manifest and fails with
+        // "Skill '…' not found (no manifest.json)".
+        if let Ok(config) = config_rpc::load_config_with_timeout().await {
+            log::debug!(
+                "[skills_start] syncing engine workspace_dir to {:?}",
+                config.workspace_dir
+            );
+            engine.set_workspace_dir(config.workspace_dir);
+        }
+
         let snapshot = engine.start_skill(&p.skill_id).await?;
         serde_json::to_value(&snapshot).map_err(|e| e.to_string())
     })
@@ -717,9 +751,28 @@ fn handle_skills_status(params: Map<String, Value>) -> ControllerFuture {
         let p: SkillIdParams =
             serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
         let engine = require_engine()?;
-        let snapshot = engine
-            .get_skill_state(&p.skill_id)
-            .ok_or_else(|| format!("Skill '{}' not found in runtime", p.skill_id))?;
+        let snapshot = if let Some(snap) = engine.get_skill_state(&p.skill_id) {
+            snap
+        } else {
+            // Not loaded in QuickJS (never started, still starting, or failed to start).
+            // Still return persisted prefs — especially `setup_complete` after OAuth —
+            // so the UI is not stuck waiting for a snapshot that would only exist once
+            // the runtime has the skill registered.
+            let setup_complete = engine.preferences().is_setup_complete(&p.skill_id);
+            let status = SkillStatus::Pending;
+            let state = HashMap::new();
+            let connection_status = derive_connection_status(status, setup_complete, &state);
+            SkillSnapshot {
+                skill_id: p.skill_id.clone(),
+                name: p.skill_id.clone(),
+                status,
+                tools: vec![],
+                error: None,
+                state,
+                setup_complete,
+                connection_status,
+            }
+        };
         serde_json::to_value(&snapshot).map_err(|e| e.to_string())
     })
 }

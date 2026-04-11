@@ -17,9 +17,6 @@ use std::sync::Arc;
 pub const DEFAULT_FASTEMBED_MODEL: &str = "BGESmallENV15";
 /// Default dimensions for the BGESmallENV15 model.
 pub const DEFAULT_FASTEMBED_DIMENSIONS: usize = 384;
-/// Internal path for managed model storage.
-const DEFAULT_MANAGED_RELEX_DIR: &str = ".openhuman/models/gliner-relex-large-v0.5-onnx";
-
 /// Interface for embedding providers that convert text into numerical vectors.
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
@@ -146,44 +143,6 @@ fn ensure_fastembed_ort_dylib_path() {
         if runtime_lib.exists() {
             env::set_var("ORT_DYLIB_PATH", runtime_lib);
             return;
-        }
-    }
-
-    // Check custom cache directory.
-    if let Ok(path) = env::var("OPENHUMAN_GLINER_RELEX_CACHE_DIR") {
-        #[cfg(target_os = "windows")]
-        let bundled = PathBuf::from(path).join("onnxruntime.dll");
-        #[cfg(target_os = "macos")]
-        let bundled = PathBuf::from(path).join("libonnxruntime.dylib");
-        #[cfg(target_os = "linux")]
-        let bundled = PathBuf::from(path).join("libonnxruntime.so");
-
-        if bundled.exists() {
-            env::set_var("ORT_DYLIB_PATH", bundled);
-            return;
-        }
-    }
-
-    // Check managed model directory in user's home.
-    if let Some(user_dirs) = directories::UserDirs::new() {
-        #[cfg(target_os = "windows")]
-        let bundled = user_dirs
-            .home_dir()
-            .join(DEFAULT_MANAGED_RELEX_DIR)
-            .join("onnxruntime.dll");
-        #[cfg(target_os = "macos")]
-        let bundled = user_dirs
-            .home_dir()
-            .join(DEFAULT_MANAGED_RELEX_DIR)
-            .join("libonnxruntime.dylib");
-        #[cfg(target_os = "linux")]
-        let bundled = user_dirs
-            .home_dir()
-            .join(DEFAULT_MANAGED_RELEX_DIR)
-            .join("libonnxruntime.so");
-
-        if bundled.exists() {
-            env::set_var("ORT_DYLIB_PATH", bundled);
         }
     }
 

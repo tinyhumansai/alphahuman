@@ -1,4 +1,4 @@
-use crate::openhuman::agent::loop_::parse_tool_calls;
+use crate::openhuman::agent::harness::parse_tool_calls;
 use crate::openhuman::providers::{
     ChatMessage, ChatResponse, ConversationMessage, ToolResultMessage,
 };

@@ -3,9 +3,9 @@
 //! This module provides the pipeline for taking raw unstructured text and
 //! transforming it into structured memory. The process includes:
 //! 1. **Chunking**: Splitting the document into manageable pieces.
-//! 2. **Heuristic Extraction**: Using regex-based rules to identify known patterns
+//! 2. **Structured Extraction**: Using regex-based rules to identify known patterns
 //!    (e.g., email headers, specific project labels).
-//! 3. **Semantic Extraction**: Using the GLiNER RelEx model to identify entities
+//! 3. **Heuristic Extraction**: Using rule-based parsing to identify entities
 //!    and their relationships.
 //! 4. **Aggregation**: Resolving aliases, merging duplicates, and normalizing names.
 //! 5. **Persistence**: Upserting the document, text chunks, and graph relations into
@@ -18,16 +18,15 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::relex;
 use crate::openhuman::memory::store::types::NamespaceDocumentInput;
 use crate::openhuman::memory::UnifiedMemory;
 
-/// The default GLiNER model used for relation extraction.
-pub const DEFAULT_GLINER_RELEX_MODEL: &str = "knowledgator/gliner-relex-large-v0.5";
+/// Default extraction backend label reported in ingestion metadata.
+pub const DEFAULT_MEMORY_EXTRACTION_MODEL: &str = "heuristic-only";
 /// Default number of tokens per text chunk during ingestion.
 const DEFAULT_CHUNK_TOKENS: usize = 225;
 
-/// Granularity of extraction for the semantic model.
+/// Granularity of extraction for heuristic parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -53,9 +52,9 @@ impl ExtractionMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryIngestionConfig {
-    /// The name of the RelEx model to use.
+    /// Extraction backend label recorded in metadata/results.
     pub model_name: String,
-    /// The granularity of semantic extraction.
+    /// The granularity of heuristic extraction.
     #[serde(default)]
     pub extraction_mode: ExtractionMode,
     /// Minimum confidence threshold for entity extraction (0.0 to 1.0).
@@ -67,7 +66,7 @@ pub struct MemoryIngestionConfig {
     /// Threshold for adjacency-based heuristics.
     #[serde(default = "default_adjacency_threshold")]
     pub adjacency_threshold: f32,
-    /// Number of units to process in a single model batch.
+    /// Reserved batch-size knob kept for config compatibility.
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
 }
@@ -91,7 +90,7 @@ fn default_batch_size() -> usize {
 impl Default for MemoryIngestionConfig {
     fn default() -> Self {
         Self {
-            model_name: DEFAULT_GLINER_RELEX_MODEL.to_string(),
+            model_name: DEFAULT_MEMORY_EXTRACTION_MODEL.to_string(),
             extraction_mode: ExtractionMode::Sentence,
             entity_threshold: default_entity_threshold(),
             relation_threshold: default_relation_threshold(),
@@ -159,7 +158,7 @@ pub struct MemoryIngestionResult {
     pub document_id: String,
     /// Namespace containing the document.
     pub namespace: String,
-    /// Model used for RelEx.
+    /// Extraction backend label recorded for the ingestion run.
     pub model_name: String,
     /// Mode used for extraction.
     pub extraction_mode: String,
@@ -764,60 +763,6 @@ fn detect_primary_subject(text: &str) -> Option<String> {
     None
 }
 
-fn apply_model_extraction(
-    runtime: &relex::RelexRuntime,
-    unit: &ExtractionUnit,
-    accumulator: &mut ExtractionAccumulator,
-    config: &MemoryIngestionConfig,
-) {
-    let Ok(extraction) = runtime.extract(
-        &unit.text,
-        config.entity_threshold,
-        config.relation_threshold,
-    ) else {
-        return;
-    };
-
-    for entity in extraction.entities {
-        let _ = accumulator.add_entity(&entity.name, &entity.entity_type, entity.confidence);
-    }
-
-    for relation in extraction.relations {
-        let mut metadata = Map::new();
-        metadata.insert("extractor".to_string(), json!("gliner_relex_onnx"));
-        metadata.insert("source_text".to_string(), json!(unit.text));
-        accumulator.add_relation(
-            &relation.subject,
-            &relation.subject_type,
-            &relation.predicate,
-            &relation.object,
-            &relation.object_type,
-            relation.confidence,
-            unit.chunk_index,
-            unit.order_index,
-            metadata,
-        );
-        match UnifiedMemory::normalize_graph_predicate(&relation.predicate).as_str() {
-            "PREFERS" => {
-                accumulator.preferences.insert(format!(
-                    "{} prefers {}",
-                    sanitize_entity_name(&relation.subject),
-                    sanitize_fact_text(&relation.object)
-                ));
-                accumulator.tags.insert("preference".to_string());
-                accumulator.doc_kind = Some("profile".to_string());
-            }
-            "HAS_DEADLINE" => {
-                accumulator.tags.insert("deadline".to_string());
-            }
-            "OWNS" | "REVIEWS" => {
-                accumulator.tags.insert("owner".to_string());
-            }
-            _ => {}
-        }
-    }
-}
-
 fn enrich_document_metadata(
     input: &NamespaceDocumentInput,
     parsed: &ParsedIngestion,
@@ -833,7 +778,7 @@ fn enrich_document_metadata(
     metadata.insert(
         "ingestion".to_string(),
         json!({
-            "backend": "openhuman_rust_relex",
+            "backend": "openhuman_rust_heuristic",
             "model_name": config.model_name,
             "extraction_mode": config.extraction_mode.as_str(),
             "entity_count": parsed.entities.len(),
@@ -932,26 +877,13 @@ async fn parse_document(
     config: &MemoryIngestionConfig,
 ) -> ParsedIngestion {
     let chunks = UnifiedMemory::chunk_document_content(content, DEFAULT_CHUNK_TOKENS);
-    let relex_runtime = relex::runtime(&config.model_name).await;
-    let model_enabled = relex_runtime.is_some();
-    if model_enabled {
-        log::info!(
-            "[memory:ingestion] parse_document title={title:?} model={} \
-             content_len={} chunk_count={} — GLiNER model loaded",
-            config.model_name,
-            content.len(),
-            chunks.len(),
-        );
-    } else {
-        log::warn!(
-            "[memory:ingestion] parse_document title={title:?} model={} \
-             content_len={} chunk_count={} — GLiNER model NOT available, \
-             falling back to heuristic-only extraction",
-            config.model_name,
-            content.len(),
-            chunks.len(),
-        );
-    }
+    log::info!(
+        "[memory:ingestion] parse_document title={title:?} model={} \
+         content_len={} chunk_count={} — heuristic extraction active",
+        config.model_name,
+        content.len(),
+        chunks.len(),
+    );
     let mut accumulator = ExtractionAccumulator {
         document_title: Some(sanitize_entity_name(title)),
         primary_subject: detect_primary_subject(title),
@@ -1181,44 +1113,42 @@ async fn parse_document(
             continue;
         }
 
-        if !model_enabled {
-            if let Some(captures) = graph_fact_regex().captures(&line) {
-                let subject = captures
-                    .name("subject")
-                    .map(|value| value.as_str())
-                    .unwrap_or("");
-                let predicate = captures
-                    .name("predicate")
-                    .map(|value| value.as_str())
-                    .unwrap_or("");
-                let object = captures
-                    .name("object")
-                    .map(|value| value.as_str())
-                    .unwrap_or("");
-                let subject_type = classify_entity(subject, &accumulator.known_people);
-                let object_type = classify_entity(object, &accumulator.known_people);
-                accumulator.add_relation(
-                    subject,
-                    subject_type,
-                    predicate,
-                    object,
-                    object_type,
-                    0.87,
-                    chunk_index,
-                    order_index,
-                    Map::new(),
-                );
-                if UnifiedMemory::normalize_graph_predicate(predicate) == "PREFERS" {
-                    accumulator.preferences.insert(format!(
-                        "{} prefers {}",
-                        sanitize_entity_name(subject),
-                        sanitize_fact_text(object)
-                    ));
-                    accumulator.tags.insert("preference".to_string());
-                    accumulator.doc_kind = Some("profile".to_string());
-                }
-                continue;
+        if let Some(captures) = graph_fact_regex().captures(&line) {
+            let subject = captures
+                .name("subject")
+                .map(|value| value.as_str())
+                .unwrap_or("");
+            let predicate = captures
+                .name("predicate")
+                .map(|value| value.as_str())
+                .unwrap_or("");
+            let object = captures
+                .name("object")
+                .map(|value| value.as_str())
+                .unwrap_or("");
+            let subject_type = classify_entity(subject, &accumulator.known_people);
+            let object_type = classify_entity(object, &accumulator.known_people);
+            accumulator.add_relation(
+                subject,
+                subject_type,
+                predicate,
+                object,
+                object_type,
+                0.87,
+                chunk_index,
+                order_index,
+                Map::new(),
+            );
+            if UnifiedMemory::normalize_graph_predicate(predicate) == "PREFERS" {
+                accumulator.preferences.insert(format!(
+                    "{} prefers {}",
+                    sanitize_entity_name(subject),
+                    sanitize_fact_text(object)
+                ));
+                accumulator.tags.insert("preference".to_string());
+                accumulator.doc_kind = Some("profile".to_string());
             }
+            continue;
         }
 
         if let Some(captures) = explicit_owner_regex().captures(&line) {
@@ -1417,10 +1347,6 @@ async fn parse_document(
     }
 
     for unit in build_units(&chunks, config.extraction_mode) {
-        if let Some(ref runtime) = relex_runtime {
-            apply_model_extraction(runtime, &unit, &mut accumulator, config);
-        }
-
         if let Some(captures) = recipient_regex().captures(&unit.text) {
             let giver = captures
                 .name("giver")
@@ -1757,13 +1683,9 @@ mod tests {
         NamespaceDocumentInput, UnifiedMemory,
     };
 
-    /// Config that skips relex model loading (avoids ORT init which panics on
-    /// CI runners that lack libonnxruntime).  Heuristic extraction still runs.
+    /// Test config for the heuristic-only ingestion pipeline.
     fn ci_safe_config() -> MemoryIngestionConfig {
-        MemoryIngestionConfig {
-            model_name: "__test_no_model__".to_string(),
-            ..MemoryIngestionConfig::default()
-        }
+        MemoryIngestionConfig::default()
     }
 
     fn fixture(path: &str) -> String {
@@ -1964,144 +1886,5 @@ mod tests {
         assert!(memories
             .iter()
             .any(|hit| !hit.supporting_relations.is_empty()));
-    }
-
-    /// Smoke test using the real GLiNER relex ONNX model with the Notion fixture.
-    /// Verifies that entity types extracted by the model flow through ingestion
-    /// into graph relations (attrs.entity_types) and into retrieval context
-    /// (MemoryRetrievalEntity.entity_type) via build_retrieval_context.
-    ///
-    /// Run: cargo test -p openhuman --lib gline_rs_smoke -- --ignored --nocapture
-    #[tokio::test]
-    #[ignore] // requires GLiNER ONNX model on disk
-    async fn gline_rs_smoke_notion_entity_types_flow_through() {
-        use crate::openhuman::memory::ops::build_retrieval_context;
-
-        let tmp = TempDir::new().unwrap();
-        let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
-
-        // Use default config so the real GLiNER model runs
-        let result = memory
-            .ingest_document(MemoryIngestionRequest {
-                document: NamespaceDocumentInput {
-                    namespace: "skill-notion".to_string(),
-                    key: "notion-roadmap".to_string(),
-                    title: "OpenHuman Memory Layer Roadmap".to_string(),
-                    content: fixture("notion_page_example.txt"),
-                    source_type: "notion".to_string(),
-                    priority: "high".to_string(),
-                    tags: Vec::new(),
-                    metadata: json!({}),
-                    category: "core".to_string(),
-                    session_id: None,
-                    document_id: None,
-                },
-                config: MemoryIngestionConfig::default(),
-            })
-            .await
-            .unwrap();
-
-        // 1. Verify GLiNER extracted entities with types
-        println!("--- Extracted entities ({}) ---", result.entities.len());
-        for entity in &result.entities {
-            println!("  {} [{}]", entity.name, entity.entity_type);
-        }
-        assert!(
-            !result.entities.is_empty(),
-            "GLiNER should extract at least some entities"
-        );
-        assert!(
-            result.entities.iter().any(|e| !e.entity_type.is_empty()),
-            "at least one entity should have a non-empty entity_type"
-        );
-
-        // 2. Verify relations carry subject_type / object_type
-        println!("--- Extracted relations ({}) ---", result.relations.len());
-        for rel in &result.relations {
-            println!(
-                "  {} [{}] -[{}]-> {} [{}]  (conf={:.2})",
-                rel.subject,
-                rel.subject_type,
-                rel.predicate,
-                rel.object,
-                rel.object_type,
-                rel.confidence
-            );
-        }
-        let typed_relations = result
-            .relations
-            .iter()
-            .filter(|r| !r.subject_type.is_empty() && !r.object_type.is_empty())
-            .count();
-        assert!(
-            typed_relations > 0,
-            "at least one relation should have typed subject and object"
-        );
-
-        // 3. Verify graph relations have entity_types in attrs
-        let graph_rows = memory
-            .graph_query_namespace("skill-notion", None, None)
-            .await
-            .unwrap();
-        println!("--- Graph relations ({}) ---", graph_rows.len());
-        let mut graph_has_entity_types = false;
-        for row in &graph_rows {
-            let et = row.get("attrs").and_then(|a| a.get("entity_types"));
-            if let Some(et) = et {
-                println!(
-                    "  {} -> {} -> {}  entity_types={}",
-                    row["subject"], row["predicate"], row["object"], et
-                );
-                graph_has_entity_types = true;
-            }
-        }
-        assert!(
-            graph_has_entity_types,
-            "at least one graph relation should have attrs.entity_types"
-        );
-
-        // 4. Verify build_retrieval_context propagates entity_type from query hits
-        let context_data = memory
-            .query_namespace_context_data("skill-notion", "who owns what", 10)
-            .await
-            .unwrap();
-        let retrieval = build_retrieval_context(&context_data.hits);
-        println!("--- Retrieval entities ({}) ---", retrieval.entities.len());
-        for entity in &retrieval.entities {
-            println!(
-                "  {} [type={:?}]",
-                entity.name,
-                entity.entity_type.as_deref().unwrap_or("None")
-            );
-        }
-        let typed_entities = retrieval
-            .entities
-            .iter()
-            .filter(|e| e.entity_type.is_some())
-            .count();
-        println!(
-            "Typed entities: {}/{}",
-            typed_entities,
-            retrieval.entities.len()
-        );
-        // If there are any supporting relations with entity_types, then
-        // build_retrieval_context should have picked them up.
-        let has_typed_supporting_relations = context_data
-            .hits
-            .iter()
-            .flat_map(|hit| hit.supporting_relations.iter())
-            .any(|rel| {
-                rel.attrs
-                    .get("entity_types")
-                    .and_then(|et| et.get("subject"))
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|s| !s.is_empty())
-            });
-        if has_typed_supporting_relations {
-            assert!(
-                typed_entities > 0,
-                "build_retrieval_context should propagate entity_type from supporting relations"
-            );
-        }
     }
 }

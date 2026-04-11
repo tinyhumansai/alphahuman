@@ -21,7 +21,8 @@
 //! - **Filtered tools** — fewer schemas in the request body.
 //! - **Cheaper model** — archetype hint usually selects a smaller model.
 //! - **Lower max iterations** — definition-controlled per archetype.
-//! - **No memory recall** — sub-agents use a [`crate::openhuman::agent::memory_loader::NullMemoryLoader`].
+//! - **No memory recall** — sub-agents skip per-turn memory loading entirely;
+//!   the parent has already injected the relevant context.
 //! - **Structural compaction** — sub-agent's tool-call history collapses
 //!   into a single tool result block in the parent's history.
 //! - **Fork-mode prefix replay** — `uses_fork_context` definitions
@@ -240,10 +241,19 @@ async fn run_typed_mode(
     );
 
     // ── Build the user message (with optional context prefix) ──────────
-    let user_message = if let Some(ctx) = options.context.as_deref() {
-        format!("[Context]\n{ctx}\n\n{task_prompt}")
-    } else {
+    // Merge explicit context from the orchestrator with the parent's
+    // auto-loaded memory context so the subagent has full visibility.
+    let mut context_parts: Vec<&str> = Vec::new();
+    if let Some(ref mem_ctx) = parent.memory_context {
+        context_parts.push(mem_ctx);
+    }
+    if let Some(ref ctx) = options.context {
+        context_parts.push(ctx);
+    }
+    let user_message = if context_parts.is_empty() {
         task_prompt.to_string()
+    } else {
+        format!("[Context]\n{}\n\n{task_prompt}", context_parts.join("\n\n"))
     };
 
     let mut history: Vec<ChatMessage> = vec![
@@ -1019,8 +1029,8 @@ mod tests {
             workspace_dir: std::env::temp_dir(),
             memory: noop_memory(),
             agent_config: crate::openhuman::config::AgentConfig::default(),
-            identity_config: crate::openhuman::config::IdentityConfig::default(),
             skills: Arc::new(vec![]),
+            memory_context: None,
             session_id: "test-session".into(),
             channel: "test".into(),
         }
@@ -1106,8 +1116,9 @@ mod tests {
 
     #[tokio::test]
     async fn typed_mode_no_memory_context_in_user_message() {
-        // Verifies that NullMemoryLoader is in effect: the user message
-        // sent to the provider does NOT contain `[Memory context]`.
+        // Verifies that sub-agents skip memory loading entirely: the
+        // user message sent to the provider does NOT contain
+        // `[Memory context]`.
         let provider = ScriptedProvider::new(vec![text_response("ok")]);
         let parent = make_parent(provider.clone(), vec![stub("file_read")]);
         let def = make_def_named_tools(&[]);

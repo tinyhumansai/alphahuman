@@ -1,0 +1,16 @@
+id = "planner"
+display_name = "Planner"
+when_to_use = "Architect — break a complex task into a small DAG of subtasks with explicit acceptance criteria. Read-only; produces JSON, not code."
+temperature = 0.4
+max_iterations = 5
+sandbox_mode = "read_only"
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = true
+omit_skills_catalog = true
+
+[model]
+hint = "reasoning"
+
+[tools]
+named = ["query_memory", "read_workspace_state", "file_read"]

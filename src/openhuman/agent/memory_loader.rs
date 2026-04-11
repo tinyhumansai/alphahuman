@@ -2,7 +2,7 @@ use crate::openhuman::memory::Memory;
 use async_trait::async_trait;
 use std::collections::HashSet;
 
-use super::loop_::memory_context::{WORKING_MEMORY_KEY_PREFIX, WORKING_MEMORY_LIMIT};
+use super::harness::memory_context::{WORKING_MEMORY_KEY_PREFIX, WORKING_MEMORY_LIMIT};
 
 #[async_trait]
 pub trait MemoryLoader: Send + Sync {
@@ -131,24 +131,6 @@ impl MemoryLoader for DefaultMemoryLoader {
     }
 }
 
-/// A memory loader that returns no context. Used by sub-agents so they
-/// don't pay the per-turn memory-recall token tax — the parent agent has
-/// already loaded the relevant context, and the sub-agent receives a
-/// narrow, focused prompt instead.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NullMemoryLoader;
-
-#[async_trait]
-impl MemoryLoader for NullMemoryLoader {
-    async fn load_context(
-        &self,
-        _memory: &dyn Memory,
-        _user_message: &str,
-    ) -> anyhow::Result<String> {
-        Ok(String::new())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,12 +220,5 @@ mod tests {
         assert!(context.contains("- k: v"));
         assert!(context.contains("[User working memory]"));
         assert!(context.contains("working.user.gmail.summary"));
-    }
-
-    #[tokio::test]
-    async fn null_loader_returns_empty_string() {
-        let loader = NullMemoryLoader;
-        let context = loader.load_context(&MockMemory, "anything").await.unwrap();
-        assert!(context.is_empty());
     }
 }

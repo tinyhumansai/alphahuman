@@ -1,6 +1,6 @@
 //! Channel runtime loop and message processing.
 
-use crate::openhuman::agent::loop_::run_tool_call_loop;
+use crate::openhuman::agent::harness::run_tool_call_loop;
 use crate::openhuman::channels::context::{
     build_memory_context, compact_sender_history, conversation_history_key,
     conversation_memory_key, is_context_window_overflow_error, ChannelRuntimeContext,

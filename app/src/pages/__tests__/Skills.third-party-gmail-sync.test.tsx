@@ -5,6 +5,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import '../../test/mockDefaultSkillStatusHooks';
 import { renderWithProviders } from '../../test/test-utils';
 import Skills from '../Skills';
 

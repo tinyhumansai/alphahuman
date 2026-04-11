@@ -1,0 +1,17 @@
+id = "archivist"
+display_name = "Archivist"
+when_to_use = "Background librarian — extracts lessons from a completed session, updates MEMORY.md, and indexes to FTS5. Runs cheap and slow."
+temperature = 0.4
+max_iterations = 3
+sandbox_mode = "none"
+background = true
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = true
+omit_skills_catalog = true
+
+[model]
+hint = "local"
+
+[tools]
+named = ["update_memory_md", "insert_sql_record", "memory_store"]

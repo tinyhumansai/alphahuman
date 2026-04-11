@@ -1,7 +1,7 @@
 //! `openhuman memory` — CLI for memory ingestion, graph inspection, and debugging.
 //!
 //! Provides direct access to the memory system from the command line, including
-//! document ingestion with GLiNER entity/relation extraction, graph querying,
+//! document ingestion with heuristic entity/relation extraction, graph querying,
 //! and document listing.
 //!
 //! Usage:
@@ -45,7 +45,7 @@ pub fn run_memory_command(args: &[String]) -> Result<()> {
 /// `openhuman memory ingest <file|-> [options]`
 ///
 /// Reads a file (or stdin with `-`) and performs full synchronous ingestion
-/// including GLiNER entity/relation extraction. Outputs the ingestion result
+/// including heuristic entity/relation extraction. Outputs the ingestion result
 /// as JSON for debugging.
 fn run_ingest(args: &[String]) -> Result<()> {
     let mut file_path: Option<String> = None;
@@ -443,7 +443,7 @@ fn print_memory_help() {
     println!("Usage: openhuman memory <subcommand> [options]");
     println!();
     println!("Subcommands:");
-    println!("  ingest <file|->     Ingest a document with full GLiNER extraction");
+    println!("  ingest <file|->     Ingest a document with heuristic extraction");
     println!("  docs                List stored documents");
     println!("  graph               Query the knowledge graph");
     println!("  query               Semantic query against a namespace");

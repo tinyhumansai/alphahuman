@@ -35,7 +35,7 @@
 
 use super::microcompact::{microcompact, MicrocompactStats, DEFAULT_KEEP_RECENT_TOOL_RESULTS};
 use super::session_memory::{SessionMemoryConfig, SessionMemoryState};
-use crate::openhuman::agent::loop_::context_guard::{ContextCheckResult, ContextGuard};
+use crate::openhuman::agent::harness::context_guard::{ContextCheckResult, ContextGuard};
 use crate::openhuman::providers::{ConversationMessage, UsageInfo};
 
 /// Pipeline configuration. Defaults are tuned for an `agentic-v1`

@@ -137,21 +137,37 @@ async fn execute_and_persist_job(
 }
 
 async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
+    use crate::openhuman::agent::Agent;
+
     let name = job.name.clone().unwrap_or_else(|| "cron-job".to_string());
     let prompt = job.prompt.clone().unwrap_or_default();
     let prefixed_prompt = format!("[cron:{} {name}] {prompt}", job.id);
-    let model_override = job.model.clone();
+
+    // Apply per-job model override onto a cloned Config, so the Agent
+    // sees it through the normal `default_model` path without mutating
+    // the caller's config.
+    let mut effective = config.clone();
+    if let Some(model) = job.model.clone() {
+        effective.default_model = Some(model);
+    }
 
     let run_result = match job.session_target {
         SessionTarget::Main | SessionTarget::Isolated => {
-            crate::openhuman::agent::run(
-                config.clone(),
-                Some(prefixed_prompt),
-                model_override,
-                config.default_temperature,
-                vec![],
-            )
-            .await
+            tracing::debug!(
+                job_id = %job.id,
+                target = ?job.session_target,
+                "[cron] building isolated agent for scheduled job"
+            );
+            match Agent::from_config(&effective) {
+                Ok(mut agent) => {
+                    // Tag events so downstream subscribers can correlate
+                    // cron-triggered turns. `cron` is the channel so the
+                    // event bus can filter from other flows (`cli`, `web`…).
+                    agent.set_event_context(format!("cron:{}", job.id), "cron");
+                    agent.run_single(&prefixed_prompt).await
+                }
+                Err(e) => Err(e),
+            }
         }
     };
 

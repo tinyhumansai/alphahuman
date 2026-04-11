@@ -1,0 +1,21 @@
+id = "orchestrator"
+display_name = "Orchestrator"
+when_to_use = "Staff Engineer — routes, judges quality, synthesises. Never writes code itself. You should not normally spawn another orchestrator from inside one."
+temperature = 0.4
+max_iterations = 15
+sandbox_mode = "none"
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = true
+omit_skills_catalog = true
+
+[model]
+hint = "reasoning"
+
+[tools]
+named = [
+    "spawn_subagent",
+    "query_memory",
+    "read_workspace_state",
+    "ask_user_clarification",
+]

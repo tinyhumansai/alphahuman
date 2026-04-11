@@ -1,0 +1,16 @@
+id = "critic"
+display_name = "Critic"
+when_to_use = "Adversarial reviewer — reviews diffs and code against project rules, flags vulnerabilities, regressions, and missing tests. Read-only."
+temperature = 0.4
+max_iterations = 5
+sandbox_mode = "read_only"
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = true
+omit_skills_catalog = true
+
+[model]
+hint = "agentic"
+
+[tools]
+named = ["read_diff", "run_linter", "run_tests", "file_read"]
