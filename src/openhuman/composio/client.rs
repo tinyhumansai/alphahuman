@@ -200,22 +200,16 @@ impl ComposioClient {
     }
 }
 
-/// Build a [`ComposioClient`] from the root config. Returns `None`
-/// when either the integrations master switch is off, the composio
-/// sub-toggle is off, or no backend credentials are available anywhere
-/// (neither `config.integrations.*` nor the shared `config.api_url` /
-/// `config.api_key`).
+/// Build a [`ComposioClient`] from the root config.
+///
+/// Composio is **always enabled** — there are no configuration flags
+/// gating it. The backend URL and auth token come from the shared
+/// core defaults (`config.api_url` / `config.api_key`) via
+/// [`crate::openhuman::integrations::build_client`]. The only reason
+/// this returns `None` is that the user isn't signed in yet.
 pub fn build_composio_client(
     config: &crate::openhuman::config::Config,
 ) -> Option<ComposioClient> {
-    if !config.integrations.enabled {
-        tracing::debug!("[composio] integrations master switch off — skipping");
-        return None;
-    }
-    if !config.integrations.composio.enabled {
-        tracing::debug!("[composio] composio toggle off — skipping");
-        return None;
-    }
     let inner = crate::openhuman::integrations::build_client(config)?;
     Some(ComposioClient::new(inner))
 }

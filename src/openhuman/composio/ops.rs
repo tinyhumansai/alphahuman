@@ -27,10 +27,14 @@ use super::types::{
 
 /// Resolve a [`ComposioClient`] from the root config, or return an
 /// error string that the caller can surface over RPC.
+///
+/// Composio is always on by default — the only reasons this fails are
+/// the integrations master switch being explicitly disabled, or the
+/// user not being signed in (no `config.api_key`).
 fn resolve_client(config: &Config) -> OpResult<ComposioClient> {
     build_composio_client(config).ok_or_else(|| {
-        "composio is disabled (integrations.enabled or integrations.composio.enabled is off, \
-         or no backend auth token available — set config.api_key)"
+        "composio unavailable: integrations master switch is off, or no backend \
+         auth token available (sign in to populate config.api_key)"
             .to_string()
     })
 }

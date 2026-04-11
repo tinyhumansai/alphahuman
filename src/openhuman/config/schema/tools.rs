@@ -256,36 +256,18 @@ impl Default for IntegrationToggle {
 
 /// Agent integration tools that proxy through the backend API.
 ///
-/// When enabled, the agent gains access to tools like web search (Parallel),
-/// location search (Google Places), and phone calls (Twilio). The backend
-/// handles external API calls, billing, and rate limiting; the client only
-/// forwards requests and displays results.
+/// The backend URL and auth token are **not** configurable here —
+/// they're always resolved from the core `config.api_url` /
+/// `config.api_key` (the same values every other part of the app uses).
+/// Composio in particular is unconditionally enabled and has no toggle:
+/// as long as the user is signed in, composio tools are available.
 ///
-/// The master `enabled` switch defaults to `true` so composio and the
-/// other backend-proxied integrations are on out of the box. `backend_url`
-/// and `auth_token` are optional overrides — when unset the shared
-/// `config.api_url` / `config.api_key` values are used (see
-/// [`crate::openhuman::integrations::build_client`]).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The per-tool `twilio`, `google_places`, and `parallel` flags below
+/// are preserved because those integrations incur per-call costs that
+/// the user may legitimately want to turn off; composio costs are
+/// metered server-side, so there is no client-side toggle for it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct IntegrationsConfig {
-    /// Master switch — defaults to `true` so integrations are available
-    /// out of the box. Disable explicitly to turn every backend-proxied
-    /// integration tool off (composio, twilio, google_places, parallel).
-    #[serde(default = "defaults::default_true")]
-    pub enabled: bool,
-
-    /// Optional override for the backend API base URL. When unset the
-    /// shared `config.api_url` (or its env-var fallback) is used — the
-    /// same backend every other part of the app talks to.
-    #[serde(default)]
-    pub backend_url: Option<String>,
-
-    /// Optional override for the Bearer token. When unset the shared
-    /// `config.api_key` is used — the same JWT every other part of the
-    /// app authenticates with.
-    #[serde(default)]
-    pub auth_token: Option<String>,
-
     /// Twilio phone-call integration.
     #[serde(default)]
     pub twilio: IntegrationToggle,
@@ -297,25 +279,4 @@ pub struct IntegrationsConfig {
     /// Parallel web search & content extraction integration.
     #[serde(default)]
     pub parallel: IntegrationToggle,
-
-    /// Composio 1000+ app integrations proxied via the backend
-    /// (`/agent-integrations/composio/*`). When enabled, agents can
-    /// list toolkits, authorize OAuth connections, list/execute actions,
-    /// and receive trigger events over the Socket.IO bridge.
-    #[serde(default)]
-    pub composio: IntegrationToggle,
-}
-
-impl Default for IntegrationsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: defaults::default_true(),
-            backend_url: None,
-            auth_token: None,
-            twilio: IntegrationToggle::default(),
-            google_places: IntegrationToggle::default(),
-            parallel: IntegrationToggle::default(),
-            composio: IntegrationToggle::default(),
-        }
-    }
 }
