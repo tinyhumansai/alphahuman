@@ -7,12 +7,9 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-/// Config that skips GLiNER relex model (avoids ORT init).
+/// Test config for the heuristic-only ingestion pipeline.
 fn ci_safe_ingestion_config() -> openhuman_core::openhuman::memory::MemoryIngestionConfig {
-    openhuman_core::openhuman::memory::MemoryIngestionConfig {
-        model_name: "__test_no_model__".to_string(),
-        ..Default::default()
-    }
+    openhuman_core::openhuman::memory::MemoryIngestionConfig::default()
 }
 
 async fn ingest_doc(

@@ -44,11 +44,6 @@ pub fn init(workspace_dir: PathBuf) -> Result<MemoryClientRef, String> {
     // just return whichever won.
     let _ = GLOBAL_CLIENT.set(Arc::clone(&client));
 
-    // Pre-warm the GLiNER model in the background so first ingestion is fast.
-    tokio::spawn(async {
-        let _ = super::relex::warm_default_bundle().await;
-    });
-
     Ok(GLOBAL_CLIENT.get().cloned().unwrap_or(client))
 }
 

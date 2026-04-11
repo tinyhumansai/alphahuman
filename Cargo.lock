@@ -2086,9 +2086,6 @@ name = "esaxx-rs"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
-dependencies = [
- "cc",
-]
 
 [[package]]
 name = "esp-idf-part"
@@ -2259,7 +2256,7 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "tokenizers 0.22.2",
+ "tokenizers",
 ]
 
 [[package]]
@@ -5120,7 +5117,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openhuman"
-version = "0.52.2"
+version = "0.52.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5148,7 +5145,6 @@ dependencies = [
  "fastembed",
  "futures",
  "futures-util",
- "glob",
  "hex",
  "hmac 0.12.1",
  "hostname",
@@ -5159,7 +5155,6 @@ dependencies = [
  "log",
  "mail-parser",
  "matrix-sdk",
- "ndarray",
  "nu-ansi-term 0.46.0",
  "nusb 0.2.3",
  "once_cell",
@@ -5195,7 +5190,6 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "thiserror 2.0.18",
- "tokenizers 0.21.4",
  "tokio",
  "tokio-rustls",
  "tokio-serial",
@@ -7796,40 +7790,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tokenizers"
-version = "0.21.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a620b996116a59e184c2fa2dfd8251ea34a36d0a514758c6f966386bd2e03476"
-dependencies = [
- "ahash",
- "aho-corasick",
- "compact_str",
- "dary_heap",
- "derive_builder",
- "esaxx-rs",
- "getrandom 0.3.4",
- "indicatif",
- "itertools 0.14.0",
- "log",
- "macro_rules_attribute",
- "monostate",
- "onig",
- "paste",
- "rand 0.9.2",
- "rayon",
- "rayon-cond",
- "regex",
- "regex-syntax",
- "serde",
- "serde_json",
- "spm_precompiled",
- "thiserror 2.0.18",
- "unicode-normalization-alignments",
- "unicode-segmentation",
- "unicode_categories",
-]
 
 [[package]]
 name = "tokenizers"

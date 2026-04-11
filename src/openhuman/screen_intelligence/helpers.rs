@@ -211,7 +211,7 @@ pub(crate) async fn persist_vision_summary(
 
     // put_doc_light stores the document (DB row + markdown file) without
     // vector embedding or graph extraction — screen captures are too frequent
-    // and ephemeral to justify the cost of GLiNER / embedding per frame.
+    // and ephemeral to justify the heavier ingestion path per frame.
     client
         .put_doc_light(document)
         .await

@@ -19,14 +19,9 @@ use openhuman_core::openhuman::memory::{
     NamespaceDocumentInput, UnifiedMemory,
 };
 
-/// Config that skips the GLiNER RelEx ONNX model (avoids ORT init issues
-/// on CI runners). Heuristic extraction still runs and will pick up
-/// structured lines like "Owner:", "Project name:", etc.
+/// Test config for the heuristic-only pipeline.
 fn ci_safe_config() -> MemoryIngestionConfig {
-    MemoryIngestionConfig {
-        model_name: "__test_no_model__".to_string(),
-        ..MemoryIngestionConfig::default()
-    }
+    MemoryIngestionConfig::default()
 }
 
 /// A document with known entities that the heuristic extractor can find.
