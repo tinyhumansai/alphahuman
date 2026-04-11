@@ -13,7 +13,7 @@ use crate::openhuman::agent::dispatcher::{
 };
 use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
-use crate::openhuman::agent::prompt::SystemPromptBuilder;
+use crate::openhuman::context::prompt::SystemPromptBuilder;
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{self, Provider};

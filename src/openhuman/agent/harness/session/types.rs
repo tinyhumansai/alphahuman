@@ -10,7 +10,7 @@ use crate::openhuman::context::ContextPipeline;
 use crate::openhuman::agent::dispatcher::ToolDispatcher;
 use crate::openhuman::agent::hooks::PostTurnHook;
 use crate::openhuman::agent::memory_loader::MemoryLoader;
-use crate::openhuman::agent::prompt::SystemPromptBuilder;
+use crate::openhuman::context::prompt::SystemPromptBuilder;
 use crate::openhuman::memory::Memory;
 use crate::openhuman::providers::{ConversationMessage, Provider};
 use crate::openhuman::tools::{Tool, ToolSpec};

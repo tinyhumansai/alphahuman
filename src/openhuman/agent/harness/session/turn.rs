@@ -24,7 +24,7 @@ use crate::openhuman::context as context_pipeline;
 use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
 use crate::openhuman::agent::harness;
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
-use crate::openhuman::agent::prompt::{LearnedContextData, PromptContext};
+use crate::openhuman::context::prompt::{LearnedContextData, PromptContext, PromptTool};
 use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::memory::MemoryCategory;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, ConversationMessage};
@@ -732,10 +732,15 @@ impl Agent {
     pub(super) fn build_system_prompt(&self, learned: LearnedContextData) -> Result<String> {
         let tools_slice: &[Box<dyn Tool>] = self.tools.as_slice();
         let instructions = self.tool_dispatcher.prompt_instructions(tools_slice);
+        // Adapt the owned Box<dyn Tool> slice into the shared PromptTool
+        // shape that every prompt-building call-site uses. Temporary vec
+        // borrows from `tools_slice` and lives for the duration of the
+        // prompt build.
+        let prompt_tools = PromptTool::from_tools(tools_slice);
         let ctx = PromptContext {
             workspace_dir: &self.workspace_dir,
             model_name: &self.model_name,
-            tools: tools_slice,
+            tools: &prompt_tools,
             skills: &self.skills,
             dispatcher_instructions: &instructions,
             learned,
