@@ -24,7 +24,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolResult};
+use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolCategory, ToolResult};
 
 use super::client::ComposioClient;
 
@@ -55,6 +55,12 @@ impl Tool for ComposioListToolkitsTool {
     }
     fn permission_level(&self) -> PermissionLevel {
         PermissionLevel::ReadOnly
+    }
+    fn category(&self) -> ToolCategory {
+        // Composio proxies to external SaaS (Gmail, Notion, …), so it
+        // lives in the Skill category alongside QuickJS skill tools and
+        // is picked up by sub-agents with `category_filter = "skill"`.
+        ToolCategory::Skill
     }
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!("[composio] tool list_toolkits.execute");
@@ -95,6 +101,9 @@ impl Tool for ComposioListConnectionsTool {
     }
     fn permission_level(&self) -> PermissionLevel {
         PermissionLevel::ReadOnly
+    }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Skill
     }
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!("[composio] tool list_connections.execute");
@@ -146,6 +155,9 @@ impl Tool for ComposioAuthorizeTool {
     }
     fn permission_level(&self) -> PermissionLevel {
         PermissionLevel::Write
+    }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Skill
     }
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         let toolkit = args
@@ -218,6 +230,9 @@ impl Tool for ComposioListToolsTool {
     fn permission_level(&self) -> PermissionLevel {
         PermissionLevel::ReadOnly
     }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Skill
+    }
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         let toolkits = args.get("toolkits").and_then(|v| v.as_array()).map(|arr| {
             arr.iter()
@@ -280,6 +295,9 @@ impl Tool for ComposioExecuteTool {
         // Some composio actions send emails, create files, etc. — treat
         // as write-level to respect channel permission caps.
         PermissionLevel::Write
+    }
+    fn category(&self) -> ToolCategory {
+        ToolCategory::Skill
     }
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         let tool = args
@@ -352,4 +370,60 @@ pub fn all_composio_agent_tools(
     ];
     tracing::debug!(count = tools.len(), "[composio] agent tools registered");
     tools
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openhuman::integrations::IntegrationClient;
+    use std::sync::Arc;
+
+    /// Build a `ComposioClient` wired to a dummy backend. No network calls
+    /// are made in these tests — we only exercise the `Tool` trait's
+    /// metadata methods (`name`, `category`, `permission_level`, …), which
+    /// are pure accessors that don't touch the HTTP client.
+    fn fake_composio_client() -> ComposioClient {
+        let inner = IntegrationClient::new(
+            "http://127.0.0.1:0".to_string(),
+            "test-token".to_string(),
+        );
+        ComposioClient::new(Arc::new(inner))
+    }
+
+    /// Every composio tool must report `ToolCategory::Skill` so the
+    /// skills sub-agent (`category_filter = "skill"`) picks them up.
+    ///
+    /// If someone removes the override on any tool, this test flips to
+    /// `System` (the default from the `Tool` trait) and fails loudly.
+    #[test]
+    fn all_composio_tools_are_in_skill_category() {
+        let client = fake_composio_client();
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(ComposioListToolkitsTool::new(client.clone())),
+            Box::new(ComposioListConnectionsTool::new(client.clone())),
+            Box::new(ComposioAuthorizeTool::new(client.clone())),
+            Box::new(ComposioListToolsTool::new(client.clone())),
+            Box::new(ComposioExecuteTool::new(client)),
+        ];
+
+        for t in &tools {
+            assert_eq!(
+                t.category(),
+                ToolCategory::Skill,
+                "composio tool `{}` should be in Skill category so the \
+                 skills sub-agent picks it up via category_filter",
+                t.name()
+            );
+        }
+
+        // Sanity-check the expected names are all present.
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"composio_list_toolkits"));
+        assert!(names.contains(&"composio_list_connections"));
+        assert!(names.contains(&"composio_authorize"));
+        assert!(names.contains(&"composio_list_tools"));
+        assert!(names.contains(&"composio_execute"));
+    }
 }
