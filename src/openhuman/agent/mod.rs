@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod bus;
 pub mod context_pipeline;
 pub mod dispatcher;
 pub mod error;

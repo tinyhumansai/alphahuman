@@ -832,8 +832,13 @@ fn register_domain_subscribers() {
         // the same respawn logic.
         crate::openhuman::service::bus::register_restart_subscriber();
 
+        // Native request handlers — typed in-process request/response.
+        // The agent `agent.run_turn` handler is what channel dispatch
+        // calls instead of importing `run_tool_call_loop` directly.
+        crate::openhuman::agent::bus::register_agent_handlers();
+
         log::info!(
-            "[event_bus] webhook, channel, health, skill, composio, and restart subscribers registered"
+            "[event_bus] webhook, channel, health, skill, composio, restart subscribers + agent native handlers registered"
         );
     });
 }

@@ -47,6 +47,12 @@ pub async fn start_channels(config: Config) -> Result<()> {
     crate::openhuman::health::bus::register_health_subscriber();
     crate::openhuman::skills::bus::register_skill_cleanup_subscriber();
     crate::openhuman::composio::register_composio_trigger_subscriber();
+    // Native request handlers. Re-registering is safe (latest wins) so
+    // this is idempotent even if `bootstrap_skill_runtime` also runs.
+    // Must happen before `run_message_dispatch_loop` begins, because
+    // channel dispatch calls `request_native_global("agent.run_turn", …)`
+    // for every inbound message.
+    crate::openhuman::agent::bus::register_agent_handlers();
     tracing::debug!("[event_bus] global singleton initialized in start_channels");
 
     // Initialise the sub-agent definition registry from this workspace.
