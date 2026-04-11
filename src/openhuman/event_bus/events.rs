@@ -77,15 +77,20 @@ pub enum DomainEvent {
     /// A message was received on a channel.
     ChannelMessageReceived {
         channel: String,
+        message_id: String,
         sender: String,
+        reply_target: String,
         content: String,
         thread_ts: Option<String>,
     },
     /// A channel message was fully processed (LLM response sent or error).
     ChannelMessageProcessed {
         channel: String,
+        message_id: String,
         sender: String,
+        reply_target: String,
         content: String,
+        thread_ts: Option<String>,
         response: String,
         elapsed_ms: u64,
         success: bool,
@@ -396,7 +401,9 @@ mod tests {
             (
                 DomainEvent::ChannelMessageReceived {
                     channel: "c".into(),
+                    message_id: "m1".into(),
                     sender: "s".into(),
+                    reply_target: "r".into(),
                     content: "hi".into(),
                     thread_ts: None,
                 },
@@ -405,8 +412,11 @@ mod tests {
             (
                 DomainEvent::ChannelMessageProcessed {
                     channel: "c".into(),
+                    message_id: "m1".into(),
                     sender: "s".into(),
+                    reply_target: "r".into(),
                     content: "hi".into(),
+                    thread_ts: None,
                     response: "hello".into(),
                     elapsed_ms: 0,
                     success: true,
