@@ -31,15 +31,14 @@ describe('useComposioIntegrations', () => {
 
     expect(result.current.toolkits).toEqual(['gmail', 'github', 'notion']);
     expect(result.current.connectionByToolkit.size).toBe(0);
-    expect(result.current.disabled).toBe(false);
     expect(result.current.error).toBe('backend connection listing failed');
   });
 
-  it('marks composio disabled when the core reports the feature toggle is off', async () => {
+  it('surfaces toolkit fetch errors instead of hiding the UI (composio is always enabled)', async () => {
     const { useComposioIntegrations } = await import('./hooks');
 
-    mockListToolkits.mockRejectedValue(new Error('composio is disabled by config'));
-    mockListConnections.mockRejectedValue(new Error('composio is disabled by config'));
+    mockListToolkits.mockRejectedValue(new Error('backend unreachable'));
+    mockListConnections.mockRejectedValue(new Error('backend unreachable'));
 
     const { result } = renderHook(() => useComposioIntegrations(0));
 
@@ -49,7 +48,6 @@ describe('useComposioIntegrations', () => {
 
     expect(result.current.toolkits).toEqual([]);
     expect(result.current.connectionByToolkit.size).toBe(0);
-    expect(result.current.disabled).toBe(true);
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toBe('backend unreachable');
   });
 });
