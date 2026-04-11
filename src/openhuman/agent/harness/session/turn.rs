@@ -803,14 +803,16 @@ impl Agent {
         let parent_ctx = self.build_parent_execution_context();
         let extraction_prompt = ARCHIVIST_EXTRACTION_PROMPT.to_string();
 
-        // Optimistically flip the extraction state to "complete" right
-        // away: we don't need a channel back from the background task
-        // because a failed extraction is idempotent — it will just be
-        // retried after the next threshold crossing. `mark_session_memory_complete`
-        // also clears the `extraction_in_progress` flag, so calling it
-        // alone covers both bookkeeping steps.
+        // Flip the extraction state to "in-progress" so future
+        // should_extract checks return false until the archivist
+        // finishes. We then hand a shared handle to the spawned task
+        // so it can mark the extraction complete (resets deltas) on
+        // success, or failed (keeps deltas intact for retry) on error.
+        // This replaces the old optimistic `mark_complete` that
+        // silently dropped the retry window when extractions failed.
         let stats_snapshot = self.context.stats();
-        self.context.mark_session_memory_complete();
+        self.context.mark_session_memory_started();
+        let sm_handle = self.context.session_memory_handle();
 
         log::info!(
             "[session_memory] spawning background archivist extraction (turn={}, tokens={})",
@@ -823,17 +825,31 @@ impl Agent {
             let fut = harness::run_subagent(&definition, &extraction_prompt, options);
             let result = harness::with_parent_context(parent_ctx, fut).await;
             match result {
-                Ok(outcome) => tracing::info!(
-                    agent_id = %outcome.agent_id,
-                    task_id = %outcome.task_id,
-                    iterations = outcome.iterations,
-                    output_chars = outcome.output.chars().count(),
-                    "[session_memory] archivist extraction completed"
-                ),
-                Err(err) => tracing::warn!(
-                    error = %err,
-                    "[session_memory] archivist extraction failed — will retry after next threshold crossing"
-                ),
+                Ok(outcome) => {
+                    tracing::info!(
+                        agent_id = %outcome.agent_id,
+                        task_id = %outcome.task_id,
+                        iterations = outcome.iterations,
+                        output_chars = outcome.output.chars().count(),
+                        "[session_memory] archivist extraction completed"
+                    );
+                    if let Ok(mut sm) = sm_handle.lock() {
+                        sm.mark_extraction_complete();
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "[session_memory] archivist extraction failed — will retry after next threshold crossing"
+                    );
+                    // Leave the deltas intact so the next threshold
+                    // crossing schedules another attempt. Clearing
+                    // `extraction_in_progress` lets the retry
+                    // actually fire.
+                    if let Ok(mut sm) = sm_handle.lock() {
+                        sm.mark_extraction_failed();
+                    }
+                }
             }
         });
     }
