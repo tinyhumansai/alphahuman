@@ -39,6 +39,7 @@ pub mod interrupt;
 pub(crate) mod memory_context;
 mod parse;
 pub mod self_healing;
+pub mod session;
 pub mod session_queue;
 pub mod subagent_runner;
 mod tool_loop;

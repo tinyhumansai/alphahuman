@@ -24,7 +24,7 @@
 //!  19. Builder validation (missing required fields)
 //!  20. Idempotent system prompt insertion
 
-use crate::openhuman::agent::agent::Agent;
+use crate::openhuman::agent::harness::session::Agent;
 use crate::openhuman::agent::dispatcher::{
     NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };

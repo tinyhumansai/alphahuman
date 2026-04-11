@@ -1,5 +1,3 @@
-#[allow(clippy::module_inception)]
-pub mod agent;
 pub mod agents;
 pub mod classifier;
 pub mod context_pipeline;
@@ -22,4 +20,4 @@ pub use schemas::{
 mod tests;
 
 #[allow(unused_imports)]
-pub use agent::{Agent, AgentBuilder};
+pub use harness::session::{Agent, AgentBuilder};
