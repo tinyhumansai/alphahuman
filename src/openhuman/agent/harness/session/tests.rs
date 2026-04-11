@@ -63,6 +63,7 @@ struct RecordingProvider {
 struct CapturedCall {
     system_prompt: Option<String>,
     model: String,
+    cache_boundary: Option<usize>,
 }
 
 #[async_trait]
@@ -91,6 +92,7 @@ impl Provider for RecordingProvider {
         self.captures.lock().push(CapturedCall {
             system_prompt,
             model: model.to_string(),
+            cache_boundary: request.system_prompt_cache_boundary,
         });
 
         let mut guard = self.responses.lock();
@@ -577,6 +579,20 @@ async fn system_prompt_and_model_are_byte_stable_across_turns() {
             cap.model, captures[0].model,
             "model name flipped on turn {} — KV cache namespace broken",
             idx
+        );
+        assert_eq!(
+            cap.cache_boundary, captures[0].cache_boundary,
+            "cache boundary drifted on turn {} — provider prompt caching became unstable",
+            idx
+        );
+        assert!(
+            cap.cache_boundary.is_some(),
+            "turn {} should carry an explicit prompt cache boundary",
+            idx
+        );
+        assert!(
+            !sys.contains("<!-- CACHE_BOUNDARY -->"),
+            "system prompt should not leak the internal cache marker"
         );
     }
 }

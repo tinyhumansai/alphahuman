@@ -113,6 +113,7 @@ impl Agent {
     /// Clears the agent's conversation history.
     pub fn clear_history(&mut self) {
         self.history.clear();
+        self.system_prompt_cache_boundary = None;
     }
 
     // ─────────────────────────────────────────────────────────────────

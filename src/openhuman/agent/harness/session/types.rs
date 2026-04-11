@@ -51,6 +51,9 @@ pub struct Agent {
     /// Last memory context loaded for the current turn. Stored so it can
     /// be forwarded to subagents via `ParentExecutionContext`.
     pub(super) last_memory_context: Option<String>,
+    /// Explicit cache boundary for the current rendered system prompt.
+    /// `None` means the prompt is treated as entirely dynamic.
+    pub(super) system_prompt_cache_boundary: Option<usize>,
     pub(super) history: Vec<ConversationMessage>,
     pub(super) post_turn_hooks: Vec<Arc<dyn PostTurnHook>>,
     pub(super) learning_enabled: bool,

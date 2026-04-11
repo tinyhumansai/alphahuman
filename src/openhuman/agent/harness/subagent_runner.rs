@@ -30,6 +30,7 @@
 
 use super::definition::{AgentDefinition, PromptSource, ToolScope};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
+use crate::openhuman::agent::prompt::extract_cache_boundary;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolCategory, ToolSpec};
 use std::collections::HashSet;
@@ -231,7 +232,7 @@ async fn run_typed_mode(
     // parent's vec (Box isn't Clone, so we can't build an owning
     // filtered slice cheaply). `render_subagent_system_prompt` mirrors
     // the builder's output for the narrow case.
-    let system_prompt = render_subagent_system_prompt(
+    let (system_prompt, system_prompt_cache_boundary) = render_subagent_system_prompt(
         &parent.workspace_dir,
         &model,
         &allowed_indices,
@@ -241,11 +242,14 @@ async fn run_typed_mode(
     );
 
     // ── Build the user message (with optional context prefix) ──────────
-    // Merge explicit context from the orchestrator with the parent's
-    // auto-loaded memory context so the subagent has full visibility.
+    // Merge explicit orchestrator context with the parent's auto-loaded
+    // memory context, but only when the definition opts into memory
+    // inheritance.
     let mut context_parts: Vec<&str> = Vec::new();
-    if let Some(ref mem_ctx) = parent.memory_context {
-        context_parts.push(mem_ctx);
+    if !definition.omit_memory_context {
+        if let Some(ref mem_ctx) = parent.memory_context {
+            context_parts.push(mem_ctx);
+        }
     }
     if let Some(ref ctx) = options.context {
         context_parts.push(ctx);
@@ -271,6 +275,7 @@ async fn run_typed_mode(
         &model,
         temperature,
         definition.max_iterations,
+        system_prompt_cache_boundary,
         task_id,
         &definition.id,
     )
@@ -328,8 +333,10 @@ async fn run_fork_mode(
     let mut history: Vec<ChatMessage> = (*fork.message_prefix).clone();
     history.push(ChatMessage::user(fork_task_prompt));
 
-    // All parent tools are allowed in fork mode (the whole point is
-    // byte-identical tool schemas).
+    // Fork mode keeps the parent's exact tool schema snapshot so the
+    // request body matches the prefix the backend has already cached.
+    // Runtime execution still resolves against the parent's live tool
+    // registry.
     let allowed_names: HashSet<String> = parent
         .all_tools
         .iter()
@@ -345,11 +352,12 @@ async fn run_fork_mode(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
-        &parent.all_tool_specs,
+        fork.tool_specs.as_slice(),
         &allowed_names,
         &model,
         temperature,
         max_iterations,
+        fork.cache_boundary,
         task_id,
         &definition.id,
     )
@@ -379,6 +387,7 @@ async fn run_inner_loop(
     model: &str,
     temperature: f64,
     max_iterations: usize,
+    system_prompt_cache_boundary: Option<usize>,
     task_id: &str,
     agent_id: &str,
 ) -> Result<(String, usize), SubagentRunError> {
@@ -404,7 +413,7 @@ async fn run_inner_loop(
                 ChatRequest {
                     messages: history.as_slice(),
                     tools: request_tools,
-                    system_prompt_cache_boundary: None,
+                    system_prompt_cache_boundary,
                 },
                 model,
                 temperature,
@@ -643,7 +652,7 @@ fn render_subagent_system_prompt(
     parent_tools: &[Box<dyn Tool>],
     definition: &AgentDefinition,
     archetype_body: &str,
-) -> String {
+) -> (String, Option<usize>) {
     use std::fmt::Write as _;
     let mut out = String::new();
     let _ = definition; // reserved for future per-definition rendering flags
@@ -682,7 +691,11 @@ fn render_subagent_system_prompt(
                  user-visible response.\n\n",
     );
 
-    // 4. Workspace so the model knows where it is. Intentionally stable:
+    // 4. Boundary between the static prefix (role + tool catalogue +
+    //    calling convention) and the narrower dynamic tail.
+    out.push_str("<!-- CACHE_BOUNDARY -->\n\n");
+
+    // 5. Workspace so the model knows where it is. Intentionally stable:
     //    no datetime, no hostname, no pid — see the KV-cache note above.
     let _ = writeln!(
         out,
@@ -690,11 +703,12 @@ fn render_subagent_system_prompt(
         workspace_dir.display()
     );
 
-    // 5. Runtime banner — model name only. Stable for the lifetime of
+    // 6. Runtime banner — model name only. Stable for the lifetime of
     //    this sub-agent's definition.
     let _ = writeln!(out, "## Runtime\n\nModel: {model_name}");
 
-    out
+    let rendered = extract_cache_boundary(&out);
+    (rendered.text, rendered.cache_boundary)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -943,9 +957,16 @@ mod tests {
 
     /// Mock provider whose response queue can be inspected by the test
     /// to verify the bytes that arrive at the model.
+    #[derive(Clone)]
+    struct CapturedRequest {
+        messages: Vec<crate::openhuman::providers::ChatMessage>,
+        cache_boundary: Option<usize>,
+        tool_count: usize,
+    }
+
     struct ScriptedProvider {
         responses: Mutex<Vec<ChatResponse>>,
-        captured: Mutex<Vec<Vec<crate::openhuman::providers::ChatMessage>>>,
+        captured: Mutex<Vec<CapturedRequest>>,
     }
 
     impl ScriptedProvider {
@@ -975,7 +996,11 @@ mod tests {
             _model: &str,
             _temperature: f64,
         ) -> anyhow::Result<ChatResponse> {
-            self.captured.lock().push(request.messages.to_vec());
+            self.captured.lock().push(CapturedRequest {
+                messages: request.messages.to_vec(),
+                cache_boundary: request.system_prompt_cache_boundary,
+                tool_count: request.tools.map_or(0, |tools| tools.len()),
+            });
             let mut q = self.responses.lock();
             if q.is_empty() {
                 return Ok(ChatResponse {
@@ -1137,6 +1162,7 @@ mod tests {
         let captured = provider.captured.lock();
         assert_eq!(captured.len(), 1);
         let user_msg = captured[0]
+            .messages
             .iter()
             .find(|m| m.role == "user")
             .expect("user message should be present");
@@ -1146,6 +1172,60 @@ mod tests {
             user_msg.content
         );
         assert!(user_msg.content.contains("the actual task prompt"));
+    }
+
+    #[tokio::test]
+    async fn typed_mode_includes_memory_context_when_definition_allows_it() {
+        let provider = ScriptedProvider::new(vec![text_response("ok")]);
+        let mut parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        parent.memory_context = Some("[Memory context]\n- prior fact: branch X failed\n".into());
+        let mut def = make_def_named_tools(&[]);
+        def.omit_memory_context = false;
+
+        let _ = with_parent_context(parent, async {
+            run_subagent(
+                &def,
+                "the actual task prompt",
+                SubagentRunOptions::default(),
+            )
+            .await
+        })
+        .await
+        .unwrap();
+
+        let captured = provider.captured.lock();
+        let user_msg = captured[0]
+            .messages
+            .iter()
+            .find(|m| m.role == "user")
+            .expect("user message should be present");
+        assert!(user_msg.content.contains("[Memory context]"));
+        assert!(user_msg.content.contains("branch X failed"));
+    }
+
+    #[tokio::test]
+    async fn typed_mode_threads_system_prompt_cache_boundary() {
+        let provider = ScriptedProvider::new(vec![text_response("ok")]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        let def = make_def_named_tools(&[]);
+
+        let _ = with_parent_context(parent, async {
+            run_subagent(
+                &def,
+                "the actual task prompt",
+                SubagentRunOptions::default(),
+            )
+            .await
+        })
+        .await
+        .unwrap();
+
+        let captured = provider.captured.lock();
+        assert_eq!(captured.len(), 1);
+        assert!(
+            captured[0].cache_boundary.is_some(),
+            "typed sub-agent request should carry a prompt cache boundary"
+        );
     }
 
     #[tokio::test]
@@ -1187,6 +1267,7 @@ mod tests {
         // name and NOT mention gmail/file_read.
         let captured = provider.captured.lock();
         let system_msg = captured[0]
+            .messages
             .iter()
             .find(|m| m.role == "system")
             .expect("system message present");
@@ -1227,7 +1308,7 @@ mod tests {
         // by the runner from StubTool's "ok" output.
         let captured = provider.captured.lock();
         assert_eq!(captured.len(), 2);
-        let second_call_messages = &captured[1];
+        let second_call_messages = &captured[1].messages;
         let has_tool_msg = second_call_messages.iter().any(|m| m.role == "tool");
         assert!(
             has_tool_msg,
@@ -1259,7 +1340,7 @@ mod tests {
 
         assert!(outcome.output.contains("oops"));
         let captured = provider.captured.lock();
-        let second_call_messages = &captured[1];
+        let second_call_messages = &captured[1].messages;
         let tool_msg = second_call_messages
             .iter()
             .find(|m| m.role == "tool")
@@ -1276,7 +1357,7 @@ mod tests {
         // The runner should replay it byte-for-byte plus a single
         // appended user message carrying the fork directive.
         let provider = ScriptedProvider::new(vec![text_response("fork done")]);
-        let parent = make_parent(provider.clone(), vec![stub("file_read")]);
+        let parent = make_parent(provider.clone(), vec![stub("file_read"), stub("shell")]);
 
         let prefix = vec![
             crate::openhuman::providers::ChatMessage::system("PARENT_SYSTEM_PROMPT_BYTES"),
@@ -1286,9 +1367,9 @@ mod tests {
 
         let fork = ForkContext {
             system_prompt: Arc::new("PARENT_SYSTEM_PROMPT_BYTES".into()),
-            tool_specs: Arc::clone(&parent.all_tool_specs),
+            tool_specs: Arc::new(vec![parent.all_tool_specs[0].clone()]),
             message_prefix: Arc::new(prefix.clone()),
-            cache_boundary: None,
+            cache_boundary: Some(9),
             fork_task_prompt: "ANALYSE THIS BRANCH".into(),
         };
 
@@ -1315,15 +1396,17 @@ mod tests {
         // prefix exactly and appends only the fork directive.
         let captured = provider.captured.lock();
         let first_call = &captured[0];
-        assert_eq!(first_call.len(), prefix.len() + 1);
+        assert_eq!(first_call.messages.len(), prefix.len() + 1);
         for (i, msg) in prefix.iter().enumerate() {
-            assert_eq!(first_call[i].role, msg.role);
-            assert_eq!(first_call[i].content, msg.content);
+            assert_eq!(first_call.messages[i].role, msg.role);
+            assert_eq!(first_call.messages[i].content, msg.content);
         }
         // The appended user message carries the fork directive.
-        let appended = first_call.last().unwrap();
+        let appended = first_call.messages.last().unwrap();
         assert_eq!(appended.role, "user");
         assert_eq!(appended.content, "ANALYSE THIS BRANCH");
+        assert_eq!(first_call.cache_boundary, Some(9));
+        assert_eq!(first_call.tool_count, 1);
     }
 
     #[tokio::test]
