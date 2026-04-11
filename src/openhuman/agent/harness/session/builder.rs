@@ -39,8 +39,6 @@ impl AgentBuilder {
             workspace_dir: None,
             skills: None,
             auto_save: None,
-            classification_config: None,
-            available_hints: None,
             post_turn_hooks: Vec::new(),
             learning_enabled: false,
             event_session_id: None,
@@ -136,21 +134,6 @@ impl AgentBuilder {
     /// Enables or disables automatic saving of conversation history to memory.
     pub fn auto_save(mut self, auto_save: bool) -> Self {
         self.auto_save = Some(auto_save);
-        self
-    }
-
-    /// Sets the query classification configuration.
-    pub fn classification_config(
-        mut self,
-        classification_config: crate::openhuman::config::QueryClassificationConfig,
-    ) -> Self {
-        self.classification_config = Some(classification_config);
-        self
-    }
-
-    /// Sets the available model hints for auto-classification.
-    pub fn available_hints(mut self, available_hints: Vec<String>) -> Self {
-        self.available_hints = Some(available_hints);
         self
     }
 
@@ -253,8 +236,6 @@ impl AgentBuilder {
             auto_save: self.auto_save.unwrap_or(false),
             last_memory_context: None,
             history: Vec::new(),
-            classification_config: self.classification_config.unwrap_or_default(),
-            available_hints: self.available_hints.unwrap_or_default(),
             post_turn_hooks: self.post_turn_hooks,
             learning_enabled: self.learning_enabled,
             event_session_id: self
@@ -359,9 +340,6 @@ impl Agent {
             _ => Box::new(XmlToolDispatcher),
         };
 
-        let available_hints: Vec<String> =
-            config.model_routes.iter().map(|r| r.hint.clone()).collect();
-
         // Build prompt builder, optionally with learning sections
         let mut prompt_builder = SystemPromptBuilder::with_defaults();
         if config.learning.enabled {
@@ -464,8 +442,6 @@ impl Agent {
             .model_name(model_name)
             .temperature(config.default_temperature)
             .workspace_dir(config.workspace_dir.clone())
-            .classification_config(config.query_classification.clone())
-            .available_hints(available_hints)
             .skills(crate::openhuman::skills::load_skills(&config.workspace_dir))
             .auto_save(config.memory.auto_save)
             .post_turn_hooks(post_turn_hooks)

@@ -3,7 +3,25 @@
 use crate::openhuman::config::RuntimeConfig;
 use std::path::{Path, PathBuf};
 
-pub use crate::openhuman::agent::traits::RuntimeAdapter;
+/// Runtime adapter — abstracts platform differences for tools that need
+/// to spawn shell commands. The agent holds a boxed `dyn RuntimeAdapter`
+/// so tools (shell, docker exec, etc.) can stay agnostic to the
+/// deployment target.
+pub trait RuntimeAdapter: Send + Sync {
+    fn name(&self) -> &str;
+    fn has_shell_access(&self) -> bool;
+    fn has_filesystem_access(&self) -> bool;
+    fn storage_path(&self) -> PathBuf;
+    fn supports_long_running(&self) -> bool;
+    fn memory_budget(&self) -> u64 {
+        0
+    }
+    fn build_shell_command(
+        &self,
+        command: &str,
+        workspace_dir: &Path,
+    ) -> anyhow::Result<tokio::process::Command>;
+}
 
 pub struct NativeRuntime;
 

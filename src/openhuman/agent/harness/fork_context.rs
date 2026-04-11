@@ -60,7 +60,8 @@ pub struct ParentExecutionContext {
     pub workspace_dir: PathBuf,
 
     /// Parent's memory backing store. Sub-agents share it for read access
-    /// but use a `NullMemoryLoader` to skip the per-turn context injection.
+    /// but skip the per-turn context injection to save tokens — the
+    /// parent has already recalled and injected the relevant context.
     pub memory: Arc<dyn Memory>,
 
     /// Parent's agent config (for `max_tool_iterations`, `max_memory_context_chars`,

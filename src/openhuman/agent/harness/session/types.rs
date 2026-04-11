@@ -52,8 +52,6 @@ pub struct Agent {
     /// be forwarded to subagents via `ParentExecutionContext`.
     pub(super) last_memory_context: Option<String>,
     pub(super) history: Vec<ConversationMessage>,
-    pub(super) classification_config: crate::openhuman::config::QueryClassificationConfig,
-    pub(super) available_hints: Vec<String>,
     pub(super) post_turn_hooks: Vec<Arc<dyn PostTurnHook>>,
     pub(super) learning_enabled: bool,
     pub(super) event_session_id: String,
@@ -84,8 +82,6 @@ pub struct AgentBuilder {
     pub(super) workspace_dir: Option<std::path::PathBuf>,
     pub(super) skills: Option<Vec<crate::openhuman::skills::Skill>>,
     pub(super) auto_save: Option<bool>,
-    pub(super) classification_config: Option<crate::openhuman::config::QueryClassificationConfig>,
-    pub(super) available_hints: Option<Vec<String>>,
     pub(super) post_turn_hooks: Vec<Arc<dyn PostTurnHook>>,
     pub(super) learning_enabled: bool,
     pub(super) event_session_id: Option<String>,

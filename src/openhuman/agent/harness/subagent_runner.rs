@@ -21,7 +21,8 @@
 //! - **Filtered tools** — fewer schemas in the request body.
 //! - **Cheaper model** — archetype hint usually selects a smaller model.
 //! - **Lower max iterations** — definition-controlled per archetype.
-//! - **No memory recall** — sub-agents use a [`crate::openhuman::agent::memory_loader::NullMemoryLoader`].
+//! - **No memory recall** — sub-agents skip per-turn memory loading entirely;
+//!   the parent has already injected the relevant context.
 //! - **Structural compaction** — sub-agent's tool-call history collapses
 //!   into a single tool result block in the parent's history.
 //! - **Fork-mode prefix replay** — `uses_fork_context` definitions
@@ -1115,8 +1116,9 @@ mod tests {
 
     #[tokio::test]
     async fn typed_mode_no_memory_context_in_user_message() {
-        // Verifies that NullMemoryLoader is in effect: the user message
-        // sent to the provider does NOT contain `[Memory context]`.
+        // Verifies that sub-agents skip memory loading entirely: the
+        // user message sent to the provider does NOT contain
+        // `[Memory context]`.
         let provider = ScriptedProvider::new(vec![text_response("ok")]);
         let parent = make_parent(provider.clone(), vec![stub("file_read")]);
         let def = make_def_named_tools(&[]);

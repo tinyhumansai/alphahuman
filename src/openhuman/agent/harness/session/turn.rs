@@ -14,8 +14,8 @@
 //!   [`Agent::build_fork_context`] — snapshot helpers for sub-agent
 //!   task-locals.
 //! - [`Agent::trim_history`], [`Agent::fetch_learned_context`],
-//!   [`Agent::build_system_prompt`], [`Agent::classify_model`] — the
-//!   small helpers `turn()` leans on every call.
+//!   [`Agent::build_system_prompt`] — the small helpers `turn()` leans
+//!   on every call.
 //! - [`Agent::spawn_session_memory_extraction`] — the fire-and-forget
 //!   background archivist fork.
 
@@ -742,26 +742,6 @@ impl Agent {
             visible_tool_names: &self.visible_tool_names,
         };
         self.prompt_builder.build(&ctx)
-    }
-
-    /// Classifies the user message to determine if a specific model hint should be used.
-    ///
-    /// Currently unused by `turn()` — we pin the main agent to its configured
-    /// model for KV-cache stability (see the rationale in `turn()` where
-    /// `effective_model` is set). Kept around because the classifier config
-    /// is still surfaced via `AgentBuilder::classification_config` and
-    /// external callers (e.g. eval harnesses) may want to probe it directly.
-    #[allow(dead_code)]
-    pub(super) fn classify_model(&self, user_message: &str) -> String {
-        if let Some(hint) =
-            crate::openhuman::agent::classifier::classify(&self.classification_config, user_message)
-        {
-            if self.available_hints.contains(&hint) {
-                tracing::info!(hint = hint.as_str(), "Auto-classified query");
-                return format!("hint:{hint}");
-            }
-        }
-        self.model_name.clone()
     }
 
     // ─────────────────────────────────────────────────────────────────
