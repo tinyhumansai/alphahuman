@@ -33,7 +33,7 @@ use std::sync::Arc;
 use super::pipeline::{
     ContextPipeline, ContextPipelineConfig, PipelineOutcome, SessionMemoryHandle,
 };
-use super::prompt::{PromptContext, SystemPromptBuilder};
+use super::prompt::{PromptContext, RenderedPrompt, SystemPromptBuilder};
 use super::session_memory::SessionMemoryConfig;
 use super::summarizer::{Summarizer, SummaryStats};
 use crate::openhuman::config::ContextConfig;
@@ -232,6 +232,16 @@ impl ContextManager {
     /// manager's default [`SystemPromptBuilder`].
     pub fn build_system_prompt(&self, ctx: &PromptContext<'_>) -> Result<String> {
         self.default_prompt_builder.build(ctx)
+    }
+
+    /// Assemble the opening system prompt for a session using the
+    /// manager's default builder and preserve cache-boundary metadata
+    /// for provider request prefix caching.
+    pub fn build_system_prompt_with_cache_metadata(
+        &self,
+        ctx: &PromptContext<'_>,
+    ) -> Result<RenderedPrompt> {
+        self.default_prompt_builder.build_with_cache_metadata(ctx)
     }
 
     /// Assemble the system prompt via a caller-supplied builder.
