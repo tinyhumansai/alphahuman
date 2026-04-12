@@ -57,6 +57,31 @@ pub struct WebChannelEvent {
     pub segment_total: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SocketRpcRequest {
+    id: serde_json::Value,
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatStartPayload {
+    thread_id: String,
+    message: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    model_override: Option<String>,
+    #[serde(default)]
+    temperature: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCancelPayload {
+    thread_id: String,
+}
+
 /// Attaches the Socket.IO layer to the Axum router and sets up event handlers.
 ///
 /// It configures:
