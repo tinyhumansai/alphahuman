@@ -30,12 +30,14 @@
 
 use super::definition::{AgentDefinition, PromptSource, ToolScope};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
+use super::session::transcript;
 use crate::openhuman::context::prompt::{
     extract_cache_boundary, render_subagent_system_prompt, SubagentRenderOptions,
 };
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolCategory, ToolSpec};
 use std::collections::HashSet;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -282,7 +284,7 @@ async fn run_typed_mode(
     ];
 
     // ── Run the inner tool-call loop ───────────────────────────────────
-    let (output, iterations) = run_inner_loop(
+    let (output, iterations, agg_usage) = run_inner_loop(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
@@ -296,6 +298,14 @@ async fn run_typed_mode(
         &definition.id,
     )
     .await?;
+
+    persist_subagent_transcript(
+        &parent.workspace_dir,
+        &definition.id,
+        &history,
+        system_prompt_cache_boundary,
+        &agg_usage,
+    );
 
     Ok(SubagentRunOutcome {
         task_id: task_id.to_string(),
@@ -364,7 +374,7 @@ async fn run_fork_mode(
     // Use the parent's iteration cap, not the synthetic fork definition's.
     let max_iterations = parent.agent_config.max_tool_iterations.max(1);
 
-    let (output, iterations) = run_inner_loop(
+    let (output, iterations, agg_usage) = run_inner_loop(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
@@ -379,6 +389,14 @@ async fn run_fork_mode(
     )
     .await?;
 
+    persist_subagent_transcript(
+        &parent.workspace_dir,
+        &definition.id,
+        &history,
+        fork.cache_boundary,
+        &agg_usage,
+    );
+
     Ok(SubagentRunOutcome {
         task_id: task_id.to_string(),
         agent_id: definition.id.clone(),
@@ -390,8 +408,72 @@ async fn run_fork_mode(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Session transcript persistence for sub-agents
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Best-effort: persist the sub-agent's conversation as a session transcript
+/// so it can be inspected for debugging and KV cache analysis.
+fn persist_subagent_transcript(
+    workspace_dir: &Path,
+    agent_id: &str,
+    history: &[ChatMessage],
+    cache_boundary: Option<usize>,
+    usage: &AggregatedUsage,
+) {
+    let path = match transcript::resolve_new_transcript_path(workspace_dir, agent_id) {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::debug!(
+                agent_id = %agent_id,
+                error = %err,
+                "[subagent_runner] failed to resolve transcript path"
+            );
+            return;
+        }
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let meta = transcript::TranscriptMeta {
+        agent_name: agent_id.to_string(),
+        dispatcher: "native".into(),
+        cache_boundary,
+        created: now.clone(),
+        updated: now,
+        turn_count: 1,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cached_input_tokens: usage.cached_input_tokens,
+        charged_amount_usd: usage.charged_amount_usd,
+    };
+
+    if let Err(err) = transcript::write_transcript(&path, history, &meta) {
+        tracing::debug!(
+            agent_id = %agent_id,
+            error = %err,
+            "[subagent_runner] failed to write transcript"
+        );
+    } else {
+        tracing::debug!(
+            agent_id = %agent_id,
+            messages = history.len(),
+            path = %path.display(),
+            "[subagent_runner] transcript written"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Inner tool-call loop (slim version of agent::loop_::tool_loop)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Cumulative usage stats gathered across all provider calls in the loop.
+#[derive(Debug, Clone, Default)]
+struct AggregatedUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_input_tokens: u64,
+    charged_amount_usd: f64,
+}
 
 #[allow(clippy::too_many_arguments)]
 async fn run_inner_loop(
@@ -406,7 +488,7 @@ async fn run_inner_loop(
     system_prompt_cache_boundary: Option<usize>,
     task_id: &str,
     agent_id: &str,
-) -> Result<(String, usize), SubagentRunError> {
+) -> Result<(String, usize, AggregatedUsage), SubagentRunError> {
     let max_iterations = max_iterations.max(1);
     let supports_native = provider.supports_native_tools() && !tool_specs.is_empty();
     let request_tools = if supports_native {
@@ -414,6 +496,8 @@ async fn run_inner_loop(
     } else {
         None
     };
+
+    let mut usage = AggregatedUsage::default();
 
     for iteration in 0..max_iterations {
         tracing::debug!(
@@ -436,6 +520,13 @@ async fn run_inner_loop(
             )
             .await?;
 
+        if let Some(ref u) = resp.usage {
+            usage.input_tokens += u.input_tokens;
+            usage.output_tokens += u.output_tokens;
+            usage.cached_input_tokens += u.cached_input_tokens;
+            usage.charged_amount_usd += u.charged_amount_usd;
+        }
+
         let response_text = resp.text.clone().unwrap_or_default();
         let native_calls: Vec<ToolCall> = resp.tool_calls.clone();
 
@@ -448,7 +539,7 @@ async fn run_inner_loop(
                 "[subagent_runner] no tool calls — returning final response"
             );
             history.push(ChatMessage::assistant(response_text.clone()));
-            return Ok((response_text, iteration + 1));
+            return Ok((response_text, iteration + 1, usage));
         }
 
         // Persist assistant message with the original tool_calls payload so

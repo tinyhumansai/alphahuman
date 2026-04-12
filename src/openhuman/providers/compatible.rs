@@ -5,6 +5,7 @@
 use crate::openhuman::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
     Provider, StreamChunk, StreamError, StreamOptions, StreamResult, ToolCall as ProviderToolCall,
+    UsageInfo as ProviderUsageInfo,
 };
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -288,11 +289,60 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct ApiChatResponse {
     choices: Vec<Choice>,
+    /// Standard OpenAI usage block.
+    #[serde(default)]
+    usage: Option<ApiUsage>,
+    /// OpenHuman backend metadata (usage + billing summary).
+    #[serde(default)]
+    openhuman: Option<OpenHumanMeta>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: ResponseMessage,
+}
+
+/// Standard OpenAI `usage` block on a chat completion response.
+#[derive(Debug, Deserialize, Default)]
+struct ApiUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
+    #[serde(default)]
+    total_tokens: u64,
+    #[serde(default)]
+    prompt_tokens_details: Option<PromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: u64,
+}
+
+/// OpenHuman backend metadata appended to the response JSON.
+#[derive(Debug, Deserialize, Default)]
+struct OpenHumanMeta {
+    #[serde(default)]
+    usage: Option<OpenHumanUsage>,
+    #[serde(default)]
+    billing: Option<OpenHumanBilling>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OpenHumanUsage {
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    #[allow(dead_code)]
+    total_tokens: Option<u64>,
+    cached_input_tokens: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OpenHumanBilling {
+    #[serde(default)]
+    charged_amount_usd: f64,
 }
 
 /// Remove `<think>...</think>` blocks from model output.
@@ -941,7 +991,19 @@ impl OpenAiCompatibleProvider {
         modified_messages
     }
 
-    fn parse_native_response(message: ResponseMessage) -> ProviderChatResponse {
+    fn parse_native_response(
+        api_response: ApiChatResponse,
+        provider_name: &str,
+    ) -> anyhow::Result<ProviderChatResponse> {
+        let usage = Self::extract_usage(&api_response);
+
+        let message = api_response
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message)
+            .ok_or_else(|| anyhow::anyhow!("No choices in response from {}", provider_name))?;
+
         let mut text = message.effective_content_optional();
         let mut tool_calls = message
             .tool_calls
@@ -987,11 +1049,67 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        ProviderChatResponse {
+        Ok(ProviderChatResponse {
             text,
             tool_calls,
-            usage: None,
+            usage,
+        })
+    }
+
+    /// Extract usage info from API response, preferring the OpenHuman
+    /// metadata block (which includes cache stats and billing) over the
+    /// standard OpenAI usage block.
+    fn extract_usage(resp: &ApiChatResponse) -> Option<ProviderUsageInfo> {
+        let oh = resp.openhuman.as_ref();
+        let std_usage = resp.usage.as_ref();
+
+        // Need at least one source of token counts.
+        if oh.is_none() && std_usage.is_none() {
+            return None;
         }
+
+        let oh_usage = oh.and_then(|o| o.usage.as_ref());
+        let oh_billing = oh.and_then(|o| o.billing.as_ref());
+
+        // Prefer OpenHuman metadata when the fields are actually present;
+        // fall back to the standard OpenAI usage block when they are None.
+        let input_tokens = oh_usage
+            .and_then(|u| u.input_tokens)
+            .or(std_usage.map(|u| u.prompt_tokens))
+            .unwrap_or(0);
+        let output_tokens = oh_usage
+            .and_then(|u| u.output_tokens)
+            .or(std_usage.map(|u| u.completion_tokens))
+            .unwrap_or(0);
+        let cached_input_tokens = oh_usage
+            .and_then(|u| u.cached_input_tokens)
+            .or(std_usage
+                .and_then(|u| u.prompt_tokens_details.as_ref())
+                .map(|d| d.cached_tokens))
+            .unwrap_or(0);
+        let charged_amount_usd = oh_billing.map(|b| b.charged_amount_usd).unwrap_or(0.0);
+
+        let from_openhuman = oh_usage.is_some();
+        let from_standard = std_usage.is_some() && !from_openhuman;
+        let has_billing = oh_billing.is_some();
+        tracing::debug!(
+            from_openhuman,
+            from_standard,
+            has_billing,
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            charged_amount_usd,
+            "[provider:usage] extract_usage resolved token counts"
+        );
+
+        Some(ProviderUsageInfo {
+            input_tokens,
+            output_tokens,
+            context_window: 0,
+            cached_input_tokens,
+            charged_amount_usd,
+        })
     }
 
     fn is_native_tool_schema_unsupported(status: reqwest::StatusCode, error: &str) -> bool {
@@ -1329,6 +1447,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         let body = response.text().await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
+        let usage = Self::extract_usage(&chat_response);
         let choice = chat_response
             .choices
             .into_iter()
@@ -1356,7 +1475,7 @@ impl Provider for OpenAiCompatibleProvider {
         Ok(ProviderChatResponse {
             text,
             tool_calls,
-            usage: None,
+            usage,
         })
     }
 
@@ -1462,14 +1581,7 @@ impl Provider for OpenAiCompatibleProvider {
         }
 
         let native_response: ApiChatResponse = response.json().await?;
-        let message = native_response
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message)
-            .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))?;
-
-        Ok(Self::parse_native_response(message))
+        Self::parse_native_response(native_response, &self.name)
     }
 
     fn supports_native_tools(&self) -> bool {
@@ -1605,6 +1717,15 @@ mod tests {
 
     fn make_provider(name: &str, url: &str, key: Option<&str>) -> OpenAiCompatibleProvider {
         OpenAiCompatibleProvider::new(name, url, key, AuthStyle::Bearer)
+    }
+
+    /// Wrap a ResponseMessage in a minimal ApiChatResponse for tests.
+    fn wrap_message(message: ResponseMessage) -> ApiChatResponse {
+        ApiChatResponse {
+            choices: vec![Choice { message }],
+            usage: None,
+            openhuman: None,
+        }
     }
 
     #[test]
@@ -2036,7 +2157,8 @@ mod tests {
             reasoning_content: None,
         };
 
-        let parsed = OpenAiCompatibleProvider::parse_native_response(message);
+        let parsed =
+            OpenAiCompatibleProvider::parse_native_response(wrap_message(message), "test").unwrap();
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].id, "call_123");
         assert_eq!(parsed.tool_calls[0].name, "shell");
@@ -2265,19 +2387,23 @@ mod tests {
             Some(&serde_json::json!({"location":"London","unit":"c"}))
         );
 
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
-            content: None,
-            reasoning_content: None,
-            tool_calls: Some(vec![ToolCall {
-                id: Some("call_456".to_string()),
-                kind: Some("function".to_string()),
-                function: Some(Function {
-                    name: Some("get_weather".to_string()),
-                    arguments: Some(serde_json::json!({"location":"London","unit":"c"})),
-                }),
-            }]),
-            function_call: None,
-        });
+        let parsed = OpenAiCompatibleProvider::parse_native_response(
+            wrap_message(ResponseMessage {
+                content: None,
+                reasoning_content: None,
+                tool_calls: Some(vec![ToolCall {
+                    id: Some("call_456".to_string()),
+                    kind: Some("function".to_string()),
+                    function: Some(Function {
+                        name: Some("get_weather".to_string()),
+                        arguments: Some(serde_json::json!({"location":"London","unit":"c"})),
+                    }),
+                }]),
+                function_call: None,
+            }),
+            "test",
+        )
+        .unwrap();
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].id, "call_456");
         assert_eq!(
@@ -2289,12 +2415,16 @@ mod tests {
     #[test]
     fn parse_native_response_recovers_tool_calls_from_json_content() {
         let content = r#"{"content":"Checking files...","tool_calls":[{"id":"call_json_1","function":{"name":"shell","arguments":"{\"command\":\"ls -la\"}"}}]}"#;
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
-            content: Some(content.to_string()),
-            reasoning_content: None,
-            tool_calls: None,
-            function_call: None,
-        });
+        let parsed = OpenAiCompatibleProvider::parse_native_response(
+            wrap_message(ResponseMessage {
+                content: Some(content.to_string()),
+                reasoning_content: None,
+                tool_calls: None,
+                function_call: None,
+            }),
+            "test",
+        )
+        .unwrap();
 
         assert_eq!(parsed.text.as_deref(), Some("Checking files..."));
         assert_eq!(parsed.tool_calls.len(), 1);
@@ -2305,17 +2435,21 @@ mod tests {
 
     #[test]
     fn parse_native_response_supports_legacy_function_call() {
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
-            content: Some("Let me check".to_string()),
-            reasoning_content: None,
-            tool_calls: None,
-            function_call: Some(Function {
-                name: Some("shell".to_string()),
-                arguments: Some(serde_json::Value::String(
-                    r#"{"command":"pwd"}"#.to_string(),
-                )),
+        let parsed = OpenAiCompatibleProvider::parse_native_response(
+            wrap_message(ResponseMessage {
+                content: Some("Let me check".to_string()),
+                reasoning_content: None,
+                tool_calls: None,
+                function_call: Some(Function {
+                    name: Some("shell".to_string()),
+                    arguments: Some(serde_json::Value::String(
+                        r#"{"command":"pwd"}"#.to_string(),
+                    )),
+                }),
             }),
-        });
+            "test",
+        )
+        .unwrap();
 
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].name, "shell");

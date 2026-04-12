@@ -222,6 +222,52 @@ pub enum DomainEvent {
         elapsed_ms: u64,
     },
 
+    // ── Triage ──────────────────────────────────────────────────────────
+    //
+    // Published by `crate::openhuman::agent::triage` when an external
+    // trigger (Composio webhook today, cron / webhook / other sources
+    // later) has been classified by the trigger-triage agent. The
+    // `source` field is a short slug like `"composio"` / `"cron"` so the
+    // events stay source-agnostic — any module that calls
+    // `agent::triage::run_triage` will publish these.
+    /// A trigger event was evaluated by the triage agent and assigned
+    /// one of the four actions (drop / acknowledge / react / escalate).
+    TriggerEvaluated {
+        /// Where the trigger came from — `"composio"`, `"cron"`, …
+        source: String,
+        /// Source-specific stable id for this trigger occurrence.
+        external_id: String,
+        /// Human-friendly label, e.g. `"composio/gmail/GMAIL_NEW_GMAIL_MESSAGE"`.
+        display_label: String,
+        /// The classifier's action as a short string
+        /// (`"drop"` / `"acknowledge"` / `"react"` / `"escalate"`).
+        decision: String,
+        /// `true` if the triage turn ran on the local LLM, `false` if it
+        /// ran on the remote default provider.
+        used_local: bool,
+        /// Wall-clock time from envelope receipt to published decision.
+        latency_ms: u64,
+    },
+    /// Triage decided to hand the trigger off to another agent
+    /// (`trigger_reactor` for `react`, `orchestrator` for `escalate`).
+    /// Only fires for `react` / `escalate` — `drop` / `acknowledge` get
+    /// only a [`Self::TriggerEvaluated`] event.
+    TriggerEscalated {
+        source: String,
+        external_id: String,
+        display_label: String,
+        /// Agent definition id the trigger was handed off to.
+        target_agent: String,
+    },
+    /// Triage failed entirely — both local and remote attempts errored,
+    /// or the classifier reply could not be parsed after retry. Hooks
+    /// ops dashboards and future alerting.
+    TriggerEscalationFailed {
+        source: String,
+        external_id: String,
+        reason: String,
+    },
+
     // ── Tree Summarizer ──────────────────────────────────────────────────
     /// An hour leaf was created from buffered data.
     TreeSummarizerHourCompleted {
@@ -297,6 +343,10 @@ impl DomainEvent {
             Self::ComposioTriggerReceived { .. }
             | Self::ComposioConnectionCreated { .. }
             | Self::ComposioActionExecuted { .. } => "composio",
+
+            Self::TriggerEvaluated { .. }
+            | Self::TriggerEscalated { .. }
+            | Self::TriggerEscalationFailed { .. } => "triage",
 
             Self::TreeSummarizerHourCompleted { .. }
             | Self::TreeSummarizerPropagated { .. }
@@ -611,6 +661,35 @@ mod tests {
                     elapsed_ms: 123,
                 },
                 "composio",
+            ),
+            // Triage
+            (
+                DomainEvent::TriggerEvaluated {
+                    source: "composio".into(),
+                    external_id: "uuid-1".into(),
+                    display_label: "composio/gmail/GMAIL_NEW_GMAIL_MESSAGE".into(),
+                    decision: "drop".into(),
+                    used_local: false,
+                    latency_ms: 12,
+                },
+                "triage",
+            ),
+            (
+                DomainEvent::TriggerEscalated {
+                    source: "composio".into(),
+                    external_id: "uuid-1".into(),
+                    display_label: "composio/gmail/GMAIL_NEW_GMAIL_MESSAGE".into(),
+                    target_agent: "orchestrator".into(),
+                },
+                "triage",
+            ),
+            (
+                DomainEvent::TriggerEscalationFailed {
+                    source: "composio".into(),
+                    external_id: "uuid-1".into(),
+                    reason: "parser gave up after remote retry".into(),
+                },
+                "triage",
             ),
             // Tree Summarizer
             (

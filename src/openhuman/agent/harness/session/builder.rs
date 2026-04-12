@@ -8,7 +8,7 @@
 
 use super::types::{Agent, AgentBuilder};
 use crate::openhuman::agent::dispatcher::{
-    NativeToolDispatcher, ToolDispatcher, XmlToolDispatcher,
+    NativeToolDispatcher, PFormatToolDispatcher, ToolDispatcher, XmlToolDispatcher,
 };
 use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
@@ -44,6 +44,7 @@ impl AgentBuilder {
             learning_enabled: false,
             event_session_id: None,
             event_channel: None,
+            agent_definition_name: None,
         }
     }
 
@@ -183,6 +184,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Sets the human-readable agent definition name used as the
+    /// `{agent}` prefix in session transcript filenames
+    /// (`sessions/DDMMYYYY/{agent}_{index}.md`).
+    pub fn agent_definition_name(mut self, name: impl Into<String>) -> Self {
+        self.agent_definition_name = Some(name.into());
+        self
+    }
+
     /// Validates the configuration and builds the `Agent` instance.
     pub fn build(self) -> Result<Agent> {
         let tools = self
@@ -275,6 +284,11 @@ impl AgentBuilder {
                 .event_session_id
                 .unwrap_or_else(|| "standalone".to_string()),
             event_channel: self.event_channel.unwrap_or_else(|| "internal".to_string()),
+            agent_definition_name: self
+                .agent_definition_name
+                .unwrap_or_else(|| "main".to_string()),
+            session_transcript_path: None,
+            cached_transcript_messages: None,
             context,
             on_progress: None,
         })
@@ -350,13 +364,12 @@ impl Agent {
             &provider_runtime_options,
         )?;
 
-        let dispatcher_choice = config.agent.tool_dispatcher.as_str();
-        let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
-            "native" => Box::new(NativeToolDispatcher),
-            "xml" => Box::new(XmlToolDispatcher),
-            _ if provider.supports_native_tools() => Box::new(NativeToolDispatcher),
-            _ => Box::new(XmlToolDispatcher),
-        };
+        // Dispatcher selection is deferred until after the tool list is
+        // finalised (orchestrator tools are appended below). We capture
+        // the choice string now so the provider borrow doesn't conflict
+        // with the later `provider` move into the builder.
+        let dispatcher_choice = config.agent.tool_dispatcher.clone();
+        let supports_native = provider.supports_native_tools();
 
         // Build prompt builder, optionally with learning sections
         let mut prompt_builder = SystemPromptBuilder::with_defaults();
@@ -443,6 +456,26 @@ impl Agent {
             orchestrator_tools
                 .into_iter()
                 .filter(|t| !existing_names.contains(t.name())),
+        );
+
+        // Build the P-Format registry AFTER the tool list is finalised
+        // (including orchestrator tools) so every tool gets a signature
+        // entry. The registry is self-contained — it doesn't hold a
+        // reference back into the tools Vec.
+        let pformat_registry = crate::openhuman::agent::pformat::build_registry(&tools);
+        let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice.as_str() {
+            "native" => Box::new(NativeToolDispatcher),
+            "xml" => Box::new(XmlToolDispatcher),
+            "pformat" => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
+            _ if supports_native => Box::new(NativeToolDispatcher),
+            // Default for text-only providers: P-Format. Flip the
+            // `agent.tool_dispatcher` config to `"xml"` to revert.
+            _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
+        };
+        log::debug!(
+            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
+             default_text_format=pformat pformat_registry_entries={}",
+            pformat_registry.len()
         );
 
         Agent::builder()

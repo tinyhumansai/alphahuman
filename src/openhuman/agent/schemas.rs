@@ -22,6 +22,7 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("list_definitions"),
         schemas("get_definition"),
         schemas("reload_definitions"),
+        schemas("triage_evaluate"),
     ]
 }
 
@@ -50,6 +51,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("reload_definitions"),
             handler: handle_reload_definitions,
+        },
+        RegisteredController {
+            schema: schemas("triage_evaluate"),
+            handler: handle_triage_evaluate,
         },
     ]
 }
@@ -108,6 +113,34 @@ pub fn schemas(function: &str) -> ControllerSchema {
                           since the global registry is OnceLock-backed.",
             inputs: vec![],
             outputs: vec![json_output("status", "Reload status payload.")],
+        },
+        "triage_evaluate" => ControllerSchema {
+            namespace: "agent",
+            function: "triage_evaluate",
+            description: "Run the trigger-triage classifier against a synthetic trigger \
+                          payload for testing and replay. Returns the parsed decision \
+                          and timing metadata. When dry_run=true the decision is NOT \
+                          acted on (no sub-agent dispatch, no events beyond TriggerEvaluated).",
+            inputs: vec![
+                required_string("source", "Trigger source slug (e.g. 'composio')."),
+                optional_string("toolkit", "Toolkit slug (composio-specific)."),
+                optional_string("trigger", "Trigger slug (composio-specific)."),
+                optional_string("external_id", "Stable per-occurrence id."),
+                required_string("display_label", "Human-friendly label."),
+                FieldSchema {
+                    name: "payload",
+                    ty: TypeSchema::Json,
+                    comment: "Trigger payload as JSON.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "dry_run",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::Bool)),
+                    comment: "When true, skip apply_decision (default: false).",
+                    required: false,
+                },
+            ],
+            outputs: vec![json_output("result", "Triage evaluation result.")],
         },
         _ => ControllerSchema {
             namespace: "agent",
@@ -199,6 +232,63 @@ fn handle_reload_definitions(_params: Map<String, Value>) -> ControllerFuture {
             "note": "Sub-agent definitions are loaded once at process startup. \
                      Restart the core process to pick up new TOML files under \
                      <workspace>/agents/.",
+        }))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct TriageEvaluateParams {
+    source: String,
+    toolkit: Option<String>,
+    trigger: Option<String>,
+    external_id: Option<String>,
+    display_label: String,
+    payload: Value,
+    dry_run: Option<bool>,
+}
+
+fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let p = deserialize_params::<TriageEvaluateParams>(params)?;
+
+        // Build a TriggerEnvelope from the RPC params. Source-specific
+        // variants are discriminated by `p.source`; composio is the
+        // only one today.
+        let envelope = match p.source.as_str() {
+            "composio" => {
+                let toolkit = p.toolkit.as_deref().unwrap_or("unknown");
+                let trigger = p.trigger.as_deref().unwrap_or("unknown");
+                let eid = p.external_id.as_deref().unwrap_or("rpc");
+                crate::openhuman::agent::triage::TriggerEnvelope::from_composio(
+                    toolkit, trigger, "rpc", eid, p.payload,
+                )
+            }
+            other => {
+                return Err(format!(
+                    "unsupported trigger source `{other}` — only `composio` is supported today"
+                ));
+            }
+        };
+
+        let run = crate::openhuman::agent::triage::run_triage(&envelope)
+            .await
+            .map_err(|e| format!("triage evaluation failed: {e}"))?;
+
+        let dry_run = p.dry_run.unwrap_or(false);
+        if !dry_run {
+            crate::openhuman::agent::triage::apply_decision(run.clone(), &envelope)
+                .await
+                .map_err(|e| format!("apply_decision failed: {e}"))?;
+        }
+
+        Ok(serde_json::json!({
+            "decision": run.decision.action.as_str(),
+            "target_agent": run.decision.target_agent,
+            "prompt": run.decision.prompt,
+            "reason": run.decision.reason,
+            "used_local": run.used_local,
+            "latency_ms": run.latency_ms,
+            "dry_run": dry_run,
         }))
     })
 }

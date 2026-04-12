@@ -19,6 +19,7 @@
 //! - [`Agent::spawn_session_memory_extraction`] — the fire-and-forget
 //!   background archivist fork.
 
+use super::transcript;
 use super::types::Agent;
 use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
@@ -52,6 +53,14 @@ impl Agent {
             self.history.len(),
             self.config.max_tool_iterations
         );
+        // ── Session transcript resume ─────────────────────────────────
+        // On a fresh session (empty history), look for a previous
+        // transcript to pre-populate the exact provider messages for
+        // KV cache prefix reuse.
+        if self.history.is_empty() && self.cached_transcript_messages.is_none() {
+            self.try_load_session_transcript();
+        }
+
         if self.history.is_empty() {
             // Learned context is only baked into the system prompt on the
             // very first turn — once the history is non-empty we reuse the
@@ -147,6 +156,16 @@ impl Agent {
         // Collect tool call records across all iterations for post-turn hooks
         let mut all_tool_records: Vec<ToolCallRecord> = Vec::new();
 
+        // Capture the last `Vec<ChatMessage>` sent to the provider so we
+        // can persist it as a session transcript after the turn completes.
+        let mut last_provider_messages: Option<Vec<ChatMessage>> = None;
+
+        // Accumulate usage stats across iterations for the transcript.
+        let mut cumulative_input_tokens: u64 = 0;
+        let mut cumulative_output_tokens: u64 = 0;
+        let mut cumulative_cached_input_tokens: u64 = 0;
+        let mut cumulative_charged_usd: f64 = 0.0;
+
         let turn_body = async {
             for iteration in 0..self.config.max_tool_iterations {
                 self.emit_progress(AgentProgress::IterationStarted {
@@ -224,7 +243,28 @@ impl Agent {
                     }
                 }
 
-                let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+                // Use cached transcript messages on the first iteration of
+                // a resumed session to provide a byte-identical prefix for
+                // KV cache reuse. After `.take()` the cache is consumed;
+                // subsequent iterations rebuild from history normally.
+                let messages = if let Some(mut cached) = self.cached_transcript_messages.take() {
+                    // Append only the delta (new user message) from the
+                    // end of the current history.
+                    let new_tail = self.tool_dispatcher.to_provider_messages(
+                        &self.history[self.history.len().saturating_sub(1)..],
+                    );
+                    cached.extend(new_tail);
+                    log::info!(
+                        "[transcript] resumed from cached transcript prefix_len={} new_tail={}",
+                        cached.len() - 1,
+                        1
+                    );
+                    cached
+                } else {
+                    self.tool_dispatcher.to_provider_messages(&self.history)
+                };
+                last_provider_messages = Some(messages.clone());
+
                 log::info!(
                     "[agent] iteration {}/{} — sending request to provider model={}",
                     iteration + 1,
@@ -269,6 +309,10 @@ impl Agent {
                         // the provider doesn't return usage.
                         if let Some(ref usage) = resp.usage {
                             self.context.record_usage(usage);
+                            cumulative_input_tokens += usage.input_tokens;
+                            cumulative_output_tokens += usage.output_tokens;
+                            cumulative_cached_input_tokens += usage.cached_input_tokens;
+                            cumulative_charged_usd += usage.charged_amount_usd;
                         }
                         resp
                     }
@@ -445,6 +489,21 @@ impl Agent {
         // read the parent's provider, tools, model, and workspace via
         // the PARENT_CONTEXT task-local.
         let result = harness::with_parent_context(parent_context, turn_body).await;
+
+        // ── Session transcript persistence ────────────────────────────
+        // Persist the exact provider messages so a future session can
+        // resume with a byte-identical prefix for KV cache reuse.
+        if result.is_ok() {
+            if let Some(ref messages) = last_provider_messages {
+                self.persist_session_transcript(
+                    messages,
+                    cumulative_input_tokens,
+                    cumulative_output_tokens,
+                    cumulative_cached_input_tokens,
+                    cumulative_charged_usd,
+                );
+            }
+        }
 
         // ── Session-memory extraction (stage 5) ───────────────────────
         //
@@ -763,6 +822,14 @@ impl Agent {
             .await
             .unwrap_or_default();
 
+        // Pull every namespace's root-level summary from the tree
+        // summarizer. This is the densest user memory we can hand the
+        // orchestrator: each root holds up to 20 000 tokens of distilled
+        // long-term context. Done synchronously here because the calls
+        // are filesystem reads, not provider/network round-trips, and
+        // happen exactly once per session (only on the first turn).
+        let tree_root_summaries = collect_tree_root_summaries(&self.workspace_dir);
+
         LearnedContextData {
             observations: obs_entries
                 .iter()
@@ -780,6 +847,7 @@ impl Agent {
                 .take(20)
                 .map(|e| sanitize_learned_entry(&e.content))
                 .collect(),
+            tree_root_summaries,
         }
     }
 
@@ -804,12 +872,124 @@ impl Agent {
             dispatcher_instructions: &instructions,
             learned,
             visible_tool_names: &self.visible_tool_names,
+            tool_call_format: self.tool_dispatcher.tool_call_format(),
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,
         // channel runtimes — shares one builder configuration while
         // still preserving cache-boundary metadata for provider calls.
         self.context.build_system_prompt_with_cache_metadata(&ctx)
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Session transcript helpers
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Try to load a previous session transcript for KV cache resume.
+    ///
+    /// Best-effort: failures are logged and silently ignored.
+    pub(super) fn try_load_session_transcript(&mut self) {
+        match transcript::find_latest_transcript(&self.workspace_dir, &self.agent_definition_name) {
+            Some(path) => {
+                log::info!(
+                    "[transcript] found previous transcript path={}",
+                    path.display()
+                );
+                match transcript::read_transcript(&path) {
+                    Ok(session) => {
+                        if session.messages.is_empty() {
+                            log::debug!(
+                                "[transcript] previous transcript is empty — skipping resume"
+                            );
+                            return;
+                        }
+                        // Restore the cache boundary from the transcript
+                        // metadata so the provider request carries the
+                        // same offset as the original session.
+                        self.system_prompt_cache_boundary = session.meta.cache_boundary;
+                        log::info!(
+                            "[transcript] loaded {} messages for resume (cache_boundary={:?})",
+                            session.messages.len(),
+                            session.meta.cache_boundary
+                        );
+                        self.cached_transcript_messages = Some(session.messages);
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[transcript] failed to parse previous transcript {}: {err}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+            None => {
+                log::debug!(
+                    "[transcript] no previous transcript found for agent={}",
+                    self.agent_definition_name
+                );
+            }
+        }
+    }
+
+    /// Persist the exact provider messages as a session transcript.
+    ///
+    /// Best-effort: failures are logged and silently ignored. The JSONL
+    /// conversation store remains the authoritative persistence layer;
+    /// session transcripts are an optimization for KV cache stability.
+    pub(super) fn persist_session_transcript(
+        &mut self,
+        messages: &[ChatMessage],
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_input_tokens: u64,
+        charged_amount_usd: f64,
+    ) {
+        // Resolve the transcript path on first write.
+        if self.session_transcript_path.is_none() {
+            match transcript::resolve_new_transcript_path(
+                &self.workspace_dir,
+                &self.agent_definition_name,
+            ) {
+                Ok(path) => {
+                    log::info!(
+                        "[transcript] new session transcript path={}",
+                        path.display()
+                    );
+                    self.session_transcript_path = Some(path);
+                }
+                Err(err) => {
+                    log::warn!("[transcript] failed to resolve transcript path: {err}");
+                    return;
+                }
+            }
+        }
+
+        let path = self.session_transcript_path.as_ref().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let meta = transcript::TranscriptMeta {
+            agent_name: self.agent_definition_name.clone(),
+            dispatcher: if self.tool_dispatcher.should_send_tool_specs() {
+                "native".into()
+            } else {
+                "xml".into()
+            },
+            cache_boundary: self.system_prompt_cache_boundary,
+            created: now.clone(),
+            updated: now,
+            turn_count: self.context.stats().session_memory_current_turn as usize,
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            charged_amount_usd,
+        };
+
+        if let Err(err) = transcript::write_transcript(path, messages, &meta) {
+            log::warn!(
+                "[transcript] failed to write transcript {}: {err}",
+                path.display()
+            );
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -891,6 +1071,23 @@ impl Agent {
             }
         });
     }
+}
+
+/// Wrapper around
+/// [`crate::openhuman::tree_summarizer::store::collect_root_summaries_with_caps`]
+/// that pins the per-namespace and total caps to the constants exposed
+/// from `context::prompt`. The store helper does the actual work — this
+/// indirection just keeps the call site readable and the caps in one
+/// place where the prompt section is defined.
+fn collect_tree_root_summaries(workspace_dir: &std::path::Path) -> Vec<(String, String)> {
+    use crate::openhuman::context::prompt::{
+        USER_MEMORY_PER_NAMESPACE_MAX_CHARS, USER_MEMORY_TOTAL_MAX_CHARS,
+    };
+    crate::openhuman::tree_summarizer::store::collect_root_summaries_with_caps(
+        workspace_dir,
+        USER_MEMORY_PER_NAMESPACE_MAX_CHARS,
+        USER_MEMORY_TOTAL_MAX_CHARS,
+    )
 }
 
 /// Sanitize a learned memory entry before injecting into the system prompt.

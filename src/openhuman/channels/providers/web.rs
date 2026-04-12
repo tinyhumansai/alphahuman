@@ -395,9 +395,10 @@ fn spawn_progress_bridge(
                         tool_name: Some(tool_name),
                         skill_id: Some("web_channel".to_string()),
                         args: None,
-                        output: Some(format!(
-                            "{{\"output_chars\":{output_chars},\"elapsed_ms\":{elapsed_ms}}}"
-                        )),
+                        output: Some(
+                            json!({"output_chars": output_chars, "elapsed_ms": elapsed_ms})
+                                .to_string(),
+                        ),
                         success: Some(success),
                         round: Some(iteration),
                         reaction_emoji: None,
@@ -484,19 +485,6 @@ fn spawn_progress_bridge(
             }
         }
     });
-}
-
-fn parse_tool_args(arguments: &str) -> Value {
-    if arguments.trim().is_empty() {
-        return Value::Object(Map::new());
-    }
-    match serde_json::from_str::<Value>(arguments) {
-        Ok(value) => value,
-        Err(_) => Value::Object(Map::from_iter([(
-            "raw".to_string(),
-            Value::String(arguments.to_string()),
-        )])),
-    }
 }
 
 fn normalize_model_override(model_override: Option<String>) -> Option<String> {
@@ -708,8 +696,7 @@ fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String>
 
 #[cfg(test)]
 mod tests {
-    use super::{cancel_chat, parse_tool_args, start_chat};
-    use serde_json::json;
+    use super::{cancel_chat, start_chat};
 
     #[tokio::test]
     async fn start_chat_validates_required_fields() {
@@ -740,15 +727,5 @@ mod tests {
             .await
             .expect_err("thread id should be required");
         assert!(err.contains("thread_id is required"));
-    }
-
-    #[test]
-    fn parse_tool_args_handles_json_and_raw_fallback() {
-        assert_eq!(
-            parse_tool_args(r#"{"command":"date"}"#),
-            json!({"command":"date"})
-        );
-        assert_eq!(parse_tool_args(""), json!({}));
-        assert_eq!(parse_tool_args("not-json"), json!({"raw":"not-json"}));
     }
 }

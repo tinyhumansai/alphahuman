@@ -58,6 +58,14 @@ pub struct UsageInfo {
     pub output_tokens: u64,
     /// Total context window size for the model (0 if unknown).
     pub context_window: u64,
+    /// Number of input tokens that were served from the KV cache
+    /// (returned by backends that support prompt caching, e.g. via
+    /// `openhuman.usage.cached_input_tokens` or
+    /// `prompt_tokens_details.cached_tokens`).
+    pub cached_input_tokens: u64,
+    /// Amount billed for this request in USD (from
+    /// `openhuman.billing.charged_amount_usd`). Zero when unavailable.
+    pub charged_amount_usd: f64,
 }
 
 /// An LLM response that may contain text, tool calls, or both.
