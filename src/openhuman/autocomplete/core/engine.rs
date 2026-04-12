@@ -7,15 +7,15 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
 
+#[cfg(target_os = "macos")]
+use super::focus::validate_focused_target;
 use super::focus::{
     apply_text_to_focused_field, focused_text_context_verbose, is_escape_key_down, is_tab_key_down,
     send_backspace,
 };
 #[cfg(target_os = "macos")]
-use super::focus::validate_focused_target;
-use super::overlay::show_overflow_badge;
-#[cfg(target_os = "macos")]
 use super::overlay::overlay_helper_quit;
+use super::overlay::show_overflow_badge;
 use super::terminal::{
     extract_terminal_input_context, is_terminal_app, looks_like_terminal_buffer,
 };
