@@ -403,3 +403,266 @@ pub(crate) async fn run_tool_call_loop(
 
     anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openhuman::providers::traits::ProviderCapabilities;
+    use crate::openhuman::providers::ChatResponse;
+    use crate::openhuman::tools::{ToolResult, ToolScope};
+    use async_trait::async_trait;
+    use parking_lot::Mutex;
+
+    struct ScriptedProvider {
+        responses: Mutex<Vec<ChatResponse>>,
+        native_tools: bool,
+        vision: bool,
+    }
+
+    #[async_trait]
+    impl Provider for ScriptedProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            Ok("fallback".into())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<ChatResponse> {
+            let mut guard = self.responses.lock();
+            Ok(guard.remove(0))
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                native_tool_calling: self.native_tools,
+                vision: self.vision,
+                ..ProviderCapabilities::default()
+            }
+        }
+    }
+
+    struct EchoTool;
+
+    #[async_trait]
+    impl Tool for EchoTool {
+        fn name(&self) -> &str {
+            "echo"
+        }
+
+        fn description(&self) -> &str {
+            "echo"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
+            Ok(ToolResult::success("echo-out"))
+        }
+    }
+
+    struct CliOnlyTool;
+
+    #[async_trait]
+    impl Tool for CliOnlyTool {
+        fn name(&self) -> &str {
+            "cli_only"
+        }
+
+        fn description(&self) -> &str {
+            "cli only"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
+            Ok(ToolResult::success("should-not-run"))
+        }
+
+        fn scope(&self) -> ToolScope {
+            ToolScope::CliRpcOnly
+        }
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_rejects_vision_markers_for_non_vision_provider() {
+        let provider = ScriptedProvider {
+            responses: Mutex::new(vec![]),
+            native_tools: false,
+            vision: false,
+        };
+        let mut history = vec![ChatMessage::user("look [IMAGE:/tmp/x.png]")];
+
+        let err = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &[],
+            "test-provider",
+            "model",
+            0.0,
+            true,
+            None,
+            "channel",
+            &crate::openhuman::config::MultimodalConfig::default(),
+            1,
+            None,
+        )
+        .await
+        .expect_err("vision markers should be rejected");
+
+        assert!(err.to_string().contains("does not support vision input"));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_streams_final_text_chunks() {
+        let provider = ScriptedProvider {
+            responses: Mutex::new(vec![ChatResponse {
+                text: Some("word ".repeat(30)),
+                tool_calls: vec![],
+                usage: None,
+            }]),
+            native_tools: false,
+            vision: false,
+        };
+        let mut history = vec![ChatMessage::user("hello")];
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &[],
+            "test-provider",
+            "model",
+            0.0,
+            true,
+            None,
+            "channel",
+            &crate::openhuman::config::MultimodalConfig::default(),
+            1,
+            Some(tx),
+        )
+        .await
+        .expect("final text should succeed");
+
+        let mut streamed = String::new();
+        while let Some(chunk) = rx.recv().await {
+            streamed.push_str(&chunk);
+        }
+
+        assert_eq!(result, streamed);
+        assert!(history.iter().any(|msg| msg.role == "assistant"));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_blocks_cli_rpc_only_tools_in_prompt_mode() {
+        let provider = ScriptedProvider {
+            responses: Mutex::new(vec![
+                ChatResponse {
+                    text: Some(
+                        "<tool_call>{\"name\":\"cli_only\",\"arguments\":{}}</tool_call>".into(),
+                    ),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+                ChatResponse {
+                    text: Some("done".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+            ]),
+            native_tools: false,
+            vision: false,
+        };
+        let mut history = vec![ChatMessage::user("hello")];
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(CliOnlyTool)];
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools,
+            "test-provider",
+            "model",
+            0.0,
+            true,
+            None,
+            "channel",
+            &crate::openhuman::config::MultimodalConfig::default(),
+            2,
+            None,
+        )
+        .await
+        .expect("loop should recover after denial");
+
+        assert_eq!(result, "done");
+        let tool_results = history
+            .iter()
+            .find(|msg| msg.role == "user" && msg.content.contains("[Tool results]"))
+            .expect("tool results should be appended");
+        assert!(tool_results
+            .content
+            .contains("only available via explicit CLI/RPC invocation"));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_persists_native_tool_results_as_tool_messages() {
+        let provider = ScriptedProvider {
+            responses: Mutex::new(vec![
+                ChatResponse {
+                    text: Some(String::new()),
+                    tool_calls: vec![crate::openhuman::providers::ToolCall {
+                        id: "call-1".into(),
+                        name: "echo".into(),
+                        arguments: "{}".into(),
+                    }],
+                    usage: None,
+                },
+                ChatResponse {
+                    text: Some("done".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+            ]),
+            native_tools: true,
+            vision: false,
+        };
+        let mut history = vec![ChatMessage::user("hello")];
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(EchoTool)];
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools,
+            "test-provider",
+            "model",
+            0.0,
+            true,
+            None,
+            "channel",
+            &crate::openhuman::config::MultimodalConfig::default(),
+            2,
+            None,
+        )
+        .await
+        .expect("native tool flow should succeed");
+
+        assert_eq!(result, "done");
+        let tool_msg = history
+            .iter()
+            .find(|msg| msg.role == "tool")
+            .expect("native tool result should be persisted");
+        assert!(tool_msg.content.contains("\"tool_call_id\":\"call-1\""));
+        assert!(tool_msg.content.contains("echo-out"));
+    }
+}

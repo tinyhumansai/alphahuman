@@ -1079,3 +1079,202 @@ fn sanitize_learned_entry(content: &str) -> String {
     }
     sanitized
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::event_bus::{global, init_global, DomainEvent};
+    use crate::openhuman::agent::dispatcher::XmlToolDispatcher;
+    use crate::openhuman::memory::Memory;
+    use crate::openhuman::providers::{ChatRequest, ChatResponse, Provider};
+    use crate::openhuman::tools::ToolResult;
+    use async_trait::async_trait;
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tokio::sync::Mutex as AsyncMutex;
+    use tokio::time::{sleep, Duration};
+
+    struct DummyProvider;
+
+    #[async_trait]
+    impl Provider for DummyProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            Ok("unused".into())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<ChatResponse> {
+            Ok(ChatResponse {
+                text: Some("unused".into()),
+                tool_calls: vec![],
+                usage: None,
+            })
+        }
+    }
+
+    struct EchoTool;
+
+    #[async_trait]
+    impl Tool for EchoTool {
+        fn name(&self) -> &str {
+            "echo"
+        }
+
+        fn description(&self) -> &str {
+            "echo"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
+            Ok(ToolResult::success("echo-output"))
+        }
+    }
+
+    fn make_agent(visible_tool_names: Option<HashSet<String>>) -> Agent {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let workspace_path = workspace.into_path();
+        let memory_cfg = crate::openhuman::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::openhuman::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::openhuman::memory::create_memory(&memory_cfg, &workspace_path, None).unwrap(),
+        );
+
+        let mut builder = Agent::builder()
+            .provider(Box::new(DummyProvider))
+            .tools(vec![Box::new(EchoTool)])
+            .memory(mem)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(workspace_path)
+            .event_context("turn-test-session", "turn-test-channel")
+            .config(crate::openhuman::config::AgentConfig {
+                max_history_messages: 3,
+                ..crate::openhuman::config::AgentConfig::default()
+            });
+
+        if let Some(names) = visible_tool_names {
+            builder = builder.visible_tool_names(names);
+        }
+
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn trim_history_preserves_system_and_keeps_latest_non_system_entries() {
+        let mut agent = make_agent(None);
+        agent.history = vec![
+            ConversationMessage::Chat(ChatMessage::system("sys")),
+            ConversationMessage::Chat(ChatMessage::user("u1")),
+            ConversationMessage::Chat(ChatMessage::assistant("a1")),
+            ConversationMessage::Chat(ChatMessage::user("u2")),
+            ConversationMessage::Chat(ChatMessage::assistant("a2")),
+        ];
+
+        agent.trim_history();
+
+        assert_eq!(agent.history.len(), 4);
+        assert!(matches!(&agent.history[0], ConversationMessage::Chat(msg) if msg.role == "system"));
+        assert!(agent
+            .history
+            .iter()
+            .all(|msg| !matches!(msg, ConversationMessage::Chat(chat) if chat.content == "u1")));
+        assert!(agent
+            .history
+            .iter()
+            .any(|msg| matches!(msg, ConversationMessage::Chat(chat) if chat.content == "a2")));
+    }
+
+    #[test]
+    fn build_fork_context_uses_visible_specs_and_prompt_argument() {
+        let mut visible = HashSet::new();
+        visible.insert("echo".to_string());
+        let agent = make_agent(Some(visible));
+        let call = ParsedToolCall {
+            name: "spawn_subagent".into(),
+            arguments: serde_json::json!({ "prompt": "fork task" }),
+            tool_call_id: None,
+        };
+
+        let fork = agent.build_fork_context(&call);
+        assert_eq!(fork.fork_task_prompt, "fork task");
+        assert_eq!(fork.tool_specs.len(), 1);
+        assert_eq!(fork.tool_specs[0].name, "echo");
+        assert_eq!(fork.message_prefix.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn execute_tool_call_blocks_invisible_tool_and_emits_events() {
+        let _ = init_global(64);
+        let events = Arc::new(AsyncMutex::new(Vec::<DomainEvent>::new()));
+        let events_handler = Arc::clone(&events);
+        let _handle = global().unwrap().on("turn-events-test", move |event| {
+            let events = Arc::clone(&events_handler);
+            let cloned = event.clone();
+            Box::pin(async move {
+                events.lock().await.push(cloned);
+            })
+        });
+
+        let mut visible = HashSet::new();
+        visible.insert("other".to_string());
+        let agent = make_agent(Some(visible));
+        let call = ParsedToolCall {
+            name: "echo".into(),
+            arguments: serde_json::json!({}),
+            tool_call_id: Some("tc-1".into()),
+        };
+
+        let (result, record) = agent.execute_tool_call(&call).await;
+        assert!(!result.success);
+        assert!(result.output.contains("not available to this agent"));
+        assert_eq!(record.name, "echo");
+        assert!(!record.success);
+
+        sleep(Duration::from_millis(20)).await;
+        let captured = events.lock().await;
+        assert!(captured.iter().any(|event| matches!(
+            event,
+            DomainEvent::ToolExecutionStarted { tool_name, session_id }
+                if tool_name == "echo" && session_id == "turn-test-session"
+        )));
+        assert!(captured.iter().any(|event| matches!(
+            event,
+            DomainEvent::ToolExecutionCompleted {
+                tool_name,
+                session_id,
+                success,
+                ..
+            } if tool_name == "echo" && session_id == "turn-test-session" && !success
+        )));
+    }
+
+    #[tokio::test]
+    async fn execute_tool_call_reports_unknown_tool() {
+        let agent = make_agent(None);
+        let call = ParsedToolCall {
+            name: "missing".into(),
+            arguments: serde_json::json!({}),
+            tool_call_id: None,
+        };
+
+        let (result, record) = agent.execute_tool_call(&call).await;
+        assert!(!result.success);
+        assert!(result.output.contains("Unknown tool: missing"));
+        assert_eq!(record.name, "missing");
+        assert!(!record.success);
+    }
+}
