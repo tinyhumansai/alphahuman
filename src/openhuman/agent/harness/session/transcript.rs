@@ -204,10 +204,21 @@ pub fn find_latest_transcript(workspace_dir: &Path, agent_name: &str) -> Option<
 
 // ── Internals ────────────────────────────────────────────────────────
 
+/// Escape the closing delimiter so it cannot appear literally in message
+/// content. Replaces `<!--/MSG-->` with `<!--\/MSG-->`.
+///
+/// **Known edge case:** if the original content already contains the literal
+/// escape sequence `<!--\/MSG-->`, `unescape_content` will convert it into
+/// `<!--/MSG-->`, corrupting the round-trip. In practice this sequence is
+/// vanishingly unlikely in LLM output. A fully reversible fix would require
+/// a two-pass escaping scheme (e.g. also escaping the backslash), but that
+/// added complexity is not warranted unless the edge case materialises.
 fn escape_content(content: &str) -> String {
     content.replace(MSG_CLOSE, MSG_CLOSE_ESCAPED)
 }
 
+/// Reverse the escaping applied by [`escape_content`]. See that function's
+/// doc comment for the known edge case with pre-existing escape sequences.
 fn unescape_content(content: &str) -> String {
     content.replace(MSG_CLOSE_ESCAPED, MSG_CLOSE)
 }

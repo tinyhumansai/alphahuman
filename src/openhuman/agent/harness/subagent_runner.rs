@@ -284,7 +284,7 @@ async fn run_typed_mode(
     ];
 
     // ── Run the inner tool-call loop ───────────────────────────────────
-    let (output, iterations) = run_inner_loop(
+    let (output, iterations, agg_usage) = run_inner_loop(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
@@ -304,6 +304,7 @@ async fn run_typed_mode(
         &definition.id,
         &history,
         system_prompt_cache_boundary,
+        &agg_usage,
     );
 
     Ok(SubagentRunOutcome {
@@ -373,7 +374,7 @@ async fn run_fork_mode(
     // Use the parent's iteration cap, not the synthetic fork definition's.
     let max_iterations = parent.agent_config.max_tool_iterations.max(1);
 
-    let (output, iterations) = run_inner_loop(
+    let (output, iterations, agg_usage) = run_inner_loop(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
@@ -393,6 +394,7 @@ async fn run_fork_mode(
         &definition.id,
         &history,
         fork.cache_boundary,
+        &agg_usage,
     );
 
     Ok(SubagentRunOutcome {
@@ -416,6 +418,7 @@ fn persist_subagent_transcript(
     agent_id: &str,
     history: &[ChatMessage],
     cache_boundary: Option<usize>,
+    usage: &AggregatedUsage,
 ) {
     let path = match transcript::resolve_new_transcript_path(workspace_dir, agent_id) {
         Ok(p) => p,
@@ -437,10 +440,10 @@ fn persist_subagent_transcript(
         created: now.clone(),
         updated: now,
         turn_count: 1,
-        input_tokens: 0,
-        output_tokens: 0,
-        cached_input_tokens: 0,
-        charged_amount_usd: 0.0,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cached_input_tokens: usage.cached_input_tokens,
+        charged_amount_usd: usage.charged_amount_usd,
     };
 
     if let Err(err) = transcript::write_transcript(&path, history, &meta) {
@@ -463,6 +466,15 @@ fn persist_subagent_transcript(
 // Inner tool-call loop (slim version of agent::loop_::tool_loop)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Cumulative usage stats gathered across all provider calls in the loop.
+#[derive(Debug, Clone, Default)]
+struct AggregatedUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_input_tokens: u64,
+    charged_amount_usd: f64,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_inner_loop(
     provider: &dyn Provider,
@@ -476,7 +488,7 @@ async fn run_inner_loop(
     system_prompt_cache_boundary: Option<usize>,
     task_id: &str,
     agent_id: &str,
-) -> Result<(String, usize), SubagentRunError> {
+) -> Result<(String, usize, AggregatedUsage), SubagentRunError> {
     let max_iterations = max_iterations.max(1);
     let supports_native = provider.supports_native_tools() && !tool_specs.is_empty();
     let request_tools = if supports_native {
@@ -484,6 +496,8 @@ async fn run_inner_loop(
     } else {
         None
     };
+
+    let mut usage = AggregatedUsage::default();
 
     for iteration in 0..max_iterations {
         tracing::debug!(
@@ -506,6 +520,13 @@ async fn run_inner_loop(
             )
             .await?;
 
+        if let Some(ref u) = resp.usage {
+            usage.input_tokens += u.input_tokens;
+            usage.output_tokens += u.output_tokens;
+            usage.cached_input_tokens += u.cached_input_tokens;
+            usage.charged_amount_usd += u.charged_amount_usd;
+        }
+
         let response_text = resp.text.clone().unwrap_or_default();
         let native_calls: Vec<ToolCall> = resp.tool_calls.clone();
 
@@ -518,7 +539,7 @@ async fn run_inner_loop(
                 "[subagent_runner] no tool calls — returning final response"
             );
             history.push(ChatMessage::assistant(response_text.clone()));
-            return Ok((response_text, iteration + 1));
+            return Ok((response_text, iteration + 1, usage));
         }
 
         // Persist assistant message with the original tool_calls payload so
