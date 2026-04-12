@@ -1434,6 +1434,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         let body = response.text().await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
+        let usage = Self::extract_usage(&chat_response);
         let choice = chat_response
             .choices
             .into_iter()
@@ -1461,7 +1462,7 @@ impl Provider for OpenAiCompatibleProvider {
         Ok(ProviderChatResponse {
             text,
             tool_calls,
-            usage: None,
+            usage,
         })
     }
 
@@ -1707,6 +1708,15 @@ mod tests {
 
     fn make_provider(name: &str, url: &str, key: Option<&str>) -> OpenAiCompatibleProvider {
         OpenAiCompatibleProvider::new(name, url, key, AuthStyle::Bearer)
+    }
+
+    /// Wrap a ResponseMessage in a minimal ApiChatResponse for tests.
+    fn wrap_message(message: ResponseMessage) -> ApiChatResponse {
+        ApiChatResponse {
+            choices: vec![Choice { message }],
+            usage: None,
+            openhuman: None,
+        }
     }
 
     #[test]
@@ -2138,7 +2148,7 @@ mod tests {
             reasoning_content: None,
         };
 
-        let parsed = OpenAiCompatibleProvider::parse_native_response(message);
+        let parsed = OpenAiCompatibleProvider::parse_native_response(wrap_message(message));
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].id, "call_123");
         assert_eq!(parsed.tool_calls[0].name, "shell");
@@ -2367,7 +2377,7 @@ mod tests {
             Some(&serde_json::json!({"location":"London","unit":"c"}))
         );
 
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+        let parsed = OpenAiCompatibleProvider::parse_native_response(wrap_message(ResponseMessage {
             content: None,
             reasoning_content: None,
             tool_calls: Some(vec![ToolCall {
@@ -2379,7 +2389,7 @@ mod tests {
                 }),
             }]),
             function_call: None,
-        });
+        }));
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].id, "call_456");
         assert_eq!(
@@ -2391,12 +2401,12 @@ mod tests {
     #[test]
     fn parse_native_response_recovers_tool_calls_from_json_content() {
         let content = r#"{"content":"Checking files...","tool_calls":[{"id":"call_json_1","function":{"name":"shell","arguments":"{\"command\":\"ls -la\"}"}}]}"#;
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+        let parsed = OpenAiCompatibleProvider::parse_native_response(wrap_message(ResponseMessage {
             content: Some(content.to_string()),
             reasoning_content: None,
             tool_calls: None,
             function_call: None,
-        });
+        }));
 
         assert_eq!(parsed.text.as_deref(), Some("Checking files..."));
         assert_eq!(parsed.tool_calls.len(), 1);
@@ -2407,7 +2417,7 @@ mod tests {
 
     #[test]
     fn parse_native_response_supports_legacy_function_call() {
-        let parsed = OpenAiCompatibleProvider::parse_native_response(ResponseMessage {
+        let parsed = OpenAiCompatibleProvider::parse_native_response(wrap_message(ResponseMessage {
             content: Some("Let me check".to_string()),
             reasoning_content: None,
             tool_calls: None,
@@ -2417,7 +2427,7 @@ mod tests {
                     r#"{"command":"pwd"}"#.to_string(),
                 )),
             }),
-        });
+        }));
 
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].name, "shell");

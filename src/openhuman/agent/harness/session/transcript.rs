@@ -56,6 +56,14 @@ pub struct TranscriptMeta {
     pub created: String,
     pub updated: String,
     pub turn_count: usize,
+    /// Cumulative input tokens across all provider calls this session.
+    pub input_tokens: u64,
+    /// Cumulative output tokens across all provider calls this session.
+    pub output_tokens: u64,
+    /// Cumulative input tokens served from the KV cache.
+    pub cached_input_tokens: u64,
+    /// Cumulative amount charged in USD.
+    pub charged_amount_usd: f64,
 }
 
 /// A parsed session transcript: metadata + exact message array.
