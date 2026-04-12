@@ -19,6 +19,7 @@
 //! - [`Agent::spawn_session_memory_extraction`] — the fire-and-forget
 //!   background archivist fork.
 
+use super::transcript;
 use super::types::Agent;
 use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
@@ -50,6 +51,14 @@ impl Agent {
             self.history.len(),
             self.config.max_tool_iterations
         );
+        // ── Session transcript resume ─────────────────────────────────
+        // On a fresh session (empty history), look for a previous
+        // transcript to pre-populate the exact provider messages for
+        // KV cache prefix reuse.
+        if self.history.is_empty() && self.cached_transcript_messages.is_none() {
+            self.try_load_session_transcript();
+        }
+
         if self.history.is_empty() {
             // Learned context is only baked into the system prompt on the
             // very first turn — once the history is non-empty we reuse the
@@ -145,6 +154,10 @@ impl Agent {
         // Collect tool call records across all iterations for post-turn hooks
         let mut all_tool_records: Vec<ToolCallRecord> = Vec::new();
 
+        // Capture the last `Vec<ChatMessage>` sent to the provider so we
+        // can persist it as a session transcript after the turn completes.
+        let mut last_provider_messages: Option<Vec<ChatMessage>> = None;
+
         let turn_body = async {
             for iteration in 0..self.config.max_tool_iterations {
                 log::info!(
@@ -218,7 +231,27 @@ impl Agent {
                     }
                 }
 
-                let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+                // Use cached transcript messages on the first iteration of
+                // a resumed session to provide a byte-identical prefix for
+                // KV cache reuse. After `.take()` the cache is consumed;
+                // subsequent iterations rebuild from history normally.
+                let messages = if let Some(mut cached) = self.cached_transcript_messages.take() {
+                    // Append only the delta (new user message) from the
+                    // end of the current history.
+                    let new_tail = self.tool_dispatcher
+                        .to_provider_messages(&self.history[self.history.len().saturating_sub(1)..]);
+                    cached.extend(new_tail);
+                    log::info!(
+                        "[transcript] resumed from cached transcript prefix_len={} new_tail={}",
+                        cached.len() - 1,
+                        1
+                    );
+                    cached
+                } else {
+                    self.tool_dispatcher.to_provider_messages(&self.history)
+                };
+                last_provider_messages = Some(messages.clone());
+
                 log::info!(
                     "[agent] iteration {}/{} — sending request to provider model={}",
                     iteration + 1,
@@ -435,6 +468,15 @@ impl Agent {
         // read the parent's provider, tools, model, and workspace via
         // the PARENT_CONTEXT task-local.
         let result = harness::with_parent_context(parent_context, turn_body).await;
+
+        // ── Session transcript persistence ────────────────────────────
+        // Persist the exact provider messages so a future session can
+        // resume with a byte-identical prefix for KV cache reuse.
+        if result.is_ok() {
+            if let Some(ref messages) = last_provider_messages {
+                self.persist_session_transcript(messages);
+            }
+        }
 
         // ── Session-memory extraction (stage 5) ───────────────────────
         //
@@ -779,6 +821,104 @@ impl Agent {
         // channel runtimes — shares one builder configuration while
         // still preserving cache-boundary metadata for provider calls.
         self.context.build_system_prompt_with_cache_metadata(&ctx)
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Session transcript helpers
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Try to load a previous session transcript for KV cache resume.
+    ///
+    /// Best-effort: failures are logged and silently ignored.
+    pub(super) fn try_load_session_transcript(&mut self) {
+        match transcript::find_latest_transcript(&self.workspace_dir, &self.agent_definition_name) {
+            Some(path) => {
+                log::info!(
+                    "[transcript] found previous transcript path={}",
+                    path.display()
+                );
+                match transcript::read_transcript(&path) {
+                    Ok(session) => {
+                        if session.messages.is_empty() {
+                            log::debug!("[transcript] previous transcript is empty — skipping resume");
+                            return;
+                        }
+                        // Restore the cache boundary from the transcript
+                        // metadata so the provider request carries the
+                        // same offset as the original session.
+                        self.system_prompt_cache_boundary = session.meta.cache_boundary;
+                        log::info!(
+                            "[transcript] loaded {} messages for resume (cache_boundary={:?})",
+                            session.messages.len(),
+                            session.meta.cache_boundary
+                        );
+                        self.cached_transcript_messages = Some(session.messages);
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[transcript] failed to parse previous transcript {}: {err}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+            None => {
+                log::debug!(
+                    "[transcript] no previous transcript found for agent={}",
+                    self.agent_definition_name
+                );
+            }
+        }
+    }
+
+    /// Persist the exact provider messages as a session transcript.
+    ///
+    /// Best-effort: failures are logged and silently ignored. The JSONL
+    /// conversation store remains the authoritative persistence layer;
+    /// session transcripts are an optimization for KV cache stability.
+    pub(super) fn persist_session_transcript(&mut self, messages: &[ChatMessage]) {
+        // Resolve the transcript path on first write.
+        if self.session_transcript_path.is_none() {
+            match transcript::resolve_new_transcript_path(
+                &self.workspace_dir,
+                &self.agent_definition_name,
+            ) {
+                Ok(path) => {
+                    log::info!(
+                        "[transcript] new session transcript path={}",
+                        path.display()
+                    );
+                    self.session_transcript_path = Some(path);
+                }
+                Err(err) => {
+                    log::warn!("[transcript] failed to resolve transcript path: {err}");
+                    return;
+                }
+            }
+        }
+
+        let path = self.session_transcript_path.as_ref().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let meta = transcript::TranscriptMeta {
+            agent_name: self.agent_definition_name.clone(),
+            dispatcher: if self.tool_dispatcher.should_send_tool_specs() {
+                "native".into()
+            } else {
+                "xml".into()
+            },
+            cache_boundary: self.system_prompt_cache_boundary,
+            created: now.clone(),
+            updated: now,
+            turn_count: self.context.stats().session_memory_current_turn as usize,
+        };
+
+        if let Err(err) = transcript::write_transcript(path, messages, &meta) {
+            log::warn!(
+                "[transcript] failed to write transcript {}: {err}",
+                path.display()
+            );
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────

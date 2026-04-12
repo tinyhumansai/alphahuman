@@ -22,6 +22,7 @@
 
 mod builder;
 mod runtime;
+pub(crate) mod transcript;
 mod turn;
 mod types;
 

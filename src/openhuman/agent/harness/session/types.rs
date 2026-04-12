@@ -12,8 +12,9 @@ use crate::openhuman::agent::memory_loader::MemoryLoader;
 use crate::openhuman::context::prompt::SystemPromptBuilder;
 use crate::openhuman::context::ContextManager;
 use crate::openhuman::memory::Memory;
-use crate::openhuman::providers::{ConversationMessage, Provider};
+use crate::openhuman::providers::{ChatMessage, ConversationMessage, Provider};
 use crate::openhuman::tools::{Tool, ToolSpec};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// An autonomous or semi-autonomous AI agent.
@@ -58,6 +59,18 @@ pub struct Agent {
     pub(super) learning_enabled: bool,
     pub(super) event_session_id: String,
     pub(super) event_channel: String,
+    /// Human-readable agent definition name (e.g. `"main"`,
+    /// `"code_executor"`). Used as the `{agent}` component in session
+    /// transcript paths: `sessions/DDMMYYYY/{agent}_{index}.md`.
+    pub(super) agent_definition_name: String,
+    /// Resolved filesystem path for this session's transcript file.
+    /// Set on first write, reused for subsequent overwrites within the
+    /// same session.
+    pub(super) session_transcript_path: Option<PathBuf>,
+    /// Messages loaded from a previous session transcript on resume.
+    /// Consumed once (via `.take()`) on the first turn to provide a
+    /// byte-identical prefix for KV cache reuse.
+    pub(super) cached_transcript_messages: Option<Vec<ChatMessage>>,
     /// Per-session [`ContextManager`] — owns the system-prompt
     /// builder, the layered reduction pipeline (tool-result budget →
     /// microcompact → autocompact signal → session-memory extraction
@@ -93,6 +106,7 @@ pub struct AgentBuilder {
     pub(super) learning_enabled: bool,
     pub(super) event_session_id: Option<String>,
     pub(super) event_channel: Option<String>,
+    pub(super) agent_definition_name: Option<String>,
 }
 
 impl Default for AgentBuilder {

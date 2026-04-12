@@ -44,6 +44,7 @@ impl AgentBuilder {
             learning_enabled: false,
             event_session_id: None,
             event_channel: None,
+            agent_definition_name: None,
         }
     }
 
@@ -183,6 +184,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Sets the human-readable agent definition name used as the
+    /// `{agent}` prefix in session transcript filenames
+    /// (`sessions/DDMMYYYY/{agent}_{index}.md`).
+    pub fn agent_definition_name(mut self, name: impl Into<String>) -> Self {
+        self.agent_definition_name = Some(name.into());
+        self
+    }
+
     /// Validates the configuration and builds the `Agent` instance.
     pub fn build(self) -> Result<Agent> {
         let tools = self
@@ -275,6 +284,11 @@ impl AgentBuilder {
                 .event_session_id
                 .unwrap_or_else(|| "standalone".to_string()),
             event_channel: self.event_channel.unwrap_or_else(|| "internal".to_string()),
+            agent_definition_name: self
+                .agent_definition_name
+                .unwrap_or_else(|| "main".to_string()),
+            session_transcript_path: None,
+            cached_transcript_messages: None,
             context,
         })
     }
