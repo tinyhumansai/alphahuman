@@ -25,6 +25,7 @@ use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
 use crate::openhuman::agent::harness;
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
+use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::context::prompt::{
     LearnedContextData, PromptContext, PromptTool, RenderedPrompt,
 };
@@ -44,6 +45,7 @@ impl Agent {
     /// and returns the final assistant response.
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
         let turn_started = std::time::Instant::now();
+        self.emit_progress(AgentProgress::TurnStarted);
         log::info!("[agent] turn started — awaiting user message processing");
         log::info!(
             "[agent_loop] turn start message_chars={} history_len={} max_tool_iterations={}",
@@ -166,6 +168,10 @@ impl Agent {
 
         let turn_body = async {
             for iteration in 0..self.config.max_tool_iterations {
+                self.emit_progress(AgentProgress::IterationStarted {
+                    iteration: (iteration + 1) as u32,
+                    max_iterations: self.config.max_tool_iterations as u32,
+                });
                 log::info!(
                     "[agent_loop] iteration start i={} history_len={}",
                     iteration + 1,
@@ -342,6 +348,10 @@ impl Agent {
                         final_text.chars().count()
                     );
 
+                    self.emit_progress(AgentProgress::TurnCompleted {
+                        iterations: (iteration + 1) as u32,
+                    });
+
                     self.history
                         .push(ConversationMessage::Chat(ChatMessage::assistant(
                             final_text.clone(),
@@ -426,7 +436,7 @@ impl Agent {
                     tool_calls: persisted_tool_calls,
                 });
 
-                let (results, records) = self.execute_tools(&calls).await;
+                let (results, records) = self.execute_tools(&calls, iteration).await;
                 all_tool_records.extend(records);
                 log::info!(
                     "[agent_loop] tool results complete i={} result_count={}",
@@ -524,11 +534,17 @@ impl Agent {
     pub(super) async fn execute_tool_call(
         &self,
         call: &ParsedToolCall,
+        iteration: usize,
     ) -> (ToolExecutionResult, ToolCallRecord) {
         let started = std::time::Instant::now();
         publish_global(DomainEvent::ToolExecutionStarted {
             tool_name: call.name.clone(),
             session_id: self.event_session_id().to_string(),
+        });
+        self.emit_progress(AgentProgress::ToolCallStarted {
+            tool_name: call.name.clone(),
+            arguments: call.arguments.clone(),
+            iteration: (iteration + 1) as u32,
         });
         log::info!("[agent] executing tool: {}", call.name);
         log::info!("[agent_loop] tool start name={}", call.name);
@@ -612,6 +628,13 @@ impl Agent {
             success,
             elapsed_ms,
         });
+        self.emit_progress(AgentProgress::ToolCallCompleted {
+            tool_name: call.name.clone(),
+            success,
+            output_chars: result.chars().count(),
+            elapsed_ms,
+            iteration: (iteration + 1) as u32,
+        });
         log::info!(
             "[agent] tool completed: {} success={} elapsed_ms={}",
             call.name,
@@ -655,11 +678,12 @@ impl Agent {
     pub(super) async fn execute_tools(
         &self,
         calls: &[ParsedToolCall],
+        iteration: usize,
     ) -> (Vec<ToolExecutionResult>, Vec<ToolCallRecord>) {
         let mut results = Vec::with_capacity(calls.len());
         let mut records = Vec::with_capacity(calls.len());
         for call in calls {
-            let (exec_result, record) = self.execute_tool_call(call).await;
+            let (exec_result, record) = self.execute_tool_call(call, iteration).await;
             results.push(exec_result);
             records.push(record);
         }
@@ -726,6 +750,13 @@ impl Agent {
     // ─────────────────────────────────────────────────────────────────
     // History & prompt helpers
     // ─────────────────────────────────────────────────────────────────
+
+    /// Emit a progress event (fire-and-forget) if the sender is set.
+    fn emit_progress(&self, event: AgentProgress) {
+        if let Some(ref tx) = self.on_progress {
+            let _ = tx.try_send(event);
+        }
+    }
 
     /// Truncates the conversation history to the configured maximum message count.
     ///

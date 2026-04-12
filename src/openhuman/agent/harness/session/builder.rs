@@ -290,6 +290,7 @@ impl AgentBuilder {
             session_transcript_path: None,
             cached_transcript_messages: None,
             context,
+            on_progress: None,
         })
     }
 }
