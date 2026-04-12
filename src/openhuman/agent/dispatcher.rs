@@ -195,30 +195,22 @@ impl ToolDispatcher for PFormatToolDispatcher {
     fn parse_response(&self, response: &ChatResponse) -> (String, Vec<ParsedToolCall>) {
         let text = response.text_or_empty();
 
-        // First pass: try p-format. We reuse the existing tag-finding
-        // logic from `parse_tool_calls`, but instead of immediately
-        // converting the inner JSON, we ask the p-format parser to
-        // chew on the body. If it returns Some(...), we have a
-        // p-format call; if None, we hand the body off to the JSON
-        // path so the dispatcher remains backwards compatible.
-        //
-        // To keep the change minimal we run the JSON parser anyway,
-        // then for each tag body we re-parse with p-format and prefer
-        // its output when available. The duplicated work is cheap
-        // (string scans only) and avoids forking the entire
-        // tag-extraction routine.
+        // Run the JSON parser first — it gives us the narrative text
+        // and a Vec of JSON-parsed calls. We then walk the tags
+        // ourselves and resolve each one individually: if p-format
+        // succeeds, use that; otherwise keep the JSON entry. This
+        // per-tag selection means a response mixing p-format and JSON
+        // tags is handled correctly instead of the old all-or-nothing.
         //
         // `XmlToolDispatcher::parse_tool_calls_from_text` is the
         // canonical adapter from the internal `harness::parse`
-        // `ParsedToolCall` to the dispatcher's `ParsedToolCall`. We
-        // call it directly so the conversion lives in exactly one
-        // place.
+        // `ParsedToolCall` to the dispatcher's `ParsedToolCall`.
         let json_pass = XmlToolDispatcher::parse_tool_calls_from_text(text);
 
-        // Re-extract tag bodies and try p-format on each. Walk the
-        // text manually so we don't need to expose the internal tag
-        // helpers from `harness::parse`.
-        let mut pformat_calls = Vec::new();
+        // Walk tags manually, building a combined list that prefers
+        // p-format but falls back to JSON per tag.
+        let mut combined_calls = Vec::new();
+        let mut json_idx: usize = 0; // index into json_pass.1
         let mut remaining = text;
         let tags: &[(&str, &str)] = &[
             ("<tool_call>", "</tool_call>"),
@@ -238,30 +230,38 @@ impl ToolDispatcher for PFormatToolDispatcher {
 
             let after_open = &remaining[open_idx + open_tag.len()..];
             let Some(close_idx) = after_open.find(close_tag) else {
-                // Unclosed tag — let the JSON pass handle it.
                 break;
             };
 
             let body = &after_open[..close_idx];
+
+            // Try p-format first; if that fails, take the
+            // corresponding JSON entry (if one exists at this index).
             if let Some(parsed) = self.try_parse_pformat_body(body) {
-                pformat_calls.push(parsed);
+                combined_calls.push(parsed);
+                // Advance the JSON index too — both parsers walk the
+                // same ordered set of tags, so they stay in lockstep.
+                json_idx += 1;
+            } else if let Some(json_call) = json_pass.1.get(json_idx) {
+                combined_calls.push(json_call.clone());
+                json_idx += 1;
             }
 
             remaining = &after_open[close_idx + close_tag.len()..];
         }
 
-        if !pformat_calls.is_empty() {
+        if !combined_calls.is_empty() {
             tracing::debug!(
-                parse_mode = "pformat",
-                parsed_tool_calls = pformat_calls.len(),
-                "pformat dispatcher parsed response"
+                parse_mode = "pformat_combined",
+                parsed_tool_calls = combined_calls.len(),
+                "pformat dispatcher parsed response (per-tag selection)"
             );
-            // The text portion is whatever the JSON pass extracted as
-            // narrative text — that logic is identical regardless of
-            // tag body format, so we reuse it.
-            return (json_pass.0, pformat_calls);
+            return (json_pass.0, combined_calls);
         }
 
+        // No tags found at all (or all tags failed both parsers) —
+        // return the full JSON pass which also handles markdown
+        // code-block and GLM fallbacks.
         tracing::debug!(
             parse_mode = "pformat_fallback_json",
             parsed_tool_calls = json_pass.1.len(),

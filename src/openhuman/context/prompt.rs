@@ -654,6 +654,30 @@ pub fn render_subagent_system_prompt(
     archetype_body: &str,
     options: SubagentRenderOptions,
 ) -> String {
+    render_subagent_system_prompt_with_format(
+        workspace_dir,
+        model_name,
+        allowed_indices,
+        parent_tools,
+        archetype_body,
+        options,
+        ToolCallFormat::PFormat,
+    )
+}
+
+/// Inner renderer that accepts an explicit [`ToolCallFormat`] so callers
+/// that know the active dispatcher format can thread it through. The
+/// public [`render_subagent_system_prompt`] defaults to PFormat for
+/// backwards compatibility.
+pub fn render_subagent_system_prompt_with_format(
+    workspace_dir: &Path,
+    model_name: &str,
+    allowed_indices: &[usize],
+    parent_tools: &[Box<dyn Tool>],
+    archetype_body: &str,
+    options: SubagentRenderOptions,
+    tool_call_format: ToolCallFormat,
+) -> String {
     let mut out = String::new();
 
     // 1. Archetype role prompt. Works for both `PromptSource::Inline`

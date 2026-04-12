@@ -48,6 +48,10 @@ VERBOSE_FLAG=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out)
+      if [[ -z "${2-}" ]] || [[ "${2-}" == -* ]]; then
+        echo "[debug-agent-prompts] missing value for --out" >&2
+        exit 64
+      fi
       OUT_DIR="$2"
       shift 2
       ;;

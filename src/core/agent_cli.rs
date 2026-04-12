@@ -253,6 +253,7 @@ fn print_json(dumped: &DumpedPrompt, with_tools: bool) -> Result<()> {
 fn run_list(args: &[String]) -> Result<()> {
     let mut as_json = false;
     let mut workspace: Option<PathBuf> = None;
+    let mut verbose = false;
     let mut i = 0usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -267,8 +268,12 @@ fn run_list(args: &[String]) -> Result<()> {
                 ));
                 i += 2;
             }
+            "-v" | "--verbose" => {
+                verbose = true;
+                i += 1;
+            }
             "-h" | "--help" => {
-                println!("Usage: openhuman agent list [--workspace <path>] [--json]");
+                println!("Usage: openhuman agent list [--workspace <path>] [--json] [-v]");
                 println!();
                 println!("  List every built-in agent plus any custom `<workspace>/agents/*.toml` overrides.");
                 return Ok(());
@@ -276,6 +281,11 @@ fn run_list(args: &[String]) -> Result<()> {
             other => return Err(anyhow!("unknown list arg: {other}")),
         }
     }
+
+    // Silence the logger so Config::load_or_init and AgentDefinitionRegistry::load
+    // don't write warnings/info to stdout, which would corrupt --json output.
+    // (The project's CLI logger writes to stdout, not stderr.)
+    init_quiet_logging(verbose);
 
     // Resolve a workspace directory so workspace-custom overrides are
     // picked up. Fall back to the config's default when no --workspace is

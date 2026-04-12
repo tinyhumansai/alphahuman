@@ -409,18 +409,22 @@ pub fn collect_root_summaries_with_caps(
             continue;
         }
 
-        // Per-namespace cap.
-        let truncated: String = if body.chars().count() > per_namespace_cap {
+        // Per-namespace cap (char count, not byte length, so non-ASCII
+        // text doesn't silently overshoot).
+        let body_chars = body.chars().count();
+        let truncated: String = if body_chars > per_namespace_cap {
             body.chars().take(per_namespace_cap).collect::<String>() + "\n\n[... truncated]"
         } else {
             body.to_string()
         };
+        let truncated_chars = truncated.chars().count();
 
-        // Total cap — if this entry would push us over, take only what's
-        // left so we still get something for the namespace rather than
-        // dropping it entirely.
+        // Total cap — use char counts consistently. If this entry
+        // would push us over, clip to the remaining budget so we
+        // still get something for the namespace instead of dropping
+        // it entirely.
         let remaining = total_cap.saturating_sub(total_chars);
-        let final_body = if truncated.len() > remaining {
+        let final_body = if truncated_chars > remaining {
             let mut clipped: String = truncated.chars().take(remaining).collect();
             clipped.push_str("\n\n[... truncated]");
             clipped
@@ -428,10 +432,11 @@ pub fn collect_root_summaries_with_caps(
             truncated
         };
 
-        total_chars += final_body.len();
+        total_chars += final_body.chars().count();
+        let final_chars = final_body.chars().count();
         tracing::debug!(
             namespace = %ns,
-            chars = final_body.len(),
+            chars = final_chars,
             running_total = total_chars,
             "[tree_summarizer] including namespace in root-summary collection"
         );

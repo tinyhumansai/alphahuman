@@ -337,6 +337,22 @@ fn render_main_agent_dump(
         ..Default::default()
     };
 
+    // NOTE: the dump runs outside the agent lifecycle — there is no
+    // live Agent, ToolDispatcher, Memory backend, or SkillEngine. We
+    // reconstruct the best filesystem-based approximation:
+    //
+    //   skills:           &[] — the dump doesn't boot the QuickJS
+    //                     runtime, so installed skills are absent. The
+    //                     main agent at runtime would populate this.
+    //   tool_call_format: PFormat — matches the runtime global default.
+    //                     If the user sets `agent.tool_dispatcher = "xml"`
+    //                     in config, the dump won't reflect that.
+    //   learned:          tree_root_summaries only — the learning
+    //                     subsystem's observations/patterns/user_profile
+    //                     entries require a live Memory backend.
+    //
+    // For a byte-exact match you'd need to boot a full Agent and call
+    // `build_system_prompt`. The dump is intentionally cheaper.
     let ctx = PromptContext {
         workspace_dir,
         model_name,
@@ -345,10 +361,6 @@ fn render_main_agent_dump(
         dispatcher_instructions: &dispatcher_instructions,
         learned,
         visible_tool_names: &empty_filter,
-        // The dump matches what runtime would produce. P-Format is the
-        // global default for text-based dispatchers, so the orchestrator
-        // dump renders with positional signatures unless the user has
-        // overridden `agent.tool_dispatcher = "xml"` in config.
         tool_call_format: ToolCallFormat::PFormat,
     };
 
@@ -402,11 +414,24 @@ fn render_subagent_dump(
                         )
                     })?
                 } else {
-                    tracing::warn!(
-                        path = %path,
-                        "[debug_dump] archetype prompt file not found, using empty body"
-                    );
-                    String::new()
+                    // Fall back to the repository-bundled location so the dump
+                    // works on throwaway workspaces (e.g. the script's mktemp
+                    // directory) that haven't had identity files synced yet.
+                    let bundled_path = Path::new("src/openhuman/agent/prompts").join(path);
+                    if bundled_path.is_file() {
+                        std::fs::read_to_string(&bundled_path).with_context(|| {
+                            format!(
+                                "reading bundled archetype prompt at {}",
+                                bundled_path.display()
+                            )
+                        })?
+                    } else {
+                        tracing::warn!(
+                            path = %path,
+                            "[debug_dump] archetype prompt file not found, using empty body"
+                        );
+                        String::new()
+                    }
                 }
             }
         }

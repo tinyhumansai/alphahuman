@@ -349,34 +349,12 @@ impl Agent {
             &provider_runtime_options,
         )?;
 
-        // P-format ("Parameter-Format") is the default text-based
-        // dispatcher: it's the same `<tool_call>` tag flow as the
-        // legacy XML dispatcher but with a vastly cheaper call body
-        // (`name[arg1|arg2]` vs the verbose JSON object). Native
-        // structured tool calls still win when the provider supports
-        // them — the dispatcher only applies to text-based fallback.
-        //
-        // The p-format parser needs a `name → params` lookup at parse
-        // time, so we precompute it here from the tool slice that is
-        // about to be moved into the agent. The lookup is owned by
-        // the dispatcher (no Arc back into the live tools), which
-        // keeps lifetime/ownership rules trivial.
-        let pformat_registry = crate::openhuman::agent::pformat::build_registry(&tools);
-        let dispatcher_choice = config.agent.tool_dispatcher.as_str();
-        let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
-            "native" => Box::new(NativeToolDispatcher),
-            "xml" => Box::new(XmlToolDispatcher),
-            "pformat" => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
-            _ if provider.supports_native_tools() => Box::new(NativeToolDispatcher),
-            // Default for text-only providers: P-Format. Flip the
-            // `agent.tool_dispatcher` config to `"xml"` to revert.
-            _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
-        };
-        log::info!(
-            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
-             default_text_format=pformat pformat_registry_entries={}",
-            pformat_registry.len()
-        );
+        // Dispatcher selection is deferred until after the tool list is
+        // finalised (orchestrator tools are appended below). We capture
+        // the choice string now so the provider borrow doesn't conflict
+        // with the later `provider` move into the builder.
+        let dispatcher_choice = config.agent.tool_dispatcher.clone();
+        let supports_native = provider.supports_native_tools();
 
         // Build prompt builder, optionally with learning sections
         let mut prompt_builder = SystemPromptBuilder::with_defaults();
@@ -463,6 +441,26 @@ impl Agent {
             orchestrator_tools
                 .into_iter()
                 .filter(|t| !existing_names.contains(t.name())),
+        );
+
+        // Build the P-Format registry AFTER the tool list is finalised
+        // (including orchestrator tools) so every tool gets a signature
+        // entry. The registry is self-contained — it doesn't hold a
+        // reference back into the tools Vec.
+        let pformat_registry = crate::openhuman::agent::pformat::build_registry(&tools);
+        let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice.as_str() {
+            "native" => Box::new(NativeToolDispatcher),
+            "xml" => Box::new(XmlToolDispatcher),
+            "pformat" => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
+            _ if supports_native => Box::new(NativeToolDispatcher),
+            // Default for text-only providers: P-Format. Flip the
+            // `agent.tool_dispatcher` config to `"xml"` to revert.
+            _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
+        };
+        log::debug!(
+            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
+             default_text_format=pformat pformat_registry_entries={}",
+            pformat_registry.len()
         );
 
         Agent::builder()
