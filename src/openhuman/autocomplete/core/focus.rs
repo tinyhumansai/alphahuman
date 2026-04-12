@@ -7,4 +7,5 @@ pub(super) use crate::openhuman::accessibility::focused_text_context_verbose;
 pub(super) use crate::openhuman::accessibility::is_escape_key_down;
 pub(super) use crate::openhuman::accessibility::is_tab_key_down;
 pub(super) use crate::openhuman::accessibility::send_backspace;
+#[cfg(target_os = "macos")]
 pub(super) use crate::openhuman::accessibility::validate_focused_target;

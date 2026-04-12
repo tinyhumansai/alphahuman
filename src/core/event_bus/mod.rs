@@ -1,21 +1,36 @@
 //! Cross-module event bus for decoupled events and typed in-process requests.
 //!
 //! The event bus is a **singleton** — one instance for the entire application.
+//! It serves as the central nervous system of OpenHuman, allowing different
+//! modules (like memory, skills, and agents) to communicate without
+//! direct dependencies.
+//!
 //! Call [`init_global`] once at startup, then use [`publish_global`],
 //! [`subscribe_global`], [`register_native_global`], and
 //! [`request_native_global`] from any module.
 //!
-//! # Two surfaces
+//! # Two Surfaces
 //!
-//! 1. **Broadcast pub/sub** ([`publish_global`] / [`subscribe_global`]) —
-//!    fire-and-forget notification of [`DomainEvent`] variants. One publisher,
-//!    many subscribers, no back-channel.
-//! 2. **Native request/response** ([`register_native_global`] /
-//!    [`request_native_global`]) — one-to-one typed Rust dispatch keyed by a
-//!    method string. Zero serialization: trait objects, [`std::sync::Arc`]s,
-//!    [`tokio::sync::mpsc::Sender`]s, and oneshot channels pass through
-//!    unchanged. Use this for in-process module-to-module calls that need
-//!    non-serializable payloads (hot-path data, streaming, async resolution).
+//! 1. **Broadcast Pub/Sub** ([`publish_global`] / [`subscribe_global`])
+//!    - Built on `tokio::sync::broadcast`.
+//!    - **Many-to-many**: One publisher, zero or more subscribers.
+//!    - **Fire-and-forget**: No feedback from subscribers to the publisher.
+//!    - **Decoupled**: Use this for notifications like "a message was received"
+//!      or "a skill was loaded".
+//!
+//! 2. **Native Request/Response** ([`register_native_global`] / [`request_native_global`])
+//!    - **One-to-one**: Each method name has exactly one registered handler.
+//!    - **Typed**: Payloads are Rust types, checked at runtime via `TypeId`.
+//!    - **Zero Serialization**: Directly passes pointers, `Arc`s, and channels.
+//!    - **Coupled (but in-process)**: Use this for direct module-to-module
+//!      calls that need non-serializable data or immediate responses.
+//!
+//! # Architecture
+//!
+//! The bus is designed to be initialized early in the application lifecycle.
+//! Once [`init_global`] is called, the bus is available globally. This allows
+//! modules to register their handlers and subscribers in their own `bus.rs`
+//! or `mod.rs` files during startup.
 //!
 //! # Usage
 //!
@@ -25,15 +40,16 @@
 //!     subscribe_global, DomainEvent,
 //! };
 //!
-//! // Publish a broadcast event
+//! // Example 1: Broadcasting a system event
 //! publish_global(DomainEvent::SystemStartup { component: "example".into() });
 //!
-//! // Register a native request handler at startup
+//! // Example 2: Registering a native request handler
 //! register_native_global::<MyReq, MyResp, _, _>("my_domain.do_thing", |req| async move {
+//!     // Process request...
 //!     Ok(MyResp { /* ... */ })
-//! }).await;
+//! });
 //!
-//! // Dispatch a native request from any module
+//! // Example 3: Dispatching a native request
 //! let resp: MyResp = request_native_global("my_domain.do_thing", MyReq { /* ... */ }).await?;
 //! ```
 

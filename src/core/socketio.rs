@@ -4,29 +4,46 @@ use serde_json::json;
 use socketioxide::extract::{Data, SocketRef};
 use socketioxide::SocketIo;
 
+/// Standard event payload for the web channel transport.
+///
+/// This structure defines the data sent to Socket.IO clients for various
+/// chat-related events, such as message delivery, tool execution, and errors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct WebChannelEvent {
+    /// The event name (e.g., `chat_message`, `tool_call`).
     pub event: String,
+    /// Unique identifier for the Socket.IO client.
     pub client_id: String,
+    /// Identifier for the specific chat thread.
     pub thread_id: String,
+    /// Unique identifier for the individual request/turn.
     pub request_id: String,
+    /// The full text of the assistant's response (sent on completion).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_response: Option<String>,
+    /// A partial message segment or an error description.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Type of error, if the event represents a failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,
+    /// Name of the tool being called.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
+    /// ID of the skill owning the tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_id: Option<String>,
+    /// Arguments passed to the tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<serde_json::Value>,
+    /// The raw output from the tool execution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Whether the tool execution or request was successful.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success: Option<bool>,
+    /// The current iteration/round number in a tool-call loop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub round: Option<u32>,
     /// Emoji reaction the assistant wants to add to the user's message.
@@ -40,31 +57,13 @@ pub struct WebChannelEvent {
     pub segment_total: Option<u32>,
 }
 
-#[derive(Debug, Deserialize)]
-struct SocketRpcRequest {
-    id: serde_json::Value,
-    method: String,
-    #[serde(default)]
-    params: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatStartPayload {
-    thread_id: String,
-    message: String,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    model_override: Option<String>,
-    #[serde(default)]
-    temperature: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatCancelPayload {
-    thread_id: String,
-}
-
+/// Attaches the Socket.IO layer to the Axum router and sets up event handlers.
+///
+/// It configures:
+/// - Client connection and room joining.
+/// - `rpc:request`: Invoking JSON-RPC methods over WebSocket.
+/// - `chat:start`: Initiating a new chat turn.
+/// - `chat:cancel`: Aborting an active chat turn.
 pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
     let (layer, io) = SocketIo::new_layer();
 
@@ -76,11 +75,13 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
     io.ns("/", |socket: SocketRef| {
         let client_id = socket.id.to_string();
         log::info!("[socketio] client connected id={client_id}");
+        // Join a room named after the client ID for targeted event delivery.
         let _ = socket.join(client_id.clone());
         let ready_payload = json!({ "sid": client_id });
         log::debug!("[socketio] emit event=ready to_client={}", socket.id);
         let _ = socket.emit("ready", &ready_payload);
 
+        // Handler for JSON-RPC over WebSocket.
         socket.on("rpc:request", |socket: SocketRef, Data(payload): Data<SocketRpcRequest>| async move {
             let client_id = socket.id.to_string();
             log::info!(
@@ -89,12 +90,8 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
                 payload.id,
                 client_id
             );
-            log::debug!(
-                "[socketio] rpc:request params_type={} params_bytes={}",
-                json_type_name(&payload.params),
-                payload.params.to_string().len()
-            );
 
+            // Invoke the method through the same logic used by the HTTP RPC endpoint.
             let response = match crate::core::jsonrpc::invoke_method(
                 crate::core::jsonrpc::default_state(),
                 payload.method.as_str(),
@@ -102,49 +99,32 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
             )
             .await
             {
-                Ok(result) => {
-                    log::debug!(
-                        "[socketio] send event=rpc:response client_id={} id={} result_type={} result_bytes={}",
-                        client_id,
-                        payload.id,
-                        json_type_name(&result),
-                        result.to_string().len()
-                    );
-                    ("rpc:response", json!({ "id": payload.id, "result": result }))
-                }
-                Err(message) => {
-                    log::debug!(
-                        "[socketio] send event=rpc:error client_id={} id={} message={}",
-                        client_id,
-                        payload.id,
-                        message
-                    );
-                    (
-                        "rpc:error",
-                        json!({
-                            "id": payload.id,
-                            "error": { "code": -32000, "message": message }
-                        }),
-                    )
-                }
+                Ok(result) => ("rpc:response", json!({ "id": payload.id, "result": result })),
+                Err(message) => (
+                    "rpc:error",
+                    json!({
+                        "id": payload.id,
+                        "error": { "code": -32000, "message": message }
+                    }),
+                )
             };
 
             let _ = socket.emit(response.0, &response.1);
         });
 
+        // Handler for starting a chat turn.
         socket.on("chat:start", |socket: SocketRef, Data(payload): Data<ChatStartPayload>| async move {
             let client_id = socket.id.to_string();
             let thread_id = payload.thread_id.clone();
             let model_override = payload.model_override.or(payload.model);
             log::debug!(
-                "[socketio] recv event=chat:start client_id={} thread_id={} message_bytes={} model_override={:?} temperature={:?}",
+                "[socketio] recv event=chat:start client_id={} thread_id={} message_bytes={}",
                 client_id,
                 thread_id,
-                payload.message.len(),
-                model_override,
-                payload.temperature
+                payload.message.len()
             );
 
+            // Trigger the web channel's chat logic.
             match crate::openhuman::channels::providers::web::start_chat(
                 &client_id,
                 &payload.thread_id,
@@ -161,7 +141,6 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
                         "thread_id": thread_id,
                         "request_id": request_id,
                     });
-                    log::debug!("[socketio] send event=chat_accepted client_id={} thread_id={}", socket.id, payload.thread_id);
                     emit_with_aliases(&socket, "chat_accepted", &accepted_payload);
                 }
                 Err(error) => {
@@ -173,12 +152,12 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
                     "message": error,
                     "error_type": "inference",
                 });
-                    log::debug!("[socketio] send event=chat_error client_id={} thread_id={} message={}", socket.id, payload.thread_id, error);
                     emit_with_aliases(&socket, "chat_error", &error_payload);
                 }
             }
         });
 
+        // Handler for cancelling an active chat turn.
         socket.on("chat:cancel", |socket: SocketRef, Data(payload): Data<ChatCancelPayload>| async move {
             let client_id = socket.id.to_string();
             log::debug!(
@@ -195,8 +174,15 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
     (layer, io)
 }
 
+/// Spawns background bridges to forward various system events to Socket.IO clients.
+///
+/// This function sets up four bridges:
+/// 1. **Web Channel Bridge**: Forwards chat-related events (messages, tool calls) to specific clients.
+/// 2. **Dictation Bridge**: Forwards hotkey events to all clients.
+/// 3. **Overlay Bridge**: Forwards attention bubble events to all clients.
+/// 4. **Transcription Bridge**: Forwards real-time speech-to-text results to all clients.
 pub fn spawn_web_channel_bridge(io: SocketIo) {
-    // Web channel events → per-client rooms.
+    // 1. Web channel events → per-client rooms.
     let io_web = io.clone();
     tokio::spawn(async move {
         let mut rx = crate::openhuman::channels::providers::web::subscribe_web_channel_events();
@@ -218,12 +204,10 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
         log::debug!("[socketio] web_channel bridge stopped");
     });
 
-    // Clone for the transcription and overlay bridges spawned below; the
-    // dictation task takes ownership of `io` itself.
     let io_transcription = io.clone();
     let io_overlay = io.clone();
 
-    // Dictation hotkey events → broadcast to all connected clients.
+    // 2. Dictation hotkey events → broadcast to all connected clients.
     tokio::spawn(async move {
         let mut rx = crate::openhuman::voice::dictation_listener::subscribe_dictation_events();
         loop {
@@ -241,6 +225,7 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
                     "[socketio] broadcast dictation:{} to all clients",
                     event.event_type
                 );
+                // Support both colon and underscore versions for compatibility with different frontends.
                 let _ = io.emit("dictation:toggle", &payload);
                 let _ = io.emit("dictation_toggle", &payload);
             }
@@ -248,13 +233,7 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
         log::debug!("[socketio] dictation bridge stopped");
     });
 
-    // Overlay attention events → broadcast to the overlay window.
-    //
-    // Any core-side caller (subconscious loop, heartbeat, screen intelligence, …)
-    // can publish an `OverlayAttentionEvent` via
-    // `openhuman::overlay::publish_attention(...)` and it will be forwarded
-    // to all Socket.IO clients here. The overlay window listens on a dedicated
-    // unauthenticated socket (see `OverlayApp.tsx`) and renders the bubble.
+    // 3. Overlay attention events → broadcast to all clients.
     tokio::spawn(async move {
         let mut rx = crate::openhuman::overlay::subscribe_attention_events();
         loop {
@@ -272,9 +251,8 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
 
             if let Ok(payload) = serde_json::to_value(&event) {
                 log::debug!(
-                    "[socketio] broadcast overlay:attention source={:?} message_bytes={}",
-                    event.source,
-                    event.message.len()
+                    "[socketio] broadcast overlay:attention source={:?}",
+                    event.source
                 );
                 let _ = io_overlay.emit("overlay:attention", &payload);
                 let _ = io_overlay.emit("overlay_attention", &payload);
@@ -283,7 +261,7 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
         log::debug!("[socketio] overlay attention bridge stopped");
     });
 
-    // Transcription results → broadcast to all connected clients.
+    // 4. Transcription results → broadcast to all connected clients.
     tokio::spawn(async move {
         let mut rx = crate::openhuman::voice::dictation_listener::subscribe_transcription_results();
         loop {
