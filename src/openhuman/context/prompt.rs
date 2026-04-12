@@ -1336,4 +1336,42 @@ mod tests {
         assert!(!is_dynamic_section("tools"));
         assert!(!is_dynamic_section("identity"));
     }
+
+    #[test]
+    fn prompt_tool_constructors_and_user_memory_skip_empty_bodies() {
+        let plain = PromptTool::new("shell", "run commands");
+        assert_eq!(plain.name, "shell");
+        assert!(plain.parameters_schema.is_none());
+
+        let with_schema = PromptTool::with_schema(
+            "http_request",
+            "fetch data",
+            "{\"type\":\"object\"}".into(),
+        );
+        assert_eq!(
+            with_schema.parameters_schema.as_deref(),
+            Some("{\"type\":\"object\"}")
+        );
+
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/tmp"),
+            model_name: "model",
+            tools: &[],
+            skills: &[],
+            dispatcher_instructions: "",
+            learned: LearnedContextData {
+                tree_root_summaries: vec![
+                    ("user".into(), "kept".into()),
+                    ("empty".into(), "   ".into()),
+                ],
+                ..Default::default()
+            },
+            visible_tool_names: &NO_FILTER,
+            tool_call_format: ToolCallFormat::PFormat,
+        };
+        let rendered = UserMemorySection.build(&ctx).unwrap();
+        assert!(rendered.contains("### user"));
+        assert!(!rendered.contains("### empty"));
+        assert_eq!(default_workspace_file_content("missing"), "");
+    }
 }

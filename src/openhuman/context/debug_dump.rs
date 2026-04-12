@@ -783,4 +783,180 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(workspace);
     }
+
+    #[test]
+    fn filter_respects_named_scope_and_disallowed_tools() {
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(StubTool {
+                name: "shell",
+                category: ToolCategory::System,
+            }),
+            Box::new(StubTool {
+                name: "notion__create_page",
+                category: ToolCategory::Skill,
+            }),
+            Box::new(StubTool {
+                name: "gmail__send_email",
+                category: ToolCategory::Skill,
+            }),
+        ];
+
+        let indices = filter_tool_indices_for_dump(
+            &tools,
+            &ToolScope::Named(vec!["shell".into(), "gmail__send_email".into()]),
+            &["shell".into()],
+            None,
+            None,
+        );
+
+        let names: Vec<&str> = indices.iter().map(|&i| tools[i].name()).collect();
+        assert_eq!(names, vec!["gmail__send_email"]);
+    }
+
+    #[test]
+    fn render_subagent_dump_supports_file_prompt_fallbacks() {
+        let workspace =
+            std::env::temp_dir().join(format!("openhuman_debug_file_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(StubTool {
+            name: "shell",
+            category: ToolCategory::System,
+        })];
+
+        let definition = AgentDefinition {
+            id: "file_agent".into(),
+            when_to_use: "t".into(),
+            display_name: None,
+            system_prompt: PromptSource::File {
+                path: "USER.md".into(),
+            },
+            omit_identity: true,
+            omit_memory_context: true,
+            omit_safety_preamble: true,
+            omit_skills_catalog: true,
+            model: ModelSpec::Inherit,
+            temperature: 0.0,
+            tools: ToolScope::Wildcard,
+            disallowed_tools: vec![],
+            skill_filter: None,
+            category_filter: None,
+            max_iterations: 2,
+            timeout_secs: None,
+            sandbox_mode: SandboxMode::None,
+            background: false,
+            uses_fork_context: false,
+            source: DefinitionSource::Builtin,
+        };
+
+        let dumped =
+            render_subagent_dump(&definition, &workspace, "reasoning-v1", &tools, None).unwrap();
+        assert!(dumped.text.contains("## Tools"));
+        assert!(dumped.text.contains("OpenHuman"));
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn render_subagent_dump_handles_missing_file_prompt_without_panicking() {
+        let workspace =
+            std::env::temp_dir().join(format!("openhuman_debug_missing_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(StubTool {
+            name: "shell",
+            category: ToolCategory::System,
+        })];
+
+        let definition = AgentDefinition {
+            id: "missing_prompt".into(),
+            when_to_use: "t".into(),
+            display_name: None,
+            system_prompt: PromptSource::File {
+                path: "does-not-exist.md".into(),
+            },
+            omit_identity: true,
+            omit_memory_context: true,
+            omit_safety_preamble: true,
+            omit_skills_catalog: true,
+            model: ModelSpec::Inherit,
+            temperature: 0.0,
+            tools: ToolScope::Wildcard,
+            disallowed_tools: vec![],
+            skill_filter: None,
+            category_filter: None,
+            max_iterations: 2,
+            timeout_secs: None,
+            sandbox_mode: SandboxMode::None,
+            background: false,
+            uses_fork_context: false,
+            source: DefinitionSource::Builtin,
+        };
+
+        let dumped =
+            render_subagent_dump(&definition, &workspace, "reasoning-v1", &tools, None).unwrap();
+        assert!(dumped.text.contains("## Tools"));
+        assert!(!dumped.text.contains("does-not-exist"));
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn render_subagent_dump_prefers_workspace_prompt_locations() {
+        let workspace = std::env::temp_dir().join(format!(
+            "openhuman_debug_workspace_prompt_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(workspace.join("agent/prompts")).unwrap();
+        std::fs::write(
+            workspace.join("agent/prompts/custom.md"),
+            "Workspace agent prompt",
+        )
+        .unwrap();
+        std::fs::write(workspace.join("root.md"), "Workspace root prompt").unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(StubTool {
+            name: "shell",
+            category: ToolCategory::System,
+        })];
+
+        let mut definition = AgentDefinition {
+            id: "workspace_file".into(),
+            when_to_use: "t".into(),
+            display_name: None,
+            system_prompt: PromptSource::File {
+                path: "custom.md".into(),
+            },
+            omit_identity: true,
+            omit_memory_context: true,
+            omit_safety_preamble: true,
+            omit_skills_catalog: true,
+            model: ModelSpec::Inherit,
+            temperature: 0.0,
+            tools: ToolScope::Wildcard,
+            disallowed_tools: vec![],
+            skill_filter: None,
+            category_filter: None,
+            max_iterations: 2,
+            timeout_secs: None,
+            sandbox_mode: SandboxMode::None,
+            background: false,
+            uses_fork_context: false,
+            source: DefinitionSource::Builtin,
+        };
+
+        let agent_prompt =
+            render_subagent_dump(&definition, &workspace, "reasoning-v1", &tools, None).unwrap();
+        assert!(agent_prompt.text.contains("Workspace agent prompt"));
+
+        definition.id = "workspace_root".into();
+        definition.system_prompt = PromptSource::File {
+            path: "root.md".into(),
+        };
+        let root_prompt =
+            render_subagent_dump(&definition, &workspace, "reasoning-v1", &tools, None).unwrap();
+        assert!(root_prompt.text.contains("Workspace root prompt"));
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
 }
