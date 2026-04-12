@@ -33,32 +33,53 @@ pub const AGENT_RUN_TURN_METHOD: &str = "agent.run_turn";
 /// bus carries them by value without touching serialization. Consumers can
 /// therefore pass trait objects (`Arc<dyn Provider>`, tool trait-object
 /// registries) and streaming senders (`on_delta`) through unchanged.
+/// Full owned payload for a single agentic turn executed through the bus.
+///
+/// All fields are either owned values, [`Arc`]s, or channel handles — the
+/// bus carries them by value without touching serialization. Consumers can
+/// therefore pass trait objects (`Arc<dyn Provider>`, tool trait-object
+/// registries) and streaming senders (`on_delta`) through unchanged.
 pub struct AgentTurnRequest {
     /// LLM provider, already constructed and warmed up by the caller.
+    /// Shared via Arc to allow sub-agents to reuse the same connection pool.
     pub provider: Arc<dyn Provider>,
+
     /// Full conversation history including system prompt and the incoming
     /// user message. The handler mutates an internal clone of this during
     /// the tool-call loop; callers should rebuild their per-session cache
     /// from their own records, not from this vector.
     pub history: Vec<ChatMessage>,
+
     /// Registered tool implementations available to this turn.
+    /// These are provided as trait objects to avoid tight coupling with tool implementations.
     pub tools_registry: Arc<Vec<Box<dyn Tool>>>,
-    /// Provider name token (e.g. `"openai"`) — routed to the loop as-is.
+
+    /// Provider name token (e.g. `"openai"`) — routed to the loop as-is for logging and tracking.
     pub provider_name: String,
+
     /// Model identifier (e.g. `"gpt-4"`) — routed to the loop as-is.
     pub model: String,
-    /// Sampling temperature.
+
+    /// Sampling temperature. Higher values (e.g., 0.7) are more creative,
+    /// lower (e.g., 0.0) are more deterministic.
     pub temperature: f64,
+
     /// When `true`, suppresses stdout during the tool loop (always set by
-    /// channel callers).
+    /// channel callers to prevent cluttering the main console).
     pub silent: bool,
+
     /// Channel name this turn belongs to (e.g. `"telegram"`, `"cli"`).
+    /// Used for context and telemetry.
     pub channel_name: String,
+
     /// Multimodal feature configuration (image inlining rules, payload
     /// size caps).
     pub multimodal: MultimodalConfig,
+
     /// Maximum number of LLM↔tool round-trips before bailing out.
+    /// Prevents infinite loops if a model gets "stuck" calling the same tool.
     pub max_tool_iterations: usize,
+
     /// Optional streaming sender — the loop forwards partial LLM text
     /// chunks here so channel providers can update "draft" messages in
     /// real time. `None` disables streaming for this turn.
@@ -67,15 +88,16 @@ pub struct AgentTurnRequest {
 
 /// Final response from an agentic turn.
 pub struct AgentTurnResponse {
-    /// Final assistant text after all tool calls resolved.
+    /// Final assistant text after all tool calls resolved and the loop terminated.
     pub text: String,
 }
 
 /// Register the agent domain's native request handlers on the global
 /// registry. Safe to call multiple times — the last registration wins.
 ///
-/// Called from the canonical bus wiring in
-/// `src/core/jsonrpc.rs::register_domain_subscribers`.
+/// This function wires the `agent.run_turn` method into the core event bus,
+/// allowing any part of the system to request an agentic turn without
+/// depending directly on the agent harness.
 pub fn register_agent_handlers() {
     register_native_global::<AgentTurnRequest, AgentTurnResponse, _, _>(
         AGENT_RUN_TURN_METHOD,

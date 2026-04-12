@@ -9,31 +9,43 @@ use std::fmt;
 /// Structured error type for agent loop operations.
 #[derive(Debug)]
 pub enum AgentError {
-    /// The LLM provider returned an error.
+    /// The LLM provider returned an error (e.g., API key invalid, network failure).
+    /// `retryable` indicates if the operation should be attempted again.
     ProviderError { message: String, retryable: bool },
-    /// Context window is exhausted and compaction cannot help.
+
+    /// Context window is exhausted and compaction/summarization cannot help.
+    /// The agent cannot proceed without dropping significant history.
     ContextLimitExceeded { utilization_pct: u8 },
-    /// A tool execution failed.
+
+    /// A tool execution failed during its `execute()` method.
     ToolExecutionError { tool_name: String, message: String },
-    /// The daily cost budget has been exceeded.
+
+    /// The daily cost budget for this user/agent has been exceeded.
+    /// Prevents unexpected runaway costs.
     CostBudgetExceeded {
         spent_microdollars: u64,
         budget_microdollars: u64,
     },
-    /// The agent exceeded its maximum tool iterations.
+
+    /// The agent exceeded its maximum allowed tool iterations for a single turn.
+    /// Typically indicates an infinite loop in the model's reasoning.
     MaxIterationsExceeded { max: usize },
-    /// History compaction failed.
+
+    /// Automated history compaction (summarization) failed.
     CompactionFailed {
         message: String,
         consecutive_failures: u8,
     },
-    /// Channel permission denied for a tool operation.
+
+    /// The current channel (e.g., Telegram) does not have permission to execute 
+    /// the requested tool (e.g., shell access).
     PermissionDenied {
         tool_name: String,
         required_level: String,
         channel_max_level: String,
     },
-    /// Generic/untyped error (escape hatch for migration).
+
+    /// Generic/untyped error (escape hatch for migration or external dependencies).
     Other(anyhow::Error),
 }
 

@@ -9,47 +9,68 @@ use serde_json::Value;
 use std::fmt::Write;
 use std::sync::Arc;
 
+/// A parsed tool call representation after being extracted from an LLM response.
 #[derive(Debug, Clone)]
 pub struct ParsedToolCall {
+    /// The name of the tool to be invoked.
     pub name: String,
+    /// The arguments passed to the tool, as a JSON object.
     pub arguments: Value,
+    /// An optional unique identifier for the tool call, provided by native APIs.
     pub tool_call_id: Option<String>,
 }
 
+/// The result of executing a tool call, formatted for the LLM.
 #[derive(Debug, Clone)]
 pub struct ToolExecutionResult {
+    /// The name of the tool that was executed.
     pub name: String,
+    /// The output of the tool execution as a string.
     pub output: String,
+    /// Whether the tool execution was successful.
     pub success: bool,
+    /// The tool call ID that generated this result.
     pub tool_call_id: Option<String>,
 }
 
+/// Trait defining how an agent interacts with an LLM for tool use.
+///
+/// Different LLMs have different "dialects" for calling tools. The dispatcher
+/// abstracts these differences, allowing the agent loop to remain agnostic of
+/// the specific formatting required by the provider.
 pub trait ToolDispatcher: Send + Sync {
+    /// Parse the LLM response to extract narrative text and any tool calls.
     fn parse_response(&self, response: &ChatResponse) -> (String, Vec<ParsedToolCall>);
+
+    /// Format tool execution results into a message suitable for the next LLM turn.
     fn format_results(&self, results: &[ToolExecutionResult]) -> ConversationMessage;
+
+    /// Provide instructions for the system prompt on how the model should call tools.
     fn prompt_instructions(&self, tools: &[Box<dyn Tool>]) -> String;
+
+    /// Convert internal conversation history into provider-specific messages.
     fn to_provider_messages(&self, history: &[ConversationMessage]) -> Vec<ChatMessage>;
+
+    /// Whether the dispatcher requires tool specifications to be sent in the API request.
     fn should_send_tool_specs(&self) -> bool;
 
     /// Tell the prompt builder how to render each tool entry in the
     /// `## Tools` section. Defaults to [`ToolCallFormat::Json`] for
-    /// dispatchers that haven't opted in — `ToolsSection` then uses
-    /// the historic schema-dump rendering.
-    ///
-    /// `PFormatToolDispatcher` overrides this to return
-    /// [`ToolCallFormat::PFormat`] so the catalogue shows positional
-    /// signatures (`get_weather[location|unit]`) instead of full JSON
-    /// schemas — that's where most of the token saving comes from at
-    /// the prompt level.
+    /// dispatchers that haven't opted in.
     fn tool_call_format(&self) -> ToolCallFormat {
         ToolCallFormat::Json
     }
 }
 
+/// Legacy dispatcher using XML-style tags (`<tool_call>`) with JSON bodies.
+///
+/// This is robust and works well with models that aren't natively trained for
+/// tool calling but can follow instructions in a system prompt.
 #[derive(Default)]
 pub struct XmlToolDispatcher;
 
 impl XmlToolDispatcher {
+    /// Internal helper to extract tool calls from a raw text string.
     fn parse_tool_calls_from_text(response: &str) -> (String, Vec<ParsedToolCall>) {
         let (text, calls) = parse_tool_calls(response);
         let parsed_calls = calls
@@ -63,6 +84,7 @@ impl XmlToolDispatcher {
         (text, parsed_calls)
     }
 
+    /// Extract serializable specs for all tools in the registry.
     pub fn tool_specs(tools: &[Box<dyn Tool>]) -> Vec<ToolSpec> {
         tools.iter().map(|tool| tool.spec()).collect()
     }
@@ -145,42 +167,31 @@ impl ToolDispatcher for XmlToolDispatcher {
 }
 
 /// Text-based dispatcher that emits and parses **P-Format** ("Parameter
-/// Format") tool calls — the compact `tool_name[arg1|arg2|...]` syntax
-/// defined in [`crate::openhuman::agent::pformat`].
+/// Format") tool calls — the compact `tool_name[arg1|arg2|...]` syntax.
 ///
-/// This is the default dispatcher for providers that do not support
-/// native structured tool calls. Compared to the legacy
-/// [`XmlToolDispatcher`] (XML wrapper + JSON body), p-format cuts the
-/// per-call token cost by ~80% — a single weather lookup goes from
-/// ~25 tokens to ~5 — which compounds dramatically over a long agent
-/// loop.
-///
-/// The dispatcher caches a [`PFormatRegistry`] (a `name → params`
-/// lookup) at construction time so it never has to hold a reference to
-/// the live `Vec<Box<dyn Tool>>` (which the [`Agent`] owns). The
-/// caller is expected to build the registry from the same tool slice
-/// they pass into the agent — see `pformat::build_registry`.
+/// P-format is designed to significantly reduce token usage compared to JSON.
+/// It uses positional arguments based on an alphabetical sort of the tool's
+/// parameters.
 ///
 /// On the parse side the dispatcher tries p-format **first** and falls
 /// back to the existing JSON-in-tag parser if the body doesn't match
 /// the bracket pattern. This keeps the dispatcher backwards-compatible
-/// with models that still emit JSON tool calls — they just pay the
-/// usual token cost for their bytes.
+/// with models that still emit JSON tool calls.
 pub struct PFormatToolDispatcher {
+    /// Registry of tool parameter layouts used to reconstruct named arguments from positional ones.
     registry: Arc<PFormatRegistry>,
 }
 
 impl PFormatToolDispatcher {
+    /// Create a new P-Format dispatcher with the given tool registry.
     pub fn new(registry: PFormatRegistry) -> Self {
         Self {
             registry: Arc::new(registry),
         }
     }
 
-    /// Convert the registry-driven parser output into the dispatcher's
-    /// `ParsedToolCall` shape. Always called inside a `<tool_call>` tag
-    /// body — the tag-finding logic comes from the shared
-    /// [`parse_tool_calls`] helper.
+    /// Convert the registry-driven positional parser output into the dispatcher's
+    /// `ParsedToolCall` shape. Always called inside a `<tool_call>` tag.
     fn try_parse_pformat_body(&self, body: &str) -> Option<ParsedToolCall> {
         let (name, args) = pformat::parse_call(body, self.registry.as_ref())?;
         Some(ParsedToolCall {
@@ -359,6 +370,12 @@ impl ToolDispatcher for PFormatToolDispatcher {
     }
 }
 
+/// Dispatcher for models with native, structured tool-calling support (e.g., OpenAI, Anthropic).
+/// 
+/// This dispatcher leverages the provider's built-in APIs for identifying and
+/// reporting tool calls, which is generally more reliable than text-based parsing.
+/// It still supports a text-based fallback for robustness against models that
+/// might "forget" to use the structured API.
 pub struct NativeToolDispatcher;
 
 impl ToolDispatcher for NativeToolDispatcher {
