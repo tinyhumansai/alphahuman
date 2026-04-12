@@ -173,7 +173,14 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let mut config = Config::default();
         config.local_ai.voice_llm_cleanup_enabled = false;
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai test mutex poisoned");
+        let service = local_ai::global(&config);
+        let previous = service.status.lock().state.clone();
+        service.status.lock().state = "not_ready".into();
         let result = rt.block_on(cleanup_transcription(&config, "um hello uh world", None));
+        service.status.lock().state = previous;
         assert_eq!(result, "um hello uh world");
     }
 }

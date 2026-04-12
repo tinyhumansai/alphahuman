@@ -460,14 +460,21 @@ mod tests {
 
     #[test]
     fn decide_fresh_returns_local_when_service_ready_and_tier_is_high_enough() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai test mutex poisoned");
         let mut config = test_config();
         config.local_ai.enabled = true;
         apply_preset_to_config(&mut config.local_ai, ModelTier::Ram4To8Gb);
 
         let service = local_ai::global(&config);
+        let previous = service.status.lock().state.clone();
         service.status.lock().state = "ready".into();
 
-        assert_eq!(decide_fresh(&config), CacheState::Local);
+        let decision = decide_fresh(&config);
+        service.status.lock().state = previous;
+
+        assert_eq!(decision, CacheState::Local);
     }
 
     #[test]
@@ -484,12 +491,16 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_provider_with_config_uses_local_and_remote_paths() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai test mutex poisoned");
         clear_cache().await;
 
         let mut config = test_config();
         config.local_ai.enabled = true;
         apply_preset_to_config(&mut config.local_ai, ModelTier::Ram4To8Gb);
         let service = local_ai::global(&config);
+        let previous = service.status.lock().state.clone();
         service.status.lock().state = "ready".into();
 
         let local = resolve_provider_with_config(&config)
@@ -502,6 +513,7 @@ mod tests {
         let remote = resolve_provider_with_config(&config)
             .await
             .expect("degraded cache should force remote");
+        service.status.lock().state = previous;
         assert!(!remote.used_local);
         assert_eq!(remote.provider_name, INFERENCE_BACKEND_ID);
     }
