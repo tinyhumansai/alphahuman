@@ -1,7 +1,7 @@
 use anyhow::Result;
 use openhuman_core::openhuman::agent::multimodal::{
-    contains_image_markers, count_image_markers, extract_ollama_image_payload,
-    parse_image_markers, prepare_messages_for_provider,
+    contains_image_markers, count_image_markers, extract_ollama_image_payload, parse_image_markers,
+    prepare_messages_for_provider,
 };
 use openhuman_core::openhuman::config::MultimodalConfig;
 use openhuman_core::openhuman::providers::ChatMessage;
@@ -34,7 +34,9 @@ fn marker_helpers_cover_mixed_content_and_payload_extraction() {
     assert_eq!(cleaned_empty, "keep [IMAGE:] literal");
     assert!(refs_empty.is_empty());
 
-    assert!(!contains_image_markers(&[ChatMessage::assistant("no user refs")]));
+    assert!(!contains_image_markers(&[ChatMessage::assistant(
+        "no user refs"
+    )]));
 }
 
 #[tokio::test]
@@ -76,7 +78,9 @@ async fn prepare_messages_rejects_invalid_data_uri_forms() {
     let err = prepare_messages_for_provider(&invalid_non_base64, &MultimodalConfig::default())
         .await
         .expect_err("non-base64 data uri should fail");
-    assert!(err.to_string().contains("only base64 data URIs are supported"));
+    assert!(err
+        .to_string()
+        .contains("only base64 data URIs are supported"));
 
     let invalid_mime = vec![ChatMessage::user("bad [IMAGE:data:text/plain;base64,YQ==]")];
     let err = prepare_messages_for_provider(&invalid_mime, &MultimodalConfig::default())
@@ -97,7 +101,10 @@ async fn prepare_messages_rejects_unknown_local_mime() {
     let file_path = temp.path().join("sample.txt");
     std::fs::write(&file_path, b"not an image").expect("write sample");
 
-    let messages = vec![ChatMessage::user(format!("bad [IMAGE:{}]", file_path.display()))];
+    let messages = vec![ChatMessage::user(format!(
+        "bad [IMAGE:{}]",
+        file_path.display()
+    ))];
     let err = prepare_messages_for_provider(&messages, &MultimodalConfig::default())
         .await
         .expect_err("unknown mime should fail");

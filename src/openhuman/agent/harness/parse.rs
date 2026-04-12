@@ -672,7 +672,10 @@ mod tests {
             find_first_tag("hi <invoke>there", &["<tool_call>", "<invoke>"]),
             Some((3, "<invoke>"))
         );
-        assert_eq!(matching_tool_call_close_tag("<toolcall>"), Some("</toolcall>"));
+        assert_eq!(
+            matching_tool_call_close_tag("<toolcall>"),
+            Some("</toolcall>")
+        );
         assert_eq!(matching_tool_call_close_tag("<nope>"), None);
 
         let extracted = extract_first_json_value_with_end(" text {\"ok\":true} trailing ")
@@ -680,13 +683,22 @@ mod tests {
         assert_eq!(extracted.0, serde_json::json!({ "ok": true }));
         assert!(extracted.1 > 0);
 
-        assert_eq!(strip_leading_close_tags(" </tool_call>  </invoke> hi "), "hi ");
+        assert_eq!(
+            strip_leading_close_tags(" </tool_call>  </invoke> hi "),
+            "hi "
+        );
         assert_eq!(strip_leading_close_tags("plain"), "plain");
 
         let values = extract_json_values("before {\"a\":1} [1,2] after");
-        assert_eq!(values, vec![serde_json::json!({ "a": 1 }), serde_json::json!([1, 2])]);
+        assert_eq!(
+            values,
+            vec![serde_json::json!({ "a": 1 }), serde_json::json!([1, 2])]
+        );
 
-        assert_eq!(find_json_end("  {\"a\":\"}\"}tail"), Some("  {\"a\":\"}\"}".len()));
+        assert_eq!(
+            find_json_end("  {\"a\":\"}\"}tail"),
+            Some("  {\"a\":\"}\"}".len())
+        );
         assert_eq!(find_json_end("[1,2,3]"), None);
     }
 

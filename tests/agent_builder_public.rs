@@ -118,14 +118,20 @@ impl Memory for StubMemory {
 fn base_builder() -> openhuman_core::openhuman::agent::AgentBuilder {
     Agent::builder()
         .provider(Box::new(StubProvider))
-        .tools(vec![Box::new(StubTool("alpha")), Box::new(StubTool("beta"))])
+        .tools(vec![
+            Box::new(StubTool("alpha")),
+            Box::new(StubTool("beta")),
+        ])
         .memory(Arc::new(StubMemory))
         .tool_dispatcher(Box::new(XmlToolDispatcher))
 }
 
 #[test]
 fn builder_validates_required_fields() {
-    let err = Agent::builder().build().err().expect("missing tools should error");
+    let err = Agent::builder()
+        .build()
+        .err()
+        .expect("missing tools should error");
     assert!(err.to_string().contains("tools are required"));
 
     let err = Agent::builder()
@@ -155,11 +161,16 @@ fn builder_validates_required_fields() {
 
 #[test]
 fn builder_applies_defaults_and_exposes_public_accessors() {
-    let agent = base_builder().build().expect("minimal builder should succeed");
+    let agent = base_builder()
+        .build()
+        .expect("minimal builder should succeed");
 
     assert_eq!(agent.tools().len(), 2);
     assert_eq!(agent.tool_specs().len(), 2);
-    assert_eq!(agent.model_name(), openhuman_core::openhuman::config::DEFAULT_MODEL);
+    assert_eq!(
+        agent.model_name(),
+        openhuman_core::openhuman::config::DEFAULT_MODEL
+    );
     assert_eq!(agent.temperature(), 0.7);
     assert_eq!(agent.workspace_dir(), std::path::Path::new("."));
     assert!(agent.skills().is_empty());

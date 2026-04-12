@@ -218,7 +218,10 @@ async fn fork_and_parent_contexts_are_visible_only_within_scope() {
 
 #[test]
 fn sanitize_tool_output_classifies_common_errors() {
-    assert_eq!(sanitize_tool_output("fine", "shell", true), "shell: ok (4 chars)");
+    assert_eq!(
+        sanitize_tool_output("fine", "shell", true),
+        "shell: ok (4 chars)"
+    );
     assert_eq!(
         sanitize_tool_output("Connection timeout while fetching", "http_request", false),
         "http_request: failed (timeout)"
