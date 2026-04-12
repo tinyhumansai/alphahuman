@@ -154,6 +154,13 @@ pub fn all_tools_with_runtime(
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
+    // Native mouse + keyboard control (disabled by default)
+    if root_config.computer_control.enabled {
+        tools.push(Box::new(MouseTool::new(security.clone())));
+        tools.push(Box::new(KeyboardTool::new(security.clone())));
+        tracing::debug!("[computer] mouse and keyboard tools registered");
+    }
+
     if let Some(key) = composio_key {
         if !key.is_empty() {
             tools.push(Box::new(ComposioTool::new(
