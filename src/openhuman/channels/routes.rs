@@ -486,7 +486,14 @@ mod tests {
 
     #[test]
     fn provider_alias_and_route_selection_round_trip() {
-        assert_eq!(resolve_provider_alias("openai").as_deref(), Some("openai"));
+        let first_provider = providers::list_providers()
+            .into_iter()
+            .next()
+            .expect("provider registry should not be empty");
+        assert_eq!(
+            resolve_provider_alias(first_provider.name).as_deref(),
+            Some(first_provider.name)
+        );
         assert!(resolve_provider_alias("   ").is_none());
 
         let ctx = runtime_context(PathBuf::from("/tmp"));

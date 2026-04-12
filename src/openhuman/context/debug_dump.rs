@@ -722,4 +722,65 @@ mod tests {
         assert_eq!(dumped.tool_names, vec!["notion__create_page"]);
         let _ = std::fs::remove_dir_all(workspace);
     }
+
+    #[test]
+    fn dump_prompt_options_new_sets_expected_defaults() {
+        let options = DumpPromptOptions::new("skills_agent");
+        assert_eq!(options.agent_id, "skills_agent");
+        assert_eq!(options.skill_filter, None);
+        assert_eq!(options.workspace_dir_override, None);
+        assert_eq!(options.model_override, None);
+        assert!(!options.stub_composio);
+    }
+
+    #[test]
+    fn composio_stub_tools_have_expected_names() {
+        let names: Vec<String> = build_composio_stub_tools()
+            .into_iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "composio_list_toolkits",
+                "composio_list_connections",
+                "composio_authorize",
+                "composio_list_tools",
+                "composio_execute",
+            ]
+        );
+    }
+
+    #[test]
+    fn render_main_agent_dump_includes_tool_instructions_and_skill_count() {
+        let workspace =
+            std::env::temp_dir().join(format!("openhuman_debug_main_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(workspace.join("SOUL.md"), "# Soul\nContext").unwrap();
+        std::fs::write(workspace.join("IDENTITY.md"), "# Identity\nContext").unwrap();
+        std::fs::write(workspace.join("USER.md"), "# User\nContext").unwrap();
+        std::fs::write(workspace.join("HEARTBEAT.md"), "# Heartbeat\nContext").unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(StubTool {
+                name: "shell",
+                category: ToolCategory::System,
+            }),
+            Box::new(StubTool {
+                name: "notion__create_page",
+                category: ToolCategory::Skill,
+            }),
+        ];
+
+        let dumped = render_main_agent_dump(&workspace, "reasoning-v1", &tools).unwrap();
+        assert_eq!(dumped.mode, "main");
+        assert_eq!(dumped.model, "reasoning-v1");
+        assert_eq!(dumped.tool_names, vec!["shell", "notion__create_page"]);
+        assert_eq!(dumped.skill_tool_count, 1);
+        assert!(dumped.text.contains("## Tools"));
+        assert!(dumped.text.contains("Tool Use Protocol"));
+        assert!(dumped.cache_boundary.is_some());
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
 }

@@ -1220,4 +1220,117 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(workspace);
     }
+
+    #[test]
+    fn extract_cache_boundary_without_marker_returns_original_text() {
+        let rendered = extract_cache_boundary("hello");
+        assert_eq!(rendered.text, "hello");
+        assert_eq!(rendered.cache_boundary, None);
+    }
+
+    #[test]
+    fn subagent_render_options_invert_definition_flags() {
+        let options = SubagentRenderOptions::from_definition_flags(true, false, true);
+        assert!(!options.include_identity);
+        assert!(options.include_safety_preamble);
+        assert!(!options.include_skills_catalog);
+        let narrow = SubagentRenderOptions::narrow();
+        let default = SubagentRenderOptions::default();
+        assert_eq!(narrow.include_identity, default.include_identity);
+        assert_eq!(
+            narrow.include_safety_preamble,
+            default.include_safety_preamble
+        );
+        assert_eq!(
+            narrow.include_skills_catalog,
+            default.include_skills_catalog
+        );
+    }
+
+    #[test]
+    fn render_subagent_system_prompt_honors_identity_safety_and_skills_flags() {
+        let workspace =
+            std::env::temp_dir().join(format!("openhuman_prompt_opts_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(workspace.join("SOUL.md"), "# Soul\nContext").unwrap();
+        std::fs::write(workspace.join("IDENTITY.md"), "# Identity\nContext").unwrap();
+        std::fs::write(workspace.join("USER.md"), "# User\nContext").unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
+        let rendered = render_subagent_system_prompt_with_format(
+            &workspace,
+            "reasoning-v1",
+            &[0],
+            &tools,
+            "You are a specialist.",
+            SubagentRenderOptions {
+                include_identity: true,
+                include_safety_preamble: true,
+                include_skills_catalog: true,
+            },
+            ToolCallFormat::Json,
+        );
+
+        assert!(rendered.contains("## Project Context"));
+        assert!(rendered.contains("### SOUL.md"));
+        assert!(rendered.contains("## Safety"));
+        assert!(rendered.contains("## Available Skills"));
+        assert!(rendered.contains("Parameters:"));
+        assert!(rendered.contains("\"type\""));
+
+        let native = render_subagent_system_prompt_with_format(
+            &workspace,
+            "reasoning-v1",
+            &[0],
+            &tools,
+            "You are a specialist.",
+            SubagentRenderOptions::narrow(),
+            ToolCallFormat::Native,
+        );
+        assert!(native.contains("native tool-calling output"));
+        assert!(!native.contains("## Safety"));
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn sync_workspace_file_updates_hash_and_inject_workspace_file_truncates() {
+        let workspace = std::env::temp_dir().join(format!(
+            "openhuman_prompt_workspace_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        sync_workspace_file(&workspace, "SOUL.md");
+        let hash_path = workspace.join(".SOUL.md.builtin-hash");
+        assert!(workspace.join("SOUL.md").exists());
+        assert!(hash_path.exists());
+        let original_hash = std::fs::read_to_string(&hash_path).unwrap();
+
+        std::fs::write(workspace.join("SOUL.md"), "user override").unwrap();
+        sync_workspace_file(&workspace, "SOUL.md");
+        assert_eq!(std::fs::read_to_string(&hash_path).unwrap(), original_hash);
+        assert_eq!(std::fs::read_to_string(workspace.join("SOUL.md")).unwrap(), "user override");
+
+        std::fs::write(
+            workspace.join("BIG.md"),
+            "x".repeat(BOOTSTRAP_MAX_CHARS + 50),
+        )
+        .unwrap();
+        let mut prompt = String::new();
+        inject_workspace_file(&mut prompt, &workspace, "BIG.md");
+        assert!(prompt.contains("### BIG.md"));
+        assert!(prompt.contains("[... truncated at"));
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn dynamic_section_classification_matches_cache_boundary_rules() {
+        assert!(is_dynamic_section("workspace"));
+        assert!(is_dynamic_section("datetime"));
+        assert!(is_dynamic_section("runtime"));
+        assert!(!is_dynamic_section("tools"));
+        assert!(!is_dynamic_section("identity"));
+    }
 }
