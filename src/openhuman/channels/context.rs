@@ -317,7 +317,9 @@ mod tests {
             channels_by_name: Arc::new(HashMap::new()),
             provider: Arc::new(DummyProvider),
             default_provider: Arc::new("default".into()),
-            memory: Arc::new(MockMemory { entries: Vec::new() }),
+            memory: Arc::new(MockMemory {
+                entries: Vec::new(),
+            }),
             tools_registry: Arc::new(vec![Box::new(DummyTool) as Box<dyn Tool>]),
             system_prompt: Arc::new("prompt".into()),
             model: Arc::new("model".into()),
@@ -331,7 +333,8 @@ mod tests {
             api_key: None,
             api_url: None,
             reliability: Arc::new(crate::openhuman::config::ReliabilityConfig::default()),
-            provider_runtime_options: crate::openhuman::providers::ProviderRuntimeOptions::default(),
+            provider_runtime_options: crate::openhuman::providers::ProviderRuntimeOptions::default(
+            ),
             workspace_dir: Arc::new(PathBuf::from("/tmp")),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             multimodal: crate::openhuman::config::MultimodalConfig::default(),
@@ -352,7 +355,10 @@ mod tests {
 
     #[test]
     fn timeout_and_history_keys_respect_channel_rules() {
-        assert_eq!(effective_channel_message_timeout_secs(10), MIN_CHANNEL_MESSAGE_TIMEOUT_SECS);
+        assert_eq!(
+            effective_channel_message_timeout_secs(10),
+            MIN_CHANNEL_MESSAGE_TIMEOUT_SECS
+        );
         assert_eq!(effective_channel_message_timeout_secs(120), 120);
 
         let telegram = channel_message("telegram");
@@ -371,21 +377,25 @@ mod tests {
         let sender = "discord_alice_reply_thread:thread-1";
         let mut history = Vec::new();
         history.push(crate::openhuman::providers::ChatMessage::user("short"));
-        history.extend((0..20).map(|idx| {
-            crate::openhuman::providers::ChatMessage::assistant("x".repeat(700 + idx))
-        }));
+        history.extend(
+            (0..20).map(|idx| {
+                crate::openhuman::providers::ChatMessage::assistant("x".repeat(700 + idx))
+            }),
+        );
         ctx.conversation_histories
             .lock()
             .unwrap()
             .insert(sender.into(), history);
 
         assert!(compact_sender_history(&ctx, sender));
-        let compacted = ctx.conversation_histories.lock().unwrap();
-        let compacted = compacted.get(sender).unwrap();
-        assert_eq!(compacted.len(), CHANNEL_HISTORY_COMPACT_KEEP_MESSAGES);
-        assert!(compacted
-            .iter()
-            .all(|msg| msg.content.chars().count() <= CHANNEL_HISTORY_COMPACT_CONTENT_CHARS + 3));
+        {
+            let compacted = ctx.conversation_histories.lock().unwrap();
+            let compacted = compacted.get(sender).unwrap();
+            assert_eq!(compacted.len(), CHANNEL_HISTORY_COMPACT_KEEP_MESSAGES);
+            assert!(compacted.iter().all(|msg| {
+                msg.content.chars().count() <= CHANNEL_HISTORY_COMPACT_CONTENT_CHARS + 3
+            }));
+        }
 
         clear_sender_history(&ctx, sender);
         assert!(!ctx
@@ -407,7 +417,9 @@ mod tests {
         assert!(is_context_window_overflow_error(&anyhow::anyhow!(
             "Maximum context length exceeded"
         )));
-        assert!(!is_context_window_overflow_error(&anyhow::anyhow!("network timeout")));
+        assert!(!is_context_window_overflow_error(&anyhow::anyhow!(
+            "network timeout"
+        )));
     }
 
     #[tokio::test]
@@ -417,7 +429,11 @@ mod tests {
                 memory_entry("keep", "v", Some(0.9)),
                 memory_entry("drop_history", "ignored", Some(0.9)),
                 memory_entry("low", "too low", Some(0.1)),
-                memory_entry("long", &"x".repeat(MEMORY_CONTEXT_ENTRY_MAX_CHARS + 50), Some(0.9)),
+                memory_entry(
+                    "long",
+                    &"x".repeat(MEMORY_CONTEXT_ENTRY_MAX_CHARS + 50),
+                    Some(0.9),
+                ),
             ],
         };
 

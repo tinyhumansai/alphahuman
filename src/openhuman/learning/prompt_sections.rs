@@ -194,7 +194,10 @@ mod tests {
             .build(&prompt_context(LearnedContextData {
                 observations: Vec::new(),
                 patterns: Vec::new(),
-                user_profile: vec!["Timezone: America/Los_Angeles".into(), "Prefers Rust".into()],
+                user_profile: vec![
+                    "Timezone: America/Los_Angeles".into(),
+                    "Prefers Rust".into(),
+                ],
                 tree_root_summaries: Vec::new(),
             }))
             .unwrap();

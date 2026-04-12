@@ -221,4 +221,123 @@ mod tests {
         assert!(context.contains("[User working memory]"));
         assert!(context.contains("working.user.gmail.summary"));
     }
+
+    #[tokio::test]
+    async fn new_enforces_minimum_limit_and_zero_budget_disables_output() {
+        let loader = DefaultMemoryLoader::new(0, 0.4).with_max_chars(0);
+        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        assert!(context.contains("[Memory context]"));
+    }
+
+    #[tokio::test]
+    async fn loader_skips_low_relevance_and_obeys_budget() {
+        struct BudgetMemory;
+
+        #[async_trait]
+        impl Memory for BudgetMemory {
+            fn name(&self) -> &str {
+                "budget"
+            }
+
+            async fn store(
+                &self,
+                _key: &str,
+                _content: &str,
+                _category: MemoryCategory,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            async fn recall(
+                &self,
+                query: &str,
+                _limit: usize,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                if query.contains("working.user") {
+                    return Ok(vec![
+                        MemoryEntry {
+                            id: "w1".into(),
+                            key: "working.user.pref".into(),
+                            content: "Use Rust".into(),
+                            namespace: None,
+                            category: MemoryCategory::Core,
+                            timestamp: "now".into(),
+                            session_id: None,
+                            score: Some(0.9),
+                        },
+                        MemoryEntry {
+                            id: "w2".into(),
+                            key: "k".into(),
+                            content: "duplicate".into(),
+                            namespace: None,
+                            category: MemoryCategory::Core,
+                            timestamp: "now".into(),
+                            session_id: None,
+                            score: Some(0.9),
+                        },
+                    ]);
+                }
+                Ok(vec![
+                    MemoryEntry {
+                        id: "1".into(),
+                        key: "low".into(),
+                        content: "drop".into(),
+                        namespace: None,
+                        category: MemoryCategory::Conversation,
+                        timestamp: "now".into(),
+                        session_id: None,
+                        score: Some(0.1),
+                    },
+                    MemoryEntry {
+                        id: "2".into(),
+                        key: "k".into(),
+                        content: "x".repeat(200),
+                        namespace: None,
+                        category: MemoryCategory::Conversation,
+                        timestamp: "now".into(),
+                        session_id: None,
+                        score: Some(0.9),
+                    },
+                ])
+            }
+
+            async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+                Ok(None)
+            }
+
+            async fn list(
+                &self,
+                _category: Option<&MemoryCategory>,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                Ok(Vec::new())
+            }
+
+            async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+
+            async fn count(&self) -> anyhow::Result<usize> {
+                Ok(0)
+            }
+
+            async fn health_check(&self) -> bool {
+                true
+            }
+        }
+
+        let loader = DefaultMemoryLoader::new(5, 0.4).with_max_chars(60);
+        let context = loader.load_context(&BudgetMemory, "hello").await.unwrap();
+        assert!(!context.contains("low"));
+        assert!(context.contains("[User working memory]"));
+        assert!(!context.contains("- k:"));
+
+        let loader = DefaultMemoryLoader::new(5, 0.4).with_max_chars(120);
+        let context = loader.load_context(&BudgetMemory, "hello").await.unwrap();
+        assert!(context.contains("[User working memory]"));
+        assert!(context.contains("working.user.pref"));
+        assert!(!context.contains("- k:"));
+    }
 }

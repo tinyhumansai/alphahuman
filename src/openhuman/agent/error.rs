@@ -122,6 +122,7 @@ pub fn is_context_limit_error(error_msg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn display_formatting() {
@@ -154,5 +155,45 @@ mod tests {
         };
         assert!(err.to_string().contains("shell"));
         assert!(err.to_string().contains("Execute"));
+    }
+
+    #[test]
+    fn display_formats_other_variants() {
+        assert!(AgentError::ProviderError {
+            message: "boom".into(),
+            retryable: true,
+        }
+        .to_string()
+        .contains("retryable=true"));
+        assert!(AgentError::ContextLimitExceeded {
+            utilization_pct: 98
+        }
+        .to_string()
+        .contains("98% utilized"));
+        assert!(AgentError::ToolExecutionError {
+            tool_name: "shell".into(),
+            message: "denied".into(),
+        }
+        .to_string()
+        .contains("Tool execution error [shell]"));
+        assert!(AgentError::CompactionFailed {
+            message: "summary failed".into(),
+            consecutive_failures: 3,
+        }
+        .to_string()
+        .contains("3 consecutive"));
+    }
+
+    #[test]
+    fn from_anyhow_recovers_typed_agent_error_and_other_source() {
+        let typed = anyhow::anyhow!(AgentError::MaxIterationsExceeded { max: 4 });
+        match AgentError::from(typed) {
+            AgentError::MaxIterationsExceeded { max } => assert_eq!(max, 4),
+            other => panic!("unexpected variant: {other}"),
+        }
+
+        let other = AgentError::from(anyhow::anyhow!("plain failure"));
+        assert!(matches!(other, AgentError::Other(_)));
+        assert!(other.source().is_some());
     }
 }

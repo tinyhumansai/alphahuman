@@ -166,7 +166,10 @@ mod tests {
 
     #[test]
     fn sanitize_tool_output_maps_success_and_failure_classes() {
-        assert_eq!(sanitize_tool_output("fine", "shell", true), "shell: ok (4 chars)");
+        assert_eq!(
+            sanitize_tool_output("fine", "shell", true),
+            "shell: ok (4 chars)"
+        );
         assert_eq!(
             sanitize_tool_output("Connection timeout while fetching", "http_request", false),
             "http_request: failed (timeout)"

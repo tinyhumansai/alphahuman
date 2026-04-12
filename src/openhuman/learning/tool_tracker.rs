@@ -291,8 +291,14 @@ mod tests {
 
         assert_eq!(stats.failures, 8);
         assert_eq!(stats.common_error_patterns.len(), 5);
-        assert_eq!(stats.common_error_patterns.first().unwrap(), "error pattern 2");
-        assert_eq!(stats.common_error_patterns.last().unwrap(), "error pattern 6");
+        assert_eq!(
+            stats.common_error_patterns.first().unwrap(),
+            "error pattern 2"
+        );
+        assert_eq!(
+            stats.common_error_patterns.last().unwrap(),
+            "error pattern 6"
+        );
     }
 
     #[tokio::test]
@@ -396,6 +402,9 @@ mod tests {
         assert_eq!(parsed.total_calls, 2);
         assert_eq!(parsed.successes, 1);
         assert_eq!(parsed.failures, 1);
-        assert_eq!(parsed.common_error_patterns, vec!["permission denied while writing"]);
+        assert_eq!(
+            parsed.common_error_patterns,
+            vec!["permission denied while writing"]
+        );
     }
 }

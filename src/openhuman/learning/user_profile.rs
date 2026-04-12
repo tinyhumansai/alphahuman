@@ -248,7 +248,8 @@ mod tests {
 
     #[test]
     fn extract_preferences_uses_full_message_fallback_and_caps_results() {
-        let fallback = UserProfileHook::extract_preferences("I prefer compact diffs in code reviews");
+        let fallback =
+            UserProfileHook::extract_preferences("I prefer compact diffs in code reviews");
         assert_eq!(fallback, vec!["I prefer compact diffs in code reviews"]);
 
         let many = UserProfileHook::extract_preferences(
@@ -328,11 +329,11 @@ mod tests {
             .values()
             .map(|entry| entry.content.clone())
             .collect();
-        assert!(values.iter().any(|value| value.contains("My language is English")));
-        assert!(
-            values
-                .iter()
-                .any(|value| value.contains("Please always use concise output"))
-        );
+        assert!(values
+            .iter()
+            .any(|value| value.contains("My language is English")));
+        assert!(values
+            .iter()
+            .any(|value| value.contains("Please always use concise output")));
     }
 }

@@ -203,9 +203,7 @@ mod tests {
         assert!(runtime.storage_path().ends_with("openhuman/runtime/docker"));
 
         let tempdir = tempfile::tempdir().unwrap();
-        let command = runtime
-            .build_shell_command("pwd", tempdir.path())
-            .unwrap();
+        let command = runtime.build_shell_command("pwd", tempdir.path()).unwrap();
         let args: Vec<String> = command
             .as_std()
             .get_args()

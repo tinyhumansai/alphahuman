@@ -444,25 +444,45 @@ That's my assessment."#;
     #[test]
     fn should_reflect_requires_learning_and_complexity() {
         let memory: Arc<dyn Memory> = Arc::new(MockMemory::default());
-        let hook = ReflectionHook::new(reflection_config(), Arc::new(Config::default()), memory, None);
+        let hook = ReflectionHook::new(
+            reflection_config(),
+            Arc::new(Config::default()),
+            memory,
+            None,
+        );
         assert!(hook.should_reflect(&reflective_turn()));
 
         let mut disabled = reflection_config();
         disabled.enabled = false;
-        let hook = ReflectionHook::new(disabled, Arc::new(Config::default()), Arc::new(MockMemory::default()), None);
+        let hook = ReflectionHook::new(
+            disabled,
+            Arc::new(Config::default()),
+            Arc::new(MockMemory::default()),
+            None,
+        );
         assert!(!hook.should_reflect(&reflective_turn()));
 
         let mut simple = reflective_turn();
         simple.tool_calls.clear();
         simple.assistant_response = "short".into();
-        let hook = ReflectionHook::new(reflection_config(), Arc::new(Config::default()), Arc::new(MockMemory::default()), None);
+        let hook = ReflectionHook::new(
+            reflection_config(),
+            Arc::new(Config::default()),
+            Arc::new(MockMemory::default()),
+            None,
+        );
         assert!(!hook.should_reflect(&simple));
     }
 
     #[test]
     fn build_reflection_prompt_includes_tool_calls_and_truncation() {
         let memory: Arc<dyn Memory> = Arc::new(MockMemory::default());
-        let hook = ReflectionHook::new(reflection_config(), Arc::new(Config::default()), memory, None);
+        let hook = ReflectionHook::new(
+            reflection_config(),
+            Arc::new(Config::default()),
+            memory,
+            None,
+        );
         let mut turn = reflective_turn();
         turn.user_message = "u".repeat(700);
         turn.assistant_response = "a".repeat(700);
@@ -505,7 +525,12 @@ That's my assessment."#;
     async fn store_reflection_persists_all_categories() {
         let memory_impl = Arc::new(MockMemory::default());
         let memory: Arc<dyn Memory> = memory_impl.clone();
-        let hook = ReflectionHook::new(reflection_config(), Arc::new(Config::default()), memory, None);
+        let hook = ReflectionHook::new(
+            reflection_config(),
+            Arc::new(Config::default()),
+            memory,
+            None,
+        );
         hook.store_reflection(&ReflectionOutput {
             observations: vec!["Observed failure".into()],
             patterns: vec!["Pattern A".into()],
@@ -523,7 +548,12 @@ That's my assessment."#;
     #[tokio::test]
     async fn on_turn_complete_rolls_back_counter_when_reflection_call_fails() {
         let memory: Arc<dyn Memory> = Arc::new(MockMemory::default());
-        let hook = ReflectionHook::new(reflection_config(), Arc::new(Config::default()), memory, None);
+        let hook = ReflectionHook::new(
+            reflection_config(),
+            Arc::new(Config::default()),
+            memory,
+            None,
+        );
         let turn = reflective_turn();
 
         let err = hook.on_turn_complete(&turn).await.unwrap_err();

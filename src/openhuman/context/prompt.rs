@@ -1310,7 +1310,10 @@ mod tests {
         std::fs::write(workspace.join("SOUL.md"), "user override").unwrap();
         sync_workspace_file(&workspace, "SOUL.md");
         assert_eq!(std::fs::read_to_string(&hash_path).unwrap(), original_hash);
-        assert_eq!(std::fs::read_to_string(workspace.join("SOUL.md")).unwrap(), "user override");
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("SOUL.md")).unwrap(),
+            "user override"
+        );
 
         std::fs::write(
             workspace.join("BIG.md"),
