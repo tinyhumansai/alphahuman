@@ -73,8 +73,8 @@ pub fn open_macos_privacy_pane(pane: &str) {
 #[cfg(target_os = "macos")]
 pub fn request_accessibility_access() {
     unsafe {
-        let keys = [kAXTrustedCheckOptionPrompt as *const c_void];
-        let values = [kCFBooleanTrue as *const c_void];
+        let keys = [kAXTrustedCheckOptionPrompt];
+        let values = [kCFBooleanTrue];
         let options = CFDictionaryCreate(
             kCFAllocatorDefault,
             keys.as_ptr(),

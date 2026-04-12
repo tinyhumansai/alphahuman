@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 mod browser;
 mod browser_open;
 mod image_info;

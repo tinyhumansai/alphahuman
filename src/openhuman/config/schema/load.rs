@@ -410,9 +410,11 @@ impl Config {
         // `credentials::ops::store_session`, which writes `active_user.toml`
         // and triggers a reload that materializes the user-scoped directory.
         if resolution_source == ConfigResolutionSource::DefaultConfigDir && !config_path.exists() {
-            let mut config = Config::default();
-            config.config_path = config_path.clone();
-            config.workspace_dir = workspace_dir.clone();
+            let mut config = Config {
+                config_path: config_path.clone(),
+                workspace_dir: workspace_dir.clone(),
+                ..Default::default()
+            };
             config.apply_env_overrides();
 
             tracing::debug!(
@@ -508,9 +510,11 @@ impl Config {
             );
             Ok(config)
         } else {
-            let mut config = Config::default();
-            config.config_path = config_path.clone();
-            config.workspace_dir = workspace_dir;
+            let mut config = Config {
+                config_path: config_path.clone(),
+                workspace_dir,
+                ..Default::default()
+            };
             config.save().await?;
 
             #[cfg(unix)]

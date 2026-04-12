@@ -57,7 +57,7 @@ impl SegmentStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_or_default(s: &str) -> Self {
         match s {
             "closed" => Self::Closed,
             "summarised" => Self::Summarised,
@@ -464,7 +464,7 @@ fn row_to_segment(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationSegme
         summary: row.get(8)?,
         embedding: embedding_blob.as_deref().map(bytes_to_vec),
         topic_keywords: row.get(10)?,
-        status: SegmentStatus::from_str(&status_str),
+        status: SegmentStatus::parse_or_default(&status_str),
         created_at: row.get(12)?,
         updated_at: row.get(13)?,
     })

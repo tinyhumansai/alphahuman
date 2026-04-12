@@ -231,7 +231,6 @@ fn run_call_command(args: &[String]) -> Result<()> {
 ///
 /// Listens for a hotkey, records audio, transcribes via whisper, and inserts
 /// the result into the active text field.
-
 fn run_voice_server_command(args: &[String]) -> Result<()> {
     use crate::openhuman::voice::hotkey::ActivationMode;
     use crate::openhuman::voice::server::{run_standalone, VoiceServerConfig};

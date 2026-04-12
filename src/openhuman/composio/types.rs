@@ -4,7 +4,7 @@
 //! `/agent-integrations/composio/*`. See:
 //!   - `src/routes/agentIntegrations/composio.ts`
 //!   - `src/controllers/agentIntegrations/composio/*.ts`
-//! in the backend repo for the authoritative shapes.
+//!     in the backend repo for the authoritative shapes.
 
 use serde::{Deserialize, Serialize};
 

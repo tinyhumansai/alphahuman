@@ -406,6 +406,7 @@ impl ExtractionAccumulator {
     }
 
     /// Records a new relationship, applying semantic validation rules.
+    #[allow(clippy::too_many_arguments)]
     fn add_relation(
         &mut self,
         subject: &str,
@@ -723,13 +724,13 @@ fn find_chunk_index(chunks: &[String], excerpt: &str, hint: usize) -> usize {
     if needle.is_empty() {
         return hint.min(chunks.len().saturating_sub(1));
     }
-    for index in hint..chunks.len() {
-        if UnifiedMemory::normalize_search_text(&chunks[index]).contains(&needle) {
+    for (index, chunk) in chunks.iter().enumerate().skip(hint) {
+        if UnifiedMemory::normalize_search_text(chunk).contains(&needle) {
             return index;
         }
     }
-    for index in 0..hint.min(chunks.len()) {
-        if UnifiedMemory::normalize_search_text(&chunks[index]).contains(&needle) {
+    for (index, chunk) in chunks.iter().enumerate().take(hint.min(chunks.len())) {
+        if UnifiedMemory::normalize_search_text(chunk).contains(&needle) {
             return index;
         }
     }

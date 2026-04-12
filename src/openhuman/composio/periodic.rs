@@ -49,10 +49,12 @@ static SCHEDULER_STARTED: OnceLock<()> = OnceLock::new();
 /// sync paths (e.g. `ComposioConnectionCreatedSubscriber`,
 /// `on_connection_created`) so that a recent non-periodic sync prevents
 /// the scheduler from firing immediately on the next tick.
-static LAST_SYNC_AT: OnceLock<Arc<Mutex<HashMap<(String, String), Instant>>>> = OnceLock::new();
+type SyncTimestampMap = Arc<Mutex<HashMap<(String, String), Instant>>>;
+
+static LAST_SYNC_AT: OnceLock<SyncTimestampMap> = OnceLock::new();
 
 /// Get (or lazily initialise) the shared last-sync-at map.
-fn last_sync_map() -> Arc<Mutex<HashMap<(String, String), Instant>>> {
+fn last_sync_map() -> SyncTimestampMap {
     LAST_SYNC_AT
         .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
         .clone()

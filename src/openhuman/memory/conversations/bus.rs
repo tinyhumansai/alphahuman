@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
@@ -146,7 +146,7 @@ struct ChannelTurnDescriptor<'a> {
 }
 
 fn persist_channel_turn(
-    workspace_dir: &PathBuf,
+    workspace_dir: &Path,
     descriptor: ChannelTurnDescriptor<'_>,
 ) -> Result<(), String> {
     let thread_id = persisted_channel_thread_id(
@@ -164,7 +164,7 @@ fn persist_channel_turn(
     let created_at = Utc::now().to_rfc3339();
 
     ensure_thread(
-        workspace_dir.clone(),
+        workspace_dir.to_path_buf(),
         CreateConversationThread {
             id: thread_id.clone(),
             title,
@@ -173,7 +173,7 @@ fn persist_channel_turn(
     )?;
 
     let persisted_message_id = format!("{}:{}", descriptor.role, descriptor.message_id);
-    if get_messages(workspace_dir.clone(), &thread_id)?
+    if get_messages(workspace_dir.to_path_buf(), &thread_id)?
         .iter()
         .any(|message| message.id == persisted_message_id)
     {
@@ -186,7 +186,7 @@ fn persist_channel_turn(
     }
 
     append_message(
-        workspace_dir.clone(),
+        workspace_dir.to_path_buf(),
         &thread_id,
         ConversationMessage {
             id: persisted_message_id.clone(),

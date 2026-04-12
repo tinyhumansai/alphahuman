@@ -292,6 +292,7 @@ impl LocalAiService {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn inference_with_temperature_internal(
         &self,
         config: &Config,

@@ -3,6 +3,7 @@ use crate::openhuman::memory::chunker::chunk_markdown;
 use super::UnifiedMemory;
 
 impl UnifiedMemory {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn write_markdown_doc(
         &self,
         namespace: &str,

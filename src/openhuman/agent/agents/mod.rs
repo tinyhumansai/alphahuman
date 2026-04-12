@@ -4,8 +4,8 @@
 //! two files:
 //!
 //! * `agent.toml`  — id, when_to_use, model, tool allowlist, sandbox,
-//!                   iteration cap, and the `omit_*` flags. Parsed
-//!                   directly into [`AgentDefinition`] via serde.
+//!   iteration cap, and the `omit_*` flags. Parsed
+//!   directly into [`AgentDefinition`] via serde.
 //! * `prompt.md`   — the sub-agent's system prompt body.
 //!
 //! Adding a new built-in agent = creating a new subfolder with those two
