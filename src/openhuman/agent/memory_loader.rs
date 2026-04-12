@@ -431,4 +431,224 @@ mod tests {
         assert!(context.contains("[Memory context]"));
         assert!(!context.contains("[User working memory]"));
     }
+
+    #[tokio::test]
+    async fn loader_propagates_primary_recall_errors() {
+        struct FailingMemory;
+
+        #[async_trait]
+        impl Memory for FailingMemory {
+            fn name(&self) -> &str {
+                "failing"
+            }
+
+            async fn store(
+                &self,
+                _key: &str,
+                _content: &str,
+                _category: MemoryCategory,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            async fn recall(
+                &self,
+                _query: &str,
+                _limit: usize,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                anyhow::bail!("primary recall failed")
+            }
+
+            async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+                Ok(None)
+            }
+
+            async fn list(
+                &self,
+                _category: Option<&MemoryCategory>,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                Ok(Vec::new())
+            }
+
+            async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+
+            async fn count(&self) -> anyhow::Result<usize> {
+                Ok(0)
+            }
+
+            async fn health_check(&self) -> bool {
+                true
+            }
+        }
+
+        let loader = DefaultMemoryLoader::default();
+        let err = loader
+            .load_context(&FailingMemory, "hello")
+            .await
+            .expect_err("primary recall errors should bubble up");
+        assert!(err.to_string().contains("primary recall failed"));
+    }
+
+    #[tokio::test]
+    async fn loader_can_emit_working_memory_without_primary_context() {
+        struct WorkingOnlyMemory;
+
+        #[async_trait]
+        impl Memory for WorkingOnlyMemory {
+            fn name(&self) -> &str {
+                "working-only"
+            }
+
+            async fn store(
+                &self,
+                _key: &str,
+                _content: &str,
+                _category: MemoryCategory,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            async fn recall(
+                &self,
+                query: &str,
+                _limit: usize,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                if query.contains("working.user") {
+                    return Ok(vec![MemoryEntry {
+                        id: "1".into(),
+                        key: "working.user.todo".into(),
+                        content: "Ship the patch".into(),
+                        namespace: None,
+                        category: MemoryCategory::Core,
+                        timestamp: "now".into(),
+                        session_id: None,
+                        score: None,
+                    }]);
+                }
+                Ok(Vec::new())
+            }
+
+            async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+                Ok(None)
+            }
+
+            async fn list(
+                &self,
+                _category: Option<&MemoryCategory>,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                Ok(Vec::new())
+            }
+
+            async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+
+            async fn count(&self) -> anyhow::Result<usize> {
+                Ok(0)
+            }
+
+            async fn health_check(&self) -> bool {
+                true
+            }
+        }
+
+        let loader = DefaultMemoryLoader::new(5, 0.4).with_max_chars(200);
+        let context = loader.load_context(&WorkingOnlyMemory, "hello").await.unwrap();
+        assert!(!context.contains("[Memory context]"));
+        assert!(context.contains("[User working memory]"));
+        assert!(context.contains("working.user.todo"));
+    }
+
+    #[tokio::test]
+    async fn loader_skips_working_memory_when_section_header_exceeds_budget() {
+        struct TightBudgetMemory;
+
+        #[async_trait]
+        impl Memory for TightBudgetMemory {
+            fn name(&self) -> &str {
+                "tight-budget"
+            }
+
+            async fn store(
+                &self,
+                _key: &str,
+                _content: &str,
+                _category: MemoryCategory,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            async fn recall(
+                &self,
+                query: &str,
+                _limit: usize,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                if query.contains("working.user") {
+                    return Ok(vec![MemoryEntry {
+                        id: "w1".into(),
+                        key: "working.user.tip".into(),
+                        content: "include me".into(),
+                        namespace: None,
+                        category: MemoryCategory::Core,
+                        timestamp: "now".into(),
+                        session_id: None,
+                        score: Some(0.9),
+                    }]);
+                }
+
+                Ok(vec![MemoryEntry {
+                    id: "1".into(),
+                    key: "main".into(),
+                    content: "1234567890".into(),
+                    namespace: None,
+                    category: MemoryCategory::Conversation,
+                    timestamp: "now".into(),
+                    session_id: None,
+                    score: Some(0.9),
+                }])
+            }
+
+            async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+                Ok(None)
+            }
+
+            async fn list(
+                &self,
+                _category: Option<&MemoryCategory>,
+                _session_id: Option<&str>,
+            ) -> anyhow::Result<Vec<MemoryEntry>> {
+                Ok(Vec::new())
+            }
+
+            async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+
+            async fn count(&self) -> anyhow::Result<usize> {
+                Ok(0)
+            }
+
+            async fn health_check(&self) -> bool {
+                true
+            }
+        }
+
+        let header_and_line = "[Memory context]\n- main: 1234567890\n".len();
+        let loader = DefaultMemoryLoader::new(2, 0.4).with_max_chars(header_and_line + 1);
+        let context = loader.load_context(&TightBudgetMemory, "hello").await.unwrap();
+        assert!(context.contains("[Memory context]"));
+        assert!(context.contains("- main: 1234567890"));
+        assert!(!context.contains("[User working memory]"));
+        assert!(!context.contains("working.user.tip"));
+    }
 }

@@ -192,7 +192,11 @@ impl AgentBuilder {
         self
     }
 
-    /// Validates the configuration and builds the `Agent` instance.
+    /// Validates the configuration and constructs a new `Agent` instance.
+    /// 
+    /// This method is responsible for wiring together the provided components,
+    /// setting up the context manager, and initializing the conversation history.
+    /// It ensures that all required fields (provider, tools, memory, etc.) are present.
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -295,10 +299,19 @@ impl AgentBuilder {
 }
 
 impl Agent {
-    /// Creates an `Agent` instance from a global configuration.
+    /// Constructs an `Agent` instance from a global system configuration.
     ///
-    /// This is the primary way to initialize an agent with all system
-    /// integrations (memory, tools, skills, etc.) configured.
+    /// This is the primary factory method for initializing an agent with all 
+    /// standard system integrations (memory, tools, skills, providers, learning) 
+    /// configured according to the user's `config.toml`.
+    /// 
+    /// It performs the heavy lifting of:
+    /// 1. Initializing the host runtime (native or docker).
+    /// 2. Setting up security policies.
+    /// 3. Initializing memory and embedding services.
+    /// 4. Registering all built-in and orchestrator tools.
+    /// 5. Configuring the routed AI provider.
+    /// 6. Setting up the learning system and post-turn hooks.
     pub fn from_config(config: &Config) -> Result<Self> {
         let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
             Arc::from(host_runtime::create_runtime(&config.runtime)?);

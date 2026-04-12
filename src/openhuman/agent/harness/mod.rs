@@ -1,7 +1,7 @@
 //! Multi-agent harness — sub-agent dispatch and fork-cache support.
-//! 
+//!
 //! The harness provides the infrastructure for an agent to delegate work to
-//! specialized sub-agents. It manages the lifecycle of these sub-agents, 
+//! specialized sub-agents. It manages the lifecycle of these sub-agents,
 //! including prompt construction, tool filtering, and result synthesis.
 //!
 //! ## Delegation via `spawn_subagent`
@@ -10,7 +10,7 @@
 //! in the global [`AgentDefinitionRegistry`] and runs a dedicated tool loop.
 //!
 //! ## Token Optimization
-//! - **Typed Sub-agents**: Skips unnecessary system prompt sections (e.g., 
+//! - **Typed Sub-agents**: Skips unnecessary system prompt sections (e.g.,
 //!   identity, global skills) to keep sub-agent prompts small.
 //! - **Fork Mode**: Allows sub-agents to replay the parent's exact context
 //!   to leverage KV-cache reuse on the inference backend.

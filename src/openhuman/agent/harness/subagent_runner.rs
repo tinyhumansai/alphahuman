@@ -69,24 +69,29 @@ pub struct SubagentRunOptions {
     pub task_id: Option<String>,
 }
 
-/// Outcome of a single sub-agent run, returned to
-/// `SpawnSubagentTool::execute` for relay back to the parent.
+/// Outcome of a single sub-agent run, returned to the parent.
 #[derive(Debug, Clone)]
 pub struct SubagentRunOutcome {
+    /// Unique identifier for this sub-task run.
     pub task_id: String,
+    /// The ID of the agent archetype used (e.g., `researcher`).
     pub agent_id: String,
+    /// The final text response produced by the sub-agent.
     pub output: String,
+    /// How many LLM round-trips were performed during the run.
     pub iterations: usize,
+    /// Total wall-clock duration of the run.
     pub elapsed: Duration,
+    /// Which execution mode was used (Typed vs. Fork).
     pub mode: SubagentMode,
 }
 
-/// Which prompt-construction path the runner took.
+/// Which prompt-construction path the runner took for a sub-agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubagentMode {
-    /// Built a narrow prompt + filtered tools (the common case).
+    /// Built a narrow, archetype-specific prompt with filtered tools.
     Typed,
-    /// Replayed the parent's exact prompt + tools + message prefix.
+    /// Replayed the parent's exact rendered prompt and history prefix.
     Fork,
 }
 
@@ -129,12 +134,16 @@ pub enum SubagentRunError {
     MaxIterationsExceeded(usize),
 }
 
-/// Run a sub-agent.
+/// Run a sub-agent based on its definition and a task prompt.
+///
+/// This is the primary entry point for agent delegation. It performs the following:
+/// 1. Resolves the [`ParentExecutionContext`] task-local.
+/// 2. Generates a unique `task_id` if one wasn't provided.
+/// 3. Dispatches to either `run_fork_mode` or `run_typed_mode` based on the definition.
 ///
 /// On success returns a [`SubagentRunOutcome`] whose `output` is the
 /// final assistant text. On failure the error is suitable for stringifying
-/// into a `tool_result` block — the parent agent will surface it to the
-/// model and decide whether to retry or apologise to the user.
+/// into a `tool_result` block.
 pub async fn run_subagent(
     definition: &AgentDefinition,
     task_prompt: &str,
@@ -179,6 +188,11 @@ pub async fn run_subagent(
 // Typed mode — narrow prompt, filtered tools, cheaper model
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Execute a sub-agent in "Typed" mode.
+///
+/// This mode builds a brand-new, minimized system prompt specifically for the
+/// agent's archetype. It filters the parent's tools down to only those allowed
+/// by the definition and per-spawn overrides.
 async fn run_typed_mode(
     definition: &AgentDefinition,
     task_prompt: &str,
@@ -321,6 +335,12 @@ async fn run_typed_mode(
 // Fork mode — replay parent's bytes for prefix-cache reuse
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Execute a sub-agent in "Fork" mode.
+///
+/// This mode is an optimization. It replays the parent's EXACT rendered prompt
+/// and history prefix up to the point of delegation. This allows the inference
+/// server to reuse its existing KV-cache for the prefix, drastically reducing
+/// first-token latency and token costs for parallel delegation.
 async fn run_fork_mode(
     definition: &AgentDefinition,
     _task_prompt: &str,
@@ -475,6 +495,16 @@ struct AggregatedUsage {
     charged_amount_usd: f64,
 }
 
+/// The sub-agent's private tool-execution engine.
+///
+/// This function drives the iterative cycle of:
+/// 1. Sending messages to the provider.
+/// 2. Parsing the provider's response for tool calls.
+/// 3. Executing tools (with sandboxing and timeouts).
+/// 4. Appending results to history and looping until a final response is found.
+///
+/// Unlike the main agent loop, this is isolated and returns only the final text
+/// to be synthesized by the parent.
 #[allow(clippy::too_many_arguments)]
 async fn run_inner_loop(
     provider: &dyn Provider,

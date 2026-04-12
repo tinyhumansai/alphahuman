@@ -29,127 +29,94 @@ use std::path::PathBuf;
 // Agent definition
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A fully specified sub-agent: what it knows, what it can do, how to prompt it.
+/// A fully specified sub-agent archetype: what it knows, what it can do, and how to prompt it.
 ///
-/// Built-ins live in [`super::builtin_definitions`]; custom ones load from
-/// TOML at startup. The [`AgentDefinitionRegistry`] merges them and is the
-/// single source of truth that `SpawnSubagentTool` queries.
-///
-/// All `omit_*` flags default to `true` for sub-agents — sub-agents are
-/// narrow specialists and pay no token tax for the parent's identity,
-/// memory, safety, or skills sections. Override per-archetype if a
-/// section is needed.
+/// Definitions are used by the `spawn_subagent` tool to initialize a new
+/// specialized agent. They can be built-in or loaded from custom TOML files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefinition {
     // ── identity ────────────────────────────────────────────────────────
-    /// Unique id, referenced from `spawn_subagent { agent_id: "…" }`.
-    /// Convention: snake_case (e.g. `code_executor`, `notion_specialist`).
+    /// Unique identifier for this archetype (e.g., `researcher`, `code_executor`).
     pub id: String,
 
-    /// One-line description shown in the orchestrator's `spawn_subagent`
-    /// tool schema so the parent model knows when to delegate to this agent.
+    /// Human-readable description explaining when this agent should be used.
+    /// Shown to the parent model to help it decide whether to delegate.
     pub when_to_use: String,
 
-    /// Optional display name for UI/logs. Falls back to `id`.
+    /// Optional display name for UI and log output.
     #[serde(default)]
     pub display_name: Option<String>,
 
     // ── prompt ──────────────────────────────────────────────────────────
-    /// Source of the sub-agent's core system prompt.
-    ///
-    /// Defaults to an empty inline prompt so TOMLs that ship a sibling
-    /// `prompt.md` can omit this field and let the loader inject the
-    /// rendered body as [`PromptSource::Inline`]. All in-tree built-ins
-    /// use that pattern — see [`crate::openhuman::agent::agents`] for
-    /// the loader. Custom TOML-defined agents may also set this
-    /// explicitly as [`PromptSource::Inline`] or [`PromptSource::File`].
+    /// The core system prompt body for this specialized agent.
     #[serde(default = "defaults::empty_inline_prompt")]
     pub system_prompt: PromptSource,
 
-    /// Sections of the main agent's prompt to strip when this sub-agent runs.
-    /// Defaults to `true` (strip) — sub-agents are narrow and don't need the
-    /// parent's identity scaffolding.
+    /// If `true`, the parent's identity section is stripped from the prompt.
     #[serde(default = "defaults::true_")]
     pub omit_identity: bool,
+
+    /// If `true`, the parent's memory context is stripped.
     #[serde(default = "defaults::true_")]
     pub omit_memory_context: bool,
+
+    /// If `true`, the standard safety preamble is stripped.
     #[serde(default = "defaults::true_")]
     pub omit_safety_preamble: bool,
+
+    /// If `true`, the global skills catalog is stripped.
     #[serde(default = "defaults::true_")]
     pub omit_skills_catalog: bool,
 
     // ── model ───────────────────────────────────────────────────────────
-    /// Model selection: inherit parent, hint to router, or pinned name.
+    /// Strategy for picking which model to use for this sub-agent.
     #[serde(default)]
     pub model: ModelSpec,
 
-    /// Sampling temperature. Sub-agents default to `0.4` for precision.
+    /// Sampling temperature for the model.
     #[serde(default = "defaults::subagent_temperature")]
     pub temperature: f64,
 
     // ── tools ───────────────────────────────────────────────────────────
-    /// Either [`ToolScope::Wildcard`] (all tools the parent has) or
-    /// [`ToolScope::Named`] (an explicit allowlist).
+    /// Which tools from the parent's registry should be available to the sub-agent.
     #[serde(default)]
     pub tools: ToolScope,
 
-    /// Tools that are explicitly banned even if `tools == Wildcard`.
-    /// Built-ins default-deny dangerous ops for read-only archetypes.
+    /// Explicit list of tool names to block, even if they match the scope.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
 
-    /// If set, the resolved tool list is further filtered to only those whose
-    /// name starts with `{skill_filter}__`. Gives us per-API specialists
-    /// (Notion, Gmail, …) without enum variants. Overridable per-spawn.
+    /// Filter to only tools belonging to a specific skill (e.g., `notion`).
     #[serde(default)]
     pub skill_filter: Option<String>,
 
-    /// If set, the resolved tool list is restricted to tools whose
-    /// [`crate::openhuman::tools::Tool::category`] matches this value.
-    /// This is the *primary* mechanism the orchestrator uses to spawn
-    /// dedicated tool-execution sub-agents:
-    /// - `Some(Skill)` → sub-agent only sees skill-bridge tools
-    ///   (Notion, Gmail, Telegram, …). Pair with `ModelSpec::Hint("agentic")`
-    ///   to route to the backend's agentic model.
-    /// - `Some(System)` → sub-agent only sees built-in Rust tools.
-    /// - `None` (default) → no category restriction; `tools` /
-    ///   `disallowed_tools` / `skill_filter` still apply.
-    ///
-    /// Category filtering happens *before* the `tools`/`disallowed_tools`
-    /// scope check, so a `Named` scope is a stricter-intersection override.
+    /// Filter to only tools belonging to a specific high-level category.
     #[serde(default)]
     pub category_filter: Option<ToolCategory>,
 
     // ── runtime limits ──────────────────────────────────────────────────
-    /// Maximum tool-call iterations per spawn. Sub-agents default to a
-    /// shorter cap than the parent to keep cost bounded.
+    /// Maximum number of tool iterations for this sub-agent's task.
     #[serde(default = "defaults::max_iterations")]
     pub max_iterations: usize,
 
-    /// Hard wall-clock timeout per turn. `None` falls back to
-    /// `tool_execution_timeout_secs`.
+    /// Wall-clock timeout for the sub-agent's execution (seconds).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
 
-    /// `none` / `read_only` / `sandboxed`. See [`SandboxMode`].
+    /// Sandbox level for tool execution.
     #[serde(default)]
     pub sandbox_mode: SandboxMode,
 
-    /// If true, spawn runs in the background and the call returns
-    /// immediately with a placeholder. Reserved — not yet wired in v1.
+    /// Reserved for background (asynchronous) execution support.
     #[serde(default)]
     pub background: bool,
 
-    /// Marker: when true, the runner skips its normal prompt-building path
-    /// and uses the parent's pre-rendered prompt + tool schemas + message
-    /// prefix from the [`super::fork_context::ForkContext`] task-local.
-    /// Only the synthetic built-in `fork` definition has this set.
+    /// Internal flag for `fork` mode sub-agents.
     #[serde(default, skip_serializing_if = "is_false")]
     pub uses_fork_context: bool,
 
     // ── source bookkeeping ──────────────────────────────────────────────
-    /// Where this definition came from. Filled in by the loader/builder;
-    /// not deserialised from TOML.
+    /// Tracks where the definition was loaded from (Builtin vs. File).
     #[serde(skip)]
     pub source: DefinitionSource,
 }

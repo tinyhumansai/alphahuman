@@ -238,6 +238,10 @@ impl Agent {
     // ─────────────────────────────────────────────────────────────────
 
     /// Runs a single turn with the given message and returns the response.
+    /// 
+    /// This is the primary high-level method for programmatic interaction with the agent.
+    /// It wraps the core `turn` logic with telemetry events (`AgentTurnStarted`, 
+    /// `AgentTurnCompleted`) and error sanitization.
     pub async fn run_single(&mut self, message: &str) -> Result<String> {
         let history_snapshot = self.history.clone();
         publish_global(DomainEvent::AgentTurnStarted {
@@ -269,10 +273,9 @@ impl Agent {
 
     /// Runs an interactive CLI loop, reading from standard input and printing to standard output.
     ///
-    /// Each incoming message is dispatched through [`Agent::run_single`] so
-    /// the unified lifecycle events (`AgentTurnStarted`, `AgentTurnCompleted`,
-    /// `AgentError`) and error sanitisation run for interactive turns just
-    /// like they do for one-shot invocations.
+    /// This method starts a persistent session where the user can chat with the agent
+    /// directly from the console. It handles input until a termination command 
+    /// (e.g., `/quit`) is received.
     pub async fn run_interactive(&mut self) -> Result<()> {
         println!("🦀 OpenHuman Interactive Mode");
         println!("Type /quit to exit.\n");
