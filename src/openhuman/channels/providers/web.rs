@@ -340,9 +340,7 @@ fn spawn_progress_bridge(
                         thread_id: thread_id.clone(),
                         request_id: request_id.clone(),
                         full_response: None,
-                        message: Some(format!(
-                            "Iteration {iteration}/{max_iterations}"
-                        )),
+                        message: Some(format!("Iteration {iteration}/{max_iterations}")),
                         error_type: None,
                         tool_name: None,
                         skill_id: None,
@@ -487,7 +485,6 @@ fn spawn_progress_bridge(
         }
     });
 }
-
 
 fn parse_tool_args(arguments: &str) -> Value {
     if arguments.trim().is_empty() {

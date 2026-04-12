@@ -115,7 +115,10 @@ impl Agent {
     /// When set, the turn loop emits [`AgentProgress`] events so
     /// callers (e.g. the web channel) can surface live tool-call and
     /// iteration updates to the UI. Pass `None` to disable.
-    pub fn set_on_progress(&mut self, tx: Option<tokio::sync::mpsc::Sender<crate::openhuman::agent::progress::AgentProgress>>) {
+    pub fn set_on_progress(
+        &mut self,
+        tx: Option<tokio::sync::mpsc::Sender<crate::openhuman::agent::progress::AgentProgress>>,
+    ) {
         self.on_progress = tx;
     }
 

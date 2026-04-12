@@ -46,10 +46,7 @@ pub enum AgentProgress {
     },
 
     /// A sub-agent was spawned during tool execution.
-    SubagentSpawned {
-        agent_id: String,
-        task_id: String,
-    },
+    SubagentSpawned { agent_id: String, task_id: String },
 
     /// A sub-agent completed successfully.
     SubagentCompleted {

@@ -13,9 +13,9 @@ import {
   type ChatInferenceStartEvent,
   type ChatIterationStartEvent,
   type ChatSegmentEvent,
+  chatSend,
   type ChatSubagentDoneEvent,
   type ChatSubagentSpawnedEvent,
-  chatSend,
   type ChatToolCallEvent,
   type ChatToolResultEvent,
   segmentText,
@@ -454,11 +454,7 @@ const Conversations = () => {
       onInferenceStart: (event: ChatInferenceStartEvent) => {
         setInferenceStatusByThread(prev => ({
           ...prev,
-          [event.thread_id]: {
-            phase: 'thinking',
-            iteration: 0,
-            maxIterations: 0,
-          },
+          [event.thread_id]: { phase: 'thinking', iteration: 0, maxIterations: 0 },
         }));
       },
       onIterationStart: (event: ChatIterationStartEvent) => {
@@ -569,7 +565,10 @@ const Conversations = () => {
             ...prev,
             [event.thread_id]: existing.map(entry =>
               entry.name === `🤖 ${event.tool_name}` && entry.status === 'running'
-                ? { ...entry, status: (event.success ? 'success' : 'error') as ToolTimelineEntryStatus }
+                ? {
+                    ...entry,
+                    status: (event.success ? 'success' : 'error') as ToolTimelineEntryStatus,
+                  }
                 : entry
             ),
           };
@@ -1094,7 +1093,7 @@ const Conversations = () => {
     ? (toolTimelineByThread[selectedThreadId] ?? [])
     : [];
   const selectedInferenceStatus = selectedThreadId
-    ? inferenceStatusByThread[selectedThreadId] ?? null
+    ? (inferenceStatusByThread[selectedThreadId] ?? null)
     : null;
   const inlineCompletionSuffix = getInlineCompletionSuffix(inputValue, inlineSuggestionValue);
 
