@@ -330,8 +330,8 @@ mod tests {
         )));
         assert!(captured.iter().any(|event| matches!(
             event,
-            DomainEvent::TriggerEscalationFailed { external_id, error }
-                if external_id == "esc-1" && error.contains("missing-agent")
+            DomainEvent::TriggerEscalationFailed { external_id, reason, .. }
+                if external_id == "esc-1" && reason.contains("missing-agent")
         )));
     }
 
@@ -371,8 +371,8 @@ mod tests {
         )));
         assert!(captured.iter().any(|event| matches!(
             event,
-            DomainEvent::TriggerEscalationFailed { external_id, error }
-                if external_id == "esc-1" && error.contains("missing-agent")
+            DomainEvent::TriggerEscalationFailed { external_id, reason, .. }
+                if external_id == "esc-1" && reason.contains("missing-agent")
         )));
     }
 }

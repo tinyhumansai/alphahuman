@@ -248,4 +248,42 @@ mod tests {
         assert!(prompt.contains("/workspace/polyfills/jq"));
         assert!(prompt.contains("parse json output"));
     }
+
+    #[test]
+    fn detects_windows_not_recognized_pattern() {
+        let mut interceptor = SelfHealingInterceptor::new(Path::new("/tmp"), true);
+        let result = make_error_result("'rg' is not recognized as an internal or external command");
+        let cmd = interceptor.detect_missing_command(&result);
+        assert_eq!(cmd, Some("rg".to_string()));
+    }
+
+    #[test]
+    fn ignores_non_matching_or_malformed_missing_command_patterns() {
+        let mut interceptor = SelfHealingInterceptor::new(Path::new("/tmp"), true);
+        assert!(interceptor
+            .detect_missing_command(&make_error_result("permission denied"))
+            .is_none());
+
+        let too_long = format!("bash: {}: command not found", "x".repeat(80));
+        assert!(interceptor
+            .detect_missing_command(&make_error_result(&too_long))
+            .is_none());
+
+        assert_eq!(extract_command_name("sh: 1: 1234: not found"), None);
+    }
+
+    #[tokio::test]
+    async fn ensure_polyfill_dir_creates_directory_and_exposes_path() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let interceptor = SelfHealingInterceptor::new(workspace.path(), true);
+        assert!(!interceptor.polyfill_dir().exists());
+
+        interceptor
+            .ensure_polyfill_dir()
+            .await
+            .expect("polyfill dir should be created");
+
+        assert!(interceptor.polyfill_dir().exists());
+        assert!(interceptor.polyfill_dir().ends_with("polyfills"));
+    }
 }
