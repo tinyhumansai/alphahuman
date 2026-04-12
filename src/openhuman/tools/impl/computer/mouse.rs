@@ -128,7 +128,11 @@ impl Tool for MouseTool {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
-        debug!(tool = "mouse", action = action, "[computer] mouse action requested");
+        debug!(
+            tool = "mouse",
+            action = action,
+            "[computer] mouse action requested"
+        );
 
         match action {
             "move" => {
@@ -139,7 +143,13 @@ impl Tool for MouseTool {
                     enigo
                         .move_mouse(x, y, Coordinate::Abs)
                         .map_err(|e| anyhow::anyhow!("move_mouse failed: {e}"))?;
-                    info!(tool = "mouse", action = "move", x = x, y = y, "[computer] cursor moved");
+                    info!(
+                        tool = "mouse",
+                        action = "move",
+                        x = x,
+                        y = y,
+                        "[computer] cursor moved"
+                    );
                     Ok(ToolResult::success(format!("Moved cursor to ({x}, {y})")))
                 })
                 .await?
@@ -264,8 +274,10 @@ impl Tool for MouseTool {
                             .map_err(|e| anyhow::anyhow!("horizontal scroll failed: {e}"))?;
                     }
                     info!(
-                        tool = "mouse", action = "scroll",
-                        scroll_x = scroll_x, scroll_y = scroll_y,
+                        tool = "mouse",
+                        action = "scroll",
+                        scroll_x = scroll_x,
+                        scroll_y = scroll_y,
                         "[computer] scrolled"
                     );
                     Ok(ToolResult::success(format!(

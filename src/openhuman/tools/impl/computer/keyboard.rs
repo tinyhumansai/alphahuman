@@ -93,10 +93,7 @@ fn parse_key(name: &str) -> Option<Key> {
 
 /// Returns true if the key is a modifier (Ctrl, Shift, Alt, Meta).
 fn is_modifier(key: &Key) -> bool {
-    matches!(
-        key,
-        Key::Control | Key::Shift | Key::Alt | Key::Meta
-    )
+    matches!(key, Key::Control | Key::Shift | Key::Alt | Key::Meta)
 }
 
 #[async_trait]
@@ -157,7 +154,11 @@ impl Tool for KeyboardTool {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
-        debug!(tool = "keyboard", action = action, "[computer] keyboard action requested");
+        debug!(
+            tool = "keyboard",
+            action = action,
+            "[computer] keyboard action requested"
+        );
 
         match action {
             "type" => {
@@ -185,7 +186,9 @@ impl Tool for KeyboardTool {
                         .text(&text)
                         .map_err(|e| anyhow::anyhow!("text typing failed: {e}"))?;
                     info!(
-                        tool = "keyboard", action = "type", chars = len,
+                        tool = "keyboard",
+                        action = "type",
+                        chars = len,
                         "[computer] typed text"
                     );
                     Ok(ToolResult::success(format!("Typed {len} characters")))
@@ -211,7 +214,9 @@ impl Tool for KeyboardTool {
                         .key(key, Direction::Click)
                         .map_err(|e| anyhow::anyhow!("key press failed: {e}"))?;
                     info!(
-                        tool = "keyboard", action = "press", key = key_name.as_str(),
+                        tool = "keyboard",
+                        action = "press",
+                        key = key_name.as_str(),
                         "[computer] pressed key"
                     );
                     Ok(ToolResult::success(format!("Pressed key '{key_name}'")))
@@ -266,10 +271,14 @@ impl Tool for KeyboardTool {
                     }
 
                     info!(
-                        tool = "keyboard", action = "hotkey", combo = combo_desc.as_str(),
+                        tool = "keyboard",
+                        action = "hotkey",
+                        combo = combo_desc.as_str(),
                         "[computer] hotkey executed"
                     );
-                    Ok(ToolResult::success(format!("Executed hotkey: {combo_desc}")))
+                    Ok(ToolResult::success(format!(
+                        "Executed hotkey: {combo_desc}"
+                    )))
                 })
                 .await?
             }
