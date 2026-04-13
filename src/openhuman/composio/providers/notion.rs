@@ -1,20 +1,24 @@
-//! Notion provider — native Rust counterpart to the QuickJS notion skill.
+//! Notion provider — incremental sync with per-item persistence.
 //!
-//! Behaves like [`super::gmail::GmailProvider`] but for Notion: pulls
-//! the connected user's "about" record + a window of recent pages on
-//! sync, persists snapshots into the global memory store, and reacts
-//! to Notion triggers (typically `NOTION_PAGE_*` events) by re-running
-//! the incremental sync.
+//! On each sync pass:
 //!
-//! Notion's Composio shape is intentionally squishy in this provider:
-//! the upstream `users/me` and search endpoints have stable fields
-//! (`name`, `person.email`, `results[]`), but Composio occasionally
-//! re-wraps them. We use [`super::pick_str`] for tolerant extraction
-//! so a minor backend change does not break the provider.
+//!   1. Load persistent [`SyncState`] from the KV store.
+//!   2. Check the daily request budget — bail early if exhausted.
+//!   3. Fetch a page of recently edited pages via `NOTION_FETCH_DATA`,
+//!      sorted by `last_edited_time` descending. When a cursor exists
+//!      we can stop as soon as we see pages older than the cursor.
+//!   4. Deduplicate against `synced_ids` in the state. Pages that have
+//!      been *edited* since their last sync are re-persisted (the cursor
+//!      is based on `last_edited_time`, so an edited page appears again).
+//!   5. Persist each **new or updated** page as its own memory document.
+//!   6. Paginate (up to budget) until no more results or all items in the
+//!      page are older than the cursor.
+//!   7. Advance the cursor and save state.
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::sync_state::{extract_item_id, persist_single_item, SyncState};
 use super::{
     pick_str, ComposioProvider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
 };
@@ -22,7 +26,25 @@ use super::{
 const ACTION_GET_ABOUT_ME: &str = "NOTION_GET_ABOUT_ME";
 const ACTION_FETCH_DATA: &str = "NOTION_FETCH_DATA";
 
-const FETCH_LIMIT: u32 = 25;
+/// Page size per API call.
+const PAGE_SIZE: u32 = 25;
+
+/// Larger page size for initial sync after OAuth.
+const INITIAL_PAGE_SIZE: u32 = 50;
+
+/// Maximum pages per sync pass.
+const MAX_PAGES_PER_SYNC: u32 = 20;
+
+/// Paths for extracting a page's unique ID.
+const PAGE_ID_PATHS: &[&str] = &["id", "data.id", "pageId", "data.pageId"];
+
+/// Paths for extracting the `last_edited_time` used as sync cursor.
+const PAGE_EDITED_PATHS: &[&str] = &[
+    "last_edited_time",
+    "data.last_edited_time",
+    "lastEditedTime",
+    "data.lastEditedTime",
+];
 
 pub struct NotionProvider;
 
@@ -45,8 +67,6 @@ impl ComposioProvider for NotionProvider {
     }
 
     fn sync_interval_secs(&self) -> Option<u64> {
-        // 30 minutes — Notion content changes less frequently than
-        // email, no need for the gmail cadence.
         Some(30 * 60)
     }
 
@@ -114,76 +134,230 @@ impl ComposioProvider for NotionProvider {
 
     async fn sync(&self, ctx: &ProviderContext, reason: SyncReason) -> Result<SyncOutcome, String> {
         let started_at_ms = now_ms();
+        let connection_id = ctx
+            .connection_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+
         tracing::info!(
-            connection_id = ?ctx.connection_id,
+            connection_id = %connection_id,
             reason = reason.as_str(),
-            "[composio:notion] sync starting"
+            "[composio:notion] incremental sync starting"
         );
 
-        let limit = match reason {
-            SyncReason::ConnectionCreated => FETCH_LIMIT * 2,
-            _ => FETCH_LIMIT,
+        // ── Step 1: load persistent sync state ──────────────────────
+        let Some(memory) = ctx.memory_client() else {
+            return Err("[composio:notion] memory client not ready".to_string());
         };
-        // NOTION_FETCH_DATA is a generic search/list action. We
-        // intentionally restrict to `object: page` and sort by
-        // `last_edited_time` descending so the sync pulls the most
-        // recently touched pages — that's what the agent's recall
-        // path benefits from most. Databases are skipped here on
-        // purpose: most users have far more pages than databases,
-        // and including databases would silently bloat the snapshot
-        // size for everyone. If we ever want to surface databases
-        // we should do it as a separate, opt-in fetch.
-        let args = json!({
-            "page_size": limit,
-            "filter": { "value": "page", "property": "object" },
-            "sort": { "direction": "descending", "timestamp": "last_edited_time" }
-        });
+        let mut state = SyncState::load(&memory, "notion", &connection_id).await?;
 
-        let resp = ctx
-            .client
-            .execute_tool(ACTION_FETCH_DATA, Some(args))
-            .await
-            .map_err(|e| format!("[composio:notion] {ACTION_FETCH_DATA} failed: {e:#}"))?;
-
-        if !resp.successful {
-            let err = resp
-                .error
-                .clone()
-                .unwrap_or_else(|| "provider reported failure".to_string());
-            return Err(format!("[composio:notion] {ACTION_FETCH_DATA}: {err}"));
+        // ── Step 2: check daily budget ──────────────────────────────
+        if state.budget_exhausted() {
+            tracing::info!(
+                connection_id = %connection_id,
+                "[composio:notion] daily request budget exhausted, skipping sync"
+            );
+            return Ok(SyncOutcome {
+                toolkit: "notion".to_string(),
+                connection_id: Some(connection_id),
+                reason: reason.as_str().to_string(),
+                items_ingested: 0,
+                started_at_ms,
+                finished_at_ms: now_ms(),
+                summary: "notion sync skipped: daily budget exhausted".to_string(),
+                details: json!({ "budget_exhausted": true }),
+            });
         }
 
-        let results = extract_results(&resp.data);
-        let items_ingested = persist_snapshot(ctx, &results)
-            .await
-            .map_err(|e| format!("[composio:notion] persist_snapshot failed: {e}"))?;
-        let finished_at_ms = now_ms();
+        // ── Step 3: paginated incremental fetch ─────────────────────
+        let page_size = match reason {
+            SyncReason::ConnectionCreated => INITIAL_PAGE_SIZE,
+            _ => PAGE_SIZE,
+        };
 
+        let mut total_fetched: usize = 0;
+        let mut total_persisted: usize = 0;
+        let mut newest_edited_time: Option<String> = None;
+        let mut notion_cursor: Option<String> = None;
+
+        for page_num in 0..MAX_PAGES_PER_SYNC {
+            if state.budget_exhausted() {
+                tracing::info!(
+                    page = page_num,
+                    "[composio:notion] budget exhausted mid-sync, stopping pagination"
+                );
+                break;
+            }
+
+            let mut args = json!({
+                "page_size": page_size,
+                "filter": { "value": "page", "property": "object" },
+                "sort": { "direction": "descending", "timestamp": "last_edited_time" }
+            });
+            if let Some(ref cursor) = notion_cursor {
+                args["start_cursor"] = json!(cursor);
+            }
+
+            let resp = ctx
+                .client
+                .execute_tool(ACTION_FETCH_DATA, Some(args))
+                .await
+                .map_err(|e| {
+                    format!("[composio:notion] {ACTION_FETCH_DATA} page {page_num}: {e:#}")
+                })?;
+
+            state.record_requests(1);
+
+            if !resp.successful {
+                let err = resp
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "provider reported failure".to_string());
+                let _ = state.save(&memory).await;
+                return Err(format!(
+                    "[composio:notion] {ACTION_FETCH_DATA} page {page_num}: {err}"
+                ));
+            }
+
+            let results = extract_results(&resp.data);
+            total_fetched += results.len();
+
+            if results.is_empty() {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:notion] empty page, stopping pagination"
+                );
+                break;
+            }
+
+            // ── Step 4: deduplicate and persist per-item ────────────
+            let mut hit_cursor_boundary = false;
+            for page in &results {
+                let Some(page_id) = extract_item_id(page, PAGE_ID_PATHS) else {
+                    tracing::debug!("[composio:notion] page missing ID, skipping");
+                    continue;
+                };
+
+                let edited_time = extract_item_id(page, PAGE_EDITED_PATHS);
+
+                // Track the newest edited time for cursor advancement.
+                if let Some(ref et) = edited_time {
+                    if newest_edited_time
+                        .as_ref()
+                        .map_or(true, |existing| et > existing)
+                    {
+                        newest_edited_time = Some(et.clone());
+                    }
+                }
+
+                // For Notion, a page can be *edited* after we last synced
+                // it. We use a composite key of page_id + edited_time to
+                // detect this: if the page_id is in synced_ids but the
+                // edited_time is newer than the cursor, we re-sync it.
+                let sync_key = match &edited_time {
+                    Some(et) => format!("{page_id}@{et}"),
+                    None => page_id.clone(),
+                };
+
+                // If the page's edited time is older than our cursor,
+                // we've caught up — everything beyond is already synced.
+                if let (Some(ref cursor), Some(ref et)) = (&state.cursor, &edited_time) {
+                    if et <= cursor && state.is_synced(&sync_key) {
+                        hit_cursor_boundary = true;
+                        continue;
+                    }
+                }
+
+                if state.is_synced(&sync_key) {
+                    continue;
+                }
+
+                // Build a title from the page's properties.
+                let title_text = extract_page_title(page)
+                    .unwrap_or_else(|| format!("Notion page {page_id}"));
+                let doc_id = format!("composio-notion-page-{page_id}");
+                let title = format!("Notion: {title_text}");
+
+                match persist_single_item(
+                    &memory,
+                    "notion",
+                    &doc_id,
+                    &title,
+                    page,
+                    "notion",
+                    ctx.connection_id.as_deref(),
+                )
+                .await
+                {
+                    Ok(_) => {
+                        state.mark_synced(&sync_key);
+                        total_persisted += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            page_id = %page_id,
+                            error = %e,
+                            "[composio:notion] failed to persist page (continuing)"
+                        );
+                    }
+                }
+            }
+
+            if hit_cursor_boundary {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:notion] reached cursor boundary, stopping"
+                );
+                break;
+            }
+
+            // Check for next page cursor from Notion API.
+            notion_cursor = extract_notion_cursor(&resp.data);
+            if notion_cursor.is_none() {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:notion] no next cursor, done"
+                );
+                break;
+            }
+        }
+
+        // ── Step 5: advance cursor and save state ───────────────────
+        if let Some(new_cursor) = newest_edited_time {
+            state.advance_cursor(&new_cursor);
+        }
+        state.save(&memory).await?;
+
+        let finished_at_ms = now_ms();
         let summary = format!(
-            "notion sync ({reason}): fetched {fetched} item(s), persisted {persisted}",
+            "notion sync ({reason}): fetched {total_fetched}, persisted {total_persisted} new, \
+             budget remaining {remaining}",
             reason = reason.as_str(),
-            fetched = results.len(),
-            persisted = items_ingested,
+            remaining = state.budget_remaining(),
         );
         tracing::info!(
-            connection_id = ?ctx.connection_id,
+            connection_id = %connection_id,
             elapsed_ms = finished_at_ms.saturating_sub(started_at_ms),
-            fetched = results.len(),
-            persisted = items_ingested,
-            "[composio:notion] sync complete"
+            total_fetched,
+            total_persisted,
+            budget_remaining = state.budget_remaining(),
+            "[composio:notion] incremental sync complete"
         );
 
         Ok(SyncOutcome {
             toolkit: "notion".to_string(),
-            connection_id: ctx.connection_id.clone(),
+            connection_id: Some(connection_id),
             reason: reason.as_str().to_string(),
-            items_ingested,
+            items_ingested: total_persisted,
             started_at_ms,
             finished_at_ms,
             summary,
             details: json!({
-                "results_fetched": results.len(),
-                "page_size": limit,
+                "results_fetched": total_fetched,
+                "results_persisted": total_persisted,
+                "budget_remaining": state.budget_remaining(),
+                "cursor": state.cursor,
+                "synced_ids_total": state.synced_ids.len(),
             }),
         })
     }
@@ -199,10 +373,6 @@ impl ComposioProvider for NotionProvider {
             trigger = %trigger,
             "[composio:notion] on_trigger"
         );
-        // Notion triggers all imply "something in the workspace
-        // changed", so any of them should kick a fresh incremental
-        // sync. Best-effort: we don't propagate errors out of the
-        // trigger path.
         if let Err(e) = self.sync(ctx, SyncReason::Manual).await {
             tracing::warn!(
                 error = %e,
@@ -215,6 +385,7 @@ impl ComposioProvider for NotionProvider {
 
 // ── helpers ────────────────────────────────────────────────────────
 
+/// Walk the Composio response envelope for Notion page results.
 fn extract_results(data: &Value) -> Vec<Value> {
     let candidates = [
         data.pointer("/data/results"),
@@ -231,48 +402,54 @@ fn extract_results(data: &Value) -> Vec<Value> {
     Vec::new()
 }
 
-async fn persist_snapshot(ctx: &ProviderContext, results: &[Value]) -> Result<usize, String> {
-    let Some(client) = ctx.memory_client() else {
-        tracing::debug!("[composio:notion] memory client not ready, skipping persist");
-        return Ok(0);
-    };
-    if results.is_empty() {
-        return Ok(0);
+/// Extract the Notion pagination cursor (for `start_cursor` on the
+/// next request).
+fn extract_notion_cursor(data: &Value) -> Option<String> {
+    let candidates = [
+        data.pointer("/data/next_cursor"),
+        data.pointer("/next_cursor"),
+        data.pointer("/data/data/next_cursor"),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        if let Some(s) = cand.as_str() {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Try to extract a human-readable title from a Notion page object.
+///
+/// Notion pages store the title in `properties.title` or
+/// `properties.Name.title[0].plain_text`. We try several shapes.
+fn extract_page_title(page: &Value) -> Option<String> {
+    // Try the common `properties.title.title[0].plain_text` shape.
+    let props = page.get("properties").or_else(|| page.get("data")?.get("properties"));
+    if let Some(props) = props {
+        // Walk all properties looking for a "title" type field.
+        if let Some(obj) = props.as_object() {
+            for (_key, val) in obj {
+                if val.get("type").and_then(Value::as_str) == Some("title") {
+                    if let Some(arr) = val.get("title").and_then(Value::as_array) {
+                        let text: String = arr
+                            .iter()
+                            .filter_map(|t| t.get("plain_text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !text.is_empty() {
+                            return Some(text);
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    let connection_label = ctx
-        .connection_id
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
-    let title = format!("notion sync — {connection_label}");
-    let snapshot = json!({
-        "toolkit": "notion",
-        "connection_id": ctx.connection_id,
-        "results": results,
-        "synced_at_ms": now_ms(),
-    });
-    let content = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string());
-
-    client
-        .store_skill_sync(
-            "notion",
-            &connection_label,
-            &title,
-            &content,
-            Some("composio-sync".to_string()),
-            Some(json!({
-                "toolkit": "notion",
-                "connection_id": ctx.connection_id,
-                "source": "composio-provider",
-            })),
-            Some("medium".to_string()),
-            None,
-            None,
-            Some(format!("composio-notion-{connection_label}")),
-        )
-        .await
-        .map_err(|e| format!("store_skill_sync: {e}"))?;
-    Ok(1)
+    // Fallback: top-level "title" field (some Composio shapes).
+    pick_str(page, &["title", "data.title", "name", "data.name"])
 }
 
 fn now_ms() -> u64 {
@@ -295,6 +472,53 @@ mod tests {
         assert_eq!(extract_results(&v1).len(), 1);
         assert_eq!(extract_results(&v2).len(), 2);
         assert_eq!(extract_results(&v3).len(), 0);
+    }
+
+    #[test]
+    fn extract_notion_cursor_finds_nested() {
+        let v = json!({ "data": { "next_cursor": "abc123" } });
+        assert_eq!(extract_notion_cursor(&v), Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn extract_notion_cursor_none_when_missing() {
+        let v = json!({ "data": { "has_more": false } });
+        assert_eq!(extract_notion_cursor(&v), None);
+    }
+
+    #[test]
+    fn extract_page_title_from_properties() {
+        let page = json!({
+            "id": "page-1",
+            "properties": {
+                "Name": {
+                    "type": "title",
+                    "title": [
+                        { "plain_text": "My " },
+                        { "plain_text": "Page Title" }
+                    ]
+                }
+            }
+        });
+        assert_eq!(
+            extract_page_title(&page),
+            Some("My Page Title".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_page_title_fallback_to_top_level() {
+        let page = json!({ "title": "Fallback Title" });
+        assert_eq!(
+            extract_page_title(&page),
+            Some("Fallback Title".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_page_title_returns_none_when_missing() {
+        let page = json!({ "id": "p1" });
+        assert_eq!(extract_page_title(&page), None);
     }
 
     #[test]

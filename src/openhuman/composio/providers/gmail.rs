@@ -1,42 +1,60 @@
-//! Gmail provider — native Rust counterpart to the QuickJS gmail skill.
+//! Gmail provider — incremental sync with per-item persistence.
 //!
-//! Mirrors the high-level shape of the JS skill in
-//! `tinyhumansai/openhuman-skills/skills/gmail/index.js`:
+//! On each sync pass:
 //!
-//!   * On connection / periodic tick → fetch the user profile
-//!     (`GMAIL_GET_PROFILE`) and a window of recent message metadata
-//!     (`GMAIL_FETCH_EMAILS`).
-//!   * Persist a JSON snapshot of the result into the global memory
-//!     layer under namespace `composio-gmail` so the agent loop can
-//!     surface it via `recall_memory`.
-//!   * On `GMAIL_NEW_GMAIL_MESSAGE` triggers → run an incremental
-//!     sync so newly arrived mail makes it into memory promptly.
+//!   1. Load persistent [`SyncState`] from the KV store.
+//!   2. Check the daily request budget — bail early if exhausted.
+//!   3. Fetch a page of recent messages via `GMAIL_FETCH_EMAILS`, adding
+//!      a date filter when a cursor exists so only newer mail is returned.
+//!   4. Deduplicate against `synced_ids` in the state.
+//!   5. Persist each **new** message as its own memory document (not a
+//!      single giant snapshot) so agent recall can find individual emails.
+//!   6. Paginate (up to budget) until no more results or all items in the
+//!      page are already synced.
+//!   7. Advance the cursor and save state.
 //!
-//! All upstream API access goes through
-//! [`super::ProviderContext::client`] which proxies to the openhuman
-//! backend's `/agent-integrations/composio/execute` endpoint. This
-//! provider never holds raw OAuth tokens or hits Composio directly.
+//! Daily budget (`DEFAULT_DAILY_REQUEST_LIMIT`, default 500) caps the
+//! number of `execute_tool` calls per calendar day, preventing runaway
+//! API usage during large initial backfills.
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::sync_state::{extract_item_id, persist_single_item, SyncState};
 use super::{
     pick_str, ComposioProvider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
 };
 
-/// Composio action slugs used by this provider. Hoisted to constants so
-/// they're easy to grep + adjust if Composio renames them upstream.
 const ACTION_GET_PROFILE: &str = "GMAIL_GET_PROFILE";
 const ACTION_FETCH_EMAILS: &str = "GMAIL_FETCH_EMAILS";
 
-/// Default page size for the periodic email pull. Kept conservative —
-/// the goal is "freshness for the agent", not a full archive backfill.
-const FETCH_EMAILS_LIMIT: u32 = 25;
+/// Page size per API call. Kept moderate so each call is fast and we
+/// get frequent checkpoints for the daily budget.
+const PAGE_SIZE: u32 = 25;
 
-/// Memory namespace prefix used when persisting sync snapshots. Mirrors
-/// the `skill-{id}` convention in [`crate::openhuman::memory::store::client`]
-/// so namespace listings stay coherent across composio + js skills.
-const MEMORY_NAMESPACE: &str = "composio-gmail";
+/// Larger page size for the very first sync after OAuth so the user
+/// gets a meaningful initial snapshot.
+const INITIAL_PAGE_SIZE: u32 = 50;
+
+/// Maximum pages to fetch in a single sync pass (guards against infinite
+/// pagination loops). Combined with PAGE_SIZE this yields at most
+/// 500 items per sync pass, well within the daily budget.
+const MAX_PAGES_PER_SYNC: u32 = 20;
+
+/// Paths to try when extracting a message's unique ID from the Composio
+/// response envelope.
+const MESSAGE_ID_PATHS: &[&str] = &["id", "data.id", "messageId", "data.messageId"];
+
+/// Paths for extracting the internal date (epoch millis or date string)
+/// used as the sync cursor.
+const MESSAGE_DATE_PATHS: &[&str] = &[
+    "internalDate",
+    "data.internalDate",
+    "date",
+    "data.date",
+    "receivedAt",
+    "data.receivedAt",
+];
 
 pub struct GmailProvider;
 
@@ -59,8 +77,6 @@ impl ComposioProvider for GmailProvider {
     }
 
     fn sync_interval_secs(&self) -> Option<u64> {
-        // 15 minutes — matches the default `syncIntervalMinutes` the
-        // QuickJS gmail skill uses.
         Some(15 * 60)
     }
 
@@ -88,11 +104,6 @@ impl ComposioProvider for GmailProvider {
         }
 
         let data = &resp.data;
-        // Composio wraps results in `{ data: { ... }, successful: bool }`
-        // and the upstream Gmail API returns `{ emailAddress, messagesTotal,
-        // threadsTotal, historyId }`. We dig through both `data` and the
-        // raw root because backend wrappers occasionally collapse the
-        // outer envelope.
         let email = pick_str(
             data,
             &[
@@ -124,10 +135,6 @@ impl ComposioProvider for GmailProvider {
             avatar_url: None,
             extras: data.clone(),
         };
-        // PII discipline: never log the actual email address. We log
-        // only non-PII indicators (presence of an email, the domain
-        // portion if any) so the trace is still useful for debugging
-        // missing-profile cases without leaking the user's identity.
         let has_email = profile.email.is_some();
         let email_domain = profile
             .email
@@ -145,67 +152,234 @@ impl ComposioProvider for GmailProvider {
 
     async fn sync(&self, ctx: &ProviderContext, reason: SyncReason) -> Result<SyncOutcome, String> {
         let started_at_ms = now_ms();
+        let connection_id = ctx
+            .connection_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+
         tracing::info!(
-            connection_id = ?ctx.connection_id,
+            connection_id = %connection_id,
             reason = reason.as_str(),
-            "[composio:gmail] sync starting"
+            "[composio:gmail] incremental sync starting"
         );
 
-        // For initial syncs, we ask for a slightly larger window so the
-        // first impression of the user's inbox is meaningful. Periodic
-        // ticks stay small.
-        let limit = match reason {
-            SyncReason::ConnectionCreated => FETCH_EMAILS_LIMIT * 2,
-            _ => FETCH_EMAILS_LIMIT,
+        // ── Step 1: load persistent sync state ──────────────────────
+        let Some(memory) = ctx.memory_client() else {
+            return Err("[composio:gmail] memory client not ready".to_string());
         };
-        let args = json!({
-            "max_results": limit,
-            "query": "in:inbox -in:spam -in:trash",
-        });
+        let mut state = SyncState::load(&memory, "gmail", &connection_id).await?;
 
-        let resp = ctx
-            .client
-            .execute_tool(ACTION_FETCH_EMAILS, Some(args))
-            .await
-            .map_err(|e| format!("[composio:gmail] {ACTION_FETCH_EMAILS} failed: {e:#}"))?;
-
-        if !resp.successful {
-            let err = resp
-                .error
-                .clone()
-                .unwrap_or_else(|| "provider reported failure".to_string());
-            return Err(format!("[composio:gmail] {ACTION_FETCH_EMAILS}: {err}"));
+        // ── Step 2: check daily budget ──────────────────────────────
+        if state.budget_exhausted() {
+            tracing::info!(
+                connection_id = %connection_id,
+                "[composio:gmail] daily request budget exhausted, skipping sync"
+            );
+            return Ok(SyncOutcome {
+                toolkit: "gmail".to_string(),
+                connection_id: Some(connection_id),
+                reason: reason.as_str().to_string(),
+                items_ingested: 0,
+                started_at_ms,
+                finished_at_ms: now_ms(),
+                summary: "gmail sync skipped: daily budget exhausted".to_string(),
+                details: json!({ "budget_exhausted": true }),
+            });
         }
 
-        let messages = extract_messages(&resp.data);
-        let items_ingested = persist_messages(ctx, &messages).await;
-        let finished_at_ms = now_ms();
+        // ── Step 3: paginated incremental fetch ─────────────────────
+        let page_size = match reason {
+            SyncReason::ConnectionCreated => INITIAL_PAGE_SIZE,
+            _ => PAGE_SIZE,
+        };
 
+        let mut total_fetched: usize = 0;
+        let mut total_persisted: usize = 0;
+        let mut newest_date: Option<String> = None;
+        let mut page_token: Option<String> = None;
+
+        for page_num in 0..MAX_PAGES_PER_SYNC {
+            if state.budget_exhausted() {
+                tracing::info!(
+                    page = page_num,
+                    "[composio:gmail] budget exhausted mid-sync, stopping pagination"
+                );
+                break;
+            }
+
+            // Build the Gmail query. If we have a cursor (date of last
+            // synced message), add `after:YYYY/MM/DD` so the API only
+            // returns newer mail.
+            let mut query = "in:inbox -in:spam -in:trash".to_string();
+            if let Some(ref cursor) = state.cursor {
+                if let Some(date_filter) = cursor_to_gmail_after_filter(cursor) {
+                    query.push_str(&format!(" after:{date_filter}"));
+                    tracing::debug!(
+                        page = page_num,
+                        filter = %date_filter,
+                        "[composio:gmail] using date filter from cursor"
+                    );
+                }
+            }
+
+            let mut args = json!({
+                "max_results": page_size,
+                "query": query,
+            });
+            if let Some(ref token) = page_token {
+                args["page_token"] = json!(token);
+            }
+
+            let resp = ctx
+                .client
+                .execute_tool(ACTION_FETCH_EMAILS, Some(args))
+                .await
+                .map_err(|e| format!("[composio:gmail] {ACTION_FETCH_EMAILS} page {page_num}: {e:#}"))?;
+
+            state.record_requests(1);
+
+            if !resp.successful {
+                let err = resp
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "provider reported failure".to_string());
+                // Save state so budget accounting isn't lost.
+                let _ = state.save(&memory).await;
+                return Err(format!(
+                    "[composio:gmail] {ACTION_FETCH_EMAILS} page {page_num}: {err}"
+                ));
+            }
+
+            let messages = extract_messages(&resp.data);
+            total_fetched += messages.len();
+
+            if messages.is_empty() {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:gmail] empty page, stopping pagination"
+                );
+                break;
+            }
+
+            // ── Step 4: deduplicate and persist per-item ────────────
+            let mut all_already_synced = true;
+            for msg in &messages {
+                let Some(msg_id) = extract_item_id(msg, MESSAGE_ID_PATHS) else {
+                    tracing::debug!("[composio:gmail] message missing ID, skipping");
+                    continue;
+                };
+
+                // Track the newest date we've seen for cursor advancement.
+                if let Some(date_val) = extract_item_id(msg, MESSAGE_DATE_PATHS) {
+                    if newest_date
+                        .as_ref()
+                        .map_or(true, |existing| date_val > *existing)
+                    {
+                        newest_date = Some(date_val);
+                    }
+                }
+
+                if state.is_synced(&msg_id) {
+                    continue;
+                }
+                all_already_synced = false;
+
+                // Build a human-readable title for this email document.
+                let subject = pick_str(
+                    msg,
+                    &[
+                        "subject",
+                        "data.subject",
+                        "payload.headers.Subject",
+                        "snippet",
+                    ],
+                )
+                .unwrap_or_else(|| format!("Email {msg_id}"));
+                let doc_id = format!("composio-gmail-msg-{msg_id}");
+                let title = format!("Gmail: {subject}");
+
+                match persist_single_item(
+                    &memory,
+                    "gmail",
+                    &doc_id,
+                    &title,
+                    msg,
+                    "gmail",
+                    ctx.connection_id.as_deref(),
+                )
+                .await
+                {
+                    Ok(_) => {
+                        state.mark_synced(&msg_id);
+                        total_persisted += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            msg_id = %msg_id,
+                            error = %e,
+                            "[composio:gmail] failed to persist message (continuing)"
+                        );
+                    }
+                }
+            }
+
+            // If every message in this page was already synced, there's
+            // nothing new beyond this point — stop paginating.
+            if all_already_synced {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:gmail] all items in page already synced, stopping"
+                );
+                break;
+            }
+
+            // Check for next page token.
+            page_token = extract_page_token(&resp.data);
+            if page_token.is_none() {
+                tracing::debug!(
+                    page = page_num,
+                    "[composio:gmail] no next page token, done"
+                );
+                break;
+            }
+        }
+
+        // ── Step 5: advance cursor and save state ───────────────────
+        if let Some(new_cursor) = newest_date {
+            state.advance_cursor(&new_cursor);
+        }
+        state.save(&memory).await?;
+
+        let finished_at_ms = now_ms();
         let summary = format!(
-            "gmail sync ({reason}): fetched {fetched} message(s), persisted {persisted}",
+            "gmail sync ({reason}): fetched {total_fetched}, persisted {total_persisted} new, \
+             budget remaining {remaining}",
             reason = reason.as_str(),
-            fetched = messages.len(),
-            persisted = items_ingested,
+            remaining = state.budget_remaining(),
         );
         tracing::info!(
-            connection_id = ?ctx.connection_id,
+            connection_id = %connection_id,
             elapsed_ms = finished_at_ms.saturating_sub(started_at_ms),
-            fetched = messages.len(),
-            persisted = items_ingested,
-            "[composio:gmail] sync complete"
+            total_fetched,
+            total_persisted,
+            budget_remaining = state.budget_remaining(),
+            "[composio:gmail] incremental sync complete"
         );
 
         Ok(SyncOutcome {
             toolkit: "gmail".to_string(),
-            connection_id: ctx.connection_id.clone(),
+            connection_id: Some(connection_id),
             reason: reason.as_str().to_string(),
-            items_ingested,
+            items_ingested: total_persisted,
             started_at_ms,
             finished_at_ms,
             summary,
             details: json!({
-                "messages_fetched": messages.len(),
-                "limit": limit,
+                "messages_fetched": total_fetched,
+                "messages_persisted": total_persisted,
+                "budget_remaining": state.budget_remaining(),
+                "cursor": state.cursor,
+                "synced_ids_total": state.synced_ids.len(),
             }),
         })
     }
@@ -222,14 +396,9 @@ impl ComposioProvider for GmailProvider {
             "[composio:gmail] on_trigger"
         );
 
-        // Only react to message-arrival triggers — other gmail triggers
-        // (label changes, etc.) don't justify a full sync round-trip.
         if trigger.eq_ignore_ascii_case("GMAIL_NEW_GMAIL_MESSAGE")
             || trigger.eq_ignore_ascii_case("GMAIL_NEW_MESSAGE")
         {
-            // Best-effort incremental pull. Errors here are logged but
-            // not propagated — the trigger subscriber doesn't have a
-            // user-facing error surface to forward into.
             if let Err(e) = self.sync(ctx, SyncReason::Manual).await {
                 tracing::warn!(
                     error = %e,
@@ -243,10 +412,7 @@ impl ComposioProvider for GmailProvider {
 
 // ── helpers ────────────────────────────────────────────────────────
 
-/// Walk the Composio response envelope and pull out a list of message
-/// objects. Composio is inconsistent about whether the array lives at
-/// `data.messages`, `messages`, or `data.data.messages`, so we try a
-/// handful of common shapes before giving up.
+/// Walk the Composio response envelope and pull out message objects.
 fn extract_messages(data: &Value) -> Vec<Value> {
     let candidates = [
         data.pointer("/data/messages"),
@@ -263,64 +429,43 @@ fn extract_messages(data: &Value) -> Vec<Value> {
     Vec::new()
 }
 
-/// Persist a sync snapshot into the global memory store under the
-/// `composio-gmail` namespace. Returns the number of items recorded
-/// (currently always one document — the snapshot, not per-message
-/// rows). Per-message ingestion can come later if/when we add an
-/// agent surface that benefits from it.
-async fn persist_messages(ctx: &ProviderContext, messages: &[Value]) -> usize {
-    let Some(client) = ctx.memory_client() else {
-        tracing::debug!("[composio:gmail] memory client not ready, skipping persist");
-        return 0;
-    };
-    if messages.is_empty() {
-        return 0;
+/// Try to extract a pagination token from the API response.
+fn extract_page_token(data: &Value) -> Option<String> {
+    let candidates = [
+        data.pointer("/data/nextPageToken"),
+        data.pointer("/nextPageToken"),
+        data.pointer("/data/data/nextPageToken"),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        if let Some(s) = cand.as_str() {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
     }
+    None
+}
 
-    let connection_label = ctx
-        .connection_id
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
-    let title = format!("gmail sync — {connection_label}");
-    let snapshot = json!({
-        "toolkit": "gmail",
-        "connection_id": ctx.connection_id,
-        "messages": messages,
-        "synced_at_ms": now_ms(),
-    });
-    let content = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string());
-
-    if let Err(e) = client
-        .store_skill_sync(
-            // The store_skill_sync helper namespaces as `skill-{id}`,
-            // so we pass `gmail` here and rely on the standard prefix.
-            // The composio domain reads from `skill-gmail` namespaces
-            // through the same memory store as the JS gmail skill —
-            // intentional, so the agent's `recall_memory` sees both.
-            MEMORY_NAMESPACE.trim_start_matches("composio-"),
-            &connection_label,
-            &title,
-            &content,
-            Some("composio-sync".to_string()),
-            Some(json!({
-                "toolkit": "gmail",
-                "connection_id": ctx.connection_id,
-                "source": "composio-provider",
-            })),
-            Some("medium".to_string()),
-            None,
-            None,
-            Some(format!("composio-gmail-{connection_label}")),
-        )
-        .await
-    {
-        tracing::warn!(
-            error = %e,
-            "[composio:gmail] persist snapshot failed (non-fatal)"
-        );
-        return 0;
+/// Convert a cursor value (epoch millis or date string) into a Gmail
+/// `after:YYYY/MM/DD` filter component. Returns `None` if the cursor
+/// cannot be parsed.
+fn cursor_to_gmail_after_filter(cursor: &str) -> Option<String> {
+    // Try parsing as epoch millis first (Gmail's internalDate).
+    if let Ok(millis) = cursor.parse::<i64>() {
+        let secs = millis / 1000;
+        if let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) {
+            return Some(dt.format("%Y/%m/%d").to_string());
+        }
     }
-    1
+    // Try parsing as an ISO date/datetime.
+    if let Ok(dt) = chrono::NaiveDate::parse_from_str(cursor, "%Y-%m-%d") {
+        return Some(dt.format("%Y/%m/%d").to_string());
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(cursor) {
+        return Some(dt.format("%Y/%m/%d").to_string());
+    }
+    None
 }
 
 fn now_ms() -> u64 {
@@ -354,6 +499,48 @@ mod tests {
     fn extract_messages_returns_empty_when_missing() {
         let v = json!({ "data": { "other": [] } });
         assert_eq!(extract_messages(&v).len(), 0);
+    }
+
+    #[test]
+    fn extract_page_token_finds_nested() {
+        let v = json!({ "data": { "nextPageToken": "tok123" } });
+        assert_eq!(extract_page_token(&v), Some("tok123".to_string()));
+    }
+
+    #[test]
+    fn extract_page_token_none_when_missing() {
+        let v = json!({ "data": {} });
+        assert_eq!(extract_page_token(&v), None);
+    }
+
+    #[test]
+    fn cursor_to_filter_from_epoch_millis() {
+        // 2026-04-01 00:00:00 UTC in millis
+        let millis = "1774915200000";
+        let filter = cursor_to_gmail_after_filter(millis);
+        assert!(filter.is_some());
+        // Should produce a YYYY/MM/DD date.
+        let f = filter.unwrap();
+        assert!(f.contains('/'), "Expected date with slashes, got {f}");
+    }
+
+    #[test]
+    fn cursor_to_filter_from_iso_date() {
+        assert_eq!(
+            cursor_to_gmail_after_filter("2026-03-15"),
+            Some("2026/03/15".to_string())
+        );
+    }
+
+    #[test]
+    fn cursor_to_filter_from_rfc3339() {
+        let f = cursor_to_gmail_after_filter("2026-03-15T12:00:00Z");
+        assert_eq!(f, Some("2026/03/15".to_string()));
+    }
+
+    #[test]
+    fn cursor_to_filter_returns_none_for_garbage() {
+        assert_eq!(cursor_to_gmail_after_filter("not-a-date"), None);
     }
 
     #[test]
