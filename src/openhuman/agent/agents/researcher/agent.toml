@@ -1,5 +1,6 @@
 id = "researcher"
 display_name = "Researcher"
+delegate_name = "research"
 when_to_use = "Web & docs crawler — reads real documentation, compresses to dense markdown. Use for any task that requires looking up external knowledge."
 temperature = 0.4
 max_iterations = 8

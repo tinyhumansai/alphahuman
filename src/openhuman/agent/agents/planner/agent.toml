@@ -1,5 +1,6 @@
 id = "planner"
 display_name = "Planner"
+delegate_name = "plan"
 when_to_use = "Architect — break a complex task into a small DAG of subtasks with explicit acceptance criteria. Reads memory and searches the web to ground plans in real context. Read-only; produces JSON, not code."
 temperature = 0.4
 max_iterations = 8

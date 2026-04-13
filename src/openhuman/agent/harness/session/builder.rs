@@ -453,17 +453,59 @@ impl Agent {
             }
         }
 
-        // Generate the orchestrator's tool set: one tool per skill +
-        // one tool per archetype (research, run_code, etc.) + spawn_subagent
-        // as a fallback. These are the only tools the LLM sees in its
-        // function-calling schema. Sub-agents still access the full `tools`
-        // registry via ParentExecutionContext.
-        let orchestrator_tools = tools::orchestrator_tools::collect_orchestrator_tools();
+        // Generate the orchestrator's delegation tool set from its
+        // declarative `subagents = [...]` field: one `ArchetypeDelegationTool`
+        // per named sub-agent, plus one `SkillDelegationTool` per connected
+        // Composio toolkit when the orchestrator includes a
+        // `{ skills = "*" }` wildcard. These are the only delegation tools
+        // the main-agent LLM sees; sub-agents themselves still access the
+        // full `tools` registry via `ParentExecutionContext` and apply
+        // their own per-definition whitelist in the subagent runner.
+        //
+        // This builder is synchronous and sits on the CLI / REPL code
+        // path. It does not have access to the async Composio fetcher,
+        // so we pass an empty slice of connected integrations here — the
+        // skill-wildcard expansion therefore produces zero delegation
+        // tools in this path, which is correct behaviour for CLI (the
+        // CLI user can still reach any toolkit via the generic
+        // `composio_execute` tool or `spawn_subagent`).
+        //
+        // The channel-dispatch path (`channels::runtime::dispatch`) has
+        // its own tool registry assembly and will populate the
+        // connected integrations list from the live Composio fetch in a
+        // later commit (#525/#526 dispatch routing).
+        let orchestrator_tools =
+            match crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global()
+            {
+                Some(reg) => match reg.get("orchestrator") {
+                    Some(orch_def) => tools::orchestrator_tools::collect_orchestrator_tools(
+                        orch_def,
+                        reg,
+                        &[],
+                    ),
+                    None => {
+                        log::debug!(
+                            "[agent::builder] orchestrator definition not in registry — \
+                             skipping delegation tool synthesis"
+                        );
+                        Vec::new()
+                    }
+                },
+                None => {
+                    log::debug!(
+                        "[agent::builder] AgentDefinitionRegistry not initialised — \
+                         skipping delegation tool synthesis"
+                    );
+                    Vec::new()
+                }
+            };
         let visible: std::collections::HashSet<String> = orchestrator_tools
             .iter()
             .map(|t| t.name().to_string())
             .collect();
-        // De-duplicate: spawn_subagent is already in the base registry.
+        // De-duplicate: some synthesised tool names may collide with
+        // already-registered tools (unlikely for `delegate_*` names but
+        // cheap to guard against).
         let existing_names: std::collections::HashSet<String> =
             tools.iter().map(|t| t.name().to_string()).collect();
         tools.extend(

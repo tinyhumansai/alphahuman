@@ -2,6 +2,7 @@ mod archetype_delegation;
 mod ask_clarification;
 mod complete_onboarding;
 mod delegate;
+mod skill_delegation;
 mod spawn_subagent;
 
 use crate::core::event_bus::{publish_global, DomainEvent};
@@ -9,29 +10,6 @@ use crate::openhuman::agent::harness::definition::AgentDefinitionRegistry;
 use crate::openhuman::agent::harness::fork_context::current_parent;
 use crate::openhuman::agent::harness::subagent_runner::{run_subagent, SubagentRunOptions};
 use crate::openhuman::tools::traits::ToolResult;
-
-pub(crate) const ARCHETYPE_TOOLS: &[(&str, &str, &str)] = &[
-    (
-        "research",
-        "researcher",
-        "Search the web, read docs, and gather information. Returns a dense markdown summary with sources.",
-    ),
-    (
-        "run_code",
-        "code_executor",
-        "Write, run, debug, and test code in a sandboxed environment. Has shell, file access, and git.",
-    ),
-    (
-        "review_code",
-        "critic",
-        "Review code changes for quality, security, and correctness. Read-only — returns findings, never edits.",
-    ),
-    (
-        "plan",
-        "planner",
-        "Break a complex goal into a structured step-by-step plan with dependencies. Use for tasks with 3+ steps.",
-    ),
-];
 
 pub(crate) async fn dispatch_subagent(
     agent_id: &str,
@@ -122,4 +100,5 @@ pub use archetype_delegation::ArchetypeDelegationTool;
 pub use ask_clarification::AskClarificationTool;
 pub use complete_onboarding::CompleteOnboardingTool;
 pub use delegate::DelegateTool;
+pub use skill_delegation::SkillDelegationTool;
 pub use spawn_subagent::SpawnSubagentTool;

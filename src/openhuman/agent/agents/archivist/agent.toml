@@ -1,5 +1,6 @@
 id = "archivist"
 display_name = "Archivist"
+delegate_name = "archive_session"
 when_to_use = "Background librarian — extracts lessons from a completed session, updates MEMORY.md, and indexes to FTS5. Runs cheap and slow."
 temperature = 0.4
 max_iterations = 3

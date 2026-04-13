@@ -9,13 +9,46 @@ omit_memory_context = true
 omit_safety_preamble = true
 omit_skills_catalog = true
 
+# Delegation surface. The `collect_orchestrator_tools` helper reads this
+# at agent-build time and synthesises one `delegate_*` tool per entry:
+#
+#   * Bare agent ids → one `ArchetypeDelegationTool` each, using the
+#     target agent's `delegate_name` override (if any) or `delegate_{id}`
+#     as the tool name, and the target's `when_to_use` as the
+#     LLM-visible tool description.
+#
+#   * `{ skills = "*" }` → one `SkillDelegationTool` per connected
+#     Composio toolkit, all routing to the generic `skills_agent` with
+#     the toolkit slug pre-filled as `skill_filter`.
+#
+# The orchestrator LLM sees these as first-class entries in its
+# function-calling schema, so routing decisions happen at the tool-
+# selection layer rather than hidden inside a mega-tool's enum param.
+#
+# NOTE: `subagents = [...]` MUST appear before any `[table]` section
+# header — once a TOML table opens, subsequent top-level keys are
+# consumed by that table, and `subagents` would get parsed as
+# `tools.subagents` (which fails because `ToolScope` is an enum).
+subagents = [
+    "researcher",
+    "planner",
+    "code_executor",
+    "critic",
+    "archivist",
+    { skills = "*" },
+]
+
 [model]
 hint = "reasoning"
 
 [tools]
+# Direct tools — things the orchestrator calls itself rather than
+# delegating. `spawn_subagent` is retained as an advanced fallback so
+# power users can still spawn arbitrary agent ids that are not listed
+# in `subagents` above (e.g. workspace-override custom agents).
 named = [
-    "spawn_subagent",
     "query_memory",
     "read_workspace_state",
     "ask_user_clarification",
+    "spawn_subagent",
 ]
