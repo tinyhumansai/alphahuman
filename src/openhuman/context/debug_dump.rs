@@ -55,9 +55,9 @@ use crate::openhuman::composio::tools::{
 };
 use crate::openhuman::config::Config;
 use crate::openhuman::context::prompt::{
-    extract_cache_boundary, render_subagent_system_prompt, LearnedContextData, PromptContext,
-    PromptTool, SubagentRenderOptions, SystemPromptBuilder, ToolCallFormat,
-    USER_MEMORY_PER_NAMESPACE_MAX_CHARS, USER_MEMORY_TOTAL_MAX_CHARS,
+    extract_cache_boundary, render_subagent_system_prompt, ConnectedIntegration,
+    LearnedContextData, PromptContext, PromptTool, SubagentRenderOptions, SystemPromptBuilder,
+    ToolCallFormat, USER_MEMORY_PER_NAMESPACE_MAX_CHARS, USER_MEMORY_TOTAL_MAX_CHARS,
 };
 use crate::openhuman::integrations::IntegrationClient;
 use crate::openhuman::memory::{self, Memory};
@@ -234,9 +234,17 @@ pub async fn dump_agent_prompt(options: DumpPromptOptions) -> Result<DumpedPromp
         "[debug_dump] assembled tool registry"
     );
 
+    // ── Fetch connected integrations ────────────────────────────────────
+    let connected_integrations = fetch_connected_integrations_for_dump(&config).await;
+
     // ── Main agent path ────────────────────────────────────────────────
     if options.agent_id == "main" || options.agent_id == "orchestrator_main" {
-        return render_main_agent_dump(&workspace_dir, &model_name, &tools_vec);
+        return render_main_agent_dump(
+            &workspace_dir,
+            &model_name,
+            &tools_vec,
+            &connected_integrations,
+        );
     }
 
     // ── Sub-agent path ────────────────────────────────────────────────
@@ -293,10 +301,73 @@ fn build_composio_stub_tools() -> Vec<Box<dyn Tool>> {
     ]
 }
 
+/// Best-effort fetch of the user's active Composio connections for the
+/// prompt dump. Returns an empty vec when the user isn't signed in or
+/// the backend is unreachable.
+///
+/// The dump script often overrides `OPENHUMAN_WORKSPACE` to a throwaway
+/// temp dir, which causes config resolution to miss the real user's auth
+/// token. We therefore try the caller-supplied config first, then fall
+/// back to a fresh default-path load so the auth token is found even
+/// when the workspace is overridden.
+async fn fetch_connected_integrations_for_dump(config: &Config) -> Vec<ConnectedIntegration> {
+    use crate::openhuman::composio::{build_composio_client, providers::toolkit_description};
+
+    // Try the supplied config first (works when no workspace override).
+    let client = match build_composio_client(config) {
+        Some(c) => c,
+        None => {
+            // Fallback: temporarily clear OPENHUMAN_WORKSPACE and reload
+            // config from the default user paths so the real auth token
+            // is found even when the dump script uses a throwaway workspace.
+            let saved = std::env::var("OPENHUMAN_WORKSPACE").ok();
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+            let fallback_config = Config::load_or_init().await.ok();
+            // Restore the env var so downstream code isn't surprised.
+            if let Some(val) = saved {
+                std::env::set_var("OPENHUMAN_WORKSPACE", val);
+            }
+            match fallback_config.and_then(|c| build_composio_client(&c)) {
+                Some(c) => c,
+                None => {
+                    tracing::debug!(
+                        "[debug_dump] no composio client — skipping integrations fetch"
+                    );
+                    return Vec::new();
+                }
+            }
+        }
+    };
+
+    match client.list_connections().await {
+        Ok(resp) => {
+            let integrations: Vec<ConnectedIntegration> = resp
+                .connections
+                .iter()
+                .filter(|c| c.status == "ACTIVE" || c.status == "CONNECTED")
+                .map(|c| ConnectedIntegration {
+                    toolkit: c.toolkit.clone(),
+                    description: toolkit_description(&c.toolkit).to_string(),
+                })
+                .collect();
+            tracing::debug!(
+                count = integrations.len(),
+                "[debug_dump] fetched connected integrations"
+            );
+            integrations
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "[debug_dump] failed to fetch integrations");
+            Vec::new()
+        }
+    }
+}
+
 fn render_main_agent_dump(
     workspace_dir: &Path,
     model_name: &str,
     tools_vec: &[Box<dyn Tool>],
+    connected_integrations: &[ConnectedIntegration],
 ) -> Result<DumpedPrompt> {
     let prompt_tools = PromptTool::from_tools(tools_vec);
     // Main agent dumps do not apply a visible-tool filter — every
@@ -362,7 +433,7 @@ fn render_main_agent_dump(
         learned,
         visible_tool_names: &empty_filter,
         tool_call_format: ToolCallFormat::PFormat,
-        connected_integrations: &[],
+        connected_integrations,
     };
 
     let rendered = SystemPromptBuilder::with_defaults()
@@ -773,7 +844,7 @@ mod tests {
             }),
         ];
 
-        let dumped = render_main_agent_dump(&workspace, "reasoning-v1", &tools).unwrap();
+        let dumped = render_main_agent_dump(&workspace, "reasoning-v1", &tools, &[]).unwrap();
         assert_eq!(dumped.mode, "main");
         assert_eq!(dumped.model, "reasoning-v1");
         assert_eq!(dumped.tool_names, vec!["shell", "notion__create_page"]);
