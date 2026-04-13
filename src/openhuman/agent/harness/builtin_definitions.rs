@@ -65,6 +65,8 @@ pub fn fork_definition() -> AgentDefinition {
         sandbox_mode: SandboxMode::None,
         background: false,
         uses_fork_context: true,
+        subagents: vec![],
+        delegate_name: None,
         source: DefinitionSource::Builtin,
     }
 }

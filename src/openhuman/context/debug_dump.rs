@@ -644,6 +644,8 @@ mod tests {
             sandbox_mode: SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: DefinitionSource::Builtin,
         }
     }
@@ -890,6 +892,8 @@ mod tests {
             sandbox_mode: SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: DefinitionSource::Builtin,
         };
 
@@ -935,6 +939,8 @@ mod tests {
             sandbox_mode: SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: DefinitionSource::Builtin,
         };
 
@@ -988,6 +994,8 @@ mod tests {
             sandbox_mode: SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: DefinitionSource::Builtin,
         };
 

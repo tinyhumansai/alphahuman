@@ -115,10 +115,88 @@ pub struct AgentDefinition {
     #[serde(default, skip_serializing_if = "is_false")]
     pub uses_fork_context: bool,
 
+    // ── delegation surface ─────────────────────────────────────────────
+    /// Subagents this agent is allowed to spawn via synthesised
+    /// `delegate_*` tools. Each entry expands at agent-build time into
+    /// one tool the LLM can call in its function-calling schema:
+    ///
+    /// * [`SubagentEntry::AgentId`] — one [`ArchetypeDelegationTool`]
+    ///   whose name defaults to `delegate_{agent_id}` (or the target
+    ///   agent's `delegate_name` override) and whose description is the
+    ///   target agent's [`AgentDefinition::when_to_use`].
+    ///
+    /// * [`SubagentEntry::Skills`] — one [`SkillDelegationTool`] per
+    ///   connected Composio toolkit, each named `delegate_{toolkit}`,
+    ///   all routing to the generic `skills_agent` with an appropriate
+    ///   `skill_filter` pre-populated.
+    ///
+    /// `subagents` is intentionally separate from [`AgentDefinition::tools`]
+    /// so that reading a TOML makes the distinction obvious: `tools` is
+    /// "what I execute directly", `subagents` is "what I can delegate to".
+    ///
+    /// [`ArchetypeDelegationTool`]: crate::openhuman::tools::impl::agent::ArchetypeDelegationTool
+    /// [`SkillDelegationTool`]: crate::openhuman::tools::impl::agent::SkillDelegationTool
+    #[serde(default)]
+    pub subagents: Vec<SubagentEntry>,
+
+    /// Optional override for the tool name this agent is exposed as when
+    /// another agent lists it in its [`subagents`]. Defaults to
+    /// `delegate_{id}` when absent. Kept separate from `display_name` so
+    /// the UI display and the LLM tool name can diverge (e.g.
+    /// `display_name = "Researcher"`, `delegate_name = "research"`).
+    #[serde(default)]
+    pub delegate_name: Option<String>,
+
     // ── source bookkeeping ──────────────────────────────────────────────
     /// Tracks where the definition was loaded from (Builtin vs. File).
     #[serde(skip)]
     pub source: DefinitionSource,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subagent delegation entries
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One entry in [`AgentDefinition::subagents`]. Parses from TOML as either
+/// a bare string (agent id) or an inline table (`{ skills = "*" }`) thanks
+/// to `#[serde(untagged)]`.
+///
+/// # TOML shapes
+///
+/// ```toml
+/// subagents = [
+///     "researcher",            # AgentId("researcher")
+///     "code_executor",         # AgentId("code_executor")
+///     { skills = "*" },        # Skills { pattern: "*" }
+/// ]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SubagentEntry {
+    /// Delegate to a specific built-in or custom agent by id.
+    AgentId(String),
+    /// Expand at build time to one `delegate_{toolkit}` tool per
+    /// connected Composio toolkit, each routing to the generic
+    /// `skills_agent` with `skill_filter` pre-set.
+    Skills(SkillsWildcard),
+}
+
+/// The `{ skills = "*" }` inline table in a `subagents` list.
+///
+/// Today only `"*"` is meaningful (expand to every connected toolkit).
+/// Future: a `Vec<String>` variant to restrict expansion to specific
+/// toolkit slugs (e.g. `{ skills = ["gmail", "notion"] }`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillsWildcard {
+    /// Glob / wildcard pattern. Only `"*"` is currently supported.
+    pub skills: String,
+}
+
+impl SkillsWildcard {
+    /// True when this wildcard should expand to every connected toolkit.
+    pub fn matches_all(&self) -> bool {
+        self.skills == "*"
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -411,6 +489,8 @@ mod tests {
             sandbox_mode: SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: DefinitionSource::Builtin,
         }
     }
@@ -465,5 +545,104 @@ mod tests {
         let mut def2 = make_def("beta");
         def2.display_name = Some("Beta Specialist".into());
         assert_eq!(def2.display_name(), "Beta Specialist");
+    }
+
+    // ── subagents parsing ─────────────────────────────────────────────
+
+    /// Parses a minimal TOML document with a `subagents` list containing
+    /// both a bare agent-id string and an inline `{ skills = "*" }` table.
+    /// Ensures the `#[serde(untagged)]` enum routes each shape to the
+    /// correct variant without the TOML needing explicit tags.
+    ///
+    /// NOTE: `subagents = [...]` must appear **before** the `[tools]`
+    /// table header in the TOML — once you open a TOML table section,
+    /// every subsequent top-level key is consumed by that table, so
+    /// `subagents` placed after `[tools]` would be parsed as
+    /// `tools.subagents` and fail because `ToolScope` is an enum, not
+    /// a struct with a `subagents` field.
+    #[test]
+    fn subagents_parses_mixed_string_and_table_entries() {
+        let toml_src = r#"
+id = "orchestrator"
+when_to_use = "Routes work to the right specialist"
+temperature = 0.4
+max_iterations = 15
+
+subagents = [
+    "researcher",
+    "code_executor",
+    { skills = "*" },
+]
+
+[tools]
+named = ["query_memory"]
+"#;
+        let def: AgentDefinition = toml::from_str(toml_src).expect("toml parse");
+        assert_eq!(def.subagents.len(), 3);
+        assert_eq!(
+            def.subagents[0],
+            SubagentEntry::AgentId("researcher".into())
+        );
+        assert_eq!(
+            def.subagents[1],
+            SubagentEntry::AgentId("code_executor".into())
+        );
+        assert_eq!(
+            def.subagents[2],
+            SubagentEntry::Skills(SkillsWildcard { skills: "*".into() })
+        );
+    }
+
+    /// `subagents` is optional — omitting it should yield an empty Vec
+    /// rather than a deserialization error. Most non-delegating agents
+    /// (welcome, archivist, code_executor, etc.) will not list any.
+    #[test]
+    fn subagents_defaults_to_empty_when_omitted() {
+        let toml_src = r#"
+id = "welcome"
+when_to_use = "First agent a new user speaks to"
+temperature = 0.7
+max_iterations = 6
+
+[tools]
+named = ["complete_onboarding", "memory_recall"]
+"#;
+        let def: AgentDefinition = toml::from_str(toml_src).expect("toml parse");
+        assert!(def.subagents.is_empty());
+        assert!(def.delegate_name.is_none());
+    }
+
+    /// The `delegate_name` field lets an agent expose itself under a
+    /// shorter / more natural tool name than `delegate_{id}`. For example
+    /// the `researcher` agent is exposed as `research` in the
+    /// orchestrator's tool list.
+    #[test]
+    fn delegate_name_overrides_default() {
+        let toml_src = r#"
+id = "researcher"
+when_to_use = "Web & docs crawler"
+delegate_name = "research"
+temperature = 0.4
+max_iterations = 8
+"#;
+        let def: AgentDefinition = toml::from_str(toml_src).expect("toml parse");
+        assert_eq!(def.delegate_name.as_deref(), Some("research"));
+    }
+
+    /// `SkillsWildcard::matches_all` is the predicate the tool builder
+    /// checks before expanding a wildcard into per-toolkit tools. Only
+    /// the literal `"*"` should be accepted today — any other pattern
+    /// (reserved for future specific-toolkit lists) must not match.
+    #[test]
+    fn skills_wildcard_only_star_matches_all() {
+        let star = SkillsWildcard {
+            skills: "*".into(),
+        };
+        assert!(star.matches_all());
+
+        let specific = SkillsWildcard {
+            skills: "gmail".into(),
+        };
+        assert!(!specific.matches_all());
     }
 }

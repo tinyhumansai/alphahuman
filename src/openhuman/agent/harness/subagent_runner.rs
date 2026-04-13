@@ -791,6 +791,8 @@ mod tests {
             sandbox_mode: super::super::definition::SandboxMode::None,
             background: false,
             uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
             source: super::super::definition::DefinitionSource::Builtin,
         }
     }
