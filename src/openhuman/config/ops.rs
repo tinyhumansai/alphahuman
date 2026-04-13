@@ -564,10 +564,7 @@ pub async fn get_onboarding_completed() -> Result<RpcOutcome<bool>, String> {
 /// (morning briefing + one-shot welcome). Seeding is fire-and-forget so
 /// it never blocks the RPC response.
 pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, String> {
-    tracing::debug!(
-        value,
-        "[onboarding] set_onboarding_completed called"
-    );
+    tracing::debug!(value, "[onboarding] set_onboarding_completed called");
     let mut config = load_config_with_timeout().await?;
     let was_completed = config.onboarding_completed;
     config.onboarding_completed = value;

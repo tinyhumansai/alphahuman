@@ -35,9 +35,9 @@ pub fn register_web_only_proactive_subscriber() {
     use std::sync::Once;
     static REGISTERED: Once = Once::new();
     REGISTERED.call_once(|| {
-        if let Some(handle) =
-            crate::core::event_bus::subscribe_global(Arc::new(ProactiveMessageSubscriber::web_only()))
-        {
+        if let Some(handle) = crate::core::event_bus::subscribe_global(Arc::new(
+            ProactiveMessageSubscriber::web_only(),
+        )) {
             std::mem::forget(handle);
             tracing::debug!("[proactive] web-only subscriber registered");
         } else {
