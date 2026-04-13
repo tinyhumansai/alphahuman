@@ -210,11 +210,7 @@ async fn check_status() -> anyhow::Result<ToolResult> {
     report.push_str(&format!("- Backend: {}\n", config.memory.backend));
     report.push_str(&format!(
         "- Auto-save: {}\n",
-        if config.memory.auto_save {
-            "on"
-        } else {
-            "off"
-        }
+        if config.memory.auto_save { "on" } else { "off" }
     ));
 
     // ── Local AI ────────────────────────────────────────────────────
@@ -291,9 +287,6 @@ mod tests {
         assert_eq!(tool.scope(), ToolScope::AgentOnly);
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["action"].is_object());
-        assert_eq!(
-            schema["required"],
-            serde_json::json!(["action"])
-        );
+        assert_eq!(schema["required"], serde_json::json!(["action"]));
     }
 }

@@ -574,9 +574,7 @@ pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, S
         let seed_config = config.clone();
         tokio::spawn(async move {
             if let Err(e) = crate::openhuman::cron::seed::seed_proactive_agents(&seed_config) {
-                tracing::warn!(
-                    "[onboarding] failed to seed proactive agent cron jobs: {e}"
-                );
+                tracing::warn!("[onboarding] failed to seed proactive agent cron jobs: {e}");
             }
         });
     }

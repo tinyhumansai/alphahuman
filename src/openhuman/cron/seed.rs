@@ -8,9 +8,7 @@
 //! [`ProactiveMessageSubscriber`] routes to the user's active channel.
 
 use crate::openhuman::config::Config;
-use crate::openhuman::cron::{
-    add_agent_job, list_jobs, DeliveryConfig, Schedule, SessionTarget,
-};
+use crate::openhuman::cron::{add_agent_job, list_jobs, DeliveryConfig, Schedule, SessionTarget};
 use anyhow::Result;
 use chrono::{Duration, Utc};
 
@@ -35,11 +33,7 @@ fn proactive_delivery() -> DeliveryConfig {
 /// Idempotent: skips creation if jobs with matching names already exist.
 pub fn seed_proactive_agents(config: &Config) -> Result<()> {
     let existing = list_jobs(config)?;
-    let has = |name: &str| {
-        existing
-            .iter()
-            .any(|j| j.name.as_deref() == Some(name))
-    };
+    let has = |name: &str| existing.iter().any(|j| j.name.as_deref() == Some(name));
 
     if !has(MORNING_BRIEFING_JOB_NAME) {
         tracing::info!("[cron::seed] creating morning_briefing daily cron job");

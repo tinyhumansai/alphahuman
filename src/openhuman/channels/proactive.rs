@@ -86,10 +86,7 @@ impl EventHandler for ProactiveMessageSubscriber {
             return;
         };
 
-        let thread_id = format!(
-            "proactive:{}",
-            job_name.as_deref().unwrap_or("system")
-        );
+        let thread_id = format!("proactive:{}", job_name.as_deref().unwrap_or("system"));
         let request_id = uuid::Uuid::new_v4().to_string();
 
         tracing::debug!(
