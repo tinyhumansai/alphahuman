@@ -56,12 +56,26 @@ pub fn subscribe_transcription_results() -> broadcast::Receiver<String> {
 }
 
 /// Broadcast a completed transcription to frontend clients.
-pub fn publish_transcription(text: String) {
-    log::debug!(
-        "{LOG_PREFIX} publishing transcription: {} chars",
-        text.len()
+///
+/// Returns the number of receivers that received the message, or 0 if
+/// there are no active subscribers.
+pub fn publish_transcription(text: String) -> usize {
+    let receiver_count = TRANSCRIPTION_BUS.receiver_count();
+    log::info!(
+        "{LOG_PREFIX} publishing transcription: {} chars, {} active receivers",
+        text.len(),
+        receiver_count
     );
-    let _ = TRANSCRIPTION_BUS.send(text);
+    match TRANSCRIPTION_BUS.send(text) {
+        Ok(n) => {
+            log::debug!("{LOG_PREFIX} transcription delivered to {n} receivers");
+            n
+        }
+        Err(_) => {
+            log::warn!("{LOG_PREFIX} transcription send failed — no active receivers");
+            0
+        }
+    }
 }
 
 // ── Listener lifecycle ────────────────────────────────────────────────
