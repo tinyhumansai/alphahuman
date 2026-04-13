@@ -4323,6 +4323,7 @@ dependencies = [
  "enigo",
  "env_logger",
  "fantoccini",
+ "fs2",
  "futures",
  "futures-util",
  "hex",
