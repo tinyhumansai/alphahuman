@@ -164,9 +164,6 @@ const ReferralRewardsSection = () => {
     <div className="bg-white rounded-2xl shadow-soft border border-stone-200 p-6 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-medium text-primary-800">
-            Referral rewards
-          </div>
           <h2 className="text-2xl font-semibold text-stone-900">Invite friends, earn credits</h2>
           <p className="text-sm text-stone-600 max-w-xl">
             Share your personal link. When a friend subscribes to a monthly plan, you both get $5 in

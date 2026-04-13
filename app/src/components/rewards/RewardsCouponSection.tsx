@@ -149,9 +149,6 @@ const RewardsCouponSection = () => {
   return (
     <section className="bg-white rounded-2xl shadow-soft border border-stone-200 p-6 space-y-5">
       <div className="space-y-2">
-        <div className="inline-flex items-center gap-2 rounded-full border border-sage-200 bg-sage-50 px-3 py-1 text-xs font-medium text-sage-700">
-          Promo and reward codes
-        </div>
         <h2 className="text-2xl font-semibold text-stone-900">Apply a reward code</h2>
         <p className="max-w-2xl text-sm text-stone-600">
           Redeem promo or campaign codes here. Referral attribution stays in the referral section

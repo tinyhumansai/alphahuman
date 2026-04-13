@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 
 import RewardsCommunityTab from '../components/rewards/RewardsCommunityTab';
+import RewardsRedeemTab from '../components/rewards/RewardsRedeemTab';
 import RewardsReferralsTab from '../components/rewards/RewardsReferralsTab';
 import { useUser } from '../hooks/useUser';
 import { rewardsApi } from '../services/api/rewardsApi';
 import type { RewardsSnapshot } from '../types/rewards';
 
-type RewardsTab = 'referrals' | 'rewards';
+type RewardsTab = 'referrals' | 'redeem' | 'rewards';
 
 const Rewards = () => {
   const { user } = useUser();
@@ -60,6 +61,7 @@ const Rewards = () => {
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {([
             ['referrals', 'Referrals'],
+            ['redeem', 'Redeem'],
             ['rewards', 'Rewards'],
           ] as const).map(([tab, label]) => (
             <button
@@ -79,11 +81,13 @@ const Rewards = () => {
 
         {selectedTab === 'referrals' ? (
           <RewardsReferralsTab />
+        ) : selectedTab === 'redeem' ? (
+          <RewardsRedeemTab />
         ) : (
           <RewardsCommunityTab
             error={error}
             isLoading={isLoading}
-            onSelectReferrals={() => setSelectedTab('referrals')}
+            onSelectRedeem={() => setSelectedTab('redeem')}
             plan={snapshot?.summary.plan ?? user?.subscription?.plan ?? 'FREE'}
             snapshot={snapshot}
           />

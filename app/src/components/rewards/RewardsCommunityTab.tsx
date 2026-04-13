@@ -84,7 +84,7 @@ function roleGlyph(index: number) {
 interface RewardsCommunityTabProps {
   error: string | null;
   isLoading: boolean;
-  onSelectReferrals: () => void;
+  onSelectRedeem: () => void;
   plan: string;
   snapshot: RewardsSnapshot | null;
 }
@@ -92,7 +92,7 @@ interface RewardsCommunityTabProps {
 export default function RewardsCommunityTab({
   error,
   isLoading,
-  onSelectReferrals,
+  onSelectRedeem,
   plan,
   snapshot,
 }: RewardsCommunityTabProps) {
@@ -334,7 +334,7 @@ export default function RewardsCommunityTab({
           </button>
           <button
             type="button"
-            onClick={onSelectReferrals}
+            onClick={onSelectRedeem}
             className="rounded-[1.25rem] bg-[#dbe7ff] p-4 text-left">
             <svg className="h-5 w-5 text-primary-700" viewBox="0 0 24 24" fill="currentColor">
               <path d="M20 7H4V5h16Zm0 4H4V9h16Zm0 4H4v-2h16Zm-6 4H4v-2h10Z" />
