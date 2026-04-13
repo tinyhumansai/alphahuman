@@ -70,7 +70,12 @@ function roleGlyph(index: number) {
         />
       );
     case 2:
-      return <path d="M12 3 5 6v5c0 4.08 2.87 7.9 7 8.9 4.13-1 7-4.82 7-8.9V6l-7-3Z" fill="currentColor" />;
+      return (
+        <path
+          d="M12 3 5 6v5c0 4.08 2.87 7.9 7 8.9 4.13-1 7-4.82 7-8.9V6l-7-3Z"
+          fill="currentColor"
+        />
+      );
     default:
       return (
         <path
@@ -122,8 +127,8 @@ export default function RewardsCommunityTab({
               Earn Rewards & Discord Roles
             </h1>
             <p className="text-sm font-medium leading-relaxed text-white/90">
-              Unlock exclusive channels, supporter badges, and backend-synced rewards by
-              connecting your Discord account.
+              Unlock exclusive channels, supporter badges, and backend-synced rewards by connecting
+              your Discord account.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -221,34 +226,6 @@ export default function RewardsCommunityTab({
           </div>
         </section>
 
-        <section className="grid grid-cols-2 gap-4">
-          <div className="rounded-[1.25rem] bg-[#f2f4f6] p-4">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
-              Active Plan
-            </p>
-            <div className="flex items-center gap-2">
-              <svg className="h-5 w-5 text-primary-600" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17 4a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h10Zm0 2H7a1 1 0 0 0-1 1v1h12V7a1 1 0 0 0-1-1Z" />
-              </svg>
-              <span className="text-sm font-bold text-stone-900">{plan}</span>
-            </div>
-          </div>
-          <div className="rounded-[1.25rem] bg-[#f2f4f6] p-4">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
-              Accounts
-            </p>
-            <div className="flex items-center gap-2">
-              <svg
-                className={`h-5 w-5 ${snapshot?.discord.linked ? 'text-emerald-600' : 'text-stone-400'}`}
-                viewBox="0 0 24 24"
-                fill="currentColor">
-                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm-1 14-4-4 1.41-1.41L11 13.17l5.59-5.58L18 9Z" />
-              </svg>
-              <span className="text-sm font-bold text-stone-900">{connectedAccountsLabel}</span>
-            </div>
-          </div>
-        </section>
-
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-stone-900">Roles & Rewards</h2>
@@ -286,7 +263,11 @@ export default function RewardsCommunityTab({
                       <span className="text-[10px] font-bold uppercase tracking-[0.16em]">
                         {role.unlocked ? 'Unlocked' : 'Locked'}
                       </span>
-                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <svg
+                        className="h-4 w-4"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        aria-hidden="true">
                         {role.unlocked ? (
                           <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                         ) : (
@@ -294,17 +275,6 @@ export default function RewardsCommunityTab({
                         )}
                       </svg>
                     </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-4">
-                    <span className="text-[10px] uppercase tracking-[0.16em] text-stone-500">
-                      {role.roleId ? `Reward ID: ${role.roleId}` : 'Reward ID pending'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/settings/messaging')}
-                      className="text-xs font-bold text-primary-700">
-                      {role.unlocked ? roleStatusLabel(role.discordRoleStatus) : 'How to earn?'}
-                    </button>
                   </div>
                 </div>
               );
@@ -318,31 +288,6 @@ export default function RewardsCommunityTab({
               </p>
             </div>
           )}
-        </section>
-
-        <section className="grid grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={() => navigate('/settings/messaging')}
-            className="rounded-[1.25rem] bg-[#e6e8ea] p-4 text-left">
-            <svg className="h-5 w-5 text-stone-600" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M11 18h2v2h-2Zm1-16a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 15a1.5 1.5 0 0 1-1.5-1.5h2A1.5 1.5 0 0 1 12 17Zm2.07-7.75-.9.92A3.49 3.49 0 0 0 12 13h-1.5v-.5a4.5 4.5 0 0 1 1.32-3.18l1.24-1.26A1.93 1.93 0 0 0 12 4.75a2 2 0 0 0-2 2H8.5a3.5 3.5 0 1 1 7 0 3.44 3.44 0 0 1-1.43 2.5Z" />
-            </svg>
-            <p className="mt-2 text-sm font-bold leading-tight text-stone-900">
-              Need help with syncing?
-            </p>
-          </button>
-          <button
-            type="button"
-            onClick={onSelectRedeem}
-            className="rounded-[1.25rem] bg-[#dbe7ff] p-4 text-left">
-            <svg className="h-5 w-5 text-primary-700" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 7H4V5h16Zm0 4H4V9h16Zm0 4H4v-2h16Zm-6 4H4v-2h10Z" />
-            </svg>
-            <p className="mt-2 text-sm font-bold leading-tight text-stone-900">
-              Redeem secret codes
-            </p>
-          </button>
         </section>
 
         <section className="rounded-[1.25rem] bg-[#f2f4f6] p-4 text-sm text-stone-600">

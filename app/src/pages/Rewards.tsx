@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import PillTabBar from '../components/PillTabBar';
 import RewardsCommunityTab from '../components/rewards/RewardsCommunityTab';
 import RewardsRedeemTab from '../components/rewards/RewardsRedeemTab';
 import RewardsReferralsTab from '../components/rewards/RewardsReferralsTab';
@@ -58,26 +59,16 @@ const Rewards = () => {
   return (
     <div className="min-h-full px-4 pt-6 pb-10">
       <div className="mx-auto max-w-lg space-y-4">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {([
-            ['referrals', 'Referrals'],
-            ['redeem', 'Redeem'],
-            ['rewards', 'Rewards'],
-          ] as const).map(([tab, label]) => (
-            <button
-              key={tab}
-              type="button"
-              aria-pressed={selectedTab === tab}
-              onClick={() => setSelectedTab(tab)}
-              className={`flex-shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                selectedTab === tab
-                  ? 'border-primary-600 bg-primary-600 text-white'
-                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
-              }`}>
-              {label}
-            </button>
-          ))}
-        </div>
+        <PillTabBar
+          items={[
+            { label: 'Referrals', value: 'referrals' },
+            { label: 'Rewards', value: 'rewards' },
+            { label: 'Redeem', value: 'redeem' },
+          ]}
+          selected={selectedTab}
+          onChange={setSelectedTab}
+          activeClassName="border-primary-600 bg-primary-600 text-white"
+        />
 
         {selectedTab === 'referrals' ? (
           <RewardsReferralsTab />

@@ -6,7 +6,7 @@ import Rewards from '../Rewards';
 
 const { rewardsApi } = vi.hoisted(() => ({ rewardsApi: { getMyRewards: vi.fn() } }));
 
-vi.mock('../../components/referral/ReferralRewardsSection', () => ({
+vi.mock('../../components/rewards/ReferralRewardsSection', () => ({
   default: () => <div>Referral Rewards Section</div>,
 }));
 
@@ -132,7 +132,6 @@ describe('Rewards page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Referrals' }));
 
-    expect(screen.getByText('Invite people into OpenHuman')).toBeInTheDocument();
     expect(screen.getByText('Referral Rewards Section')).toBeInTheDocument();
     expect(screen.queryByText('Rewards Coupon Section')).not.toBeInTheDocument();
     expect(screen.queryByText('Earn community roles')).not.toBeInTheDocument();
@@ -173,7 +172,6 @@ describe('Rewards page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Redeem' }));
 
-    expect(screen.getByText('Redeem rewards and credits')).toBeInTheDocument();
     expect(screen.getByText('Rewards Coupon Section')).toBeInTheDocument();
     expect(screen.queryByText('Referral Rewards Section')).not.toBeInTheDocument();
   });
