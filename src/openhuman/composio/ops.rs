@@ -324,14 +324,14 @@ fn parse_sync_reason(raw: Option<&str>) -> OpResult<SyncReason> {
 
 use crate::openhuman::context::prompt::{ConnectedIntegration, ConnectedIntegrationTool};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 
 /// Process-wide cache for connected integrations, keyed by the config
 /// identity (the `config_path` string) so different user contexts don't
 /// collide. Each entry is populated on first fetch and returned on
 /// subsequent calls until explicitly invalidated.
-static INTEGRATIONS_CACHE: RwLock<HashMap<String, Vec<ConnectedIntegration>>> =
-    RwLock::new(HashMap::new());
+static INTEGRATIONS_CACHE: LazyLock<RwLock<HashMap<String, Vec<ConnectedIntegration>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Derive a stable cache key from a [`Config`]. We use the stringified
 /// `config_path` because it uniquely identifies a user context (it
