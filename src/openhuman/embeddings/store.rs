@@ -415,6 +415,24 @@ mod tests {
         vec
     }
 
+    /// An embedder that always returns a fixed number of vectors regardless
+    /// of input count — used to test the batch mismatch error path.
+    struct MismatchEmbedding;
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for MismatchEmbedding {
+        fn name(&self) -> &str {
+            "mismatch"
+        }
+        fn dimensions(&self) -> usize {
+            2
+        }
+        async fn embed(&self, _texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
+            // Always returns exactly 1 embedding, regardless of input count.
+            Ok(vec![vec![1.0, 0.0]])
+        }
+    }
+
     fn fake_store(dims: usize) -> VectorStore {
         VectorStore::open_in_memory(Arc::new(FakeEmbedding { dims })).unwrap()
     }
@@ -778,5 +796,68 @@ mod tests {
         let store = fake_store(3);
         assert_eq!(store.count(None).unwrap(), 0);
         assert_eq!(store.count(Some("ns")).unwrap(), 0);
+    }
+
+    // ── insert_batch — mismatch error ───────────────────────
+
+    #[tokio::test]
+    async fn insert_batch_mismatch_error() {
+        let store =
+            VectorStore::open_in_memory(Arc::new(MismatchEmbedding)).unwrap();
+        let entries: Vec<(&str, &str, serde_json::Value)> = vec![
+            ("a", "alpha", json!({})),
+            ("b", "beta", json!({})),
+        ];
+        let err = store.insert_batch("ns", &entries).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("mismatch"),
+            "should mention mismatch: {msg}"
+        );
+        assert!(msg.contains("1"), "should mention actual count: {msg}");
+        assert!(msg.contains("2"), "should mention expected count: {msg}");
+    }
+
+    // ── FakeEmbedding dimensions accessor ───────────────────
+
+    #[test]
+    fn fake_embedding_dimensions() {
+        let e = FakeEmbedding { dims: 42 };
+        assert_eq!(e.dimensions(), 42);
+    }
+
+    // ── open on disk with tracing ───────────────────────────
+
+    #[test]
+    fn open_on_disk_creates_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("a/b/c/vectors.db");
+        let embedder: Arc<dyn EmbeddingProvider> = Arc::new(FakeEmbedding { dims: 2 });
+        let store = VectorStore::open(&db_path, embedder).unwrap();
+        assert_eq!(store.embedder().name(), "fake");
+        assert_eq!(store.embedder().dimensions(), 2);
+        assert!(db_path.exists());
+    }
+
+    // ── search_by_vector with malformed metadata ────────────
+
+    #[test]
+    fn search_handles_invalid_metadata_json() {
+        let store = fake_store(2);
+        // Insert directly with raw SQL to set invalid JSON metadata.
+        {
+            let conn = store.conn.lock();
+            conn.execute(
+                "INSERT INTO vectors (id, namespace, text, embedding, metadata, created_at, updated_at)
+                 VALUES ('bad', 'ns', 'text', ?1, 'not-json', 0.0, 0.0)",
+                rusqlite::params![vec_to_bytes(&[1.0, 0.0])],
+            )
+            .unwrap();
+        }
+        let results = store.search_by_vector("ns", &[1.0, 0.0], 1).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "bad");
+        // Invalid JSON falls back to null.
+        assert!(results[0].metadata.is_null());
     }
 }
