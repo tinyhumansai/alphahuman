@@ -10,6 +10,7 @@
 pub mod noop;
 pub mod ollama;
 pub mod openai;
+pub mod store;
 
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ use async_trait::async_trait;
 pub use noop::NoopEmbedding;
 pub use ollama::{OllamaEmbedding, DEFAULT_OLLAMA_DIMENSIONS, DEFAULT_OLLAMA_MODEL};
 pub use openai::OpenAiEmbedding;
+pub use store::{cosine_similarity, vec_to_bytes, bytes_to_vec, SearchResult, VectorStore};
 
 /// Interface for embedding providers that convert text into numerical vectors.
 #[async_trait]
