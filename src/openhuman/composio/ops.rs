@@ -370,14 +370,20 @@ pub async fn fetch_connected_integrations(config: &Config) -> Vec<ConnectedInteg
         }
     }
 
-    let result = fetch_connected_integrations_uncached(config).await;
-
-    // Store in cache.
-    if let Ok(mut guard) = INTEGRATIONS_CACHE.write() {
-        *guard = Some(result.clone());
+    match fetch_connected_integrations_uncached(config).await {
+        Some(result) => {
+            // Backend was reachable — cache the result (even if empty).
+            if let Ok(mut guard) = INTEGRATIONS_CACHE.write() {
+                *guard = Some(result.clone());
+            }
+            result
+        }
+        None => {
+            // No auth / client unavailable — do NOT cache so a
+            // subsequent call with a different config can retry.
+            Vec::new()
+        }
     }
-
-    result
 }
 
 /// The actual backend fetch, called on cache miss.
