@@ -30,7 +30,6 @@ export interface ReferralStats {
   referrals: ReferralRow[];
   /** Code this user applied as referred (if any) */
   appliedReferralCode?: string | null;
-  /** When false, user likely cannot apply (e.g. already paid); optional from backend */
+  /** When false, user likely cannot claim (e.g. already subscribed); optional from backend */
   canApplyReferral?: boolean;
-  rewardRateBps?: number;
 }

@@ -7,7 +7,7 @@ import type {
 import { getOrCreateDeviceFingerprint } from '../../utils/deviceFingerprint';
 import { callCoreCommand } from '../coreCommandClient';
 
-/** Shape thrown by {@link referralApi.getStats} / {@link referralApi.applyCode} on RPC failure. */
+/** Shape thrown by {@link referralApi.getStats} / {@link referralApi.claimReferral} on RPC failure. */
 export type ReferralRpcFailure = { success: false; error: string };
 
 function referralRpcErrorMessage(err: unknown): string {
@@ -270,8 +270,6 @@ export function normalizeReferralStats(raw: unknown): ReferralStats {
         ? r.can_apply_referral
         : undefined;
 
-  const rewardRateBps = num(r.rewardRateBps ?? r.reward_rate_bps);
-
   return {
     referralCode: code,
     referralLink: link,
@@ -279,7 +277,6 @@ export function normalizeReferralStats(raw: unknown): ReferralStats {
     referrals,
     appliedReferralCode,
     canApplyReferral,
-    rewardRateBps: rewardRateBps > 0 ? rewardRateBps : undefined,
   };
 }
 
@@ -302,22 +299,23 @@ export const referralApi = {
   },
 
   /**
-   * Apply referral code via core RPC (`openhuman.referral_apply` → backend POST /referral/apply).
+   * Claim a referral link via core RPC (`openhuman.referral_claim` → backend POST /referral/claim).
+   * Only users who have not yet subscribed are eligible.
    */
-  applyCode: async (code: string): Promise<void> => {
+  claimReferral: async (code: string): Promise<void> => {
     const trimmed = code.trim();
     if (!trimmed) {
       throw { success: false as const, error: 'Referral code is required' };
     }
     const deviceFingerprint = getOrCreateDeviceFingerprint();
     try {
-      await callCoreCommand<unknown>('openhuman.referral_apply', {
+      await callCoreCommand<unknown>('openhuman.referral_claim', {
         code: trimmed,
         deviceFingerprint,
       });
-      console.debug('[referral] apply succeeded', { codeLength: trimmed.length });
+      console.debug('[referral] claim succeeded', { codeLength: trimmed.length });
     } catch (err) {
-      console.debug('[referral] apply RPC failed', referralRpcErrorMessage(err));
+      console.debug('[referral] claim RPC failed', referralRpcErrorMessage(err));
       throwReferralRpcFailure(err);
     }
   },

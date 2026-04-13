@@ -2,22 +2,20 @@
 
 ## Overview
 
-Referral rewards are paid to the referrer based on real successful payments from referred users.
+Link-based referral system with one-time flat rewards for both parties.
 
-- Reward rate: `20%` of payment (`2000` basis points)
-- Referred user reward: none
-- Behavior flag: `RECURRING_REFERRAL_REWARD`
-  - `true`: reward every successful eligible payment
-  - `false`: reward only once per referral
+- Reward: **$5** credit to referrer and **$5** credit to referred user
+- Reward is one-time: awarded when the referred user's first subscription payment is confirmed
+- No recurring rewards — once a referral is marked `CONVERTED`, subsequent payments return `already_converted`
 
 ## Main Rules
 
-- Each user has one unique referral code.
-- A user can apply a code only before their first confirmed payment.
+- Each user has one unique referral code with a shareable link.
+- A user can claim a referral link only before their first subscription.
 - Self-referral is blocked (user id + identity fields).
 - Rewarding is idempotent:
   - same payment cannot reward twice
-  - non-recurring mode allows only one reward for that referral
+  - only one reward per referral (always one-time)
 
 ## Data Model
 
@@ -40,6 +38,7 @@ Referral rewards are paid to the referrer based on real successful payments from
 - `sourcePaymentId`, `sourcePaymentGateway`, `sourcePaymentObjectId`
 - `paymentAmountUsd`, `rewardAmountUsd`, `rewardRate` (Decimal128)
 - `creditTransactionId`
+- `recipientType`: `REFERRER | REFERRED`
 - `idempotencyKey` (unique)
 
 ## Migration
@@ -76,17 +75,18 @@ npm run migrate:down
 - `src/services/referral/referralCodeService.ts`
   - ensures and fetches user referral codes
 - `src/services/referral/referralService.ts`
-  - apply code, enforce eligibility, return referral stats
+  - claim referral link, enforce eligibility (subscription-based gating), return referral stats
 - `src/services/referral/referralRewardService.ts`
-  - compute reward in cents, award credits, upsert audit transaction, mark referral converted
+  - award flat $5 credit to both referrer and referred user, upsert audit transactions, mark referral converted
 
 ## API
 
 - `GET /referral/stats`
   - returns code, referral link, totals, and referral rows
-- `POST /referral/apply`
+- `POST /referral/claim`
   - request: `{ "code": "ABCD1234", "deviceFingerprint": "optional" }`
   - supports `x-device-fingerprint` header
+  - only users who have never subscribed are eligible
 
 ## Payment Integration
 
@@ -95,14 +95,11 @@ Reward processing is triggered on successful payment flows in:
 - `src/controllers/payment/coinbase/webhook.ts`
 - `src/controllers/payment/stripe/handleWebhook.ts`
 
-## Config
-
-`RECURRING_REFERRAL_REWARD` is read via `nconf`. Truthy values: `true`, `1`, `yes`.
-
 ## Tests
 
 Key test: `src/services/referral/__tests__/referralRewardService.test.ts`
 
-- non-recurring behavior
-- recurring behavior
+- flat $5 reward to both parties
+- conversion blocking (already_converted)
 - payment idempotency
+- partial-retry recovery

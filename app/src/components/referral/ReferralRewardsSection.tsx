@@ -9,14 +9,6 @@ function formatUsd(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
-/** Basis points → percent for display (100 bps = 1%). */
-function formatRewardRatePercentFromBps(bps: number): string {
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(bps / 100);
-}
-
 function statusBadgeClass(status: ReferralRelationshipStatus): string {
   switch (status) {
     case 'converted':
@@ -137,7 +129,7 @@ const ReferralRewardsSection = () => {
     setApplyLoading(true);
     setApplyError(null);
     try {
-      await referralApi.applyCode(trimmed);
+      await referralApi.claimReferral(trimmed);
       setApplySuccess(true);
       setApplyCode('');
       await refetch();
@@ -177,16 +169,9 @@ const ReferralRewardsSection = () => {
           </div>
           <h2 className="text-2xl font-semibold text-stone-900">Invite friends, earn credits</h2>
           <p className="text-sm text-stone-600 max-w-xl">
-            Share your personal link. When someone subscribes, you can earn a share of their
-            eligible payments as account credit. Self-referrals and duplicate rewards are blocked on
-            the server.
+            Share your personal link. When a friend subscribes to a monthly plan, you both get $5 in
+            account credit. Self-referrals and duplicate rewards are blocked on the server.
           </p>
-          {stats?.rewardRateBps ? (
-            <p className="text-xs text-stone-500">
-              Current reward rate: {formatRewardRatePercentFromBps(stats.rewardRateBps)}% of
-              eligible referred payments (basis points {stats.rewardRateBps}).
-            </p>
-          ) : null}
         </div>
       </div>
 
@@ -319,8 +304,8 @@ const ReferralRewardsSection = () => {
             <div className="rounded-xl border border-primary-100 bg-primary-50/40 p-4 space-y-3">
               <h3 className="text-sm font-semibold text-stone-900">Have a referral code?</h3>
               <p className="text-xs text-stone-600">
-                Enter a friend&apos;s code if you haven&apos;t completed a paid subscription yet.
-                Eligibility is enforced by the server.
+                Enter a friend&apos;s referral code. You&apos;re eligible if you haven&apos;t
+                subscribed yet — once you subscribe, you&apos;ll both get $5 in credit.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input

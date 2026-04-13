@@ -9,7 +9,7 @@ use crate::rpc::RpcOutcome;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ReferralApplyParams {
+struct ReferralClaimParams {
     code: String,
     #[serde(default)]
     device_fingerprint: Option<String>,
@@ -18,7 +18,7 @@ struct ReferralApplyParams {
 pub fn all_referral_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         referral_schemas("referral_get_stats"),
-        referral_schemas("referral_apply"),
+        referral_schemas("referral_claim"),
     ]
 }
 
@@ -29,8 +29,8 @@ pub fn all_referral_registered_controllers() -> Vec<RegisteredController> {
             handler: handle_referral_get_stats,
         },
         RegisteredController {
-            schema: referral_schemas("referral_apply"),
-            handler: handle_referral_apply,
+            schema: referral_schemas("referral_claim"),
+            handler: handle_referral_claim,
         },
     ]
 }
@@ -48,16 +48,16 @@ pub fn referral_schemas(function: &str) -> ControllerSchema {
                 "Payload from GET /referral/stats (backend `data` field).",
             )],
         },
-        "referral_apply" => ControllerSchema {
+        "referral_claim" => ControllerSchema {
             namespace: "referral",
-            function: "apply",
+            function: "claim",
             description:
-                "Apply a friend's referral code for the current user (backend eligibility rules).",
+                "Claim a referral link for the current user. Only users who have not yet subscribed are eligible.",
             inputs: vec![
                 FieldSchema {
                     name: "code",
                     ty: TypeSchema::String,
-                    comment: "Referral code to apply.",
+                    comment: "Referral code to claim.",
                     required: true,
                 },
                 FieldSchema {
@@ -69,7 +69,7 @@ pub fn referral_schemas(function: &str) -> ControllerSchema {
             ],
             outputs: vec![json_output(
                 "result",
-                "Payload from POST /referral/apply (backend `data` field).",
+                "Payload from POST /referral/claim (backend `data` field).",
             )],
         },
         _ => ControllerSchema {
@@ -94,16 +94,18 @@ fn handle_referral_get_stats(_params: Map<String, Value>) -> ControllerFuture {
     })
 }
 
-fn handle_referral_apply(params: Map<String, Value>) -> ControllerFuture {
+fn handle_referral_claim(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let config = config_rpc::load_config_with_timeout().await?;
-        let payload = deserialize_params::<ReferralApplyParams>(params)?;
+        let payload = deserialize_params::<ReferralClaimParams>(params)?;
         let fp = payload
             .device_fingerprint
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        to_json(crate::openhuman::referral::apply_code(&config, payload.code.trim(), fp).await?)
+        to_json(
+            crate::openhuman::referral::claim_referral(&config, payload.code.trim(), fp).await?,
+        )
     })
 }
 

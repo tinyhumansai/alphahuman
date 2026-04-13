@@ -11,7 +11,8 @@ interface ReferralApplyStepProps {
 }
 
 /**
- * Optional step: attribute the signed-in user to a referrer via POST /referral/apply.
+ * Optional step: attribute the signed-in user to a referrer via POST /referral/claim.
+ * Only eligible if the user has not yet subscribed.
  */
 const ReferralApplyStep = ({ onNext, onApplied }: ReferralApplyStepProps) => {
   const { refresh } = useCoreState();
@@ -28,7 +29,7 @@ const ReferralApplyStep = ({ onNext, onApplied }: ReferralApplyStepProps) => {
     setError(null);
 
     try {
-      await referralApi.applyCode(trimmed);
+      await referralApi.claimReferral(trimmed);
       setSuccess(true);
       try {
         await refresh();

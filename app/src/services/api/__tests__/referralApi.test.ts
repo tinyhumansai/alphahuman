@@ -16,7 +16,6 @@ describe('normalizeReferralStats', () => {
       ],
       appliedReferralCode: null,
       canApplyReferral: true,
-      rewardRateBps: 2000,
     });
     expect(stats.referralCode).toBe('ABC12');
     expect(stats.referralLink).toBe('https://app.example/r/ABC12');
@@ -27,7 +26,6 @@ describe('normalizeReferralStats', () => {
     expect(stats.referrals[1].rewardUsd).toBe(5);
     expect(stats.appliedReferralCode).toBeNull();
     expect(stats.canApplyReferral).toBe(true);
-    expect(stats.rewardRateBps).toBe(2000);
   });
 
   it('maps snake_case and coerces unknown status to pending', () => {
@@ -139,12 +137,12 @@ describe('referralApi', () => {
     expect(out.referralCode).toBe('Z9');
   });
 
-  it('applyCode calls core with trimmed code and fingerprint', async () => {
+  it('claimReferral calls core with trimmed code and fingerprint', async () => {
     const { callCoreCommand } = await import('../../coreCommandClient');
     vi.mocked(callCoreCommand).mockResolvedValueOnce({});
-    await referralApi.applyCode('  abcd  ');
+    await referralApi.claimReferral('  abcd  ');
     expect(callCoreCommand).toHaveBeenCalledWith(
-      'openhuman.referral_apply',
+      'openhuman.referral_claim',
       expect.objectContaining({ code: 'abcd', deviceFingerprint: expect.any(String) })
     );
   });
@@ -158,10 +156,10 @@ describe('referralApi', () => {
     });
   });
 
-  it('applyCode throws { success: false, error } preserving err.error string', async () => {
+  it('claimReferral throws { success: false, error } preserving err.error string', async () => {
     const { callCoreCommand } = await import('../../coreCommandClient');
     vi.mocked(callCoreCommand).mockRejectedValueOnce({ error: 'Code already used' });
-    await expect(referralApi.applyCode('ABCD')).rejects.toEqual({
+    await expect(referralApi.claimReferral('ABCD')).rejects.toEqual({
       success: false,
       error: 'Code already used',
     });

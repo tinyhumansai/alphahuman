@@ -728,9 +728,8 @@ async function handleRequest(req, res) {
       data: {
         referralCode: "MOCKREF1",
         referralLink: `${origin}/#/rewards?ref=MOCKREF1`,
-        rewardRateBps: 2000,
         totals: {
-          totalRewardUsd: 4.2,
+          totalRewardUsd: 10,
           pendingCount: 1,
           convertedCount: 2,
         },
@@ -747,7 +746,7 @@ async function handleRequest(req, res) {
             status: "converted",
             createdAt: new Date(Date.now() - 172800000).toISOString(),
             convertedAt: new Date().toISOString(),
-            rewardUsd: 2.1,
+            rewardUsd: 5,
           },
         ],
         appliedReferralCode: null,
@@ -757,10 +756,10 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (method === "POST" && /^\/referral\/apply\/?$/.test(url)) {
+  if (method === "POST" && /^\/referral\/claim\/?$/.test(url)) {
     json(res, 200, {
       success: true,
-      data: { ok: true, message: "Referral applied" },
+      data: { ok: true, message: "Referral claimed" },
     });
     return;
   }

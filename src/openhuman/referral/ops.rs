@@ -39,7 +39,7 @@ pub async fn get_stats(config: &Config) -> Result<RpcOutcome<Value>, String> {
     ))
 }
 
-pub async fn apply_code(
+pub async fn claim_referral(
     config: &Config,
     code: &str,
     device_fingerprint: Option<&str>,
@@ -58,7 +58,7 @@ pub async fn apply_code(
         .authed_json(
             &token,
             Method::POST,
-            "/referral/apply",
+            "/referral/claim",
             Some(Value::Object(body)),
         )
         .await
@@ -66,6 +66,6 @@ pub async fn apply_code(
 
     Ok(RpcOutcome::single_log(
         data,
-        "referral apply accepted by backend POST /referral/apply",
+        "referral claim accepted by backend POST /referral/claim",
     ))
 }
