@@ -202,11 +202,7 @@ mod tests {
     /// (one with an explicit `delegate_name`, one without) plus a skills
     /// wildcard. Exercises every branch of `collect_orchestrator_tools`.
     fn sample_orchestrator() -> AgentDefinition {
-        let mut orch = def(
-            "orchestrator",
-            "Routes work to the right specialist",
-            None,
-        );
+        let mut orch = def("orchestrator", "Routes work to the right specialist", None);
         orch.subagents = vec![
             SubagentEntry::AgentId("researcher".into()),
             SubagentEntry::AgentId("archivist".into()),

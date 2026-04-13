@@ -9,9 +9,7 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 
 use super::credentials::scrub_credentials;
-use super::parse::{
-    build_native_assistant_history, parse_structured_tool_calls, parse_tool_calls,
-};
+use super::parse::{build_native_assistant_history, parse_structured_tool_calls, parse_tool_calls};
 use crate::openhuman::context::guard::{ContextCheckResult, ContextGuard};
 
 /// Minimum characters per chunk when relaying LLM text to a streaming draft.

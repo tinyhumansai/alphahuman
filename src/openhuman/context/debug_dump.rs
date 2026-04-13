@@ -981,10 +981,7 @@ mod tests {
         ];
 
         let mut orch = wildcard_orchestrator_def();
-        orch.tools = ToolScope::Named(vec![
-            "query_memory".into(),
-            "ask_user_clarification".into(),
-        ]);
+        orch.tools = ToolScope::Named(vec!["query_memory".into(), "ask_user_clarification".into()]);
         let registry = registry_with_orchestrator(orch.clone());
 
         let dumped =

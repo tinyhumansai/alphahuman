@@ -635,9 +635,7 @@ max_iterations = 8
     /// (reserved for future specific-toolkit lists) must not match.
     #[test]
     fn skills_wildcard_only_star_matches_all() {
-        let star = SkillsWildcard {
-            skills: "*".into(),
-        };
+        let star = SkillsWildcard { skills: "*".into() };
         assert!(star.matches_all());
 
         let specific = SkillsWildcard {

@@ -475,14 +475,11 @@ impl Agent {
         // connected integrations list from the live Composio fetch in a
         // later commit (#525/#526 dispatch routing).
         let orchestrator_tools =
-            match crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global()
-            {
+            match crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global() {
                 Some(reg) => match reg.get("orchestrator") {
-                    Some(orch_def) => tools::orchestrator_tools::collect_orchestrator_tools(
-                        orch_def,
-                        reg,
-                        &[],
-                    ),
+                    Some(orch_def) => {
+                        tools::orchestrator_tools::collect_orchestrator_tools(orch_def, reg, &[])
+                    }
                     None => {
                         log::debug!(
                             "[agent::builder] orchestrator definition not in registry — \
