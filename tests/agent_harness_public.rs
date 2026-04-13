@@ -126,6 +126,7 @@ fn stub_parent_context() -> ParentExecutionContext {
         memory_context: Some("ctx".into()),
         session_id: "test-session".into(),
         channel: "test-channel".into(),
+        connected_integrations: vec![],
     }
 }
 

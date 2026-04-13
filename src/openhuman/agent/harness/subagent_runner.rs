@@ -1192,6 +1192,7 @@ mod tests {
             memory_context: None,
             session_id: "test-session".into(),
             channel: "test".into(),
+            connected_integrations: vec![],
         }
     }
 

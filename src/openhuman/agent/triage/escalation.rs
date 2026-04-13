@@ -150,6 +150,7 @@ async fn dispatch_target_agent(agent_id: &str, prompt: &str) -> anyhow::Result<S
         memory_context: None, // Sub-agent queries memory via tools if needed
         session_id: format!("triage-{}", uuid::Uuid::new_v4()),
         channel: "triage".to_string(),
+        connected_integrations: agent.connected_integrations().to_vec(),
     };
 
     tracing::debug!(

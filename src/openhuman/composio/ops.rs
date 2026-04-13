@@ -381,21 +381,28 @@ pub async fn fetch_connected_integrations(config: &Config) -> Vec<ConnectedInteg
 }
 
 /// The actual backend fetch, called on cache miss.
-async fn fetch_connected_integrations_uncached(config: &Config) -> Vec<ConnectedIntegration> {
+///
+/// Returns `Some(vec)` when the backend was reachable (even if the user
+/// has zero connections — that's a valid cacheable state). Returns `None`
+/// when we couldn't even build a client (no auth), signalling the caller
+/// should NOT cache this result.
+async fn fetch_connected_integrations_uncached(
+    config: &Config,
+) -> Option<Vec<ConnectedIntegration>> {
     use super::providers::toolkit_description;
 
     let Some(client) = build_composio_client(config) else {
         tracing::debug!(
             "[composio] fetch_connected_integrations: no client (not signed in?)"
         );
-        return Vec::new();
+        return None;
     };
 
     let connections = match client.list_connections().await {
         Ok(resp) => resp.connections,
         Err(e) => {
             tracing::warn!("[composio] fetch_connected_integrations: list_connections failed: {e}");
-            return Vec::new();
+            return Some(Vec::new());
         }
     };
 
@@ -405,7 +412,7 @@ async fn fetch_connected_integrations_uncached(config: &Config) -> Vec<Connected
         .collect();
 
     if active.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
 
     // Collect the unique toolkit slugs so we can batch-fetch their tools.
@@ -472,7 +479,7 @@ async fn fetch_connected_integrations_uncached(config: &Config) -> Vec<Connected
         );
     }
 
-    integrations
+    Some(integrations)
 }
 
 #[cfg(test)]

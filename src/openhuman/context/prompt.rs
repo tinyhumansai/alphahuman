@@ -1323,6 +1323,7 @@ mod tests {
             &tools,
             "You are a focused sub-agent.",
             SubagentRenderOptions::narrow(),
+            &[],
         ));
 
         assert!(
@@ -1383,6 +1384,7 @@ mod tests {
                 include_skills_catalog: true,
             },
             ToolCallFormat::Json,
+            &[],
         );
 
         assert!(rendered.contains("## Project Context"));
@@ -1400,6 +1402,7 @@ mod tests {
             "You are a specialist.",
             SubagentRenderOptions::narrow(),
             ToolCallFormat::Native,
+            &[],
         );
         assert!(native.contains("native tool-calling output"));
         assert!(!native.contains("## Safety"));

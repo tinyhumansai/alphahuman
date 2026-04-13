@@ -95,6 +95,11 @@ impl Agent {
         &self.skills
     }
 
+    /// Active Composio integrations fetched at session start.
+    pub fn connected_integrations(&self) -> &[crate::openhuman::context::prompt::ConnectedIntegration] {
+        &self.connected_integrations
+    }
+
     /// The agent's runtime config snapshot.
     pub fn agent_config(&self) -> &crate::openhuman::config::AgentConfig {
         &self.config
