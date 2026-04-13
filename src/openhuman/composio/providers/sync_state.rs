@@ -173,9 +173,8 @@ impl SyncState {
         let key = format!("{toolkit}:{connection_id}");
         match memory.kv_get(Some(KV_NAMESPACE), &key).await? {
             Some(value) => {
-                let mut state: SyncState = serde_json::from_value(value).map_err(|e| {
-                    format!("[sync_state] deserialize failed for {key}: {e}")
-                })?;
+                let mut state: SyncState = serde_json::from_value(value)
+                    .map_err(|e| format!("[sync_state] deserialize failed for {key}: {e}"))?;
                 // Ensure budget rolls over if date changed.
                 if state.daily_budget.date != today_str() {
                     tracing::debug!(

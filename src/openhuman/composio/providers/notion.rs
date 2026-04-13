@@ -273,8 +273,8 @@ impl ComposioProvider for NotionProvider {
                 }
 
                 // Build a title from the page's properties.
-                let title_text = extract_page_title(page)
-                    .unwrap_or_else(|| format!("Notion page {page_id}"));
+                let title_text =
+                    extract_page_title(page).unwrap_or_else(|| format!("Notion page {page_id}"));
                 let doc_id = format!("composio-notion-page-{page_id}");
                 let title = format!("Notion: {title_text}");
 
@@ -314,10 +314,7 @@ impl ComposioProvider for NotionProvider {
             // Check for next page cursor from Notion API.
             notion_cursor = extract_notion_cursor(&resp.data);
             if notion_cursor.is_none() {
-                tracing::debug!(
-                    page = page_num,
-                    "[composio:notion] no next cursor, done"
-                );
+                tracing::debug!(page = page_num, "[composio:notion] no next cursor, done");
                 break;
             }
         }
@@ -427,7 +424,9 @@ fn extract_notion_cursor(data: &Value) -> Option<String> {
 /// `properties.Name.title[0].plain_text`. We try several shapes.
 fn extract_page_title(page: &Value) -> Option<String> {
     // Try the common `properties.title.title[0].plain_text` shape.
-    let props = page.get("properties").or_else(|| page.get("data")?.get("properties"));
+    let props = page
+        .get("properties")
+        .or_else(|| page.get("data")?.get("properties"));
     if let Some(props) = props {
         // Walk all properties looking for a "title" type field.
         if let Some(obj) = props.as_object() {
@@ -500,10 +499,7 @@ mod tests {
                 }
             }
         });
-        assert_eq!(
-            extract_page_title(&page),
-            Some("My Page Title".to_string())
-        );
+        assert_eq!(extract_page_title(&page), Some("My Page Title".to_string()));
     }
 
     #[test]

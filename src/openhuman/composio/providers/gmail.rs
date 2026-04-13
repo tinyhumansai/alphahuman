@@ -234,7 +234,9 @@ impl ComposioProvider for GmailProvider {
                 .client
                 .execute_tool(ACTION_FETCH_EMAILS, Some(args))
                 .await
-                .map_err(|e| format!("[composio:gmail] {ACTION_FETCH_EMAILS} page {page_num}: {e:#}"))?;
+                .map_err(|e| {
+                    format!("[composio:gmail] {ACTION_FETCH_EMAILS} page {page_num}: {e:#}")
+                })?;
 
             state.record_requests(1);
 
@@ -336,10 +338,7 @@ impl ComposioProvider for GmailProvider {
             // Check for next page token.
             page_token = extract_page_token(&resp.data);
             if page_token.is_none() {
-                tracing::debug!(
-                    page = page_num,
-                    "[composio:gmail] no next page token, done"
-                );
+                tracing::debug!(page = page_num, "[composio:gmail] no next page token, done");
                 break;
             }
         }
