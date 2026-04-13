@@ -915,9 +915,7 @@ pub fn render_subagent_system_prompt_with_format(
                  (`skills_agent`) via `spawn_subagent`.\n\n",
             );
         } else {
-            out.push_str(
-                "The user has the following external services connected.\n\n",
-            );
+            out.push_str("The user has the following external services connected.\n\n");
         }
 
         for integration in connected_integrations {
