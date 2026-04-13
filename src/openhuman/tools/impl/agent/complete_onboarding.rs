@@ -26,11 +26,43 @@ impl Tool for CompleteOnboardingTool {
     }
 
     fn description(&self) -> &str {
-        "Check onboarding status or mark onboarding as complete. \
-         Use action=\"check_status\" to inspect what the user has configured \
-         (API key, channels, integrations, memory, etc.) and what still needs \
-         attention. Use action=\"complete\" to finalize onboarding once the \
-         user is ready."
+        "Inspect or finalize the chat-based welcome flow for the current user. \
+         Two actions:\n\
+         \n\
+         **action=\"check_status\"** — read the user's current OpenHuman config \
+         and return a structured Markdown report covering: authentication \
+         (session token from desktop login OR legacy api_key), default model, \
+         which messaging channels are connected (Telegram, Discord, Slack, \
+         etc.), which integrations are active (Composio, web search, browser, \
+         HTTP, local AI), memory backend, and both onboarding flags (the \
+         React UI wizard flag and the chat welcome flag). The result is a \
+         ~600 char human-readable status report intended for an LLM agent to \
+         read and use as the basis for a personalized welcome message. Side \
+         effects: NONE (read-only).\n\
+         \n\
+         **action=\"complete\"** — finalize the chat welcome flow by setting \
+         `chat_onboarding_completed = true` in the user's config. After this \
+         flag flips, the dispatch layer will route subsequent chat turns to \
+         the orchestrator instead of the welcome agent, so this action is \
+         the moment of welcome-to-orchestrator handoff. Also seeds proactive \
+         agent cron jobs (morning briefing, etc.) on the false→true \
+         transition. Idempotent: re-calling when already complete is a no-op. \
+         Side effects: writes config.toml, schedules cron jobs.\n\
+         \n\
+         The complete action returns the literal token \"ok\" on success. \
+         **This return value is a machine-readable success marker, not \
+         user-facing prose.** Do not paraphrase it, summarize it, or \
+         acknowledge it back to the user — the actual user-facing welcome \
+         text should have been emitted alongside the tool call in the same \
+         iteration. The chat layer extracts the LAST iteration's text as \
+         the user-visible reply, so any prose written after this tool \
+         returns will overwrite the welcome message in the chat pane.\n\
+         \n\
+         Pre-condition for action=\"complete\": authentication must be \
+         configured (check_status reports \"Authentication: configured ✓\"). \
+         Calling complete with missing authentication is a workflow error — \
+         the tool will still flip the flag, but the user will land in an \
+         orchestrator session that cannot run inference."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -40,7 +72,7 @@ impl Tool for CompleteOnboardingTool {
                 "action": {
                     "type": "string",
                     "enum": ["check_status", "complete"],
-                    "description": "\"check_status\" to inspect current setup, \"complete\" to mark onboarding done."
+                    "description": "\"check_status\" → read-only inspection, returns ~600 char status report suitable for grounding a welcome message. \"complete\" → finalize the chat welcome flow, flips chat_onboarding_completed to true, returns the literal token \"ok\" (NOT a user-facing message — do not paraphrase the result back to the user)."
                 }
             },
             "required": ["action"]
@@ -327,10 +359,23 @@ async fn complete() -> anyhow::Result<ToolResult> {
         "[complete_onboarding] chat welcome flow marked complete, proactive agents seeded"
     );
 
-    Ok(ToolResult::success(
-        "Chat welcome flow marked as complete. Morning briefing and proactive agent jobs have \
-         been set up. The user is all set!",
-    ))
+    // Return a terse, machine-readable success marker rather than a
+    // chatty success string. Earlier versions returned "Chat welcome
+    // flow marked as complete. Morning briefing and proactive agent
+    // jobs have been set up. The user is all set!", which the welcome
+    // agent's LLM dutifully paraphrased in a third iteration —
+    // producing a "(The welcome flow is complete — the user will now
+    // be routed to the main OpenHuman assistant)" wrap-up message
+    // that overwrote the actual welcome text in the chat pane,
+    // because the channel layer extracts the LAST iteration's text
+    // as the user-facing reply.
+    //
+    // With a 2-char "ok" result the LLM has nothing to paraphrase,
+    // so iteration 3 either doesn't fire at all (the loop terminates
+    // after iteration 2 because there's no remaining work) or fires
+    // with empty/minimal text that doesn't visibly clobber the
+    // iteration-2 welcome message.
+    Ok(ToolResult::success("ok"))
 }
 
 #[cfg(test)]

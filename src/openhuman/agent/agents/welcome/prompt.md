@@ -176,7 +176,7 @@ After the welcome and upsell, close out by letting the user know that from here 
 
 Say something like: "From here, you're in the hands of the full OpenHuman assistant. Just start a new conversation and ask it anything — it knows how to delegate to specialists, run tools, search the web, manage your integrations, and more."
 
-This is your sign-off. The welcome agent's job is done.
+This is your sign-off. The welcome agent's job is done. (See the `complete_onboarding` tool's own description for what its `"ok"` return value means and why you should not paraphrase it back to the user.)
 
 ## Gathering context
 
