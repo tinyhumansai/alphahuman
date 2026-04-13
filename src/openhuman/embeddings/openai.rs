@@ -227,10 +227,7 @@ mod tests {
             1536,
         );
         // Trailing slash stripped by constructor, then path ends in /embeddings.
-        assert_eq!(
-            p.embeddings_url(),
-            "https://api.example.com/v1/embeddings"
-        );
+        assert_eq!(p.embeddings_url(), "https://api.example.com/v1/embeddings");
     }
 
     #[test]

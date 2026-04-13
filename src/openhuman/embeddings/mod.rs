@@ -19,7 +19,7 @@ use async_trait::async_trait;
 pub use noop::NoopEmbedding;
 pub use ollama::{OllamaEmbedding, DEFAULT_OLLAMA_DIMENSIONS, DEFAULT_OLLAMA_MODEL};
 pub use openai::OpenAiEmbedding;
-pub use store::{cosine_similarity, vec_to_bytes, bytes_to_vec, SearchResult, VectorStore};
+pub use store::{bytes_to_vec, cosine_similarity, vec_to_bytes, SearchResult, VectorStore};
 
 /// Interface for embedding providers that convert text into numerical vectors.
 #[async_trait]

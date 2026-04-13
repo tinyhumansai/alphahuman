@@ -240,8 +240,7 @@ impl VectorStore {
             .map(|(id, ns, text, blob, meta_str)| {
                 let stored_vec = bytes_to_vec(&blob);
                 let score = cosine_similarity(query_vec, &stored_vec);
-                let metadata =
-                    serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Null);
+                let metadata = serde_json::from_str(&meta_str).unwrap_or(serde_json::Value::Null);
                 SearchResult {
                     id,
                     namespace: ns,
@@ -253,7 +252,11 @@ impl VectorStore {
             .collect();
 
         // Sort descending by score.
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored.truncate(limit);
 
         Ok(scored)
@@ -266,11 +269,10 @@ impl VectorStore {
     /// Returns `true` if a row was actually deleted.
     pub fn delete(&self, namespace: &str, id: &str) -> anyhow::Result<bool> {
         let conn = self.conn.lock();
-        let affected =
-            conn.execute(
-                "DELETE FROM vectors WHERE namespace = ?1 AND id = ?2",
-                rusqlite::params![namespace, id],
-            )?;
+        let affected = conn.execute(
+            "DELETE FROM vectors WHERE namespace = ?1 AND id = ?2",
+            rusqlite::params![namespace, id],
+        )?;
         Ok(affected > 0)
     }
 
@@ -548,10 +550,7 @@ mod tests {
         let store = fake_store(4);
         store.insert("a", "ns1", "hello", json!({})).await.unwrap();
         store.insert("b", "ns1", "world", json!({})).await.unwrap();
-        store
-            .insert("c", "ns2", "other", json!({}))
-            .await
-            .unwrap();
+        store.insert("c", "ns2", "other", json!({})).await.unwrap();
 
         assert_eq!(store.count(Some("ns1")).unwrap(), 2);
         assert_eq!(store.count(Some("ns2")).unwrap(), 1);
@@ -572,7 +571,9 @@ mod tests {
 
         assert_eq!(store.count(Some("ns")).unwrap(), 1);
 
-        let results = store.search_by_vector("ns", &text_to_vec("updated", 4), 10).unwrap();
+        let results = store
+            .search_by_vector("ns", &text_to_vec("updated", 4), 10)
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].text, "updated");
         assert_eq!(results[0].metadata["v"], 2);
@@ -662,14 +663,8 @@ mod tests {
     #[tokio::test]
     async fn search_namespace_isolation() {
         let store = fake_store(4);
-        store
-            .insert("a", "ns1", "hello", json!({}))
-            .await
-            .unwrap();
-        store
-            .insert("b", "ns2", "hello", json!({}))
-            .await
-            .unwrap();
+        store.insert("a", "ns1", "hello", json!({})).await.unwrap();
+        store.insert("b", "ns2", "hello", json!({})).await.unwrap();
 
         let r1 = store.search("ns1", "hello", 10).await.unwrap();
         let r2 = store.search("ns2", "hello", 10).await.unwrap();
@@ -802,18 +797,12 @@ mod tests {
 
     #[tokio::test]
     async fn insert_batch_mismatch_error() {
-        let store =
-            VectorStore::open_in_memory(Arc::new(MismatchEmbedding)).unwrap();
-        let entries: Vec<(&str, &str, serde_json::Value)> = vec![
-            ("a", "alpha", json!({})),
-            ("b", "beta", json!({})),
-        ];
+        let store = VectorStore::open_in_memory(Arc::new(MismatchEmbedding)).unwrap();
+        let entries: Vec<(&str, &str, serde_json::Value)> =
+            vec![("a", "alpha", json!({})), ("b", "beta", json!({}))];
         let err = store.insert_batch("ns", &entries).await.unwrap_err();
         let msg = err.to_string();
-        assert!(
-            msg.contains("mismatch"),
-            "should mention mismatch: {msg}"
-        );
+        assert!(msg.contains("mismatch"), "should mention mismatch: {msg}");
         assert!(msg.contains("1"), "should mention actual count: {msg}");
         assert!(msg.contains("2"), "should mention expected count: {msg}");
     }

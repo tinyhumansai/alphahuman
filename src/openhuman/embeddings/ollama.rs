@@ -67,7 +67,11 @@ impl OllamaEmbedding {
 
     /// Creates a provider with all defaults.
     pub fn default() -> Self {
-        Self::new(DEFAULT_OLLAMA_URL, DEFAULT_OLLAMA_MODEL, DEFAULT_OLLAMA_DIMENSIONS)
+        Self::new(
+            DEFAULT_OLLAMA_URL,
+            DEFAULT_OLLAMA_MODEL,
+            DEFAULT_OLLAMA_DIMENSIONS,
+        )
     }
 
     /// Returns the configured base URL.
