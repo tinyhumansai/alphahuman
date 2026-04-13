@@ -191,7 +191,7 @@ const RewardsCouponSection = () => {
                   void handleRedeem();
                 }
               }}
-              placeholder="Promo code"
+              placeholder="Coupon code"
               disabled={submitLoading}
               className="flex-1 px-4 py-2.5 rounded-xl border border-stone-200 bg-white font-mono text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
             />
@@ -200,7 +200,7 @@ const RewardsCouponSection = () => {
               onClick={() => void handleRedeem()}
               disabled={submitLoading || !couponCode.trim()}
               className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50">
-              {submitLoading ? 'Applying…' : 'Apply code'}
+              {submitLoading ? 'Redeeming...' : 'Redeem Code'}
             </button>
           </div>
           {submitSuccess ? (
