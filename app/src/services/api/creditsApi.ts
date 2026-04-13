@@ -197,15 +197,36 @@ export function normalizeRedeemedCoupon(raw: unknown): RedeemedCoupon {
 }
 
 function normalizeUsd(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function normalizeCreditBalance(payload: unknown): CreditBalance {
   const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const nested = asRecord(raw.data) ?? asRecord(raw.balance) ?? null;
+  const source = nested ?? raw;
 
   return {
-    promotionBalanceUsd: normalizeUsd(raw.promotionBalanceUsd),
-    teamTopupUsd: normalizeUsd(raw.teamTopupUsd),
+    promotionBalanceUsd: normalizeUsd(
+      source.promotionBalanceUsd ??
+        source.promotion_balance_usd ??
+        source.promotionalBalanceUsd ??
+        source.promotional_balance_usd ??
+        source.promoBalanceUsd ??
+        source.promo_balance_usd
+    ),
+    teamTopupUsd: normalizeUsd(
+      source.teamTopupUsd ??
+        source.team_topup_usd ??
+        source.teamTopUpUsd ??
+        source.team_top_up_usd ??
+        source.teamTopupBalanceUsd ??
+        source.team_topup_balance_usd
+    ),
   };
 }
 

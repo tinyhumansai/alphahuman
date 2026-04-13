@@ -79,22 +79,6 @@ const accountSettingsItems = [
     ),
   },
   {
-    id: 'billing',
-    title: 'Billing & Usage',
-    description: 'Subscription plan, pay-as-you-go credits, and payment methods',
-    route: 'billing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H5a3 3 0 00-3 3v8a3 3 0 003 3z"
-        />
-      </svg>
-    ),
-  },
-  {
     id: 'privacy',
     title: 'Privacy',
     description: 'Manage data sharing and anonymized usage preferences',
@@ -230,8 +214,8 @@ const Settings = () => {
             path="account"
             element={
               <SettingsSectionPage
-                title="Account & Billing"
-                description="Recovery phrase, team, connections, billing, and privacy settings."
+                title="Account"
+                description="Recovery phrase, team, connections, and privacy settings."
                 items={accountSettingsItems}
               />
             }

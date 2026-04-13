@@ -214,4 +214,22 @@ describe('creditsApi.getBalance', () => {
     expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_get_balance');
     expect(result).toEqual({ promotionBalanceUsd: 0, teamTopupUsd: 3 });
   });
+
+  it('accepts snake_case balance fields from the backend', async () => {
+    mockCallCoreCommand.mockResolvedValue({ promotion_balance_usd: '12.5', team_topup_usd: 4 });
+
+    const result = await creditsApi.getBalance();
+
+    expect(result).toEqual({ promotionBalanceUsd: 12.5, teamTopupUsd: 4 });
+  });
+
+  it('accepts nested balance payloads used by some adapters', async () => {
+    mockCallCoreCommand.mockResolvedValue({
+      data: { promotional_balance_usd: 6, team_topup_balance_usd: '9.25' },
+    });
+
+    const result = await creditsApi.getBalance();
+
+    expect(result).toEqual({ promotionBalanceUsd: 6, teamTopupUsd: 9.25 });
+  });
 });

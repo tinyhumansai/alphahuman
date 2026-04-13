@@ -27,6 +27,7 @@ const BillingPanel = () => {
   const { navigateBack, breadcrumbs } = useSettingsNavigation();
   const { snapshot, teams, refresh } = useCoreState();
   const user = snapshot.currentUser;
+  const sessionToken = snapshot.sessionToken;
 
   // Active team context
   const activeTeamId = user?.activeTeamId;
@@ -85,9 +86,20 @@ const BillingPanel = () => {
   const planExpiry = currentPlan?.planExpiry ?? activeTeam?.team.subscription?.planExpiry ?? null;
   const currentPlanMeta = getPlanMeta(currentTier);
 
-  // Fetch current plan, credits balance, and team usage on mount
+  // Fetch current plan, credits balance, and team usage once auth is available.
   useEffect(() => {
+    if (!sessionToken) {
+      log('[load] skipped: no session token yet');
+      setCurrentPlan(null);
+      setCreditBalance(null);
+      setTeamUsage(null);
+      setIsLoadingCredits(false);
+      return;
+    }
+
+    let cancelled = false;
     setIsLoadingCredits(true);
+    log('[load] fetching billing state tokenPresent=%s activeTeamId=%s', true, activeTeamId);
     Promise.allSettled([
       billingApi.getCurrentPlan(),
       creditsApi.getBalance(),
@@ -102,23 +114,42 @@ const BillingPanel = () => {
             plan.hasActiveSubscription,
             plan.weeklyBudgetUsd
           );
-          setCurrentPlan(plan);
+          if (!cancelled) {
+            setCurrentPlan(plan);
+          }
         } else {
           log('[load] getCurrentPlan failed: %O', planResult.reason);
         }
         if (balanceResult.status === 'fulfilled') {
-          setCreditBalance(balanceResult.value);
+          log(
+            '[load] balance promotion=%s teamTopup=%s',
+            balanceResult.value.promotionBalanceUsd,
+            balanceResult.value.teamTopupUsd
+          );
+          if (!cancelled) {
+            setCreditBalance(balanceResult.value);
+          }
         } else {
           log('[load] getBalance failed: %O', balanceResult.reason);
         }
         if (usageResult.status === 'fulfilled') {
-          setTeamUsage(usageResult.value);
+          if (!cancelled) {
+            setTeamUsage(usageResult.value);
+          }
         } else {
           log('[load] getTeamUsage failed: %O', usageResult.reason);
         }
       })
-      .finally(() => setIsLoadingCredits(false));
-  }, []);
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingCredits(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken, activeTeamId]);
 
   // When crypto is selected, force annual
   useEffect(() => {
@@ -269,6 +300,13 @@ const BillingPanel = () => {
         const plan = await billingApi.getCurrentPlan();
         log('[payment-success] plan=%s active=%s', plan.plan, plan.hasActiveSubscription);
         setCurrentPlan(plan);
+        const balance = await creditsApi.getBalance();
+        log(
+          '[payment-success] refreshed balance promotion=%s teamTopup=%s',
+          balance.promotionBalanceUsd,
+          balance.teamTopupUsd
+        );
+        setCreditBalance(balance);
       } catch (e) {
         console.error('Failed to fetch current plan after payment', e);
       }
@@ -371,6 +409,11 @@ const BillingPanel = () => {
   const handleBalanceRefresh = useCallback(async () => {
     try {
       const balance = await creditsApi.getBalance();
+      log(
+        '[balance-refresh] promotion=%s teamTopup=%s',
+        balance.promotionBalanceUsd,
+        balance.teamTopupUsd
+      );
       setCreditBalance(balance);
     } catch (err) {
       log('[balance-refresh] failed: %O', err);

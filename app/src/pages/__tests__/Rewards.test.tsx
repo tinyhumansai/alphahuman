@@ -70,14 +70,14 @@ describe('Rewards page', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Loading rewards…')).toBeInTheDocument();
+    expect(screen.getAllByText('Loading rewards…')).toHaveLength(2);
 
     await waitFor(() => {
       expect(screen.getByText('7-Day Streak')).toBeInTheDocument();
     });
 
     expect(screen.getByText('Assigned in Discord')).toBeInTheDocument();
-    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(screen.getByText('1 of 2 achievements unlocked')).toBeInTheDocument();
   });
 
   it('shows a conservative error state when rewards fail to load', async () => {
