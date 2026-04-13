@@ -74,6 +74,54 @@ const SubscriptionPlans = ({
         </div>
       </div>
 
+      {paymentConfirmed && (
+        <div className="rounded-2xl border border-sage-500/20 bg-sage-500/10 p-4">
+          <div className="flex items-center gap-2">
+            <svg
+              className="h-4 w-4 flex-shrink-0 text-sage-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+            <p className="text-sm font-medium text-sage-700">
+              Payment confirmed! Your plan has been updated.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isPurchasing && (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-100/90 p-4">
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            <p className="text-sm text-amber-700">
+              Waiting for payment confirmation... Complete checkout in the browser window that
+              opened.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         {PLANS.map(plan => {
           const isCurrent = plan.tier === currentTier;
@@ -141,12 +189,12 @@ const SubscriptionPlans = ({
                       </span>
                     )}
                   </div>
-                  {plan.tagline && <p className="mt-1 text-sm text-stone-500">{plan.tagline}</p>}
+                  {/* {plan.tagline && <p className="mt-1 text-sm text-stone-500">{plan.tagline}</p>} */}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {plan.features.slice(0, 2).map(feature => (
+                    {plan.features.slice(0, 3).map(feature => (
                       <span
                         key={feature.text}
-                        className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600">
+                        className="rounded-full bg-stone-100/50 border border-primary-200/50 px-3 py-1 text-xs font-medium text-stone-600">
                         {feature.text}
                       </span>
                     ))}
@@ -154,7 +202,7 @@ const SubscriptionPlans = ({
                 </div>
               </div>
 
-              <div className="flex items-end justify-between gap-4 sm:min-w-[148px] sm:flex-col sm:items-end">
+              <div className="flex items-end justify-between gap-2 sm:min-w-[148px] sm:flex-col sm:items-end">
                 <div className="text-right">
                   <p className="text-2xl font-bold tracking-tight text-stone-950">
                     {displayPrice(plan, billingInterval)}
@@ -166,7 +214,7 @@ const SubscriptionPlans = ({
                     <p className="mt-1 text-xs text-stone-500">Billed ${plan.annualPrice}/yr</p>
                   )}
                   {savings && (
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-primary-600">
+                    <p className="mt-1 text-xs font-semibold uppercase text-primary-600">
                       Save {savings}%
                     </p>
                   )}
@@ -194,48 +242,6 @@ const SubscriptionPlans = ({
         })}
       </div>
     </div>
-
-    {paymentConfirmed && (
-      <div className="rounded-2xl border border-sage-500/20 bg-sage-500/10 p-4">
-        <div className="flex items-center gap-2">
-          <svg
-            className="h-4 w-4 flex-shrink-0 text-sage-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <p className="text-sm font-medium text-sage-700">
-            Payment confirmed! Your plan has been updated.
-          </p>
-        </div>
-      </div>
-    )}
-
-    {isPurchasing && (
-      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
-        <div className="flex items-center gap-2">
-          <svg className="h-4 w-4 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-          <p className="text-sm text-amber-700">
-            Waiting for payment confirmation... Complete checkout in the browser window that opened.
-          </p>
-        </div>
-      </div>
-    )}
   </>
 );
 

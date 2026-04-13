@@ -419,8 +419,6 @@ const BillingPanel = () => {
     }
   }, []);
 
-  const availableCredits =
-    (creditBalance?.promotionBalanceUsd ?? 0) + (creditBalance?.teamTopupUsd ?? 0);
   const transactionRows = transactions.slice(0, 4);
 
   // ── JSX ─────────────────────────────────────────────────────────────
@@ -437,7 +435,7 @@ const BillingPanel = () => {
           <PillTabBar
             items={[
               { label: 'Plans', value: 'plans' },
-              { label: 'Credits & Top-ups', value: 'payments' },
+              { label: 'Top ups & Credits', value: 'payments' },
               { label: 'History', value: 'history' },
             ]}
             selected={selectedTab}
@@ -472,7 +470,6 @@ const BillingPanel = () => {
             arSettings={arSettings}
             arThreshold={arThreshold}
             arWeeklyLimit={arWeeklyLimit}
-            availableCredits={availableCredits}
             cards={cards}
             cardsLoading={cardsLoading}
             confirmDeleteId={confirmDeleteId}

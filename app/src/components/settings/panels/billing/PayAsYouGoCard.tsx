@@ -35,6 +35,13 @@ const PayAsYouGoCard = ({
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [couponSuccess, setCouponSuccess] = useState<string | null>(null);
+  const [customTopUpAmount, setCustomTopUpAmount] = useState('');
+
+  const parsedCustomTopUpAmount = Number(customTopUpAmount);
+  const customTopUpAmountValid =
+    customTopUpAmount.trim() !== '' &&
+    Number.isFinite(parsedCustomTopUpAmount) &&
+    parsedCustomTopUpAmount > 0;
 
   const handleRedeemCoupon = async () => {
     const code = couponCode.trim();
@@ -66,23 +73,20 @@ const PayAsYouGoCard = ({
     }
   };
 
+  const handleCustomTopUp = () => {
+    if (!customTopUpAmountValid || isToppingUp) return;
+    onTopUp(parsedCustomTopUpAmount);
+  };
+
   return (
     <div className="rounded-[28px] bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.06)] ring-1 ring-stone-950/5">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h3 className="font-headline text-2xl font-bold tracking-tight text-stone-950">
-            Credits & Add-ons
+            Top ups & Credits
           </h3>
           <p className="mt-1 text-sm leading-relaxed text-stone-500">
-            Top up spendable credits and redeem codes in one place.
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
-            Current balance
-          </p>
-          <p className="mt-1 text-lg font-bold tracking-tight text-primary-600">
-            ${availableCredits.toFixed(2)}
+            You can top up your credits if you ever exhaust your monthly budget or hit rate limits.
           </p>
         </div>
       </div>
@@ -142,6 +146,48 @@ const PayAsYouGoCard = ({
         ))}
       </div>
 
+      <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div>
+            <label
+              htmlFor="billing-custom-top-up"
+              className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
+              Custom amount
+            </label>
+            <div className="mt-2 flex items-center rounded-2xl bg-white px-4 ring-1 ring-stone-200 focus-within:ring-2 focus-within:ring-primary-500/20">
+              <span className="text-sm font-semibold text-stone-500">$</span>
+              <input
+                id="billing-custom-top-up"
+                type="number"
+                min="1"
+                step="0.01"
+                inputMode="decimal"
+                value={customTopUpAmount}
+                onChange={e => setCustomTopUpAmount(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleCustomTopUp();
+                }}
+                placeholder="Enter amount"
+                className="w-full border-0 bg-transparent px-3 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-0"
+              />
+            </div>
+            <p className="mt-2 text-xs text-stone-500">
+              Choose one of the preset amounts above or enter your own charge amount.
+            </p>
+          </div>
+          <button
+            onClick={handleCustomTopUp}
+            disabled={!customTopUpAmountValid || isToppingUp}
+            className="rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50 lg:self-end">
+            {isToppingUp ? 'Opening…' : 'Charge custom amount'}
+          </button>
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm text-stone-500">
+        Credits are consumed after any included subscription budget is exhausted.
+      </p>
+
       <div className="mt-6 grid gap-3 lg:grid-cols-[1fr_auto]">
         <input
           type="text"
@@ -164,10 +210,6 @@ const PayAsYouGoCard = ({
           {couponLoading ? 'Redeeming…' : 'Redeem'}
         </button>
       </div>
-
-      <p className="mt-3 text-sm text-stone-500">
-        Credits are consumed after any included subscription budget is exhausted.
-      </p>
 
       {couponSuccess && (
         <div className="mt-4 flex items-center gap-2 rounded-2xl border border-sage-500/20 bg-sage-500/10 px-4 py-3">

@@ -1,6 +1,10 @@
-import type { AutoRechargeSettings, CreditBalance, SavedCard } from '../../../../services/api/creditsApi';
-import PayAsYouGoCard from './PayAsYouGoCard';
+import type {
+  AutoRechargeSettings,
+  CreditBalance,
+  SavedCard,
+} from '../../../../services/api/creditsApi';
 import AutoRechargeSection from './AutoRechargeSection';
+import PayAsYouGoCard from './PayAsYouGoCard';
 
 interface BillingPaymentsTabProps {
   arAmount: number;
@@ -11,7 +15,6 @@ interface BillingPaymentsTabProps {
   arSettings: AutoRechargeSettings | null;
   arThreshold: number;
   arWeeklyLimit: number;
-  availableCredits: number;
   cards: SavedCard[];
   cardsLoading: boolean;
   confirmDeleteId: string | null;
@@ -43,7 +46,6 @@ export default function BillingPaymentsTab({
   arSettings,
   arThreshold,
   arWeeklyLimit,
-  availableCredits,
   cards,
   cardsLoading,
   confirmDeleteId,
@@ -68,19 +70,6 @@ export default function BillingPaymentsTab({
   return (
     <>
       <section className="space-y-4">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h3 className="font-headline text-2xl font-bold tracking-tight text-stone-950">
-              Credits & add-ons
-            </h3>
-            <p className="mt-1 text-sm text-stone-500">
-              Keep your workspace funded with prepaid credits and coupon redemptions.
-            </p>
-          </div>
-          <p className="text-sm font-semibold text-primary-600">
-            Current balance: ${availableCredits.toFixed(2)}
-          </p>
-        </div>
         <PayAsYouGoCard
           creditBalance={creditBalance}
           isLoadingCredits={isLoadingCredits}
