@@ -105,6 +105,12 @@ pub struct CronJob {
     pub job_type: JobType,
     pub session_target: SessionTarget,
     pub model: Option<String>,
+    /// Optional built-in agent definition ID (e.g. `"welcome"`,
+    /// `"morning_briefing"`). When set, [`crate::openhuman::cron::scheduler`]
+    /// resolves the agent definition from the registry and runs with the
+    /// definition's prompt, tool allowlist, iteration cap, and model hint
+    /// instead of the generic `Agent::from_config` path.
+    pub agent_id: Option<String>,
     pub enabled: bool,
     pub delivery: DeliveryConfig,
     pub delete_after_run: bool,
@@ -137,4 +143,5 @@ pub struct CronJobPatch {
     pub model: Option<String>,
     pub session_target: Option<SessionTarget>,
     pub delete_after_run: Option<bool>,
+    pub agent_id: Option<Option<String>>,
 }

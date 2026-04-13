@@ -268,11 +268,18 @@ wildcard = {}
 "#,
         );
 
+        // Load a baseline registry (no custom overrides) to get the
+        // built-in count dynamically — avoids coupling to a hardcoded number.
+        let baseline = super::super::definition::AgentDefinitionRegistry::load(
+            &tempfile::TempDir::new().unwrap().path().join("empty"),
+        )
+        .unwrap();
+        let expected_count = baseline.len();
+
         let reg = super::super::definition::AgentDefinitionRegistry::load(ws.path()).unwrap();
-        // Still 13 (12 built-ins + the synthetic `fork`) — same id
-        // replaced the built-in `code_executor` in place, so the
+        // Same id replaced the built-in `code_executor` in place, so the
         // registry size doesn't grow when the custom TOML collides.
-        assert_eq!(reg.len(), 13);
+        assert_eq!(reg.len(), expected_count);
         let def = reg.get("code_executor").unwrap();
         assert_eq!(def.when_to_use, "CUSTOM OVERRIDE");
         assert!(matches!(def.source, DefinitionSource::File(_)));

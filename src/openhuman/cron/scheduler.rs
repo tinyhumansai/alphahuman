@@ -151,6 +151,42 @@ async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
         effective.default_model = Some(model);
     }
 
+    // When an agent_id is set, resolve the built-in definition and apply
+    // its model hint, iteration cap, and prompt body so the cron job
+    // runs with the definition's constraints instead of the generic
+    // Agent::from_config defaults.
+    if let Some(ref agent_id) = job.agent_id {
+        if let Some(registry) =
+            crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global()
+        {
+            if let Some(def) = registry.get(agent_id) {
+                tracing::debug!(
+                    job_id = %job.id,
+                    agent_id = %agent_id,
+                    max_iterations = def.max_iterations,
+                    "[cron] applying agent definition overrides"
+                );
+                let fallback_model = effective
+                    .default_model
+                    .clone()
+                    .unwrap_or_else(|| crate::openhuman::config::DEFAULT_MODEL.to_string());
+                effective.default_model = Some(def.model.resolve(&fallback_model));
+                effective.agent.max_tool_iterations = def.max_iterations;
+            } else {
+                tracing::warn!(
+                    job_id = %job.id,
+                    agent_id = %agent_id,
+                    "[cron] agent_id not found in registry — falling back to generic agent"
+                );
+            }
+        } else {
+            tracing::warn!(
+                job_id = %job.id,
+                "[cron] AgentDefinitionRegistry not initialized — falling back to generic agent"
+            );
+        }
+    }
+
     let run_result = match job.session_target {
         SessionTarget::Main | SessionTarget::Isolated => {
             tracing::debug!(
@@ -275,7 +311,8 @@ fn warn_if_high_frequency_agent_job(job: &CronJob) {
 async fn deliver_if_configured(_config: &Config, job: &CronJob, output: &str) -> Result<()> {
     let delivery: &DeliveryConfig = &job.delivery;
 
-    match delivery.mode.as_str() {
+    let mode = delivery.mode.trim().to_ascii_lowercase();
+    match mode.as_str() {
         // Proactive delivery — the channels module decides where to send.
         // Used by morning briefings, welcome messages, and other
         // user-facing proactive agents.
@@ -511,6 +548,7 @@ mod tests {
             job_type: JobType::Shell,
             session_target: SessionTarget::Isolated,
             model: None,
+            agent_id: None,
             enabled: true,
             delivery: DeliveryConfig::default(),
             delete_after_run: false,

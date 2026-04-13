@@ -320,12 +320,16 @@ mod tests {
     }
 
     #[test]
-    fn welcome_is_read_only_with_memory_recall_only() {
+    fn welcome_has_onboarding_and_memory_tools() {
         let def = find("welcome");
         assert_eq!(def.sandbox_mode, SandboxMode::ReadOnly);
         match &def.tools {
             ToolScope::Named(tools) => {
-                assert_eq!(tools.len(), 1, "welcome should have exactly one tool");
+                assert_eq!(tools.len(), 2, "welcome should have exactly two tools");
+                assert!(
+                    tools.iter().any(|t| t == "complete_onboarding"),
+                    "welcome needs complete_onboarding"
+                );
                 assert!(
                     tools.iter().any(|t| t == "memory_recall"),
                     "welcome needs memory_recall"
@@ -335,6 +339,6 @@ mod tests {
         }
         assert!(!def.omit_memory_context);
         assert!(def.omit_identity);
-        assert_eq!(def.max_iterations, 4);
+        assert_eq!(def.max_iterations, 6);
     }
 }

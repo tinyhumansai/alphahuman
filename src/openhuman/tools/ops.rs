@@ -356,6 +356,44 @@ mod tests {
     }
 
     #[test]
+    fn all_tools_includes_complete_onboarding() {
+        // Regression guard: the `complete_onboarding` tool must be
+        // present so the welcome agent can check setup status and
+        // finalize onboarding.
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::openhuman::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::openhuman::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(
+            names.contains(&"complete_onboarding"),
+            "complete_onboarding must be registered in the default tool list; got: {names:?}"
+        );
+    }
+
+    #[test]
     fn all_tools_excludes_browser_when_disabled() {
         let tmp = TempDir::new().unwrap();
         let security = Arc::new(SecurityPolicy::default());

@@ -564,6 +564,10 @@ pub async fn get_onboarding_completed() -> Result<RpcOutcome<bool>, String> {
 /// (morning briefing + one-shot welcome). Seeding is fire-and-forget so
 /// it never blocks the RPC response.
 pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, String> {
+    tracing::debug!(
+        value,
+        "[onboarding] set_onboarding_completed called"
+    );
     let mut config = load_config_with_timeout().await?;
     let was_completed = config.onboarding_completed;
     config.onboarding_completed = value;
@@ -571,12 +575,21 @@ pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, S
 
     // Seed proactive agents exactly once, on the false→true transition.
     if value && !was_completed {
+        tracing::debug!(
+            "[onboarding] false→true transition detected, spawning proactive agent seeding"
+        );
         let seed_config = config.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             if let Err(e) = crate::openhuman::cron::seed::seed_proactive_agents(&seed_config) {
                 tracing::warn!("[onboarding] failed to seed proactive agent cron jobs: {e}");
             }
         });
+    } else {
+        tracing::debug!(
+            was_completed,
+            value,
+            "[onboarding] no transition — skipping proactive agent seeding"
+        );
     }
 
     Ok(RpcOutcome::single_log(

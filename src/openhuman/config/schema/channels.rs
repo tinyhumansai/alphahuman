@@ -24,14 +24,18 @@ pub struct ChannelsConfig {
     pub qq: Option<QQConfig>,
     #[serde(default = "default_channel_message_timeout_secs")]
     pub message_timeout_secs: u64,
-    /// The user's preferred channel for proactive messages (morning
-    /// briefings, welcome messages, cron output, etc.). When set, the
-    /// proactive message handler routes to this channel first. Falls
-    /// back to "web" when unset or when the named channel is not
-    /// connected.
+    /// The user's preferred *external* channel for proactive messages
+    /// (morning briefings, welcome messages, cron output, etc.).
     ///
-    /// Valid values: any channel name (`"web"`, `"telegram"`, `"discord"`,
-    /// `"slack"`, etc.) or `None` to use the default ("web").
+    /// Delivery is **web-first, then mirror**: the proactive message
+    /// handler in [`crate::openhuman::channels::proactive`] always
+    /// delivers to the in-app web channel first (via Socket.IO), then
+    /// sends a copy to this external channel if it is set and
+    /// connected. When `None` or `"web"`, only the web channel
+    /// receives the message.
+    ///
+    /// Valid values: any channel name (`"telegram"`, `"discord"`,
+    /// `"slack"`, etc.) or `None` for web-only delivery.
     #[serde(default)]
     pub active_channel: Option<String>,
 }

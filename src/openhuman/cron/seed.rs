@@ -8,7 +8,9 @@
 //! [`ProactiveMessageSubscriber`] routes to the user's active channel.
 
 use crate::openhuman::config::Config;
-use crate::openhuman::cron::{add_agent_job, list_jobs, DeliveryConfig, Schedule, SessionTarget};
+use crate::openhuman::cron::{
+    add_agent_job_with_definition, list_jobs, DeliveryConfig, Schedule, SessionTarget,
+};
 use anyhow::Result;
 use chrono::{Duration, Utc};
 
@@ -69,7 +71,7 @@ fn seed_morning_briefing(config: &Config) -> Result<()> {
         "efficient briefing they can scan in 30 seconds over coffee."
     );
 
-    add_agent_job(
+    add_agent_job_with_definition(
         config,
         Some(MORNING_BRIEFING_JOB_NAME.to_string()),
         schedule,
@@ -78,6 +80,7 @@ fn seed_morning_briefing(config: &Config) -> Result<()> {
         None,
         Some(proactive_delivery()),
         false, // recurring — do not delete after run
+        Some(MORNING_BRIEFING_JOB_NAME.to_string()),
     )?;
 
     Ok(())
@@ -101,7 +104,7 @@ fn seed_welcome(config: &Config) -> Result<()> {
         "to 150-250 words."
     );
 
-    add_agent_job(
+    add_agent_job_with_definition(
         config,
         Some(WELCOME_JOB_NAME.to_string()),
         schedule,
@@ -110,6 +113,7 @@ fn seed_welcome(config: &Config) -> Result<()> {
         None,
         Some(proactive_delivery()),
         true, // one-shot — delete after successful run
+        Some(WELCOME_JOB_NAME.to_string()),
     )?;
 
     Ok(())
