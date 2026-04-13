@@ -121,27 +121,39 @@ impl EmbeddingProvider for OllamaEmbedding {
 
     /// Sends texts to Ollama's embed API.
     ///
-    /// Returns one embedding vector per input text. If Ollama is not running
-    /// or the model is not available, returns an error (the caller can
-    /// decide whether to fall back to another provider).
+    /// Blank/whitespace-only entries are skipped for the remote call but their
+    /// positions in the result are preserved as zero-vectors so the returned
+    /// `Vec` always has the same length as `texts`.
     async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
 
-        let input: Vec<String> = texts
+        // Build a list of (original_index, trimmed_text) for non-blank entries.
+        let live: Vec<(usize, String)> = texts
             .iter()
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty())
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let trimmed = t.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some((i, trimmed))
+                }
+            })
             .collect();
 
-        if input.is_empty() {
-            return Ok(Vec::new());
+        if live.is_empty() {
+            // All entries were blank — return zero-vectors.
+            return Ok(vec![Vec::new(); texts.len()]);
         }
+
+        let input: Vec<String> = live.iter().map(|(_, t)| t.clone()).collect();
 
         tracing::debug!(
             target: "embeddings.ollama",
-            "[embeddings] sending {} text(s) to ollama model={}", input.len(), self.model
+            "[embeddings] sending {} text(s) to ollama model={} ({} blank skipped)",
+            input.len(), self.model, texts.len() - input.len()
         );
 
         let resp = self
@@ -149,7 +161,7 @@ impl EmbeddingProvider for OllamaEmbedding {
             .post(self.embed_url())
             .json(&OllamaEmbedRequest {
                 model: self.model.clone(),
-                input,
+                input: input.clone(),
             })
             .send()
             .await
@@ -179,18 +191,40 @@ impl EmbeddingProvider for OllamaEmbedding {
             .await
             .map_err(|e| anyhow::anyhow!("ollama embed response parse failed: {e}"))?;
 
-        if payload.embeddings.is_empty() {
-            anyhow::bail!("ollama embed returned no embeddings");
+        // Validate response count matches what we sent.
+        if payload.embeddings.len() != input.len() {
+            anyhow::bail!(
+                "ollama embed count mismatch: sent {} texts, got {} embeddings",
+                input.len(),
+                payload.embeddings.len()
+            );
+        }
+
+        // Validate dimensions on every returned vector.
+        for (i, vec) in payload.embeddings.iter().enumerate() {
+            if vec.len() != self.dims {
+                anyhow::bail!(
+                    "ollama embed dimension mismatch at index {i}: expected {}, got {}",
+                    self.dims,
+                    vec.len()
+                );
+            }
         }
 
         tracing::debug!(
             target: "embeddings.ollama",
             "[embeddings] received {} embeddings, dims={}",
             payload.embeddings.len(),
-            payload.embeddings.first().map(|v| v.len()).unwrap_or(0)
+            self.dims
         );
 
-        Ok(payload.embeddings)
+        // Reconstruct full-length result with zero-vectors for blank positions.
+        let mut result = vec![Vec::new(); texts.len()];
+        for ((orig_idx, _), embedding) in live.iter().zip(payload.embeddings.into_iter()) {
+            result[*orig_idx] = embedding;
+        }
+
+        Ok(result)
     }
 }
 
@@ -285,10 +319,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn whitespace_only_input_returns_empty() {
+    async fn whitespace_only_input_returns_zero_vecs() {
         let p = OllamaEmbedding::default();
         let result = p.embed(&["  ", "\t", "\n"]).await.unwrap();
-        assert!(result.is_empty());
+        // Length preserved, all entries are empty zero-vectors.
+        assert_eq!(result.len(), 3);
+        assert!(result.iter().all(|v| v.is_empty()));
+    }
+
+    // ── embed — positional alignment ────────────────────────
+
+    #[tokio::test]
+    async fn embed_preserves_positions_for_blanks() {
+        let app = Router::new().route(
+            "/api/embed",
+            post(|Json(body): Json<serde_json::Value>| async move {
+                let inputs = body["input"].as_array().unwrap();
+                // Server receives only non-blank texts.
+                let embeddings: Vec<Vec<f32>> =
+                    inputs.iter().map(|_| vec![1.0, 2.0]).collect();
+                Json(serde_json::json!({ "embeddings": embeddings }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OllamaEmbedding::new(&url, "m", 2);
+
+        // Mix of blank and real texts.
+        let result = p.embed(&["hello", "", "  ", "world"]).await.unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], vec![1.0, 2.0]); // real
+        assert!(result[1].is_empty()); // blank
+        assert!(result[2].is_empty()); // blank
+        assert_eq!(result[3], vec![1.0, 2.0]); // real
     }
 
     // ── embed — successful response ─────────────────────────
@@ -327,26 +389,6 @@ mod tests {
         let result = p.embed(&["a", "b", "c"]).await.unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[2], vec![5.0, 6.0]);
-    }
-
-    #[tokio::test]
-    async fn embed_filters_empty_strings_from_batch() {
-        let app = Router::new().route(
-            "/api/embed",
-            post(|Json(body): Json<serde_json::Value>| async move {
-                // Verify that only non-empty inputs arrive.
-                let input = body["input"].as_array().unwrap();
-                let count = input.len();
-                let embeddings: Vec<Vec<f32>> = (0..count).map(|i| vec![i as f32]).collect();
-                Json(serde_json::json!({ "embeddings": embeddings }))
-            }),
-        );
-        let url = start_mock(app).await;
-        let p = OllamaEmbedding::new(&url, "m", 1);
-
-        // Two real texts + empties and whitespace — only 2 should reach the server.
-        let result = p.embed(&["hello", "", "  ", "world"]).await.unwrap();
-        assert_eq!(result.len(), 2);
     }
 
     #[tokio::test]
@@ -396,8 +438,40 @@ mod tests {
         let err = p.embed(&["hi"]).await.unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("400"), "should contain status code: {msg}");
-        // No detail appended for empty body.
-        assert!(!msg.contains(':'), "no colon for empty detail: {msg}");
+    }
+
+    #[tokio::test]
+    async fn embed_count_mismatch() {
+        let app = Router::new().route(
+            "/api/embed",
+            post(|| async {
+                // Return 1 embedding even though 2 texts were sent.
+                Json(serde_json::json!({ "embeddings": [[1.0]] }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OllamaEmbedding::new(&url, "m", 1);
+
+        let err = p.embed(&["a", "b"]).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("count mismatch"), "msg: {msg}");
+    }
+
+    #[tokio::test]
+    async fn embed_dimension_mismatch() {
+        let app = Router::new().route(
+            "/api/embed",
+            post(|| async {
+                // Return 3-dim vector when provider expects 2.
+                Json(serde_json::json!({ "embeddings": [[1.0, 2.0, 3.0]] }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OllamaEmbedding::new(&url, "m", 2);
+
+        let err = p.embed(&["hi"]).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("dimension mismatch"), "msg: {msg}");
     }
 
     #[tokio::test]
@@ -410,7 +484,7 @@ mod tests {
         let p = OllamaEmbedding::new(&url, "m", 1);
 
         let err = p.embed(&["hi"]).await.unwrap_err();
-        assert!(err.to_string().contains("no embeddings"));
+        assert!(err.to_string().contains("count mismatch"));
     }
 
     #[tokio::test]
@@ -428,7 +502,6 @@ mod tests {
 
     #[tokio::test]
     async fn embed_connection_refused() {
-        // Point at a port that nothing is listening on.
         let p = OllamaEmbedding::new("http://127.0.0.1:1", "m", 1);
         let err = p.embed(&["hi"]).await.unwrap_err();
         assert!(

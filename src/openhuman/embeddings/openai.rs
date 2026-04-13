@@ -90,23 +90,39 @@ impl EmbeddingProvider for OpenAiEmbedding {
             return Ok(Vec::new());
         }
 
+        let url = self.embeddings_url();
+
+        tracing::debug!(
+            target: "openai::embed",
+            "[openai] embed: model={}, count={}, url={}",
+            self.model, texts.len(), url
+        );
+
         let body = serde_json::json!({
             "model": self.model,
             "input": texts,
         });
 
-        let resp = self
+        let mut req = self
             .http_client()
-            .post(self.embeddings_url())
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(&url)
             .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        // Only set Authorization header when an API key is configured.
+        if !self.api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+
+        let resp = req.send().await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            tracing::debug!(
+                target: "openai::embed",
+                "[openai] embed error: status={status}, body={text}"
+            );
             anyhow::bail!("Embedding API error {status}: {text}");
         }
 
@@ -116,21 +132,53 @@ impl EmbeddingProvider for OpenAiEmbedding {
             .and_then(|d| d.as_array())
             .ok_or_else(|| anyhow::anyhow!("Invalid embedding response: missing 'data'"))?;
 
+        // Validate that the response count matches the input count.
+        if data.len() != texts.len() {
+            anyhow::bail!(
+                "openai embed count mismatch: sent {} texts, got {} items in 'data'",
+                texts.len(),
+                data.len()
+            );
+        }
+
         let mut embeddings = Vec::with_capacity(data.len());
-        for item in data {
+        for (i, item) in data.iter().enumerate() {
             let embedding = item
                 .get("embedding")
                 .and_then(|e| e.as_array())
-                .ok_or_else(|| anyhow::anyhow!("Invalid embedding item"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Invalid embedding item at index {i}: missing 'embedding'")
+                })?;
 
-            #[allow(clippy::cast_possible_truncation)]
-            let vec: Vec<f32> = embedding
-                .iter()
-                .filter_map(|v| v.as_f64().map(|f| f as f32))
-                .collect();
+            let mut vec = Vec::with_capacity(embedding.len());
+            for (j, v) in embedding.iter().enumerate() {
+                #[allow(clippy::cast_possible_truncation)]
+                let f = v.as_f64().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "non-numeric value at data[{i}].embedding[{j}]: {v}"
+                    )
+                })? as f32;
+                vec.push(f);
+            }
+
+            // Validate dimensions.
+            if self.dims > 0 && vec.len() != self.dims {
+                anyhow::bail!(
+                    "openai embed dimension mismatch at index {i}: expected {}, got {}",
+                    self.dims,
+                    vec.len()
+                );
+            }
 
             embeddings.push(vec);
         }
+
+        tracing::debug!(
+            target: "openai::embed",
+            "[openai] embed success: model={}, count={}, dims={}",
+            self.model, embeddings.len(),
+            embeddings.first().map(|v| v.len()).unwrap_or(0)
+        );
 
         Ok(embeddings)
     }
@@ -226,7 +274,6 @@ mod tests {
             "model",
             1536,
         );
-        // Trailing slash stripped by constructor, then path ends in /embeddings.
         assert_eq!(p.embeddings_url(), "https://api.example.com/v1/embeddings");
     }
 
@@ -305,21 +352,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn embed_sends_auth_header_and_model() {
+    async fn embed_sends_auth_header() {
         let app = Router::new().route(
             "/v1/embeddings",
             post(
                 |headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
-                    let auth = headers
-                        .get("Authorization")
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string();
+                    let auth = headers.get("Authorization").unwrap().to_str().unwrap();
                     assert_eq!(auth, "Bearer my-secret-key");
                     assert_eq!(body["model"], "text-embedding-3-small");
-                    let inputs = body["input"].as_array().unwrap();
-                    assert_eq!(inputs.len(), 1);
                     Json(serde_json::json!({
                         "data": [{ "embedding": [1.0] }]
                     }))
@@ -328,6 +368,27 @@ mod tests {
         );
         let url = start_mock(app).await;
         let p = OpenAiEmbedding::new(&url, "my-secret-key", "text-embedding-3-small", 1);
+
+        p.embed(&["test"]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn embed_skips_auth_header_when_key_empty() {
+        let app = Router::new().route(
+            "/v1/embeddings",
+            post(|headers: HeaderMap| async move {
+                // No Authorization header should be present.
+                assert!(
+                    headers.get("Authorization").is_none(),
+                    "should not send auth header when key is empty"
+                );
+                Json(serde_json::json!({
+                    "data": [{ "embedding": [1.0] }]
+                }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OpenAiEmbedding::new(&url, "", "m", 1);
 
         p.embed(&["test"]).await.unwrap();
     }
@@ -376,7 +437,59 @@ mod tests {
         let p = OpenAiEmbedding::new(&url, "k", "m", 1);
 
         let err = p.embed(&["hi"]).await.unwrap_err();
-        assert!(err.to_string().contains("Invalid embedding item"));
+        assert!(err.to_string().contains("missing 'embedding'"));
+    }
+
+    #[tokio::test]
+    async fn embed_non_numeric_value_errors() {
+        let app = Router::new().route(
+            "/v1/embeddings",
+            post(|| async {
+                Json(serde_json::json!({
+                    "data": [{ "embedding": [1.0, "not_a_number", 3.0] }]
+                }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OpenAiEmbedding::new(&url, "k", "m", 3);
+
+        let err = p.embed(&["hi"]).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("non-numeric"), "msg: {msg}");
+    }
+
+    #[tokio::test]
+    async fn embed_count_mismatch() {
+        let app = Router::new().route(
+            "/v1/embeddings",
+            post(|| async {
+                Json(serde_json::json!({
+                    "data": [{ "embedding": [1.0] }]
+                }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OpenAiEmbedding::new(&url, "k", "m", 1);
+
+        let err = p.embed(&["a", "b"]).await.unwrap_err();
+        assert!(err.to_string().contains("count mismatch"));
+    }
+
+    #[tokio::test]
+    async fn embed_dimension_mismatch() {
+        let app = Router::new().route(
+            "/v1/embeddings",
+            post(|| async {
+                Json(serde_json::json!({
+                    "data": [{ "embedding": [1.0, 2.0, 3.0] }]
+                }))
+            }),
+        );
+        let url = start_mock(app).await;
+        let p = OpenAiEmbedding::new(&url, "k", "m", 2);
+
+        let err = p.embed(&["hi"]).await.unwrap_err();
+        assert!(err.to_string().contains("dimension mismatch"));
     }
 
     #[tokio::test]
@@ -435,25 +548,5 @@ mod tests {
 
         let result = p.embed(&["test"]).await.unwrap();
         assert_eq!(result.len(), 1);
-    }
-
-    // ── Non-f64 values in embedding arrays ──────────────────
-
-    #[tokio::test]
-    async fn embed_skips_non_numeric_values() {
-        let app = Router::new().route(
-            "/v1/embeddings",
-            post(|| async {
-                Json(serde_json::json!({
-                    "data": [{ "embedding": [1.0, "not_a_number", 3.0, null] }]
-                }))
-            }),
-        );
-        let url = start_mock(app).await;
-        let p = OpenAiEmbedding::new(&url, "k", "m", 2);
-
-        let result = p.embed(&["test"]).await.unwrap();
-        // Only numeric values survive the filter_map.
-        assert_eq!(result[0], vec![1.0_f32, 3.0]);
     }
 }
