@@ -12,6 +12,10 @@
 //! re-wraps them. We use [`super::pick_str`] for tolerant extraction
 //! so a minor backend change does not break the provider.
 
+mod sync;
+#[cfg(test)]
+mod tests;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
@@ -19,10 +23,10 @@ use super::{
     pick_str, ComposioProvider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
 };
 
-const ACTION_GET_ABOUT_ME: &str = "NOTION_GET_ABOUT_ME";
-const ACTION_FETCH_DATA: &str = "NOTION_FETCH_DATA";
+pub(crate) const ACTION_GET_ABOUT_ME: &str = "NOTION_GET_ABOUT_ME";
+pub(crate) const ACTION_FETCH_DATA: &str = "NOTION_FETCH_DATA";
 
-const FETCH_LIMIT: u32 = 25;
+pub(crate) const FETCH_LIMIT: u32 = 25;
 
 pub struct NotionProvider;
 
@@ -113,7 +117,7 @@ impl ComposioProvider for NotionProvider {
     }
 
     async fn sync(&self, ctx: &ProviderContext, reason: SyncReason) -> Result<SyncOutcome, String> {
-        let started_at_ms = now_ms();
+        let started_at_ms = sync::now_ms();
         tracing::info!(
             connection_id = ?ctx.connection_id,
             reason = reason.as_str(),
@@ -153,11 +157,11 @@ impl ComposioProvider for NotionProvider {
             return Err(format!("[composio:notion] {ACTION_FETCH_DATA}: {err}"));
         }
 
-        let results = extract_results(&resp.data);
-        let items_ingested = persist_snapshot(ctx, &results)
+        let results = sync::extract_results(&resp.data);
+        let items_ingested = sync::persist_snapshot(ctx, &results)
             .await
             .map_err(|e| format!("[composio:notion] persist_snapshot failed: {e}"))?;
-        let finished_at_ms = now_ms();
+        let finished_at_ms = sync::now_ms();
 
         let summary = format!(
             "notion sync ({reason}): fetched {fetched} item(s), persisted {persisted}",
@@ -210,97 +214,5 @@ impl ComposioProvider for NotionProvider {
             );
         }
         Ok(())
-    }
-}
-
-// ── helpers ────────────────────────────────────────────────────────
-
-fn extract_results(data: &Value) -> Vec<Value> {
-    let candidates = [
-        data.pointer("/data/results"),
-        data.pointer("/results"),
-        data.pointer("/data/data/results"),
-        data.pointer("/data/items"),
-        data.pointer("/items"),
-    ];
-    for cand in candidates.into_iter().flatten() {
-        if let Some(arr) = cand.as_array() {
-            return arr.clone();
-        }
-    }
-    Vec::new()
-}
-
-async fn persist_snapshot(ctx: &ProviderContext, results: &[Value]) -> Result<usize, String> {
-    let Some(client) = ctx.memory_client() else {
-        tracing::debug!("[composio:notion] memory client not ready, skipping persist");
-        return Ok(0);
-    };
-    if results.is_empty() {
-        return Ok(0);
-    }
-
-    let connection_label = ctx
-        .connection_id
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
-    let title = format!("notion sync — {connection_label}");
-    let snapshot = json!({
-        "toolkit": "notion",
-        "connection_id": ctx.connection_id,
-        "results": results,
-        "synced_at_ms": now_ms(),
-    });
-    let content = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string());
-
-    client
-        .store_skill_sync(
-            "notion",
-            &connection_label,
-            &title,
-            &content,
-            Some("composio-sync".to_string()),
-            Some(json!({
-                "toolkit": "notion",
-                "connection_id": ctx.connection_id,
-                "source": "composio-provider",
-            })),
-            Some("medium".to_string()),
-            None,
-            None,
-            Some(format!("composio-notion-{connection_label}")),
-        )
-        .await
-        .map_err(|e| format!("store_skill_sync: {e}"))?;
-    Ok(1)
-}
-
-fn now_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_results_walks_common_shapes() {
-        let v1 = json!({ "data": { "results": [{"id": "p1"}] } });
-        let v2 = json!({ "results": [{"id": "p2"}, {"id": "p3"}] });
-        let v3 = json!({ "data": {} });
-        assert_eq!(extract_results(&v1).len(), 1);
-        assert_eq!(extract_results(&v2).len(), 2);
-        assert_eq!(extract_results(&v3).len(), 0);
-    }
-
-    #[test]
-    fn provider_metadata_is_stable() {
-        let p = NotionProvider::new();
-        assert_eq!(p.toolkit_slug(), "notion");
-        assert_eq!(p.sync_interval_secs(), Some(30 * 60));
     }
 }

@@ -17,6 +17,10 @@
 //! backend's `/agent-integrations/composio/execute` endpoint. This
 //! provider never holds raw OAuth tokens or hits Composio directly.
 
+mod sync;
+#[cfg(test)]
+mod tests;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
@@ -26,17 +30,17 @@ use super::{
 
 /// Composio action slugs used by this provider. Hoisted to constants so
 /// they're easy to grep + adjust if Composio renames them upstream.
-const ACTION_GET_PROFILE: &str = "GMAIL_GET_PROFILE";
-const ACTION_FETCH_EMAILS: &str = "GMAIL_FETCH_EMAILS";
+pub(crate) const ACTION_GET_PROFILE: &str = "GMAIL_GET_PROFILE";
+pub(crate) const ACTION_FETCH_EMAILS: &str = "GMAIL_FETCH_EMAILS";
 
 /// Default page size for the periodic email pull. Kept conservative —
 /// the goal is "freshness for the agent", not a full archive backfill.
-const FETCH_EMAILS_LIMIT: u32 = 25;
+pub(crate) const FETCH_EMAILS_LIMIT: u32 = 25;
 
 /// Memory namespace prefix used when persisting sync snapshots. Mirrors
 /// the `skill-{id}` convention in [`crate::openhuman::memory::store::client`]
 /// so namespace listings stay coherent across composio + js skills.
-const MEMORY_NAMESPACE: &str = "composio-gmail";
+pub(crate) const MEMORY_NAMESPACE: &str = "composio-gmail";
 
 pub struct GmailProvider;
 
@@ -144,7 +148,7 @@ impl ComposioProvider for GmailProvider {
     }
 
     async fn sync(&self, ctx: &ProviderContext, reason: SyncReason) -> Result<SyncOutcome, String> {
-        let started_at_ms = now_ms();
+        let started_at_ms = sync::now_ms();
         tracing::info!(
             connection_id = ?ctx.connection_id,
             reason = reason.as_str(),
@@ -177,9 +181,9 @@ impl ComposioProvider for GmailProvider {
             return Err(format!("[composio:gmail] {ACTION_FETCH_EMAILS}: {err}"));
         }
 
-        let messages = extract_messages(&resp.data);
-        let items_ingested = persist_messages(ctx, &messages).await;
-        let finished_at_ms = now_ms();
+        let messages = sync::extract_messages(&resp.data);
+        let items_ingested = sync::persist_messages(ctx, &messages).await;
+        let finished_at_ms = sync::now_ms();
 
         let summary = format!(
             "gmail sync ({reason}): fetched {fetched} message(s), persisted {persisted}",
@@ -238,128 +242,5 @@ impl ComposioProvider for GmailProvider {
             }
         }
         Ok(())
-    }
-}
-
-// ── helpers ────────────────────────────────────────────────────────
-
-/// Walk the Composio response envelope and pull out a list of message
-/// objects. Composio is inconsistent about whether the array lives at
-/// `data.messages`, `messages`, or `data.data.messages`, so we try a
-/// handful of common shapes before giving up.
-fn extract_messages(data: &Value) -> Vec<Value> {
-    let candidates = [
-        data.pointer("/data/messages"),
-        data.pointer("/messages"),
-        data.pointer("/data/data/messages"),
-        data.pointer("/data/items"),
-        data.pointer("/items"),
-    ];
-    for cand in candidates.into_iter().flatten() {
-        if let Some(arr) = cand.as_array() {
-            return arr.clone();
-        }
-    }
-    Vec::new()
-}
-
-/// Persist a sync snapshot into the global memory store under the
-/// `composio-gmail` namespace. Returns the number of items recorded
-/// (currently always one document — the snapshot, not per-message
-/// rows). Per-message ingestion can come later if/when we add an
-/// agent surface that benefits from it.
-async fn persist_messages(ctx: &ProviderContext, messages: &[Value]) -> usize {
-    let Some(client) = ctx.memory_client() else {
-        tracing::debug!("[composio:gmail] memory client not ready, skipping persist");
-        return 0;
-    };
-    if messages.is_empty() {
-        return 0;
-    }
-
-    let connection_label = ctx
-        .connection_id
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
-    let title = format!("gmail sync — {connection_label}");
-    let snapshot = json!({
-        "toolkit": "gmail",
-        "connection_id": ctx.connection_id,
-        "messages": messages,
-        "synced_at_ms": now_ms(),
-    });
-    let content = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string());
-
-    if let Err(e) = client
-        .store_skill_sync(
-            // The store_skill_sync helper namespaces as `skill-{id}`,
-            // so we pass `gmail` here and rely on the standard prefix.
-            // The composio domain reads from `skill-gmail` namespaces
-            // through the same memory store as the JS gmail skill —
-            // intentional, so the agent's `recall_memory` sees both.
-            MEMORY_NAMESPACE.trim_start_matches("composio-"),
-            &connection_label,
-            &title,
-            &content,
-            Some("composio-sync".to_string()),
-            Some(json!({
-                "toolkit": "gmail",
-                "connection_id": ctx.connection_id,
-                "source": "composio-provider",
-            })),
-            Some("medium".to_string()),
-            None,
-            None,
-            Some(format!("composio-gmail-{connection_label}")),
-        )
-        .await
-    {
-        tracing::warn!(
-            error = %e,
-            "[composio:gmail] persist snapshot failed (non-fatal)"
-        );
-        return 0;
-    }
-    1
-}
-
-fn now_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_messages_finds_data_messages() {
-        let v = json!({
-            "data": { "messages": [{"id": "m1"}, {"id": "m2"}] },
-            "successful": true,
-        });
-        assert_eq!(extract_messages(&v).len(), 2);
-    }
-
-    #[test]
-    fn extract_messages_finds_top_level_messages() {
-        let v = json!({ "messages": [{"id": "m1"}] });
-        assert_eq!(extract_messages(&v).len(), 1);
-    }
-
-    #[test]
-    fn extract_messages_returns_empty_when_missing() {
-        let v = json!({ "data": { "other": [] } });
-        assert_eq!(extract_messages(&v).len(), 0);
-    }
-
-    #[test]
-    fn provider_metadata_is_stable() {
-        let p = GmailProvider::new();
-        assert_eq!(p.toolkit_slug(), "gmail");
-        assert_eq!(p.sync_interval_secs(), Some(15 * 60));
     }
 }
