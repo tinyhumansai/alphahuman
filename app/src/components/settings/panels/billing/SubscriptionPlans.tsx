@@ -25,9 +25,9 @@ const SubscriptionPlans = ({
   onUpgrade,
 }: SubscriptionPlansProps) => (
   <>
-    <div className="flex flex-col gap-4 rounded-[28px] bg-[#f2f5fa] p-4 sm:p-5">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="inline-flex rounded-full bg-white p-1 shadow-sm ring-1 ring-stone-950/5">
+        <div className="mx-auto inline-flex w-fit rounded-full bg-white p-1 shadow-sm ring-1 ring-stone-950/5 lg:mx-0">
           <button
             onClick={() => {
               if (paymentMethod !== 'crypto') setBillingInterval('monthly');

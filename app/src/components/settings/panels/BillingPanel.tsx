@@ -10,14 +10,12 @@ import {
   creditsApi,
   type CreditTransaction,
   type SavedCard,
-  type TeamUsage,
 } from '../../../services/api/creditsApi';
 import type { CurrentPlanData, PlanTier } from '../../../types/api';
 import { openUrl } from '../../../utils/openUrl';
 import PageBackButton from '../components/PageBackButton';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import BillingHistoryTab from './billing/BillingHistoryTab';
-import BillingOverviewTab from './billing/BillingOverviewTab';
 import BillingPaymentsTab from './billing/BillingPaymentsTab';
 import BillingPlansTab from './billing/BillingPlansTab';
 import { buildPlanId } from './billingHelpers';
@@ -41,7 +39,6 @@ const BillingPanel = () => {
   // Credits & usage state
   const [currentPlan, setCurrentPlan] = useState<CurrentPlanData | null>(null);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
-  const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [isLoadingCredits, setIsLoadingCredits] = useState(false);
   const [isToppingUp, setIsToppingUp] = useState(false);
@@ -95,7 +92,6 @@ const BillingPanel = () => {
       log('[load] skipped: no session token yet');
       setCurrentPlan(null);
       setCreditBalance(null);
-      setTeamUsage(null);
       setIsLoadingCredits(false);
       return;
     }
@@ -106,10 +102,9 @@ const BillingPanel = () => {
     Promise.allSettled([
       billingApi.getCurrentPlan(),
       creditsApi.getBalance(),
-      creditsApi.getTeamUsage(),
       creditsApi.getTransactions(5, 0),
     ])
-      .then(([planResult, balanceResult, usageResult, transactionsResult]) => {
+      .then(([planResult, balanceResult, transactionsResult]) => {
         if (planResult.status === 'fulfilled') {
           const plan = planResult.value;
           log(
@@ -135,13 +130,6 @@ const BillingPanel = () => {
           }
         } else {
           log('[load] getBalance failed: %O', balanceResult.reason);
-        }
-        if (usageResult.status === 'fulfilled') {
-          if (!cancelled) {
-            setTeamUsage(usageResult.value);
-          }
-        } else {
-          log('[load] getTeamUsage failed: %O', usageResult.reason);
         }
         if (transactionsResult.status === 'fulfilled') {
           if (!cancelled) {
@@ -438,7 +426,7 @@ const BillingPanel = () => {
   // ── JSX ─────────────────────────────────────────────────────────────
   return (
     <div className="overflow-y-auto">
-      <div className="mx-auto max-w-2xl space-y-10 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <header className="space-y-5">
           <PageBackButton
             label={
