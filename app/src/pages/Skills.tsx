@@ -298,7 +298,7 @@ export default function Skills() {
         description: meta.description,
         category: meta.category,
         kind: 'composio',
-        icon: <span className="text-lg">{meta.icon}</span>,
+        icon: meta.icon,
         composioToolkit: meta,
         composioConnection: connection,
       });

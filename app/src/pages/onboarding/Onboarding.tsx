@@ -4,6 +4,7 @@ import { useCoreState } from '../../providers/CoreStateProvider';
 import { referralApi } from '../../services/api/referralApi';
 import { userApi } from '../../services/api/userApi';
 import { getDefaultEnabledTools } from '../../utils/toolDefinitions';
+import ContextGatheringStep from './steps/ContextGatheringStep';
 import ReferralApplyStep from './steps/ReferralApplyStep';
 import ScreenPermissionsStep from './steps/ScreenPermissionsStep';
 import SkillsStep from './steps/SkillsStep';
@@ -103,7 +104,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
 
   const handleNext = () => {
     const logical = resolveOnboardingStep(currentStep, skipReferralStep);
-    if (logical < 3) {
+    if (logical < 4) {
       setCurrentStep(logical + 1);
     }
   };
@@ -128,13 +129,16 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
 
   const handleSkillsNext = async (connectedSources: string[]) => {
     setDraft(prev => ({ ...prev, connectedSources }));
+    handleNext();
+  };
 
+  const handleContextNext = async () => {
     await setOnboardingTasks({
       accessibilityPermissionGranted: draft.accessibilityPermissionGranted,
       localModelConsentGiven: false,
       localModelDownloadStarted: false,
       enabledTools: getDefaultEnabledTools(),
-      connectedSources,
+      connectedSources: draft.connectedSources,
       updatedAtMs: Date.now(),
     });
 
@@ -178,6 +182,14 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
         return <ScreenPermissionsStep onNext={handleAccessibilityNext} onBack={handleBack} />;
       case 3:
         return <SkillsStep onNext={handleSkillsNext} onBack={handleBack} />;
+      case 4:
+        return (
+          <ContextGatheringStep
+            connectedSources={draft.connectedSources}
+            onNext={handleContextNext}
+            onBack={handleBack}
+          />
+        );
       default:
         return null;
     }

@@ -49,9 +49,13 @@ describe('Skills page — Composio catalog fallback', () => {
     expect(screen.getByText('Google Calendar')).toBeInTheDocument();
     expect(screen.getByText('Google Drive')).toBeInTheDocument();
     expect(screen.getByText('Gmail')).toBeInTheDocument();
+    expect(screen.getByText('Google Sheets')).toBeInTheDocument();
     expect(screen.getByText('Notion')).toBeInTheDocument();
+    expect(screen.getByText('Facebook')).toBeInTheDocument();
     expect(screen.getByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByText('Instagram')).toBeInTheDocument();
     expect(screen.getByText('Linear')).toBeInTheDocument();
+    expect(screen.getByText('Reddit')).toBeInTheDocument();
     expect(screen.getByText('Slack')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Other' })).not.toBeInTheDocument();
   });

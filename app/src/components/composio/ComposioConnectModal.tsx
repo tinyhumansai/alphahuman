@@ -219,7 +219,7 @@ export default function ComposioConnectModal({
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0 pr-2">
               <div className="flex items-center gap-2">
-                <span className="text-lg">{toolkit.icon}</span>
+                {toolkit.icon}
                 <h2 id="composio-setup-title" className="text-base font-semibold text-stone-900">
                   {headerTitle}
                 </h2>
