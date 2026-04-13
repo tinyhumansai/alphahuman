@@ -29,7 +29,11 @@ pub(super) fn make_workspace() -> TempDir {
         "# Identity\nName: OpenHuman",
     )
     .unwrap();
-    std::fs::write(tmp.path().join("USER.md"), "# User\nName: Test User").unwrap();
+    std::fs::write(
+        tmp.path().join("PROFILE.md"),
+        "# User Profile\nName: Test User",
+    )
+    .unwrap();
     std::fs::write(
         tmp.path().join("HEARTBEAT.md"),
         "# Heartbeat\nCheck status.",

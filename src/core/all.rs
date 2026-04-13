@@ -241,6 +241,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "tree_summarizer" => {
             Some("Hierarchical time-based summarization tree for background knowledge compression.")
         }
+        "learning" => Some(
+            "User context enrichment — LinkedIn profile scraping and onboarding intelligence.",
+        ),
         _ => None,
     }
 }

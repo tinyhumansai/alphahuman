@@ -177,12 +177,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
             "Open approved HTTPS URLs in Brave Browser (allowlist-only, no scraping)",
         ));
     }
-    if config.composio.enabled {
-        tool_descs.push((
-            "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
-        ));
-    }
+    // Composio tool descriptions are intentionally excluded from the main
+    // agent prompt — those tools are only available to the skills_agent
+    // subagent via category_filter = "skill".
     tool_descs.push((
         "schedule",
         "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",

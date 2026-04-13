@@ -98,11 +98,14 @@ const ContextGatheringStep = ({
     ranRef.current = true;
 
     if (!hasGmail) {
-      const skipped: Record<string, StageStatus> = {};
-      for (const s of STAGES) skipped[s.id] = 'skipped';
-      setStageStatuses(skipped);
-      setStageDetails({ 'gmail-search': 'Gmail not connected' });
-      setFinished(true);
+      // Derive skipped state asynchronously to avoid synchronous setState in effect.
+      queueMicrotask(() => {
+        const skipped: Record<string, StageStatus> = {};
+        for (const s of STAGES) skipped[s.id] = 'skipped';
+        setStageStatuses(skipped);
+        setStageDetails({ 'gmail-search': 'Gmail not connected' });
+        setFinished(true);
+      });
       return;
     }
 
@@ -111,14 +114,22 @@ const ContextGatheringStep = ({
   }, []);
 
   async function runPipeline() {
+    console.debug('[onboarding:context] runPipeline started');
     // Mark all stages as active (pipeline runs as one call).
     setStageStatuses(prev => ({ ...prev, 'gmail-search': 'active' }));
 
     try {
+      console.debug('[onboarding:context] calling learning_linkedin_enrichment');
       const raw = await callCoreRpc<unknown>({ method: 'openhuman.learning_linkedin_enrichment' });
       const result = unwrapCliEnvelope<EnrichmentResult>(raw);
+      console.debug('[onboarding:context] enrichment result', {
+        profileUrl: result.profile_url,
+        logLines: result.log.length,
+        hasProfileData: result.profile_data !== null,
+      });
       applyLogToStages(result.log, result.profile_url);
     } catch (e) {
+      console.debug('[onboarding:context] pipeline error', e);
       // Pipeline failed entirely — mark all pending stages as error.
       const errMsg = e instanceof Error ? e.message : 'Pipeline failed';
       setStageStatuses(prev => {

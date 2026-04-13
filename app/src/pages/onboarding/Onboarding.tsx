@@ -128,11 +128,15 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   };
 
   const handleSkillsNext = async (connectedSources: string[]) => {
+    console.debug('[onboarding:handleSkillsNext]', { connectedSources });
     setDraft(prev => ({ ...prev, connectedSources }));
     handleNext();
   };
 
   const handleContextNext = async () => {
+    console.debug('[onboarding:handleContextNext]', {
+      connectedSources: draft.connectedSources,
+    });
     await setOnboardingTasks({
       accessibilityPermissionGranted: draft.accessibilityPermissionGranted,
       localModelConsentGiven: false,
@@ -143,6 +147,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     });
 
     // Notify backend (best-effort — don't block onboarding completion)
+    console.debug('[onboarding:handleContextNext] notifying backend');
     try {
       await userApi.onboardingComplete();
     } catch {
@@ -150,6 +155,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     }
 
     // Write onboarding_completed to core config (source of truth)
+    console.debug('[onboarding:handleContextNext] setting onboarding completed flag');
     try {
       await setOnboardingCompletedFlag(true);
     } catch {

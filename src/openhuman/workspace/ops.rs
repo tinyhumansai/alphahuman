@@ -5,10 +5,9 @@ use crate::openhuman::heartbeat::engine::HeartbeatEngine;
 use crate::openhuman::skills::init_skills_dir;
 use std::path::Path;
 
-const BOOTSTRAP_FILES: [(&str, &str); 3] = [
+const BOOTSTRAP_FILES: [(&str, &str); 2] = [
     ("SOUL.md", include_str!("../agent/prompts/SOUL.md")),
     ("IDENTITY.md", include_str!("../agent/prompts/IDENTITY.md")),
-    ("USER.md", include_str!("../agent/prompts/USER.md")),
 ];
 
 fn ensure_workspace_file(

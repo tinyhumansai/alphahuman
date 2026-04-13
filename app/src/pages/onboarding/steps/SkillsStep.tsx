@@ -61,26 +61,36 @@ const SkillsStep = ({ onNext, onBack: _onBack }: SkillsStepProps) => {
   const [activeToolkit, setActiveToolkit] = useState<ComposioToolkitMeta | null>(null);
 
   const {
+    toolkits: backendToolkits,
     connectionByToolkit,
     loading: composioLoading,
+    error: composioError,
     refresh: refreshComposio,
   } = useComposioIntegrations();
 
-  // Only show Gmail during onboarding — more integrations on the Integrations page.
-  const gmailMeta = composioToolkitMeta('gmail');
-  const displayToolkits: ComposioToolkitMeta[] = [gmailMeta];
+  // Only show Gmail during onboarding — but only if the backend allowlist
+  // includes it. Fall back to showing it from the static catalog when the
+  // allowlist hasn't loaded yet (composioLoading is true).
+  const ONBOARDING_SLUGS = ['gmail'] as const;
+  const displayToolkits: ComposioToolkitMeta[] = ONBOARDING_SLUGS.filter(
+    slug => composioLoading || backendToolkits.map(t => t.toLowerCase()).includes(slug)
+  ).map(slug => composioToolkitMeta(slug));
 
-  const connectedCount = Array.from(connectionByToolkit.values()).filter(c => {
-    const state = deriveComposioState(c);
-    return state === 'connected';
+  // Only count connections for the displayed toolkits.
+  const connectedCount = displayToolkits.filter(t => {
+    const conn = connectionByToolkit.get(t.slug);
+    return conn && deriveComposioState(conn) === 'connected';
   }).length;
 
   const handleFinish = async () => {
+    console.debug('[onboarding:skills] handleSkillsNext', { displayToolkits, connectedCount });
     setError(null);
     setLoading(true);
     try {
+      // Only include connections for displayed toolkit slugs.
+      const displaySlugs = new Set(displayToolkits.map(t => t.slug));
       const connectedSources = Array.from(connectionByToolkit.entries())
-        .filter(([, c]) => deriveComposioState(c) === 'connected')
+        .filter(([slug, c]) => displaySlugs.has(slug) && deriveComposioState(c) === 'connected')
         .map(([slug]) => `composio:${slug}`);
       await onNext(connectedSources);
     } catch (e) {
@@ -102,7 +112,17 @@ const SkillsStep = ({ onNext, onBack: _onBack }: SkillsStepProps) => {
 
       {/* Integration cards */}
       <div className="mb-4 space-y-2">
-        {composioLoading && displayToolkits.length === 0 ? (
+        {composioError ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+            <p className="text-sm text-amber-700 mb-2">Could not load integrations</p>
+            <button
+              type="button"
+              onClick={() => void refreshComposio()}
+              className="text-xs font-medium text-amber-800 border border-amber-300 rounded-lg px-3 py-1 hover:bg-amber-100 transition-colors">
+              Retry
+            </button>
+          </div>
+        ) : composioLoading && displayToolkits.length === 0 ? (
           <div className="rounded-xl border border-stone-100 bg-stone-50 p-4 text-center">
             <p className="text-sm text-stone-400 animate-pulse">Loading integrations…</p>
           </div>

@@ -99,6 +99,9 @@ pub async fn run_linkedin_enrichment(config: &Config) -> anyhow::Result<LinkedIn
     tracing::info!(url = %url, "[linkedin_enrichment] stage 2: scraping LinkedIn profile via Apify");
     result.log.push("Scraping LinkedIn profile...".into());
 
+    // Build memory client once for all persist calls.
+    let memory = build_memory_client().ok();
+
     match scrape_linkedin_profile(&client, &url).await {
         Ok(data) => {
             tracing::info!("[linkedin_enrichment] Apify scrape succeeded");
@@ -116,8 +119,10 @@ pub async fn run_linkedin_enrichment(config: &Config) -> anyhow::Result<LinkedIn
             }
 
             // Also persist to memory store for RAG retrieval.
-            if let Err(e) = persist_linkedin_profile(config, &url, &data).await {
-                tracing::warn!(error = %e, "[linkedin_enrichment] failed to persist to memory");
+            if let Some(ref mem) = memory {
+                if let Err(e) = persist_linkedin_profile(mem, &url, &data).await {
+                    tracing::warn!(error = %e, "[linkedin_enrichment] failed to persist to memory");
+                }
             }
 
             result.profile_data = Some(data);
@@ -130,7 +135,9 @@ pub async fn run_linkedin_enrichment(config: &Config) -> anyhow::Result<LinkedIn
             if let Err(e) = write_profile_md_url_only(config, &url) {
                 tracing::warn!(error = %e, "[linkedin_enrichment] failed to write PROFILE.md");
             }
-            let _ = persist_linkedin_url_only(config, &url).await;
+            if let Some(ref mem) = memory {
+                let _ = persist_linkedin_url_only(mem, &url).await;
+            }
         }
     }
 
@@ -514,18 +521,19 @@ async fn scrape_linkedin_profile(
         .ok_or_else(|| anyhow::anyhow!("Apify run returned an empty items array"))
 }
 
+/// Build a local memory client for profile persistence.
+fn build_memory_client() -> anyhow::Result<crate::openhuman::memory::store::MemoryClient> {
+    crate::openhuman::memory::store::MemoryClient::new_local()
+        .map_err(|e| anyhow::anyhow!("memory client unavailable: {e}"))
+}
+
 /// Persist the full scraped LinkedIn profile to the user-profile memory
 /// namespace so the agent has rich context about the user.
 async fn persist_linkedin_profile(
-    _config: &Config,
+    memory: &crate::openhuman::memory::store::MemoryClient,
     url: &str,
     data: &serde_json::Value,
 ) -> anyhow::Result<()> {
-    use crate::openhuman::memory::store::MemoryClient;
-
-    let memory =
-        MemoryClient::new_local().map_err(|e| anyhow::anyhow!("memory client unavailable: {e}"))?;
-
     let content = format!(
         "LinkedIn profile for {url}:\n\n{}",
         serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string())
@@ -553,11 +561,10 @@ async fn persist_linkedin_profile(
 }
 
 /// Fallback: persist just the LinkedIn URL when the full scrape fails.
-async fn persist_linkedin_url_only(_config: &Config, url: &str) -> anyhow::Result<()> {
-    use crate::openhuman::memory::store::MemoryClient;
-
-    let memory =
-        MemoryClient::new_local().map_err(|e| anyhow::anyhow!("memory client unavailable: {e}"))?;
+async fn persist_linkedin_url_only(
+    memory: &crate::openhuman::memory::store::MemoryClient,
+    url: &str,
+) -> anyhow::Result<()> {
 
     memory
         .store_skill_sync(

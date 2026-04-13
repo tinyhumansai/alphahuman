@@ -25,7 +25,7 @@ fn openclaw_loads_workspace_markdown_files() {
     );
     assert!(
         prompt.contains("Name: Test User"),
-        "USER.md content should be inlined"
+        "PROFILE.md content should be inlined"
     );
     // MEMORY.md is optional (archivist-written). When present it should inline.
     assert!(

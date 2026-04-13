@@ -308,16 +308,22 @@ const CATALOG: Record<string, Omit<ComposioToolkitMeta, 'slug'>> = {
   },
 };
 
+/** All toolkit slugs with known CATALOG entries, including alternate
+ *  slug variants the backend may return (e.g. `google_calendar` vs
+ *  `googlecalendar`). Both map to the same metadata in CATALOG. */
 export const KNOWN_COMPOSIO_TOOLKITS = Object.freeze([
   'gmail',
   'googlecalendar',
+  'google_calendar',
   'googledrive',
+  'google_drive',
+  'google_sheets',
+  'googlesheets',
   'notion',
   'github',
   'slack',
   'linear',
   'facebook',
-  'google_sheets',
   'instagram',
   'reddit',
 ]);
