@@ -237,19 +237,39 @@ pub async fn dump_agent_prompt(options: DumpPromptOptions) -> Result<DumpedPromp
     // ── Fetch connected integrations ────────────────────────────────────
     let connected_integrations = fetch_connected_integrations_for_dump(&config).await;
 
+    // Load the agent definition registry once. Both the main-agent and
+    // sub-agent paths consult it now: after #525/#526 the "main" dump
+    // routes through the same definition-driven filter as every other
+    // agent so what `dump-prompt main` shows matches what the runtime
+    // dispatch path actually feeds the LLM.
+    let registry = AgentDefinitionRegistry::load(&workspace_dir)
+        .context("loading agent definition registry for prompt dump")?;
+
     // ── Main agent path ────────────────────────────────────────────────
     if options.agent_id == "main" || options.agent_id == "orchestrator_main" {
+        let orchestrator = registry.get("orchestrator").cloned().ok_or_else(|| {
+            anyhow!(
+                "orchestrator definition not in registry — cannot render main dump. \
+                 Known agents: [{}]",
+                registry
+                    .list()
+                    .iter()
+                    .map(|d| d.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?;
         return render_main_agent_dump(
             &workspace_dir,
             &model_name,
             &tools_vec,
             &connected_integrations,
+            &registry,
+            &orchestrator,
         );
     }
 
     // ── Sub-agent path ────────────────────────────────────────────────
-    let registry = AgentDefinitionRegistry::load(&workspace_dir)
-        .context("loading agent definition registry for prompt dump")?;
     let definition = registry
         .get(&options.agent_id)
         .cloned()
@@ -336,11 +356,46 @@ fn render_main_agent_dump(
     model_name: &str,
     tools_vec: &[Box<dyn Tool>],
     connected_integrations: &[ConnectedIntegration],
+    registry: &AgentDefinitionRegistry,
+    orchestrator_def: &AgentDefinition,
 ) -> Result<DumpedPrompt> {
-    let prompt_tools = PromptTool::from_tools(tools_vec);
-    // Main agent dumps do not apply a visible-tool filter — every
-    // tool the registry emits is candidate for rendering.
-    let empty_filter: HashSet<String> = HashSet::new();
+    // Synthesise per-turn delegation tools the same way `dispatch::
+    // resolve_target_agent` does at runtime, so the dump reflects the
+    // exact tool surface the orchestrator's LLM sees in production:
+    // the agent's `[tools] named` list ∪ the names of the synthesised
+    // delegate_* tools (research, plan, run_code, … plus
+    // delegate_<toolkit> per connected Composio integration).
+    let extras = crate::openhuman::tools::orchestrator_tools::collect_orchestrator_tools(
+        orchestrator_def,
+        registry,
+        connected_integrations,
+    );
+
+    // Build the prompt tool list from the global registry plus the
+    // synthesised extras. The extras Vec must outlive `prompt_tools`
+    // because PromptTool borrows tool name + description fields, and
+    // both sources need to live until `build_with_cache_metadata`
+    // finishes consuming the PromptContext.
+    let mut prompt_tools = PromptTool::from_tools(tools_vec);
+    let extras_prompts = PromptTool::from_tools(&extras);
+    prompt_tools.extend(extras_prompts);
+
+    // Build the visibility whitelist from the orchestrator definition's
+    // `[tools] named` list unioned with every synthesised extra. When
+    // the orchestrator uses `ToolScope::Wildcard` (legacy / custom
+    // workspace overrides), we fall back to an empty filter — which the
+    // prompt builder treats as "no filter, every tool visible" — so the
+    // dump preserves the legacy unscoped behaviour for those agents.
+    let visible_filter: HashSet<String> = match &orchestrator_def.tools {
+        ToolScope::Named(names) => {
+            let mut set: HashSet<String> = names.iter().cloned().collect();
+            for tool in &extras {
+                set.insert(tool.name().to_string());
+            }
+            set
+        }
+        ToolScope::Wildcard => HashSet::new(),
+    };
 
     // Construct a real PFormatToolDispatcher so the dump includes the
     // exact "Tool Use Protocol" preamble the runtime would inject.
@@ -399,7 +454,7 @@ fn render_main_agent_dump(
         skills: &[],
         dispatcher_instructions: &dispatcher_instructions,
         learned,
-        visible_tool_names: &empty_filter,
+        visible_tool_names: &visible_filter,
         tool_call_format: ToolCallFormat::PFormat,
         connected_integrations,
     };
@@ -408,10 +463,27 @@ fn render_main_agent_dump(
         .build_with_cache_metadata(&ctx)
         .context("building main-agent prompt")?;
 
-    let tool_names: Vec<String> = tools_vec.iter().map(|t| t.name().to_string()).collect();
+    // Report the tool names that survived the visibility filter so
+    // tests and the CLI dump output reflect what the LLM actually
+    // sees, not the raw global registry. When the filter is empty
+    // (Wildcard scope), every tool from registry + extras is reported.
+    let visible_predicate = |name: &str| -> bool {
+        if visible_filter.is_empty() {
+            true
+        } else {
+            visible_filter.contains(name)
+        }
+    };
+    let tool_names: Vec<String> = tools_vec
+        .iter()
+        .chain(extras.iter())
+        .filter(|t| visible_predicate(t.name()))
+        .map(|t| t.name().to_string())
+        .collect();
     let skill_tool_count = tools_vec
         .iter()
-        .filter(|t| t.category() == ToolCategory::Skill)
+        .chain(extras.iter())
+        .filter(|t| visible_predicate(t.name()) && t.category() == ToolCategory::Skill)
         .count();
 
     Ok(DumpedPrompt {
@@ -797,8 +869,52 @@ mod tests {
         );
     }
 
+    /// Helper: build a minimal AgentDefinition + registry pair the
+    /// `render_main_agent_dump` tests can use. The "orchestrator" entry
+    /// here is wildcard-scoped with no subagents so the dump runs in
+    /// its legacy unfiltered shape (every tool from `tools_vec` shows
+    /// up). Tests that exercise the per-agent filter use
+    /// `orchestrator_def_with_named_scope` below.
+    fn wildcard_orchestrator_def() -> AgentDefinition {
+        AgentDefinition {
+            id: "orchestrator".into(),
+            when_to_use: "test".into(),
+            display_name: None,
+            system_prompt: PromptSource::Inline(String::new()),
+            omit_identity: true,
+            omit_memory_context: true,
+            omit_safety_preamble: true,
+            omit_skills_catalog: true,
+            model: ModelSpec::Inherit,
+            temperature: 0.4,
+            tools: ToolScope::Wildcard,
+            disallowed_tools: vec![],
+            skill_filter: None,
+            category_filter: None,
+            max_iterations: 8,
+            timeout_secs: None,
+            sandbox_mode: SandboxMode::None,
+            background: false,
+            uses_fork_context: false,
+            subagents: vec![],
+            delegate_name: None,
+            source: DefinitionSource::Builtin,
+        }
+    }
+
+    fn registry_with_orchestrator(orch: AgentDefinition) -> AgentDefinitionRegistry {
+        let mut reg = AgentDefinitionRegistry::default();
+        reg.insert(orch);
+        reg
+    }
+
+    /// Wildcard scope path: the dump should report every tool from
+    /// `tools_vec` (no filter applied) and produce the standard
+    /// system-prompt skeleton with the Tool Use Protocol section. This
+    /// preserves the legacy main-dump assertions for orchestrator
+    /// definitions that opt out of the named filter.
     #[test]
-    fn render_main_agent_dump_includes_tool_instructions_and_skill_count() {
+    fn render_main_agent_dump_wildcard_scope_shows_full_tool_set() {
         let workspace =
             std::env::temp_dir().join(format!("openhuman_debug_main_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&workspace).unwrap();
@@ -818,7 +934,11 @@ mod tests {
             }),
         ];
 
-        let dumped = render_main_agent_dump(&workspace, "reasoning-v1", &tools, &[]).unwrap();
+        let orch = wildcard_orchestrator_def();
+        let registry = registry_with_orchestrator(orch.clone());
+        let dumped =
+            render_main_agent_dump(&workspace, "reasoning-v1", &tools, &[], &registry, &orch)
+                .unwrap();
         assert_eq!(dumped.mode, "main");
         assert_eq!(dumped.model, "reasoning-v1");
         assert_eq!(dumped.tool_names, vec!["shell", "notion__create_page"]);
@@ -826,6 +946,58 @@ mod tests {
         assert!(dumped.text.contains("## Tools"));
         assert!(dumped.text.contains("Tool Use Protocol"));
         assert!(dumped.cache_boundary.is_some());
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    /// Named-scope path (the new behaviour after #525/#526): the
+    /// orchestrator definition restricts the LLM to a small whitelist,
+    /// and the dump must reflect that — `shell` is in `tools_vec` but
+    /// not in the orchestrator's `named` list, so it must NOT appear
+    /// in `tool_names`. This is the regression guard for the
+    /// "render_main_agent_dump uses empty_filter so the catalogue
+    /// leaks" bug at the heart of #526.
+    #[test]
+    fn render_main_agent_dump_named_scope_filters_to_whitelist() {
+        let workspace = std::env::temp_dir().join(format!(
+            "openhuman_debug_main_named_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(StubTool {
+                name: "shell",
+                category: ToolCategory::System,
+            }),
+            Box::new(StubTool {
+                name: "query_memory",
+                category: ToolCategory::System,
+            }),
+            Box::new(StubTool {
+                name: "GMAIL_SEND_EMAIL",
+                category: ToolCategory::Skill,
+            }),
+        ];
+
+        let mut orch = wildcard_orchestrator_def();
+        orch.tools = ToolScope::Named(vec![
+            "query_memory".into(),
+            "ask_user_clarification".into(),
+        ]);
+        let registry = registry_with_orchestrator(orch.clone());
+
+        let dumped =
+            render_main_agent_dump(&workspace, "reasoning-v1", &tools, &[], &registry, &orch)
+                .unwrap();
+
+        // `shell` and `GMAIL_SEND_EMAIL` are in the global tools_vec
+        // but NOT in the orchestrator's named whitelist → must be
+        // excluded from the dump output. Only `query_memory` survives
+        // (the other named entry, `ask_user_clarification`, isn't in
+        // tools_vec at all so nothing to render for it).
+        assert_eq!(dumped.tool_names, vec!["query_memory"]);
+        assert_eq!(dumped.skill_tool_count, 0);
 
         let _ = std::fs::remove_dir_all(workspace);
     }
