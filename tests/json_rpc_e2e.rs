@@ -552,10 +552,16 @@ fn extract_string_outcome(result: &Value) -> String {
 }
 
 fn write_min_config(openhuman_dir: &Path, api_origin: &str) {
+    // `chat_onboarding_completed = true` bypasses the welcome agent so that
+    // `channel_web_chat` in tests routes straight to the orchestrator. Without
+    // this, the first chat turn goes through the welcome flow whose tool
+    // contract is not modelled by the e2e mock, which closes the SSE stream
+    // mid-response.
     let cfg = format!(
         r#"api_url = "{api_origin}"
 default_model = "e2e-mock-model"
 default_temperature = 0.7
+chat_onboarding_completed = true
 
 [secrets]
 encrypt = false
@@ -589,6 +595,7 @@ fn write_min_config_with_local_ai_disabled(openhuman_dir: &Path, api_origin: &st
         r#"api_url = "{api_origin}"
 default_model = "e2e-mock-model"
 default_temperature = 0.7
+chat_onboarding_completed = true
 
 [secrets]
 encrypt = false
