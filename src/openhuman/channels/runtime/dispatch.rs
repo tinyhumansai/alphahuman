@@ -214,7 +214,8 @@ impl AgentScoping {
 /// Decide which agent should run for this channel turn and build the
 /// matching tool-scoping payload.
 ///
-/// The selection is purely a function of `config.onboarding_completed`:
+/// The selection is purely a function of
+/// `config.chat_onboarding_completed`:
 ///
 /// * **`false`** → route to the `welcome` agent. Welcome's TOML
 ///   restricts it to two tools (`complete_onboarding`, `memory_recall`)
@@ -228,8 +229,20 @@ impl AgentScoping {
 ///   field in its TOML; this function expands that field into a list
 ///   of `delegate_*` tools spliced alongside the global registry.
 ///
-/// The next channel message after `complete_onboarding` flips the flag
-/// is automatically routed to the orchestrator because
+/// We deliberately read `chat_onboarding_completed` and NOT the
+/// React-UI-managed `onboarding_completed` flag. The latter is the
+/// gate `OnboardingOverlay.tsx` uses to render its full-screen wizard
+/// in the Tauri desktop app — by the time a desktop user can type a
+/// chat message it's already `true`, so routing on it would mean
+/// welcome could never run from the Tauri app. The chat flag is set
+/// exclusively by the welcome agent itself when it calls
+/// `complete_onboarding(complete)`, so it stays `false` for the
+/// user's actual first message regardless of what the React layer
+/// did. See `Config::chat_onboarding_completed` rustdoc for the full
+/// rationale.
+///
+/// The next channel message after `complete_onboarding` flips the
+/// flag is automatically routed to the orchestrator because
 /// `Config::load_or_init()` reads from disk every call (no in-process
 /// cache, verified at `config/schema/load.rs:409`), so the new value
 /// is observed on the next turn without any explicit handoff event.
@@ -251,7 +264,7 @@ async fn resolve_target_agent(channel: &str) -> AgentScoping {
         }
     };
 
-    let target_id = if config.onboarding_completed {
+    let target_id = if config.chat_onboarding_completed {
         "orchestrator"
     } else {
         "welcome"
@@ -260,7 +273,8 @@ async fn resolve_target_agent(channel: &str) -> AgentScoping {
     tracing::info!(
         channel = %channel,
         target_agent = target_id,
-        onboarding_completed = config.onboarding_completed,
+        chat_onboarding_completed = config.chat_onboarding_completed,
+        ui_onboarding_completed = config.onboarding_completed,
         "[dispatch::routing] selected target agent"
     );
 

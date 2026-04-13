@@ -508,27 +508,40 @@ fn build_session_agent(
         effective.default_temperature = temp;
     }
 
-    // Route to welcome vs orchestrator based on the per-user onboarding
-    // flag. #525 fix: pre-onboarding users see the welcome agent's
-    // persona with its 2-tool TOML scope (complete_onboarding +
-    // memory_recall) instead of the orchestrator's default delegation
-    // surface. Post-onboarding they transition automatically on the
-    // next chat turn because `Config::load_or_init` reads fresh from
-    // disk every call.
+    // Route to welcome vs orchestrator based on the per-user
+    // **chat-onboarding** flag. #525 fix: pre-onboarding users see the
+    // welcome agent's persona with its 2-tool TOML scope
+    // (complete_onboarding + memory_recall) instead of the
+    // orchestrator's default delegation surface. Post-onboarding they
+    // transition automatically on the next chat turn because
+    // `Config::load_or_init` reads fresh from disk every call.
+    //
+    // We deliberately read `chat_onboarding_completed`, NOT
+    // `onboarding_completed`. The latter is the React UI wizard's
+    // gate (`OnboardingOverlay.tsx`) which flips to `true` the moment
+    // the user dismisses the wizard — which happens BEFORE they ever
+    // type in the chat pane. If we routed on that flag the welcome
+    // agent could never run from the Tauri desktop app. The chat
+    // flag is set only by the welcome agent itself via
+    // `complete_onboarding(action="complete")`, so it stays `false`
+    // for the user's actual first chat message regardless of what
+    // the React layer did, then flips on the welcome turn so the
+    // very next message routes to orchestrator.
     //
     // The config reached here has already been loaded by
     // `run_chat_task` via `config_rpc::load_config_with_timeout`, so
-    // the `onboarding_completed` field reflects the current persisted
-    // state — no cache to invalidate.
-    let target_agent_id = if effective.onboarding_completed {
+    // both flags reflect the current persisted state — no cache to
+    // invalidate.
+    let target_agent_id = if effective.chat_onboarding_completed {
         "orchestrator"
     } else {
         "welcome"
     };
 
     log::info!(
-        "[web-channel] routing chat turn to '{}' (onboarding_completed={}, client_id={}, thread_id={})",
+        "[web-channel] routing chat turn to '{}' (chat_onboarding_completed={}, ui_onboarding_completed={}, client_id={}, thread_id={})",
         target_agent_id,
+        effective.chat_onboarding_completed,
         effective.onboarding_completed,
         client_id,
         thread_id

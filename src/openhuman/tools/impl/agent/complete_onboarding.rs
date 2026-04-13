@@ -100,9 +100,19 @@ async fn check_status() -> anyhow::Result<ToolResult> {
             .as_deref()
             .unwrap_or(crate::openhuman::config::DEFAULT_MODEL)
     ));
+    // Two distinct flags after the chat / UI split:
+    // * `onboarding_completed` — React wizard (Tauri desktop UI) gate
+    // * `chat_onboarding_completed` — welcome agent's own gate, which
+    //   determines whether YOU (the welcome agent reading this report)
+    //   are routed to handle the next chat turn. Use the chat flag,
+    //   not the UI flag, when deciding whether your work here is done.
     report.push_str(&format!(
-        "- Onboarding completed: {}\n",
+        "- UI onboarding wizard completed: {}\n",
         config.onboarding_completed
+    ));
+    report.push_str(&format!(
+        "- Chat welcome flow completed: {}\n",
+        config.chat_onboarding_completed
     ));
 
     // ── Channels ────────────────────────────────────────────────────
@@ -240,20 +250,37 @@ async fn check_status() -> anyhow::Result<ToolResult> {
     Ok(ToolResult::success(report))
 }
 
-/// Marks onboarding as complete and seeds proactive cron jobs.
+/// Marks the **chat-based welcome agent flow** as complete and seeds
+/// proactive cron jobs.
+///
+/// After the #525 chat/UI onboarding split this tool flips
+/// [`Config::chat_onboarding_completed`] — NOT the React UI's
+/// [`Config::onboarding_completed`] flag. The welcome agent gates on
+/// the chat flag, so flipping it here is what tells dispatch to route
+/// the next chat turn to the orchestrator instead of welcome.
+///
+/// The React UI manages its own `onboarding_completed` flag via the
+/// `config.set_onboarding_completed` JSON-RPC method (called by
+/// `OnboardingOverlay.tsx::handleDone` and `Onboarding.tsx`). The two
+/// flags are intentionally orthogonal so that:
+///   * a Tauri user who completes the React wizard still sees the
+///     welcome agent on their first chat turn (because the chat flag
+///     is still `false` until the agent runs);
+///   * a Telegram/Discord user (no React wizard) sees the welcome
+///     agent on their first inbound message (same reason).
 async fn complete() -> anyhow::Result<ToolResult> {
     let mut config = Config::load_or_init()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
-    if config.onboarding_completed {
-        tracing::debug!("[complete_onboarding] already completed — no-op");
+    if config.chat_onboarding_completed {
+        tracing::debug!("[complete_onboarding] chat welcome flow already completed — no-op");
         return Ok(ToolResult::success(
-            "Onboarding was already marked as complete.",
+            "Chat welcome flow was already marked as complete.",
         ));
     }
 
-    config.onboarding_completed = true;
+    config.chat_onboarding_completed = true;
     config
         .save()
         .await
@@ -267,11 +294,13 @@ async fn complete() -> anyhow::Result<ToolResult> {
         }
     });
 
-    tracing::info!("[complete_onboarding] onboarding marked complete, proactive agents seeded");
+    tracing::info!(
+        "[complete_onboarding] chat welcome flow marked complete, proactive agents seeded"
+    );
 
     Ok(ToolResult::success(
-        "Onboarding marked as complete. Morning briefing and proactive agent jobs have been \
-         set up. The user is all set!",
+        "Chat welcome flow marked as complete. Morning briefing and proactive agent jobs have \
+         been set up. The user is all set!",
     ))
 }
 
