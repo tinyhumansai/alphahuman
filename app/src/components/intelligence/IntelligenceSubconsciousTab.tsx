@@ -111,9 +111,7 @@ export default function IntelligenceSubconsciousTab({
 
   const handleFixInSkills = (escalationId: string) => {
     console.debug('[subconscious-ui] escalation fix in skills:navigate', { escalationId });
-    navigate('/skills', {
-      state: { subconsciousEscalationId: escalationId },
-    });
+    navigate('/skills', { state: { subconsciousEscalationId: escalationId } });
   };
 
   const handleToggleTask = async (taskId: string, enabled: boolean, title: string) => {

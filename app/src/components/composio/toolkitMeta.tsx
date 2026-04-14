@@ -25,9 +25,9 @@ import {
   SiSlack,
 } from 'react-icons/si';
 
+import { canonicalizeComposioToolkitSlug } from '../../lib/composio/toolkitSlug';
 import type { SkillCategory } from '../skills/skillCategories';
 import { SkillIconBadge } from '../skills/skillIcons';
-import { canonicalizeComposioToolkitSlug } from '../../lib/composio/toolkitSlug';
 
 export interface ComposioToolkitMeta {
   /** Toolkit slug as returned by the backend, e.g. `"gmail"`. */
