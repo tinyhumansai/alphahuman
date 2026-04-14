@@ -810,7 +810,9 @@ async fn json_rpc_web_chat_routing_cases_use_expected_backend_models() {
         ("hint:agentic", "agentic-v1"),
         ("hint:coding", "coding-v1"),
         ("reasoning-v1", "reasoning-v1"),
-        // Web chat currently forwards lightweight hint overrides as-is.
+        // Web chat forwards lightweight hint overrides verbatim; this test keeps
+        // local AI disabled (no local_ai.enabled=true), so remote-only routing
+        // applies and "hint:reaction" is expected to pass through unchanged.
         ("hint:reaction", "hint:reaction"),
     ];
 
