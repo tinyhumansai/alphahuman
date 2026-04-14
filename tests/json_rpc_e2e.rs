@@ -604,7 +604,6 @@ encrypt = false
         toml::from_str(&cfg).expect("config toml must match Config schema");
 }
 
-#[cfg(target_os = "macos")]
 fn write_min_config_with_local_ai_disabled(openhuman_dir: &Path, api_origin: &str) {
     let cfg = format!(
         r#"api_url = "{api_origin}"
@@ -785,9 +784,9 @@ async fn json_rpc_web_chat_routing_cases_use_expected_backend_models() {
     let (mock_addr, mock_join) = serve_on_ephemeral(mock_upstream_router()).await;
     let mock_origin = format!("http://{}", mock_addr);
 
-    write_min_config(&openhuman_home, &mock_origin);
+    write_min_config_with_local_ai_disabled(&openhuman_home, &mock_origin);
     let user_scoped_dir = openhuman_home.join("users").join("e2e-user");
-    write_min_config(&user_scoped_dir, &mock_origin);
+    write_min_config_with_local_ai_disabled(&user_scoped_dir, &mock_origin);
 
     let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let rpc_base = format!("http://{}", rpc_addr);
@@ -810,9 +809,9 @@ async fn json_rpc_web_chat_routing_cases_use_expected_backend_models() {
         ("hint:agentic", "agentic-v1"),
         ("hint:coding", "coding-v1"),
         ("reasoning-v1", "reasoning-v1"),
-        // Lightweight hints classify as non-Heavy and resolve_remote_model()
-        // maps them to remote_fallback_model in remote-only test config.
-        ("hint:reaction", "e2e-mock-model"),
+        // Web chat forwards lightweight hint overrides as-is for this path,
+        // so the upstream model receives the original hint string.
+        ("hint:reaction", "hint:reaction"),
     ];
 
     for (idx, (model_override, expected_model)) in routing_cases.iter().enumerate() {
