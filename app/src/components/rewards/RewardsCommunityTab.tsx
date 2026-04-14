@@ -1,9 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 
-import type {
-  RewardsAchievement,
-  RewardsSnapshot,
-} from '../../types/rewards';
+import type { RewardsAchievement, RewardsSnapshot } from '../../types/rewards';
 import { DISCORD_INVITE_URL } from '../../utils/links';
 
 function discordMembershipLabel(snapshot: RewardsSnapshot | null): string {

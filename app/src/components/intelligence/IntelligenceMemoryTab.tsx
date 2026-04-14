@@ -1,8 +1,4 @@
-import type {
-  ActionableItem,
-  ActionableItemSource,
-  TimeGroup,
-} from '../../types/intelligence';
+import type { ActionableItem, ActionableItemSource, TimeGroup } from '../../types/intelligence';
 import { ActionableCard } from './ActionableCard';
 
 interface IntelligenceMemoryTabProps {
