@@ -241,7 +241,10 @@ async fn flush_streaming_edit(channel: &str, state: &mut StreamingState) {
 
     if let Some(ref message_id) = state.message_id {
         let body = json!({ "text": draft });
-        match client.send_channel_edit(channel, message_id, &jwt, body).await {
+        match client
+            .send_channel_edit(channel, message_id, &jwt, body)
+            .await
+        {
             Ok(_) => {
                 tracing::debug!(
                     "[channel-inbound][stream] edit ok channel='{}' msg_id={} chars={}",

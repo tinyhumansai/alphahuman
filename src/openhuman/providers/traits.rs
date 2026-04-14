@@ -106,10 +106,7 @@ pub enum ProviderDelta {
     ThinkingDelta { delta: String },
     /// The start of a new native tool call. `call_id` is the
     /// provider-assigned id that later appears on the result message.
-    ToolCallStart {
-        call_id: String,
-        tool_name: String,
-    },
+    ToolCallStart { call_id: String, tool_name: String },
     /// A chunk of argument JSON text for an in-flight tool call.
     /// Streamed verbatim; may arrive as partial JSON that only becomes
     /// valid once the stream completes.

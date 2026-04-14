@@ -462,11 +462,8 @@ pub(crate) async fn run_tool_call_loop(
                     });
                 }
                 let tool_started = std::time::Instant::now();
-                let outcome = tokio::time::timeout(
-                    tool_deadline,
-                    tool.execute(call.arguments.clone()),
-                )
-                .await;
+                let outcome =
+                    tokio::time::timeout(tool_deadline, tool.execute(call.arguments.clone())).await;
                 let elapsed_ms = tool_started.elapsed().as_millis() as u64;
                 let (result_text, success) = match outcome {
                     Ok(Ok(r)) => {

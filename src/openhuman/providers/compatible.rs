@@ -1273,11 +1273,9 @@ impl OpenAiCompatibleProvider {
                             if !content.is_empty() {
                                 text_accum.push_str(content);
                                 let _ = delta_tx
-                                    .send(
-                                        crate::openhuman::providers::ProviderDelta::TextDelta {
-                                            delta: content.clone(),
-                                        },
-                                    )
+                                    .send(crate::openhuman::providers::ProviderDelta::TextDelta {
+                                        delta: content.clone(),
+                                    })
                                     .await;
                             }
                         }

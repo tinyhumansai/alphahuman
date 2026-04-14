@@ -306,7 +306,9 @@ impl Agent {
                     let progress_tx = self.on_progress.clone();
                     let forwarder = tokio::spawn(async move {
                         while let Some(event) = rx.recv().await {
-                            let Some(ref sink) = progress_tx else { continue };
+                            let Some(ref sink) = progress_tx else {
+                                continue;
+                            };
                             let mapped = match event {
                                 ProviderDelta::TextDelta { delta } => AgentProgress::TextDelta {
                                     delta,
@@ -318,15 +320,14 @@ impl Agent {
                                         iteration: iteration_for_stream,
                                     }
                                 }
-                                ProviderDelta::ToolCallStart {
-                                    call_id,
-                                    tool_name,
-                                } => AgentProgress::ToolCallArgsDelta {
-                                    call_id,
-                                    tool_name,
-                                    delta: String::new(),
-                                    iteration: iteration_for_stream,
-                                },
+                                ProviderDelta::ToolCallStart { call_id, tool_name } => {
+                                    AgentProgress::ToolCallArgsDelta {
+                                        call_id,
+                                        tool_name,
+                                        delta: String::new(),
+                                        iteration: iteration_for_stream,
+                                    }
+                                }
                                 ProviderDelta::ToolCallArgsDelta { call_id, delta } => {
                                     AgentProgress::ToolCallArgsDelta {
                                         call_id,
