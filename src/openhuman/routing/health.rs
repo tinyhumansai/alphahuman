@@ -109,6 +109,27 @@ impl LocalHealthChecker {
     pub fn invalidate(&self) {
         *self.cache.lock() = None;
     }
+
+    /// Create a checker pre-seeded with a known health state (test-only).
+    ///
+    /// The cache is set to never expire (`TTL = MAX`) so the given result is
+    /// returned immediately on every `is_healthy()` call without hitting the
+    /// network. Use this in tests to control local health without starting
+    /// a real Ollama instance.
+    #[cfg(test)]
+    pub fn seeded(healthy: bool) -> std::sync::Arc<Self> {
+        let checker = Self::with_ttl("http://127.0.0.1:19999", Duration::MAX);
+        *checker.cache.lock() = Some(HealthCache {
+            last_result: if healthy {
+                CachedStatus::Healthy
+            } else {
+                CachedStatus::Unavailable
+            },
+            checked_at: Instant::now(),
+            ttl: Duration::MAX,
+        });
+        std::sync::Arc::new(checker)
+    }
 }
 
 #[cfg(test)]

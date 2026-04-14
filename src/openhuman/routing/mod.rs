@@ -34,10 +34,12 @@
 pub mod health;
 pub mod policy;
 pub mod provider;
+pub mod quality;
 pub mod telemetry;
 
 pub use health::LocalHealthChecker;
 pub use policy::{classify, decide, RoutingTarget, TaskCategory};
+pub use quality::is_low_quality;
 pub use provider::IntelligentRoutingProvider;
 pub use telemetry::{emit as emit_routing_record, RoutingRecord};
 

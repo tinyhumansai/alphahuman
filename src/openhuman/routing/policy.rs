@@ -2,7 +2,7 @@
 //!
 //! Maps `hint:*` model strings to task categories and produces deterministic
 //! routing decisions based on task category, local model availability, and
-//! the configured routing policy.
+//! caller-supplied routing hints.
 
 /// Task complexity tier for model selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,39 @@ impl TaskCategory {
             Self::Heavy => "heavy",
         }
     }
+}
+
+/// Latency priority for a routing call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LatencyBudget {
+    /// Prefer the lowest-latency path (local).
+    Low,
+    #[default]
+    Normal,
+}
+
+/// Cost sensitivity for a routing call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CostSensitivity {
+    #[default]
+    Normal,
+    /// Minimize token cost — prefer local.
+    High,
+}
+
+/// Per-call routing hints that influence the policy decision.
+///
+/// All fields default to the permissive/normal setting so callers only need
+/// to set the fields that matter.
+#[derive(Debug, Clone, Default)]
+pub struct RoutingHints {
+    /// When `true` the request must never leave the local runtime. No fallback
+    /// to remote is permitted even when local fails or returns low quality.
+    pub privacy_required: bool,
+    /// Bias toward the lowest-latency path (local model).
+    pub latency_budget: LatencyBudget,
+    /// Bias toward the lowest-cost path (local model).
+    pub cost_sensitivity: CostSensitivity,
 }
 
 /// Routing target produced by the policy decision.
@@ -58,13 +91,9 @@ impl RoutingTarget {
 /// - `hint:reaction`, `hint:classify`, `hint:format`, `hint:sentiment`,
 ///   `hint:lightweight` → [`TaskCategory::Lightweight`]
 /// - `hint:summarize`, `hint:medium`, `hint:tool_lite` → [`TaskCategory::Medium`]
-/// - `hint:reasoning`, `hint:agentic`, `hint:coding`, `hint:heavy`, and all
-///   other `hint:*` values → [`TaskCategory::Heavy`]
-/// - Non-hint strings (exact model names) → [`TaskCategory::Heavy`] (sent to
-///   remote so the exact model is honoured).
+/// - All other `hint:*` values and exact model names → [`TaskCategory::Heavy`]
 pub fn classify(model: &str) -> TaskCategory {
-    let hint = model.strip_prefix("hint:");
-    match hint {
+    match model.strip_prefix("hint:") {
         Some("reaction" | "classify" | "format" | "sentiment" | "lightweight") => {
             TaskCategory::Lightweight
         }
@@ -75,45 +104,82 @@ pub fn classify(model: &str) -> TaskCategory {
 
 /// Decide where to route a task.
 ///
-/// Returns the primary `RoutingTarget` and an optional fallback target.
-/// The fallback is `Some` only when the primary target is local (local →
-/// remote fallback). Remote targets never fall back to local.
+/// Returns `(primary, fallback)` where `fallback` is `Some` only when the
+/// primary target is local and fallback to remote is permitted. A `None`
+/// fallback means the caller must not retry on another backend.
 ///
-/// Arguments:
-/// - `category`: task complexity derived from [`classify`].
-/// - `local_model`: the configured local model ID (e.g. `"gemma3:4b-it-qat"`).
-/// - `remote_model`: the model string to use when routing to remote. For heavy
-///   hints this is the original `hint:*` string so the remote router can
-///   resolve it; for fallbacks it is the configured default model.
-/// - `local_available`: whether the local model passed its health check.
+/// # Privacy override
+/// When `hints.privacy_required` is `true` the request is always routed
+/// locally and no fallback is produced, regardless of category or health.
+///
+/// # Heavy tasks
+/// Heavy tasks always use remote unless `privacy_required` forces local.
+///
+/// # Local preference
+/// Lightweight and medium tasks use local when `local_available` is true.
+/// `LatencyBudget::Low` or `CostSensitivity::High` additionally route
+/// medium tasks locally even when neither category alone would.
 pub fn decide(
     category: TaskCategory,
     local_model: &str,
     remote_model: &str,
     local_available: bool,
+    hints: &RoutingHints,
 ) -> (RoutingTarget, Option<RoutingTarget>) {
+    // Privacy override: always local, never fall back.
+    if hints.privacy_required {
+        return (
+            RoutingTarget::Local {
+                model: local_model.to_string(),
+            },
+            None,
+        );
+    }
+
+    // Heavy tasks always go to remote.
+    if category == TaskCategory::Heavy {
+        return (
+            RoutingTarget::Remote {
+                model: remote_model.to_string(),
+            },
+            None,
+        );
+    }
+
+    // Lightweight / Medium: prefer local when available.
+    // Extra signals (low latency budget or high cost sensitivity) also
+    // tilt medium tasks toward local.
     let use_local = local_available
-        && matches!(category, TaskCategory::Lightweight | TaskCategory::Medium);
+        && (matches!(category, TaskCategory::Lightweight | TaskCategory::Medium)
+            || hints.latency_budget == LatencyBudget::Low
+            || hints.cost_sensitivity == CostSensitivity::High);
 
     if use_local {
-        let primary = RoutingTarget::Local {
-            model: local_model.to_string(),
-        };
-        let fallback = RoutingTarget::Remote {
-            model: remote_model.to_string(),
-        };
-        (primary, Some(fallback))
+        (
+            RoutingTarget::Local {
+                model: local_model.to_string(),
+            },
+            Some(RoutingTarget::Remote {
+                model: remote_model.to_string(),
+            }),
+        )
     } else {
-        let primary = RoutingTarget::Remote {
-            model: remote_model.to_string(),
-        };
-        (primary, None)
+        (
+            RoutingTarget::Remote {
+                model: remote_model.to_string(),
+            },
+            None,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn default_hints() -> RoutingHints {
+        RoutingHints::default()
+    }
 
     // ── classify ──────────────────────────────────────────────────────────────
 
@@ -170,12 +236,17 @@ mod tests {
         assert_eq!(classify(""), TaskCategory::Heavy);
     }
 
-    // ── decide ────────────────────────────────────────────────────────────────
+    // ── decide: basic routing ─────────────────────────────────────────────────
 
     #[test]
     fn lightweight_local_healthy_routes_local_with_fallback() {
-        let (primary, fallback) =
-            decide(TaskCategory::Lightweight, "local-model", "remote-model", true);
+        let (primary, fallback) = decide(
+            TaskCategory::Lightweight,
+            "local-model",
+            "remote-model",
+            true,
+            &default_hints(),
+        );
         assert_eq!(primary, RoutingTarget::Local { model: "local-model".into() });
         assert_eq!(
             fallback,
@@ -185,25 +256,40 @@ mod tests {
 
     #[test]
     fn lightweight_local_unavailable_routes_remote_no_fallback() {
-        let (primary, fallback) =
-            decide(TaskCategory::Lightweight, "local-model", "remote-model", false);
+        let (primary, fallback) = decide(
+            TaskCategory::Lightweight,
+            "local-model",
+            "remote-model",
+            false,
+            &default_hints(),
+        );
         assert_eq!(primary, RoutingTarget::Remote { model: "remote-model".into() });
         assert!(fallback.is_none());
     }
 
     #[test]
-    fn medium_local_healthy_routes_local_with_fallback() {
-        let (primary, fallback) =
-            decide(TaskCategory::Medium, "local-model", "remote-model", true);
+    fn medium_local_healthy_routes_local() {
+        let (primary, fallback) = decide(
+            TaskCategory::Medium,
+            "local-model",
+            "remote-model",
+            true,
+            &default_hints(),
+        );
         assert_eq!(primary, RoutingTarget::Local { model: "local-model".into() });
         assert!(fallback.is_some());
     }
 
     #[test]
-    fn heavy_always_routes_remote_regardless_of_local_health() {
+    fn heavy_always_routes_remote_regardless_of_health() {
         for local_healthy in [true, false] {
-            let (primary, fallback) =
-                decide(TaskCategory::Heavy, "local-model", "remote-model", local_healthy);
+            let (primary, fallback) = decide(
+                TaskCategory::Heavy,
+                "local-model",
+                "remote-model",
+                local_healthy,
+                &default_hints(),
+            );
             assert_eq!(
                 primary,
                 RoutingTarget::Remote { model: "remote-model".into() },
@@ -213,12 +299,88 @@ mod tests {
         }
     }
 
+    // ── decide: privacy override ──────────────────────────────────────────────
+
+    #[test]
+    fn privacy_required_forces_local_no_fallback() {
+        let hints = RoutingHints { privacy_required: true, ..Default::default() };
+        // Even for heavy tasks and when local is unhealthy
+        for category in [TaskCategory::Lightweight, TaskCategory::Medium, TaskCategory::Heavy] {
+            for local_available in [true, false] {
+                let (primary, fallback) =
+                    decide(category, "local-model", "remote-model", local_available, &hints);
+                assert_eq!(
+                    primary,
+                    RoutingTarget::Local { model: "local-model".into() },
+                    "privacy_required must always route local (category={:?}, local_available={local_available})",
+                    category
+                );
+                assert!(
+                    fallback.is_none(),
+                    "privacy_required must never produce a remote fallback"
+                );
+            }
+        }
+    }
+
+    // ── decide: latency / cost signals ───────────────────────────────────────
+
+    #[test]
+    fn low_latency_budget_routes_local_when_available() {
+        let hints = RoutingHints {
+            latency_budget: LatencyBudget::Low,
+            ..Default::default()
+        };
+        let (primary, _) = decide(
+            TaskCategory::Lightweight,
+            "local-model",
+            "remote-model",
+            true,
+            &hints,
+        );
+        assert!(matches!(primary, RoutingTarget::Local { .. }));
+    }
+
+    #[test]
+    fn high_cost_sensitivity_routes_local_when_available() {
+        let hints = RoutingHints {
+            cost_sensitivity: CostSensitivity::High,
+            ..Default::default()
+        };
+        let (primary, _) = decide(
+            TaskCategory::Lightweight,
+            "local-model",
+            "remote-model",
+            true,
+            &hints,
+        );
+        assert!(matches!(primary, RoutingTarget::Local { .. }));
+    }
+
+    #[test]
+    fn low_latency_does_not_override_heavy_to_local() {
+        let hints = RoutingHints {
+            latency_budget: LatencyBudget::Low,
+            ..Default::default()
+        };
+        let (primary, _) = decide(
+            TaskCategory::Heavy,
+            "local-model",
+            "remote-model",
+            true,
+            &hints,
+        );
+        // Heavy tasks are always remote even with low latency budget
+        assert!(matches!(primary, RoutingTarget::Remote { .. }));
+    }
+
+    // ── regressions ──────────────────────────────────────────────────────────
+
     #[test]
     fn regression_reasoning_always_remote() {
-        // Regression: reasoning tasks must never route to local even when local is healthy.
         let category = classify("hint:reasoning");
         assert_eq!(category, TaskCategory::Heavy);
-        let (primary, _) = decide(category, "local-model", "hint:reasoning", true);
+        let (primary, _) = decide(category, "local-model", "hint:reasoning", true, &default_hints());
         assert_eq!(
             primary,
             RoutingTarget::Remote { model: "hint:reasoning".into() }
@@ -228,13 +390,12 @@ mod tests {
     #[test]
     fn regression_agentic_always_remote() {
         let category = classify("hint:agentic");
-        assert_eq!(category, TaskCategory::Heavy);
-        let (primary, _) = decide(category, "local-model", "hint:agentic", true);
+        let (primary, _) = decide(category, "local-model", "hint:agentic", true, &default_hints());
         assert!(matches!(primary, RoutingTarget::Remote { .. }));
     }
 
     #[test]
-    fn routing_target_label_and_model() {
+    fn routing_target_helpers() {
         let local = RoutingTarget::Local { model: "m".into() };
         assert_eq!(local.label(), "local");
         assert_eq!(local.model(), "m");
