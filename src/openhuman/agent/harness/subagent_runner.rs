@@ -249,8 +249,7 @@ async fn run_typed_mode(
     // are stripped from the parent-filtered indices in this path so
     // the model only sees one way to call each action.
     let mut dynamic_tools: Vec<Box<dyn Tool>> = Vec::new();
-    let is_skills_agent_with_toolkit =
-        definition.id == "skills_agent" && toolkit_filter.is_some();
+    let is_skills_agent_with_toolkit = definition.id == "skills_agent" && toolkit_filter.is_some();
     if is_skills_agent_with_toolkit {
         // Drop EVERY skill-category parent tool. In the new
         // architecture all integration discovery / authorization /
@@ -1385,6 +1384,7 @@ mod tests {
                 SubagentRunOptions {
                     skill_filter_override: None,
                     category_filter_override: None,
+                    toolkit_override: None,
                     context: None,
                     task_id: Some("t1".into()),
                 },
@@ -1515,6 +1515,7 @@ mod tests {
                 SubagentRunOptions {
                     skill_filter_override: Some("notion".into()),
                     category_filter_override: None,
+                    toolkit_override: None,
                     context: None,
                     task_id: None,
                 },

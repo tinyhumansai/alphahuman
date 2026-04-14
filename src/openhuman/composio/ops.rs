@@ -473,9 +473,7 @@ async fn fetch_connected_integrations_uncached(
     let allowlisted_toolkits: Vec<String> = match client.list_toolkits().await {
         Ok(resp) => resp.toolkits,
         Err(e) => {
-            tracing::warn!(
-                "[composio] fetch_connected_integrations: list_toolkits failed: {e}"
-            );
+            tracing::warn!("[composio] fetch_connected_integrations: list_toolkits failed: {e}");
             return Some(Vec::new());
         }
     };
@@ -488,9 +486,7 @@ async fn fetch_connected_integrations_uncached(
     let connections = match client.list_connections().await {
         Ok(resp) => resp.connections,
         Err(e) => {
-            tracing::warn!(
-                "[composio] fetch_connected_integrations: list_connections failed: {e}"
-            );
+            tracing::warn!("[composio] fetch_connected_integrations: list_connections failed: {e}");
             // Allowlist still useful — render every toolkit as
             // not-connected so the orchestrator can surface them.
             Vec::new()
@@ -517,9 +513,7 @@ async fn fetch_connected_integrations_uncached(
         match client.list_tools(Some(&connected_slugs_vec)).await {
             Ok(resp) => resp.tools,
             Err(e) => {
-                tracing::warn!(
-                    "[composio] fetch_connected_integrations: list_tools failed: {e}"
-                );
+                tracing::warn!("[composio] fetch_connected_integrations: list_tools failed: {e}");
                 Vec::new()
             }
         }

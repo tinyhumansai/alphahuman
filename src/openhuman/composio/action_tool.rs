@@ -83,7 +83,10 @@ impl Tool for ComposioActionTool {
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         let started = std::time::Instant::now();
-        let res = self.client.execute_tool(&self.action_name, Some(args)).await;
+        let res = self
+            .client
+            .execute_tool(&self.action_name, Some(args))
+            .await;
         let elapsed_ms = started.elapsed().as_millis() as u64;
 
         match res {
@@ -111,10 +114,7 @@ impl Tool for ComposioActionTool {
                         elapsed_ms,
                     },
                 );
-                Ok(ToolResult::error(format!(
-                    "{}: {e}",
-                    self.action_name
-                )))
+                Ok(ToolResult::error(format!("{}: {e}", self.action_name)))
             }
         }
     }

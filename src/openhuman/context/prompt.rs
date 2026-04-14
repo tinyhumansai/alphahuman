@@ -1600,8 +1600,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are a focused sub-agent.",
             SubagentRenderOptions::narrow(),
+            ToolCallFormat::PFormat,
             &[],
         ));
 
@@ -1664,6 +1666,7 @@ mod tests {
             "reasoning-v1",
             &[0],
             &tools,
+            &[],
             "You are a specialist.",
             SubagentRenderOptions {
                 include_identity: true,
@@ -1680,14 +1683,22 @@ mod tests {
         assert!(rendered.contains("### SOUL.md"));
         assert!(rendered.contains("## Safety"));
         assert!(rendered.contains("## Available Skills"));
-        assert!(rendered.contains("Parameters:"));
-        assert!(rendered.contains("\"type\""));
+        // Native/Json dispatchers: the prose `## Tools` section is
+        // deliberately omitted from the rendered system prompt — schemas
+        // travel through the provider request's `tools` field instead.
+        // Previously this path emitted `- **test_tool**: …\n  Parameters: {…}`
+        // for every tool, which duplicated the native function-calling
+        // channel and inflated token cost (see the #447 patch). Regression
+        // guards: no `## Tools` header, no inline schema.
+        assert!(!rendered.contains("\n## Tools\n"));
+        assert!(!rendered.contains("Parameters:"));
 
         let native = render_subagent_system_prompt_with_format(
             &workspace,
             "reasoning-v1",
             &[0],
             &tools,
+            &[],
             "You are a specialist.",
             SubagentRenderOptions::narrow(),
             ToolCallFormat::Native,
@@ -1729,6 +1740,7 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the welcome agent.",
             SubagentRenderOptions {
                 include_identity: false,
@@ -1737,6 +1749,7 @@ mod tests {
                 include_profile: true,
                 include_memory_md: false,
             },
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1784,8 +1797,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are a narrow specialist.",
             SubagentRenderOptions::narrow(), // include_profile defaults to false
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1820,6 +1835,7 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are a specialist.",
             SubagentRenderOptions {
                 include_identity: true,
@@ -1828,6 +1844,7 @@ mod tests {
                 include_profile: true,
                 include_memory_md: false,
             },
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1858,8 +1875,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the welcome agent.",
             SubagentRenderOptions::narrow(),
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1909,8 +1928,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "# Welcome Agent\n\nYou are the welcome agent.",
             options,
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1953,8 +1974,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are a narrow specialist.",
             options,
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -1991,6 +2014,7 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the welcome agent.",
             SubagentRenderOptions {
                 include_identity: false,
@@ -1999,6 +2023,7 @@ mod tests {
                 include_profile: false,
                 include_memory_md: true,
             },
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -2035,8 +2060,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are a narrow specialist.",
             SubagentRenderOptions::narrow(),
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -2073,6 +2100,7 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the orchestrator.",
             SubagentRenderOptions {
                 include_identity: false,
@@ -2081,6 +2109,7 @@ mod tests {
                 include_profile: true,
                 include_memory_md: true,
             },
+            ToolCallFormat::PFormat,
             &[],
         );
 
@@ -2130,8 +2159,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the orchestrator.",
             opts,
+            ToolCallFormat::PFormat,
             &[],
         );
         let second = render_subagent_system_prompt(
@@ -2139,8 +2170,10 @@ mod tests {
             "test-model",
             &[0],
             &tools,
+            &[],
             "You are the orchestrator.",
             opts,
+            ToolCallFormat::PFormat,
             &[],
         );
 
