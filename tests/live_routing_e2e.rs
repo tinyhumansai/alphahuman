@@ -128,7 +128,7 @@ async fn read_sse_event_by_types(events_url: &str, target_events: &[&str]) -> Va
             Ok(None) => break,
             Err(_) => continue,
         };
-        let text = String::from_utf8_lossy(&bytes);
+        let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
         while let Some(split_idx) = buffer.find("\n\n") {
