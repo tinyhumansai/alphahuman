@@ -921,6 +921,7 @@ impl Agent {
             tool_call_format: self.tool_dispatcher.tool_call_format(),
             connected_integrations: &self.connected_integrations,
             include_profile: !self.omit_profile,
+            include_memory_md: !self.omit_memory_md,
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,

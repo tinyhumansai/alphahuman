@@ -46,6 +46,7 @@ impl AgentBuilder {
             event_channel: None,
             agent_definition_name: None,
             omit_profile: None,
+            omit_memory_md: None,
         }
     }
 
@@ -202,6 +203,14 @@ impl AgentBuilder {
         self
     }
 
+    /// Forward the target agent definition's `omit_memory_md` flag so
+    /// [`Agent::build_system_prompt`] can decide whether to inject
+    /// `MEMORY.md`. Same opt-in set as `omit_profile`.
+    pub fn omit_memory_md(mut self, omit: bool) -> Self {
+        self.omit_memory_md = Some(omit);
+        self
+    }
+
     /// Validates the configuration and constructs a new `Agent` instance.
     ///
     /// This method is responsible for wiring together the provided components,
@@ -310,6 +319,7 @@ impl AgentBuilder {
             // without a definition stay lean. Opt-in agents thread their
             // `omit_profile = false` through the builder.
             omit_profile: self.omit_profile.unwrap_or(true),
+            omit_memory_md: self.omit_memory_md.unwrap_or(true),
         })
     }
 }
@@ -769,9 +779,11 @@ impl Agent {
             .map(|def| def.temperature)
             .unwrap_or(config.default_temperature);
 
-        // Thread PROFILE.md inclusion from the resolved definition. Legacy
-        // / no-definition path stays on the safe `true` default (omit).
+        // Thread PROFILE.md + MEMORY.md inclusion from the resolved
+        // definition. Legacy / no-definition path stays on the safe
+        // `true` default (omit) for both files.
         let effective_omit_profile = target_def.map(|def| def.omit_profile).unwrap_or(true);
+        let effective_omit_memory_md = target_def.map(|def| def.omit_memory_md).unwrap_or(true);
 
         // `agent_id` is not stamped onto the returned Agent here — the
         // `event_channel` field on `Agent` is for transport identity
@@ -803,6 +815,7 @@ impl Agent {
             .post_turn_hooks(post_turn_hooks)
             .learning_enabled(config.learning.enabled)
             .omit_profile(effective_omit_profile)
+            .omit_memory_md(effective_omit_memory_md)
             .build()
     }
 }

@@ -458,6 +458,7 @@ fn render_main_agent_dump(
         tool_call_format: ToolCallFormat::PFormat,
         connected_integrations,
         include_profile: !orchestrator_def.omit_profile,
+        include_memory_md: !orchestrator_def.omit_memory_md,
     };
 
     let rendered = SystemPromptBuilder::with_defaults()
@@ -569,6 +570,7 @@ fn render_subagent_dump(
         definition.omit_safety_preamble,
         definition.omit_skills_catalog,
         definition.omit_profile,
+        definition.omit_memory_md,
     );
 
     let raw = render_subagent_system_prompt(
@@ -707,6 +709,8 @@ mod tests {
             omit_memory_context: true,
             omit_safety_preamble: false,
             omit_skills_catalog: true,
+            omit_profile: true,
+            omit_memory_md: true,
             model: ModelSpec::Inherit,
             temperature: 0.4,
             tools: ToolScope::Wildcard,
@@ -887,6 +891,8 @@ mod tests {
             omit_memory_context: true,
             omit_safety_preamble: true,
             omit_skills_catalog: true,
+            omit_profile: true,
+            omit_memory_md: true,
             model: ModelSpec::Inherit,
             temperature: 0.4,
             tools: ToolScope::Wildcard,
@@ -1052,6 +1058,8 @@ mod tests {
             omit_memory_context: true,
             omit_safety_preamble: true,
             omit_skills_catalog: true,
+            omit_profile: true,
+            omit_memory_md: true,
             model: ModelSpec::Inherit,
             temperature: 0.0,
             tools: ToolScope::Wildcard,
@@ -1099,6 +1107,8 @@ mod tests {
             omit_memory_context: true,
             omit_safety_preamble: true,
             omit_skills_catalog: true,
+            omit_profile: true,
+            omit_memory_md: true,
             model: ModelSpec::Inherit,
             temperature: 0.0,
             tools: ToolScope::Wildcard,
@@ -1154,6 +1164,8 @@ mod tests {
             omit_memory_context: true,
             omit_safety_preamble: true,
             omit_skills_catalog: true,
+            omit_profile: true,
+            omit_memory_md: true,
             model: ModelSpec::Inherit,
             temperature: 0.0,
             tools: ToolScope::Wildcard,
