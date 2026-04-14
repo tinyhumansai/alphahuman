@@ -120,17 +120,23 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const handleSkillsNext = async (connectedSources: string[]) => {
     console.debug('[onboarding:handleSkillsNext]', { connectedSources });
     setDraft(prev => ({ ...prev, connectedSources }));
-    handleNext();
+    if (connectedSources.length === 0) {
+      // No sources connected — skip context gathering and finish onboarding.
+      await handleContextNext(connectedSources);
+    } else {
+      handleNext();
+    }
   };
 
-  const handleContextNext = async () => {
-    console.debug('[onboarding:handleContextNext]', { connectedSources: draft.connectedSources });
+  const handleContextNext = async (connectedSourcesOverride?: string[]) => {
+    const sources = connectedSourcesOverride ?? draft.connectedSources;
+    console.debug('[onboarding:handleContextNext]', { connectedSources: sources });
     await setOnboardingTasks({
       accessibilityPermissionGranted: false,
       localModelConsentGiven: false,
       localModelDownloadStarted: false,
       enabledTools: getDefaultEnabledTools(),
-      connectedSources: draft.connectedSources,
+      connectedSources: sources,
       updatedAtMs: Date.now(),
     });
 
