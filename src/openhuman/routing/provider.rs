@@ -29,6 +29,33 @@ use super::policy::{self, RoutingHints, RoutingTarget, TaskCategory};
 use super::quality;
 use super::telemetry::{self, RoutingRecord};
 
+fn truncate_safe(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+fn should_fallback(
+    result: &Result<ChatResponse>,
+    privacy_required: bool,
+    fallback: &Option<RoutingTarget>,
+) -> bool {
+    if privacy_required || fallback.is_none() {
+        return false;
+    }
+
+    match result {
+        Err(_) => true,
+        Ok(resp) => quality::is_low_quality(resp.text.as_deref().unwrap_or("")),
+    }
+}
+
 /// Provider that routes requests between a local Ollama instance and the remote
 /// OpenHuman backend based on task complexity, local health, and routing hints.
 pub struct IntelligentRoutingProvider {
@@ -159,7 +186,7 @@ impl IntelligentRoutingProvider {
                 if let Some(RoutingTarget::Remote { .. }) = fallback {
                     tracing::warn!(
                         hint,
-                        response_preview = &text[..text.len().min(80)],
+                        response_preview = truncate_safe(text, 80),
                         "[routing] local response low quality, retrying with remote"
                     );
                     return (fallback_fn.await, true);
@@ -268,33 +295,11 @@ impl IntelligentRoutingProvider {
         let result = match &effective_primary {
             RoutingTarget::Local { model: m } => {
                 let r = self.local.chat(request, m, temperature).await;
-                // Error fallback
-                if r.is_err() && !self.hints.privacy_required {
+                if should_fallback(&r, self.hints.privacy_required, &fallback) {
                     if let Some(RoutingTarget::Remote { model: fb }) = &fallback {
-                        tracing::warn!(hint = model, "[routing] local chat failed → remote");
+                        tracing::warn!(hint = model, "[routing] local chat fallback → remote");
                         fallback_occurred = true;
                         self.remote.chat(request, fb, temperature).await
-                    } else {
-                        r
-                    }
-                }
-                // Quality fallback
-                else if let Ok(resp) = &r {
-                    let text = resp.text.as_deref().unwrap_or("");
-                    if !self.hints.privacy_required
-                        && quality::is_low_quality(text)
-                        && fallback.is_some()
-                    {
-                        if let Some(RoutingTarget::Remote { model: fb }) = &fallback {
-                            tracing::warn!(
-                                hint = model,
-                                "[routing] local chat low quality → remote"
-                            );
-                            fallback_occurred = true;
-                            self.remote.chat(request, fb, temperature).await
-                        } else {
-                            r
-                        }
                     } else {
                         r
                     }

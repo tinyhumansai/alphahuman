@@ -18,6 +18,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use tempfile::tempdir;
+use tokio::time::timeout;
 
 use openhuman_core::core::jsonrpc::build_core_http_router;
 
@@ -31,7 +32,9 @@ struct EnvVarGuard {
 impl EnvVarGuard {
     fn set_to_path(key: &'static str, path: &Path) -> Self {
         let old = std::env::var(key).ok();
-        std::env::set_var(key, path.as_os_str());
+        // SAFETY: EnvVarGuard is only used in tests that first acquire
+        // live_e2e_env_lock(), which serializes process-global env mutations.
+        unsafe { std::env::set_var(key, path.as_os_str()) };
         Self { key, old }
     }
 }
@@ -39,8 +42,11 @@ impl EnvVarGuard {
 impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         match &self.old {
-            Some(v) => std::env::set_var(self.key, v),
-            None => std::env::remove_var(self.key),
+            // SAFETY: See EnvVarGuard::set_to_path; teardown runs under the same
+            // live_e2e_env_lock() critical section as setup.
+            Some(v) => unsafe { std::env::set_var(self.key, v) },
+            // SAFETY: Guarded by live_e2e_env_lock(), preventing concurrent env access.
+            None => unsafe { std::env::remove_var(self.key) },
         }
     }
 }
@@ -104,6 +110,8 @@ async fn post_json_rpc(rpc_base: &str, id: i64, method: &str, params: Value) -> 
 }
 
 async fn read_sse_event_by_types(events_url: &str, target_events: &[&str]) -> Value {
+    const CHUNK_TIMEOUT_SECS: u64 = 15;
+
     let client = reqwest::Client::new();
     let resp = client
         .get(events_url)
@@ -113,8 +121,13 @@ async fn read_sse_event_by_types(events_url: &str, target_events: &[&str]) -> Va
     let mut stream = resp.bytes_stream();
 
     let mut buffer = String::new();
-    while let Some(chunk) = stream.next().await {
-        let bytes = chunk.unwrap_or_else(|e| panic!("SSE stream chunk error: {e}"));
+    loop {
+        let chunk = match timeout(Duration::from_secs(CHUNK_TIMEOUT_SECS), stream.next()).await {
+            Ok(Some(Ok(bytes))) => bytes,
+            Ok(Some(Err(e))) => panic!("SSE stream chunk error: {e}"),
+            Ok(None) => break,
+            Err(_) => continue,
+        };
         let text = String::from_utf8_lossy(&bytes);
         buffer.push_str(&text);
 
@@ -234,7 +247,7 @@ async fn live_channel_web_chat_routing_cases_trigger_real_backend() {
             "request not accepted for case {model_override}"
         );
 
-        let sse_event = tokio::time::timeout(Duration::from_secs(120), sse_task)
+        let sse_event = timeout(Duration::from_secs(120), sse_task)
             .await
             .unwrap_or_else(|_| {
                 panic!("timed out waiting for terminal SSE event for case {model_override}")
