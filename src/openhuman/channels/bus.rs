@@ -391,30 +391,57 @@ async fn flush_streaming_edit(channel: &str, state: &mut StreamingState) {
     }
 }
 
-/// Deliver the final canonical reply. If progressive edits are active,
-/// rewrite the streamed message with the final text; otherwise send a
-/// fresh atomic message.
+/// Deliver the final canonical reply.
+///
+/// **Invariant**: if a draft message has already been posted to the
+/// channel (`state.message_id.is_some()`), we MUST NOT post a second
+/// message — that would duplicate the visible bubble on the user's
+/// side. We always try to edit the draft one more time; if that fails,
+/// the stale draft stays as-is and we log a warning. The only path
+/// that creates a fresh outbound message is when no draft exists yet.
 async fn finalize_channel_reply(channel: &str, state: &mut StreamingState, final_text: &str) {
     if let Some(ref message_id) = state.message_id {
-        if !state.edit_disabled {
-            if let Some((client, jwt)) = build_channel_client().await {
-                let body = json!({ "text": final_text });
-                if let Err(err) = client
-                    .send_channel_edit(channel, message_id, &jwt, body)
-                    .await
-                {
+        // We committed to a draft earlier in the turn. Always attempt
+        // to edit it with the canonical reply, even when we'd
+        // previously latched `edit_disabled` during the streaming
+        // phase — the user is already looking at that message, so a
+        // late edit attempt is still the right call. If the edit
+        // fails, leave the draft in place rather than spamming a
+        // duplicate bubble.
+        if let Some((client, jwt)) = build_channel_client().await {
+            let body = json!({ "text": final_text });
+            match client
+                .send_channel_edit(channel, message_id, &jwt, body)
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!(
+                        "[channel-inbound] final edit ok channel='{}' msg_id={} chars={}",
+                        channel,
+                        message_id,
+                        final_text.len(),
+                    );
+                }
+                Err(err) => {
                     tracing::warn!(
-                        "[channel-inbound] final edit failed channel='{}' msg_id={} err={} — sending fresh message",
+                        "[channel-inbound] final edit failed channel='{}' msg_id={} err={} — draft left in place (no duplicate message sent)",
                         channel,
                         message_id,
                         err,
                     );
-                    send_channel_reply(channel, final_text).await;
                 }
-                return;
             }
+        } else {
+            tracing::warn!(
+                "[channel-inbound] cannot finalize channel='{}' msg_id={} — backend client unavailable, draft left in place",
+                channel,
+                message_id,
+            );
         }
+        return;
     }
+    // No draft exists — this is the first (and only) message for the
+    // turn. Safe to send atomically.
     send_channel_reply(channel, final_text).await;
 }
 

@@ -498,17 +498,34 @@ const Conversations = () => {
             activeTool: event.tool_name,
           },
         }));
-        const eventKey = `tool_call:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}`;
+        const eventKey = `tool_call:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.tool_call_id ?? ''}`;
         if (!markChatEventSeen(eventKey)) return;
 
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
+          // If a row was already created by onToolArgsDelta (keyed by
+          // tool_call_id), upgrade it in place so we don't duplicate.
+          const existingIdx = event.tool_call_id
+            ? existing.findIndex(entry => entry.id === event.tool_call_id)
+            : -1;
+          if (existingIdx >= 0) {
+            const merged = [...existing];
+            merged[existingIdx] = {
+              ...merged[existingIdx],
+              name: event.tool_name,
+              round: event.round,
+              status: 'running',
+            };
+            return { ...prev, [event.thread_id]: merged };
+          }
           return {
             ...prev,
             [event.thread_id]: [
               ...existing,
               {
-                id: `${event.thread_id}:${event.round}:${existing.length}:${event.tool_name}`,
+                id:
+                  event.tool_call_id ??
+                  `${event.thread_id}:${event.round}:${existing.length}:${event.tool_name}`,
                 name: event.tool_name,
                 round: event.round,
                 status: 'running',
@@ -518,7 +535,7 @@ const Conversations = () => {
         });
       },
       onToolResult: (event: ChatToolResultEvent) => {
-        const eventKey = `tool_result:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.success}`;
+        const eventKey = `tool_result:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.success}:${event.tool_call_id ?? ''}`;
         if (!markChatEventSeen(eventKey)) return;
 
         setToolTimelineByThread(prev => {
@@ -527,16 +544,30 @@ const Conversations = () => {
 
           const nextEntries = [...existing];
           let changed = false;
-          for (let i = nextEntries.length - 1; i >= 0; i--) {
-            const entry = nextEntries[i];
-            if (
-              entry.status === 'running' &&
-              entry.name === event.tool_name &&
-              entry.round === event.round
-            ) {
-              nextEntries[i] = { ...entry, status: event.success ? 'success' : 'error' };
+          // Prefer matching by tool_call_id; fall back to name+round
+          // for legacy events that don't carry an id.
+          if (event.tool_call_id) {
+            const idx = nextEntries.findIndex(entry => entry.id === event.tool_call_id);
+            if (idx >= 0) {
+              nextEntries[idx] = {
+                ...nextEntries[idx],
+                status: event.success ? 'success' : 'error',
+              };
               changed = true;
-              break;
+            }
+          }
+          if (!changed) {
+            for (let i = nextEntries.length - 1; i >= 0; i--) {
+              const entry = nextEntries[i];
+              if (
+                entry.status === 'running' &&
+                entry.name === event.tool_name &&
+                entry.round === event.round
+              ) {
+                nextEntries[i] = { ...entry, status: event.success ? 'success' : 'error' };
+                changed = true;
+                break;
+              }
             }
           }
 
@@ -672,17 +703,33 @@ const Conversations = () => {
       onToolArgsDelta: event => {
         setToolTimelineByThread(prev => {
           const existing = prev[event.thread_id] ?? [];
-          // Match by tool_call_id when known, else by name+round, else create.
-          const matchIdx = existing.findIndex(entry => entry.id === event.tool_call_id);
+          // Reconcile strategy (matches onToolCall/onToolResult keys):
+          //   1. Match by tool_call_id when known.
+          //   2. Fall back to an in-flight running row with the same
+          //      name+round (legacy path when tool_call_id is absent).
+          //   3. Create a fresh row keyed by tool_call_id.
+          let matchIdx = -1;
+          if (event.tool_call_id) {
+            matchIdx = existing.findIndex(entry => entry.id === event.tool_call_id);
+          }
+          if (matchIdx < 0 && event.tool_name) {
+            matchIdx = existing.findIndex(
+              entry =>
+                entry.status === 'running' &&
+                entry.name === event.tool_name &&
+                entry.round === event.round
+            );
+          }
           if (matchIdx >= 0) {
             const merged = [...existing];
             merged[matchIdx] = {
               ...merged[matchIdx],
               argsBuffer: (merged[matchIdx].argsBuffer ?? '') + event.delta,
+              // Fill in the tool name once the provider sends it.
               name:
-                merged[matchIdx].name.length > 0 || !event.tool_name
-                  ? merged[matchIdx].name
-                  : `🤖 ${event.tool_name}`,
+                merged[matchIdx].name.length === 0 && event.tool_name
+                  ? event.tool_name
+                  : merged[matchIdx].name,
             };
             return { ...prev, [event.thread_id]: merged };
           }
@@ -692,7 +739,7 @@ const Conversations = () => {
               ...existing,
               {
                 id: event.tool_call_id,
-                name: event.tool_name ? `🤖 ${event.tool_name}` : '🤖',
+                name: event.tool_name ?? '',
                 round: event.round,
                 status: 'running' as const,
                 argsBuffer: event.delta,
@@ -1379,17 +1426,26 @@ const Conversations = () => {
                   </div>
                 </div>
               ))}
-              {activeThreadId === selectedThreadId && isSending && (
-                <div className="flex justify-start">
-                  <div className="bg-stone-200/80 rounded-2xl rounded-bl-md px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+              {activeThreadId === selectedThreadId &&
+                isSending &&
+                // Suppress the legacy 3-dot placeholder once streaming
+                // output (visible text or thinking) has started — the
+                // streaming preview bubble below takes over as the
+                // activity indicator.
+                !(
+                  (selectedStreamingAssistant?.content.length ?? 0) > 0 ||
+                  (selectedStreamingAssistant?.thinking.length ?? 0) > 0
+                ) && (
+                  <div className="flex justify-start">
+                    <div className="bg-stone-200/80 rounded-2xl rounded-bl-md px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
               {/* Streaming assistant preview — compact trailing tail of the
                   in-flight response. Rendered as plain text (not Markdown) to
                   avoid jitter from partially-parsed fences. The final bubble

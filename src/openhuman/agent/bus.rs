@@ -167,6 +167,7 @@ pub fn register_agent_handlers() {
                 visible_tool_count = visible_tool_names.as_ref().map(|s| s.len()).unwrap_or(0),
                 filter_active = visible_tool_names.is_some(),
                 streaming = on_delta.is_some(),
+                progress_subscribed = on_progress.is_some(),
                 "[agent::bus] dispatching {AGENT_RUN_TURN_METHOD}"
             );
 

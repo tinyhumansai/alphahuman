@@ -1211,7 +1211,12 @@ impl OpenAiCompatibleProvider {
             // prompts, tool arguments, or credentials the backend
             // echoed back into the anyhow chain / logs.
             let sanitized = super::sanitize_api_error(&body);
-            anyhow::bail!("{} streaming API error ({}): {}", self.name, status, sanitized);
+            anyhow::bail!(
+                "{} streaming API error ({}): {}",
+                self.name,
+                status,
+                sanitized
+            );
         }
 
         // Some OpenAI-compatible backends (and our e2e mock) accept
@@ -1318,18 +1323,47 @@ impl OpenAiCompatibleProvider {
                             }
                         }
                         // Tool-call fragments.
+                        //
+                        // Ordering invariant emitted downstream:
+                        //   ToolCallStart (once, when id+name both known)
+                        //     → ToolCallArgsDelta* (buffered then streamed)
+                        //
+                        // Args fragments that arrive *before* we know the
+                        // canonical id are buffered into `entry.arguments`
+                        // but NOT emitted — emitting them with a synthetic
+                        // id would break client-side reconciliation against
+                        // the eventual tool_call / tool_result events that
+                        // carry the real id. Once start fires we flush the
+                        // buffered prefix in a single delta, then stream
+                        // subsequent fragments as they arrive.
                         if let Some(tc_list) = choice.delta.tool_calls.as_ref() {
                             for tc in tc_list {
                                 let idx = tc.index.unwrap_or(0);
                                 let entry = tool_accum
                                     .entry(idx)
                                     .or_insert_with(StreamingToolCall::default);
-                                let first_fragment = entry.id.is_none() && entry.name.is_none();
+
                                 if let Some(id) = tc.id.as_ref() {
+                                    if entry.id.is_none() {
+                                        log::debug!(
+                                            "[stream] {} tool_call[{}] id resolved: {}",
+                                            self.name,
+                                            idx,
+                                            id,
+                                        );
+                                    }
                                     entry.id = Some(id.clone());
                                 }
                                 if let Some(func) = tc.function.as_ref() {
                                     if let Some(name) = func.name.as_ref() {
+                                        if !name.is_empty() && entry.name.is_none() {
+                                            log::debug!(
+                                                "[stream] {} tool_call[{}] name resolved: {}",
+                                                self.name,
+                                                idx,
+                                                name,
+                                            );
+                                        }
                                         if !name.is_empty() {
                                             entry.name = Some(name.clone());
                                         }
@@ -1337,36 +1371,72 @@ impl OpenAiCompatibleProvider {
                                     if let Some(args) = func.arguments.as_ref() {
                                         if !args.is_empty() {
                                             entry.arguments.push_str(args);
-                                            let call_id = entry
-                                                .id
-                                                .clone()
-                                                .unwrap_or_else(|| format!("stream-{}", idx));
-                                            let _ = delta_tx
-                                                .send(
-                                                    crate::openhuman::providers::ProviderDelta::ToolCallArgsDelta {
-                                                        call_id,
-                                                        delta: args.clone(),
-                                                    },
-                                                )
-                                                .await;
+                                            if !entry.emitted_start {
+                                                log::debug!(
+                                                    "[stream] {} tool_call[{}] buffering args ({} chars total) — waiting for id/name",
+                                                    self.name,
+                                                    idx,
+                                                    entry.arguments.len(),
+                                                );
+                                            }
                                         }
                                     }
                                 }
-                                // Emit a `ToolCallStart` the first time
-                                // we learn both the id and the name for
-                                // a given index.
-                                if first_fragment {
+
+                                // Fire start + flush buffered args once
+                                // both id and name have been observed.
+                                if !entry.emitted_start {
                                     if let (Some(id), Some(name)) =
                                         (entry.id.as_ref(), entry.name.as_ref())
                                     {
+                                        log::debug!(
+                                            "[stream] {} tool_call[{}] emitting ToolCallStart id={} name={}",
+                                            self.name,
+                                            idx,
+                                            id,
+                                            name,
+                                        );
                                         let _ = delta_tx
-                                            .send(
-                                                crate::openhuman::providers::ProviderDelta::ToolCallStart {
-                                                    call_id: id.clone(),
-                                                    tool_name: name.clone(),
-                                                },
-                                            )
+                                            .send(crate::openhuman::providers::ProviderDelta::ToolCallStart {
+                                                call_id: id.clone(),
+                                                tool_name: name.clone(),
+                                            })
                                             .await;
+                                        entry.emitted_start = true;
+                                        // Flush any args that were
+                                        // buffered before the start id
+                                        // was known.
+                                        if !entry.arguments.is_empty() {
+                                            log::debug!(
+                                                "[stream] {} tool_call[{}] flushing buffered args ({} chars)",
+                                                self.name,
+                                                idx,
+                                                entry.arguments.len(),
+                                            );
+                                            let buffered = entry.arguments.clone();
+                                            let _ = delta_tx
+                                                .send(crate::openhuman::providers::ProviderDelta::ToolCallArgsDelta {
+                                                    call_id: id.clone(),
+                                                    delta: buffered,
+                                                })
+                                                .await;
+                                            entry.emitted_chars = entry.arguments.len();
+                                        }
+                                    }
+                                } else if entry.arguments.len() > entry.emitted_chars {
+                                    // Start already fired — stream the
+                                    // newly appended fragment with the
+                                    // canonical id.
+                                    if let Some(ref id) = entry.id {
+                                        let fresh =
+                                            entry.arguments[entry.emitted_chars..].to_string();
+                                        let _ = delta_tx
+                                            .send(crate::openhuman::providers::ProviderDelta::ToolCallArgsDelta {
+                                                call_id: id.clone(),
+                                                delta: fresh,
+                                            })
+                                            .await;
+                                        entry.emitted_chars = entry.arguments.len();
                                     }
                                 }
                             }
@@ -1434,11 +1504,21 @@ impl OpenAiCompatibleProvider {
 }
 
 /// Per-index tool-call accumulator used while consuming an SSE stream.
+///
+/// `arguments` holds the full cumulative JSON text fragments seen so
+/// far. `emitted_start` tracks whether we've surfaced the synthetic
+/// `ProviderDelta::ToolCallStart` event yet (we only do once we know
+/// both `id` and `name`). `emitted_chars` is the byte offset within
+/// `arguments` that we've already flushed as `ToolCallArgsDelta`
+/// events — used to avoid re-sending buffered fragments after the
+/// start event fires.
 #[derive(Debug, Default)]
 struct StreamingToolCall {
     id: Option<String>,
     name: Option<String>,
     arguments: String,
+    emitted_start: bool,
+    emitted_chars: usize,
 }
 
 #[async_trait]

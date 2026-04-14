@@ -20,6 +20,13 @@ export interface ChatToolCallEvent {
   skill_id: string;
   args: Record<string, unknown>;
   round: number;
+  /**
+   * Stable call id (matches the `call_id` on preceding
+   * {@link ChatToolArgsDeltaEvent}s and the eventual
+   * {@link ChatToolResultEvent}). Reducers key tool-timeline rows by
+   * this id for end-to-end reconciliation.
+   */
+  tool_call_id?: string;
 }
 
 export interface ChatToolResultEvent {
@@ -30,6 +37,8 @@ export interface ChatToolResultEvent {
   output: string;
   success: boolean;
   round: number;
+  /** Matches the id on the corresponding {@link ChatToolCallEvent}. */
+  tool_call_id?: string;
 }
 
 export interface ChatDoneEvent {

@@ -493,7 +493,9 @@ pub(crate) async fn run_tool_call_loop(
                         })
                         .await
                     {
-                        log::warn!("[agent_loop] progress sink closed while emitting ToolCallStarted: {e}");
+                        log::warn!(
+                            "[agent_loop] progress sink closed while emitting ToolCallStarted: {e}"
+                        );
                     }
                 }
                 let tool_started = std::time::Instant::now();
