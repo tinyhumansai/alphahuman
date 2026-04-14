@@ -1,13 +1,10 @@
-export type SkillCategory =
-  | 'All'
-  | 'Built-in'
-  | 'Channels'
-  | 'Productivity'
-  | 'Chat'
-  | 'Tools & Automation'
-  | 'Social'
-  | 'Platform'
-  | 'Other';
+import PillTabBar from '../PillTabBar';
+import type { SkillCategory } from './skillCategories';
+import {
+  skillCategoryChipClassName,
+  SkillCategoryIcon,
+  skillCategoryIconClassName,
+} from './skillIcons';
 
 interface SkillCategoryFilterProps {
   categories: SkillCategory[];
@@ -15,28 +12,27 @@ interface SkillCategoryFilterProps {
   onChange: (category: SkillCategory) => void;
 }
 
-const SkillCategoryFilter = ({
-  categories,
-  selected,
-  onChange,
-}: SkillCategoryFilterProps) => {
+const SkillCategoryFilter = ({ categories, selected, onChange }: SkillCategoryFilterProps) => {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-      {categories.map(cat => (
-        <button
-          key={cat}
-          type="button"
-          aria-pressed={selected === cat}
-          onClick={() => onChange(cat)}
-          className={`flex-shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-            selected === cat
-              ? 'bg-primary-50 text-primary-700 border-primary-200'
-              : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-          }`}>
-          {cat}
-        </button>
-      ))}
-    </div>
+    <PillTabBar
+      items={categories.map(category => ({ label: category, value: category }))}
+      selected={selected}
+      onChange={onChange}
+      renderItem={(item, active) => (
+        <span className="flex items-center gap-1.5">
+          <span
+            className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${
+              active ? skillCategoryChipClassName(item.value) : 'bg-stone-100 text-stone-500'
+            }`}>
+            <SkillCategoryIcon
+              category={item.value}
+              className={active ? skillCategoryIconClassName(item.value) : 'text-stone-500'}
+            />
+          </span>
+          {item.label}
+        </span>
+      )}
+    />
   );
 };
 

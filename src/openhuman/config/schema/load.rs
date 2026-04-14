@@ -33,6 +33,14 @@ fn default_config_dir() -> Result<PathBuf> {
     default_root_openhuman_dir()
 }
 
+fn default_root_dir_name() -> &'static str {
+    if crate::api::config::is_staging_app_env(crate::api::config::app_env_from_env().as_deref()) {
+        ".openhuman-staging"
+    } else {
+        ".openhuman"
+    }
+}
+
 /// Returns the root openhuman directory (`~/.openhuman`), independent of any
 /// per-user scoping.  Used to locate `active_user.toml` and the shared
 /// `users/` tree.
@@ -40,7 +48,7 @@ pub fn default_root_openhuman_dir() -> Result<PathBuf> {
     let home = UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
-    Ok(home.join(".openhuman"))
+    Ok(home.join(default_root_dir_name()))
 }
 
 fn active_workspace_state_path(default_dir: &Path) -> PathBuf {
@@ -1260,5 +1268,22 @@ mod tests {
             dir,
             PathBuf::from("/home/test/.openhuman/users").join(PRE_LOGIN_USER_ID)
         );
+    }
+
+    #[test]
+    fn default_root_dir_name_uses_staging_suffix_for_staging_env() {
+        let prior = std::env::var(crate::api::config::APP_ENV_VAR).ok();
+
+        std::env::set_var(crate::api::config::APP_ENV_VAR, "staging");
+        assert!(crate::api::config::is_staging_app_env(Some("staging")));
+        assert_eq!(default_root_dir_name(), ".openhuman-staging");
+
+        std::env::set_var(crate::api::config::APP_ENV_VAR, "production");
+        assert_eq!(default_root_dir_name(), ".openhuman");
+
+        match prior {
+            Some(value) => std::env::set_var(crate::api::config::APP_ENV_VAR, value),
+            None => std::env::remove_var(crate::api::config::APP_ENV_VAR),
+        }
     }
 }

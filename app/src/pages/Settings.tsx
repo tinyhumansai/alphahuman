@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import AgentChatPanel from '../components/settings/panels/AgentChatPanel';
@@ -74,22 +75,6 @@ const accountSettingsItems = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M13.828 10.172a4 4 0 010 5.656l-2 2a4 4 0 01-5.656-5.656l1-1m5-5a4 4 0 015.656 5.656l-1 1m-5 5l5-5"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'billing',
-    title: 'Billing & Usage',
-    description: 'Subscription plan, pay-as-you-go credits, and payment methods',
-    route: 'billing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H5a3 3 0 00-3 3v8a3 3 0 003 3z"
         />
       </svg>
     ),
@@ -220,80 +205,106 @@ const aiModelsSettingsItems = [
   },
 ];
 
-const Settings = () => {
+const WrappedSettingsPage = ({ children }: { children: ReactNode }) => {
   return (
     <div className="p-4 pt-6">
       <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden">
-        <Routes>
-          <Route index element={<SettingsHome />} />
-          <Route
-            path="account"
-            element={
-              <SettingsSectionPage
-                title="Account & Billing"
-                description="Recovery phrase, team, connections, billing, and privacy settings."
-                items={accountSettingsItems}
-              />
-            }
-          />
-          <Route
-            path="features"
-            element={
-              <SettingsSectionPage
-                title="Features"
-                description="Screen awareness, autocomplete, voice, messaging, and tools."
-                items={featuresSettingsItems}
-              />
-            }
-          />
-          <Route
-            path="ai-models"
-            element={
-              <SettingsSectionPage
-                title="AI & Models"
-                description="Local AI model setup and management."
-                items={aiModelsSettingsItems}
-              />
-            }
-          />
-          {/* Account & Billing leaf panels */}
-          <Route path="recovery-phrase" element={<RecoveryPhrasePanel />} />
-          <Route path="team" element={<TeamPanel />} />
-          <Route path="team/manage/:teamId" element={<TeamManagementPanel />} />
-          <Route path="team/manage/:teamId/members" element={<TeamMembersPanel />} />
-          <Route path="team/manage/:teamId/invites" element={<TeamInvitesPanel />} />
-          <Route path="team/members" element={<TeamMembersPanel />} />
-          <Route path="team/invites" element={<TeamInvitesPanel />} />
-          <Route path="connections" element={<ConnectionsPanel />} />
-          <Route path="billing" element={<BillingPanel />} />
-          <Route path="privacy" element={<PrivacyPanel />} />
-          {/* Features leaf panels */}
-          <Route path="screen-intelligence" element={<ScreenIntelligencePanel />} />
-          <Route path="autocomplete" element={<AutocompletePanel />} />
-          <Route path="voice" element={<VoicePanel />} />
-          <Route path="messaging" element={<MessagingPanel />} />
-          <Route path="tools" element={<ToolsPanel />} />
-          {/* AI & Models leaf panels */}
-          <Route path="local-model" element={<LocalModelPanel />} />
-          {/* Developer Options */}
-          <Route path="developer-options" element={<DeveloperOptionsPanel />} />
-          <Route path="ai" element={<AIPanel />} />
-          <Route path="agent-chat" element={<AgentChatPanel />} />
-          <Route path="cron-jobs" element={<CronJobsPanel />} />
-          <Route path="screen-awareness-debug" element={<ScreenAwarenessDebugPanel />} />
-          <Route path="autocomplete-debug" element={<AutocompleteDebugPanel />} />
-          <Route path="voice-debug" element={<VoiceDebugPanel />} />
-          <Route path="local-model-debug" element={<LocalModelDebugPanel />} />
-          <Route path="webhooks-debug" element={<WebhooksDebugPanel />} />
-          <Route path="memory-data" element={<MemoryDataPanel />} />
-          <Route path="memory-debug" element={<MemoryDebugPanel />} />
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/settings" replace />} />
-        </Routes>
-        <div className="border-t border-stone-100 px-4 py-3 text-center text-[11px] text-stone-400">
-          Beta build - v{APP_VERSION}
-        </div>
+        {children}
       </div>
+    </div>
+  );
+};
+
+function wrapSettingsPage(element: ReactNode) {
+  return (
+    <WrappedSettingsPage>
+      {element}
+      <div className="border-t border-stone-100 px-4 py-3 text-center text-[11px] text-stone-400">
+        Beta build - v{APP_VERSION}
+      </div>
+    </WrappedSettingsPage>
+  );
+}
+
+const Settings = () => {
+  return (
+    <div>
+      <Routes>
+        <Route index element={wrapSettingsPage(<SettingsHome />)} />
+        <Route
+          path="account"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="Account"
+              description="Recovery phrase, team, connections, and privacy settings."
+              items={accountSettingsItems}
+            />
+          )}
+        />
+        <Route
+          path="features"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="Features"
+              description="Screen awareness, autocomplete, voice, messaging, and tools."
+              items={featuresSettingsItems}
+            />
+          )}
+        />
+        <Route
+          path="ai-models"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="AI & Models"
+              description="Local AI model setup and management."
+              items={aiModelsSettingsItems}
+            />
+          )}
+        />
+        {/* Account & Billing leaf panels */}
+        <Route path="recovery-phrase" element={wrapSettingsPage(<RecoveryPhrasePanel />)} />
+        <Route path="team" element={wrapSettingsPage(<TeamPanel />)} />
+        <Route path="team/manage/:teamId" element={wrapSettingsPage(<TeamManagementPanel />)} />
+        <Route
+          path="team/manage/:teamId/members"
+          element={wrapSettingsPage(<TeamMembersPanel />)}
+        />
+        <Route
+          path="team/manage/:teamId/invites"
+          element={wrapSettingsPage(<TeamInvitesPanel />)}
+        />
+        <Route path="team/members" element={wrapSettingsPage(<TeamMembersPanel />)} />
+        <Route path="team/invites" element={wrapSettingsPage(<TeamInvitesPanel />)} />
+        <Route path="connections" element={wrapSettingsPage(<ConnectionsPanel />)} />
+        {/* BillingPanel intentionally uses its own wider layout. */}
+        <Route path="billing" element={<BillingPanel />} />
+        <Route path="privacy" element={wrapSettingsPage(<PrivacyPanel />)} />
+        {/* Features leaf panels */}
+        <Route path="screen-intelligence" element={wrapSettingsPage(<ScreenIntelligencePanel />)} />
+        <Route path="autocomplete" element={wrapSettingsPage(<AutocompletePanel />)} />
+        <Route path="voice" element={wrapSettingsPage(<VoicePanel />)} />
+        <Route path="messaging" element={wrapSettingsPage(<MessagingPanel />)} />
+        <Route path="tools" element={wrapSettingsPage(<ToolsPanel />)} />
+        {/* AI & Models leaf panels */}
+        <Route path="local-model" element={wrapSettingsPage(<LocalModelPanel />)} />
+        {/* Developer Options */}
+        <Route path="developer-options" element={wrapSettingsPage(<DeveloperOptionsPanel />)} />
+        <Route path="ai" element={wrapSettingsPage(<AIPanel />)} />
+        <Route path="agent-chat" element={wrapSettingsPage(<AgentChatPanel />)} />
+        <Route path="cron-jobs" element={wrapSettingsPage(<CronJobsPanel />)} />
+        <Route
+          path="screen-awareness-debug"
+          element={wrapSettingsPage(<ScreenAwarenessDebugPanel />)}
+        />
+        <Route path="autocomplete-debug" element={wrapSettingsPage(<AutocompleteDebugPanel />)} />
+        <Route path="voice-debug" element={wrapSettingsPage(<VoiceDebugPanel />)} />
+        <Route path="local-model-debug" element={wrapSettingsPage(<LocalModelDebugPanel />)} />
+        <Route path="webhooks-debug" element={wrapSettingsPage(<WebhooksDebugPanel />)} />
+        <Route path="memory-data" element={wrapSettingsPage(<MemoryDataPanel />)} />
+        <Route path="memory-debug" element={wrapSettingsPage(<MemoryDebugPanel />)} />
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/settings" replace />} />
+      </Routes>
     </div>
   );
 };

@@ -233,8 +233,10 @@ const Conversations = () => {
     isLoading: isLoadingBudget,
     isAtLimit,
     isBudgetExhausted,
+    isRateLimited,
     isNearLimit,
     isFreeTier,
+    shouldShowBudgetCompletedMessage,
     usagePct10h,
     usagePct7d,
     currentTier,
@@ -1367,40 +1369,38 @@ const Conversations = () => {
                 />
               </div>
             )}
-          {teamUsage &&
-            ((teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0) ||
-              (!teamUsage.bypassCycleLimit &&
-                teamUsage.fiveHourCapUsd > 0 &&
-                teamUsage.cycleLimit5hr >= teamUsage.fiveHourCapUsd)) && (
-              <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg
-                    className="w-4 h-4 text-coral-400 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
-                  <p className="text-xs text-coral-600 truncate">
-                    {teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0
+          {teamUsage && (shouldShowBudgetCompletedMessage || isRateLimited) && (
+            <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <svg
+                  className="w-4 h-4 text-coral-400 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+                <p className="text-xs text-coral-600 truncate">
+                  {shouldShowBudgetCompletedMessage
+                    ? teamUsage.cycleBudgetUsd > 0
                       ? `You've hit your weekly limit.${teamUsage.cycleEndsAt ? ` Resets ${formatResetTime(teamUsage.cycleEndsAt)}.` : ''} Top up to continue.`
-                      : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
-                  </p>
-                </div>
-                {teamUsage.cycleBudgetUsd > 0 && teamUsage.remainingUsd <= 0 && (
-                  <button
-                    onClick={() => navigate('/settings/billing')}
-                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
-                    Top Up
-                  </button>
-                )}
+                      : 'Your included budget is complete. Add credits or upgrade to continue.'
+                    : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
+                </p>
               </div>
-            )}
+              {shouldShowBudgetCompletedMessage && (
+                <button
+                  onClick={() => navigate('/settings/billing')}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
+                  Top Up
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 mb-2">
             {(isLoadingBudget || teamUsage) && (

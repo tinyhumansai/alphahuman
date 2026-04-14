@@ -34,8 +34,8 @@ describe('PLANS', () => {
 
   it('should have BASIC plan aligned with backend config', () => {
     const basic = PLANS.find(p => p.tier === 'BASIC')!;
-    expect(basic.monthlyPrice).toBe(20);
-    expect(basic.annualPrice).toBe(200);
+    expect(basic.monthlyPrice).toBe(19.99);
+    expect(basic.annualPrice).toBe(199);
     expect(basic.discountPercent).toBe(20);
     expect(basic.monthlyBudgetUsd).toBe(20);
     expect(basic.weeklyBudgetUsd).toBe(10);
@@ -44,11 +44,11 @@ describe('PLANS', () => {
 
   it('should have PRO plan aligned with backend config', () => {
     const pro = PLANS.find(p => p.tier === 'PRO')!;
-    expect(pro.monthlyPrice).toBe(200);
-    expect(pro.annualPrice).toBe(2000);
+    expect(pro.monthlyPrice).toBe(199.99);
+    expect(pro.annualPrice).toBe(1799.99);
     expect(pro.discountPercent).toBe(40);
-    expect(pro.monthlyBudgetUsd).toBe(200);
-    expect(pro.weeklyBudgetUsd).toBe(100);
+    expect(pro.monthlyBudgetUsd).toBe(199);
+    expect(pro.weeklyBudgetUsd).toBe(99);
     expect(pro.fiveHourCapUsd).toBe(30);
   });
 
@@ -109,12 +109,12 @@ describe('displayPrice', () => {
       expect(displayPrice(freePlan, 'monthly')).toBe('$0');
     });
 
-    it('should return $20 for BASIC plan', () => {
-      expect(displayPrice(basicPlan, 'monthly')).toBe('$20');
+    it('should return $19.99 for BASIC plan', () => {
+      expect(displayPrice(basicPlan, 'monthly')).toBe('$19.99');
     });
 
-    it('should return $200 for PRO plan', () => {
-      expect(displayPrice(proPlan, 'monthly')).toBe('$200');
+    it('should return $199.99 for PRO plan', () => {
+      expect(displayPrice(proPlan, 'monthly')).toBe('$199.99');
     });
   });
 
@@ -123,13 +123,12 @@ describe('displayPrice', () => {
       expect(displayPrice(freePlan, 'annual')).toBe('$0');
     });
 
-    it('should return annual equivalent monthly price for BASIC ($200/12 = $17)', () => {
+    it('should return annual equivalent monthly price for BASIC ($199/12 = $17)', () => {
       expect(displayPrice(basicPlan, 'annual')).toBe('$17');
     });
 
-    it('should return annual equivalent monthly price for PRO ($2000/12 = $167)', () => {
-      // $2000 / 12 = 166.67, rounded to $167
-      expect(displayPrice(proPlan, 'annual')).toBe('$167');
+    it('should return annual equivalent monthly price for PRO ($1799.99/12 = $150)', () => {
+      expect(displayPrice(proPlan, 'annual')).toBe('$150');
     });
   });
 
@@ -167,15 +166,15 @@ describe('annualSavings', () => {
   });
 
   it('should calculate savings for BASIC annual', () => {
-    // Monthly total: $20 * 12 = $240, Annual: $200
-    // Savings: ($240 - $200) / $240 = 16.67%, rounded to 17%
+    // Monthly total: $19.99 * 12 = $239.88, Annual: $199
+    // Savings: ($239.88 - $199) / $239.88 = 17.04%, rounded to 17%
     expect(annualSavings(basicPlan, 'annual')).toBe(17);
   });
 
   it('should calculate savings for PRO annual', () => {
-    // Monthly total: $200 * 12 = $2400, Annual: $2000
-    // Savings: ($2400 - $2000) / $2400 = 16.67%, rounded to 17%
-    expect(annualSavings(proPlan, 'annual')).toBe(17);
+    // Monthly total: $199.99 * 12 = $2399.88, Annual: $1799.99
+    // Savings: ($2399.88 - $1799.99) / $2399.88 = 25.00%, rounded to 25%
+    expect(annualSavings(proPlan, 'annual')).toBe(25);
   });
 
   it('should return null when annual price equals monthly * 12 (no savings)', () => {

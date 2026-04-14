@@ -271,6 +271,13 @@ jobs:
           fetch-depth: 1
           submodules: true
 
+      - name: Configure staging app environment
+        if: inputs.build_target == 'staging'
+        shell: bash
+        run: |
+          echo "OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
+          echo "VITE_OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
+
       - name: Set Xcode version
         if: matrix.settings.platform == 'macos-latest'
         uses: maxim-lobanov/setup-xcode@v1
@@ -368,6 +375,7 @@ jobs:
         run: yarn build
         env:
           NODE_ENV: production
+          VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
@@ -414,6 +422,7 @@ jobs:
           MATRIX_TARGET: ${{ matrix.settings.target }}
           CORE_MANIFEST: ${{ steps.core-paths.outputs.core_manifest }}
           CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
+          OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
           OPENHUMAN_SENTRY_DSN: ${{ vars.OPENHUMAN_SENTRY_DSN }}
 
       - name: Stage sidecar for Tauri bundler
@@ -452,6 +461,8 @@ jobs:
           # where we sign everything with hardened runtime + entitlements
           # (required by Apple notarization).
           BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
+          OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
@@ -474,6 +485,8 @@ jobs:
         shell: bash
         env:
           BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
+          OPENHUMAN_APP_ENV: staging
+          VITE_OPENHUMAN_APP_ENV: staging
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
@@ -662,8 +675,8 @@ jobs:
     if: >-
       always()
       && needs.prepare-build.result == 'success'
-      && (needs.prepare-build.outputs.release_enabled != 'true'
-          || needs.create-release.result == 'success')
+      && needs.prepare-build.outputs.release_enabled == 'true'
+      && needs.create-release.result == 'success'
     runs-on: ubuntu-latest
     environment: Production
     env:

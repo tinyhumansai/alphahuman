@@ -134,7 +134,7 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
   const settingsCrumb: BreadcrumbItem = { label: 'Settings', onClick: () => navigate('/settings') };
 
   const accountCrumb: BreadcrumbItem = {
-    label: 'Account & Billing',
+    label: 'Account',
     onClick: () => navigate('/settings/account'),
   };
 
@@ -163,13 +163,15 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
       case 'ai-models':
         return [settingsCrumb];
 
-      // Leaf panels under account & billing
+      // Leaf panels under account
       case 'recovery-phrase':
       case 'team':
       case 'connections':
-      case 'billing':
       case 'privacy':
         return [settingsCrumb, accountCrumb];
+
+      case 'billing':
+        return [settingsCrumb];
 
       // Leaf panels under features
       case 'screen-intelligence':

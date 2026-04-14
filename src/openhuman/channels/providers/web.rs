@@ -1,4 +1,5 @@
 use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -75,6 +76,17 @@ static THREAD_SESSIONS: Lazy<Mutex<HashMap<String, SessionEntry>>> =
 
 static IN_FLIGHT: Lazy<Mutex<HashMap<String, InFlightEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static BUDGET_ERROR_NORMALIZE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[-_\s]+").expect("budget normalize regex"));
+static BUDGET_ERROR_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        Regex::new(r"budget.*exceed").expect("budget exceeded regex"),
+        Regex::new(r"top up").expect("top up regex"),
+        Regex::new(r"add.*credits").expect("add credits regex"),
+        Regex::new(r"out of credits").expect("out of credits regex"),
+        Regex::new(r"no remaining credits").expect("no remaining credits regex"),
+    ]
+});
 
 fn key_for(client_id: &str, thread_id: &str) -> String {
     format!("{client_id}::{thread_id}")
@@ -86,6 +98,19 @@ fn event_session_id_for(client_id: &str, thread_id: &str) -> String {
         "thread_id": thread_id,
     })
     .to_string()
+}
+
+fn is_inference_budget_exceeded_error(message: &str) -> bool {
+    let normalized = BUDGET_ERROR_NORMALIZE_RE
+        .replace_all(&message.trim().to_ascii_lowercase(), " ")
+        .into_owned();
+    BUDGET_ERROR_PATTERNS
+        .iter()
+        .any(|pattern| pattern.is_match(&normalized))
+}
+
+fn inference_budget_exceeded_user_message() -> &'static str {
+    "I don't have any budget available right now. Please top up your credits or choose a plan to continue."
 }
 
 pub async fn start_chat(
@@ -335,7 +360,23 @@ async fn run_chat_task(
         request_id.to_string(),
     );
 
-    let result = agent.run_single(message).await.map_err(|e| e.to_string());
+    let result = match agent.run_single(message).await {
+        Ok(response) => Ok(response),
+        Err(err) => {
+            let err_message = err.to_string();
+            if is_inference_budget_exceeded_error(&err_message) {
+                log::warn!(
+                    "[web-channel] inference budget exhausted for client={} thread={} request_id={} error_category=budget_exhausted",
+                    client_id,
+                    thread_id,
+                    request_id
+                );
+                Ok(inference_budget_exceeded_user_message().to_string())
+            } else {
+                Err(err_message)
+            }
+        }
+    };
 
     // Clear the sender so it doesn't hold the channel open across sessions.
     agent.set_on_progress(None);
@@ -798,7 +839,10 @@ fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String>
 
 #[cfg(test)]
 mod tests {
-    use super::{cancel_chat, start_chat};
+    use super::{
+        cancel_chat, inference_budget_exceeded_user_message, is_inference_budget_exceeded_error,
+        start_chat,
+    };
 
     #[tokio::test]
     async fn start_chat_validates_required_fields() {
@@ -829,5 +873,25 @@ mod tests {
             .await
             .expect_err("thread id should be required");
         assert!(err.contains("thread_id is required"));
+    }
+
+    #[test]
+    fn detects_backend_budget_exhaustion_error() {
+        assert!(is_inference_budget_exceeded_error(
+            "OpenHuman API error (402 Payment Required): Budget exceeded — add credits to continue."
+        ));
+        assert!(is_inference_budget_exceeded_error(
+            "provider error: budget exceeded, please add credits"
+        ));
+        assert!(!is_inference_budget_exceeded_error(
+            "OpenHuman API error (500): Internal server error"
+        ));
+    }
+
+    #[test]
+    fn budget_exceeded_copy_mentions_top_up() {
+        let message = inference_budget_exceeded_user_message();
+        assert!(message.contains("top up"));
+        assert!(message.contains("credits"));
     }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { listConnections, listToolkits } from './composioApi';
+import { canonicalizeComposioToolkitSlug } from './toolkitSlug';
 import type { ComposioConnection } from './types';
 
 // ── useComposioIntegrations ───────────────────────────────────────
@@ -113,7 +114,7 @@ export function useComposioIntegrations(pollIntervalMs = 5_000): UseComposioInte
       return 0;
     };
     for (const conn of connections) {
-      const key = conn.toolkit.toLowerCase();
+      const key = canonicalizeComposioToolkitSlug(conn.toolkit);
       const existing = map.get(key);
       if (!existing || score(conn.status) > score(existing.status)) {
         map.set(key, conn);

@@ -1,16 +1,12 @@
-import createDebug from 'debug';
 import { useState } from 'react';
 
-import { type CreditBalance, creditsApi } from '../../../../services/api/creditsApi';
-
-const log = createDebug('openhuman:billing-payg');
+import { type CreditBalance } from '../../../../services/api/creditsApi';
 
 interface PayAsYouGoCardProps {
   creditBalance: CreditBalance | null;
   isLoadingCredits: boolean;
   isToppingUp: boolean;
   onTopUp: (amountUsd: number) => void;
-  onBalanceRefresh: () => void;
 }
 
 const PayAsYouGoCard = ({
@@ -18,7 +14,6 @@ const PayAsYouGoCard = ({
   isLoadingCredits,
   isToppingUp,
   onTopUp,
-  onBalanceRefresh,
 }: PayAsYouGoCardProps) => {
   // Backend `GET /payments/credits/balance` returns
   //   { promotionBalanceUsd, teamTopupUsd }
@@ -30,155 +25,117 @@ const PayAsYouGoCard = ({
   const teamTopupCredits = creditBalance?.teamTopupUsd ?? 0;
   const availableCredits = promoCredits + teamTopupCredits;
 
-  // Coupon state (local — no need to share with other sections)
-  const [couponCode, setCouponCode] = useState('');
-  const [couponLoading, setCouponLoading] = useState(false);
-  const [couponError, setCouponError] = useState<string | null>(null);
-  const [couponSuccess, setCouponSuccess] = useState<string | null>(null);
+  const [customTopUpAmount, setCustomTopUpAmount] = useState('');
+  const customTopUpAmountValid = Number(customTopUpAmount) > 0;
 
-  const handleRedeemCoupon = async () => {
-    const code = couponCode.trim();
-    if (!code || couponLoading) return;
-
-    setCouponLoading(true);
-    setCouponError(null);
-    setCouponSuccess(null);
-
-    try {
-      log('[coupon] redeeming code=%s', code);
-      const result = await creditsApi.redeemCoupon(code);
-      setCouponSuccess(
-        result.pending
-          ? `Coupon accepted. $${result.amountUsd.toFixed(2)} will be added after the required action.`
-          : `Coupon redeemed! $${result.amountUsd.toFixed(2)} added to your credits.`
-      );
-      setCouponCode('');
-      onBalanceRefresh();
-    } catch (err) {
-      const msg =
-        err && typeof err === 'object' && 'error' in err
-          ? String((err as { error: unknown }).error)
-          : 'Invalid or expired coupon code.';
-      log('[coupon] error: %s', msg);
-      setCouponError(msg);
-    } finally {
-      setCouponLoading(false);
-    }
+  const handleCustomTopUp = () => {
+    if (!customTopUpAmountValid || isToppingUp) return;
+    onTopUp(Number(customTopUpAmount));
   };
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-3">
-      <h3 className="text-sm font-semibold text-stone-900 mb-2">Pay as You Go</h3>
-
-      {/* Balance display */}
-      {creditBalance ? (
-        <div className="space-y-1.5 mb-3">
-          <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-2.5 py-2">
-            <span className="text-xs text-stone-500">Available credits</span>
-            <span className="text-sm font-semibold text-stone-900">
-              ${availableCredits.toFixed(2)}
-            </span>
+    <>
+      <div className="rounded-lg bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.06)] ring-1 ring-stone-950/5">
+        <h3 className="font-headline text-xl font-bold tracking-tight text-stone-950">
+          Your Credit Balance
+        </h3>
+        <p className="mt-1 text-sm text-stone-500">
+          You can top up your credits if you ever exhaust your monthly budget or hit rate limits.
+          Credits are consumed after any included subscription budget is exhausted.
+        </p>
+        {creditBalance ? (
+          <div className="grid mt-4 gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-sm font-semibold text-stone-400">Available</p>
+              <p className="mt-2 text-2xl font-bold tracking-tight text-stone-600">
+                ${availableCredits.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-400">Promotional Credits</p>
+              <p className="mt-2 text-xl font-bold tracking-tight text-stone-600">
+                ${promoCredits.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-stone-400">Top-up Balance</p>
+              <p className="mt-2 text-xl font-bold tracking-tight text-stone-600">
+                ${teamTopupCredits.toFixed(2)}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-stone-400">Signup + promo credits</span>
-            <span className="text-xs font-medium text-stone-900">${promoCredits.toFixed(2)}</span>
+        ) : isLoadingCredits ? (
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {[0, 1, 2].map(index => (
+              <div key={index} className="h-24 rounded-2xl bg-stone-100 animate-pulse" />
+            ))}
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-stone-400">Team top-up credits</span>
-            <span className="text-xs font-medium text-stone-900">
-              ${teamTopupCredits.toFixed(2)}
-            </span>
-          </div>
-        </div>
-      ) : isLoadingCredits ? (
-        <div className="space-y-1.5 mb-3">
-          <div className="h-3 w-full rounded bg-stone-700/60 animate-pulse" />
-          <div className="h-3 w-3/4 rounded bg-stone-700/60 animate-pulse" />
-        </div>
-      ) : (
-        <p className="text-xs text-stone-500 mb-3">Unable to load balance</p>
-      )}
-
-      <p className="mb-3 text-[11px] text-stone-500">
-        Credits are used after any included subscription budget is consumed.
-      </p>
-
-      {/* Top-up buttons */}
-      <div className="flex gap-2 mb-3">
-        {[5, 10, 25].map(amount => (
-          <button
-            key={amount}
-            onClick={() => onTopUp(amount)}
-            disabled={isToppingUp}
-            className="flex-1 py-1.5 rounded-lg bg-primary-500/20 hover:bg-primary-500/30 text-primary-400 text-xs font-medium border border-primary-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            {isToppingUp ? '…' : `+$${amount}`}
-          </button>
-        ))}
-      </div>
-
-      {/* Coupon redemption */}
-      <div className="border-t border-stone-100 pt-3">
-        <p className="text-[11px] text-stone-400 mb-1.5">Have a coupon?</p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={couponCode}
-            onChange={e => {
-              setCouponCode(e.target.value.toUpperCase());
-              if (couponError) setCouponError(null);
-              if (couponSuccess) setCouponSuccess(null);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleRedeemCoupon();
-            }}
-            placeholder="XXXX-XXXX"
-            className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-stone-200 bg-stone-50 text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-          />
-          <button
-            onClick={handleRedeemCoupon}
-            disabled={couponLoading || !couponCode.trim()}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-primary-500 hover:bg-primary-600 text-white disabled:opacity-50 disabled:cursor-not-allowed">
-            {couponLoading ? '…' : 'Redeem'}
-          </button>
-        </div>
-
-        {couponSuccess && (
-          <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-sage-500/10 border border-sage-500/20 px-2.5 py-1.5">
-            <svg
-              className="w-3.5 h-3.5 text-sage-400 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-            <p className="text-[11px] text-sage-300 font-medium">{couponSuccess}</p>
-          </div>
-        )}
-
-        {couponError && (
-          <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-coral-500/10 border border-coral-500/20 px-2.5 py-1.5">
-            <svg
-              className="w-3.5 h-3.5 text-coral-400 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-              />
-            </svg>
-            <p className="text-[11px] text-coral-300">{couponError}</p>
-          </div>
+        ) : (
+          <p className="mt-5 text-sm text-stone-500">Unable to load balance.</p>
         )}
       </div>
-    </div>
+      <div className="rounded-lg bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.06)] ring-1 ring-stone-950/5">
+        <h3 className="font-headline text-xl font-bold tracking-tight text-stone-950">
+          Choose a Top-up Amount
+        </h3>
+        <p className="mt-1 text-sm text-stone-500">
+          Choose one of the preset amounts above or enter your own charge amount.
+        </p>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          {[5, 10, 25].map(amount => (
+            <button
+              key={amount}
+              onClick={() => onTopUp(amount)}
+              disabled={isToppingUp}
+              className="group rounded-2xl border border-primary-200/50 bg-primary-50/50 px-4 py-5 text-center transition-all hover:border-primary-200 disabled:cursor-not-allowed disabled:opacity-50">
+              <div className="text-2xl font-bold tracking-tight text-primary-600">
+                {isToppingUp ? 'Opening…' : `$${amount.toFixed(2)}`}
+              </div>
+              <div className="mt-1 text-[11px] font-semibold text-stone-400">Top Up Credits</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div>
+              <label
+                htmlFor="billing-custom-top-up"
+                className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
+                Custom amount
+              </label>
+              <div className="mt-2 flex items-center rounded-2xl bg-white px-4 ring-1 ring-stone-200 focus-within:ring-2 focus-within:ring-primary-500/20">
+                <span className="text-sm font-semibold text-stone-500">$</span>
+                <input
+                  id="billing-custom-top-up"
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={customTopUpAmount}
+                  onChange={e => setCustomTopUpAmount(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleCustomTopUp();
+                  }}
+                  placeholder="Enter amount"
+                  className="w-full border-0 bg-transparent px-3 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-0"
+                />
+              </div>
+              <p className="mt-2 text-xs text-stone-500">
+                Choose one of the preset amounts above or enter your own charge amount.
+              </p>
+            </div>
+            <button
+              onClick={handleCustomTopUp}
+              disabled={!customTopUpAmountValid || isToppingUp}
+              className="rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50 lg:self-end">
+              {isToppingUp ? 'Opening…' : 'Charge custom amount'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 

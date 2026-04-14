@@ -1,5 +1,12 @@
 import packageJson from '../../package.json';
 
+const APP_ENV = (import.meta.env.VITE_OPENHUMAN_APP_ENV as string | undefined)
+  ?.trim()
+  .toLowerCase();
+
+const DEFAULT_BACKEND_URL =
+  APP_ENV === 'staging' ? 'https://staging-api.tinyhumans.ai' : 'https://api.tinyhumans.ai';
+
 export const CORE_RPC_URL =
   import.meta.env.VITE_OPENHUMAN_CORE_RPC_URL || 'http://127.0.0.1:7788/rpc';
 
@@ -32,7 +39,8 @@ export const SKILLS_GITHUB_REPO =
 export const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
 /** Backend API URL (web fallback when core RPC is unavailable). */
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL as string | undefined;
+export const BACKEND_URL =
+  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() || DEFAULT_BACKEND_URL;
 
 /** Telegram bot username used for managed DM linking when backend does not return a launch URL. */
 export const TELEGRAM_BOT_USERNAME =

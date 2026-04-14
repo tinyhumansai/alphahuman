@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,11 +6,11 @@ import Rewards from '../Rewards';
 
 const { rewardsApi } = vi.hoisted(() => ({ rewardsApi: { getMyRewards: vi.fn() } }));
 
-vi.mock('../../components/referral/ReferralRewardsSection', () => ({
+vi.mock('../../components/rewards/RewardsReferralsTab', () => ({
   default: () => <div>Referral Rewards Section</div>,
 }));
 
-vi.mock('../../components/rewards/RewardsCouponSection', () => ({
+vi.mock('../../components/rewards/RewardsRedeemTab', () => ({
   default: () => <div>Rewards Coupon Section</div>,
 }));
 
@@ -70,14 +70,14 @@ describe('Rewards page', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Loading rewards…')).toBeInTheDocument();
+    expect(screen.queryAllByText('Loading rewards…').length).toBeGreaterThan(0);
 
     await waitFor(() => {
       expect(screen.getByText('7-Day Streak')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Assigned in Discord')).toBeInTheDocument();
-    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(screen.getByText('Joined the server')).toBeInTheDocument();
+    expect(screen.getByText('1 of 2 achievements unlocked')).toBeInTheDocument();
   });
 
   it('shows a conservative error state when rewards fail to load', async () => {
@@ -95,5 +95,84 @@ describe('Rewards page', () => {
 
     expect(screen.getByText('Rewards sync pending')).toBeInTheDocument();
     expect(screen.queryByText('Unlocked')).not.toBeInTheDocument();
+  });
+
+  it('switches to the referrals tab content', async () => {
+    rewardsApi.getMyRewards.mockResolvedValueOnce({
+      discord: {
+        linked: false,
+        discordId: null,
+        inviteUrl: 'https://discord.gg/openhuman',
+        membershipStatus: 'not_linked',
+      },
+      summary: {
+        unlockedCount: 0,
+        totalCount: 0,
+        assignedDiscordRoleCount: 0,
+        plan: 'FREE',
+        hasActiveSubscription: false,
+      },
+      metrics: {
+        currentStreakDays: 0,
+        longestStreakDays: 0,
+        cumulativeTokens: 0,
+        featuresUsedCount: 0,
+        trackedFeaturesCount: 0,
+        lastEvaluatedAt: '2026-04-09T00:00:00.000Z',
+        lastSyncedAt: '2026-04-09T01:00:00.000Z',
+      },
+      achievements: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <Rewards />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Referrals' }));
+
+    expect(screen.getByText('Referral Rewards Section')).toBeInTheDocument();
+    expect(screen.queryByText('Rewards Coupon Section')).not.toBeInTheDocument();
+    expect(screen.queryByText('Earn community roles')).not.toBeInTheDocument();
+  });
+
+  it('switches to the redeem tab content', async () => {
+    rewardsApi.getMyRewards.mockResolvedValueOnce({
+      discord: {
+        linked: false,
+        discordId: null,
+        inviteUrl: 'https://discord.gg/openhuman',
+        membershipStatus: 'not_linked',
+      },
+      summary: {
+        unlockedCount: 0,
+        totalCount: 0,
+        assignedDiscordRoleCount: 0,
+        plan: 'FREE',
+        hasActiveSubscription: false,
+      },
+      metrics: {
+        currentStreakDays: 0,
+        longestStreakDays: 0,
+        cumulativeTokens: 0,
+        featuresUsedCount: 0,
+        trackedFeaturesCount: 0,
+        lastEvaluatedAt: '2026-04-09T00:00:00.000Z',
+        lastSyncedAt: '2026-04-09T01:00:00.000Z',
+      },
+      achievements: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <Rewards />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Redeem' }));
+
+    expect(screen.getByText('Rewards Coupon Section')).toBeInTheDocument();
+    expect(screen.queryByText('Referral Rewards Section')).not.toBeInTheDocument();
   });
 });

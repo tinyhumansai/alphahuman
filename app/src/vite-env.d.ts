@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_OPENHUMAN_APP_ENV?: string;
   readonly VITE_OPENHUMAN_CORE_RPC_URL?: string;
   readonly VITE_BACKEND_URL?: string;
   readonly VITE_SKILLS_GITHUB_REPO?: string;

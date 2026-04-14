@@ -4,15 +4,18 @@ use serde::{Deserialize, Serialize};
 
 /// Which authentication mode a channel connection uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum ChannelAuthMode {
     /// User provides an API key or access token.
+    #[serde(rename = "api_key")]
     ApiKey,
     /// User provides a bot token (e.g. Telegram BotFather token).
+    #[serde(rename = "bot_token")]
     BotToken,
     /// User authenticates via OAuth (server-side flow).
+    #[serde(rename = "oauth")]
     OAuth,
     /// User messages the platform's managed bot directly.
+    #[serde(rename = "managed_dm")]
     ManagedDm,
 }
 
@@ -426,5 +429,53 @@ mod tests {
             let parsed: ChannelAuthMode = s.parse().expect("parse failed");
             assert_eq!(parsed, mode);
         }
+    }
+
+    #[test]
+    fn auth_mode_serializes_to_expected_wire_values() {
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::ApiKey).expect("serialize"),
+            serde_json::Value::String("api_key".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "api_key".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::ApiKey
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::BotToken).expect("serialize"),
+            serde_json::Value::String("bot_token".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "bot_token".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::BotToken
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::OAuth).expect("serialize"),
+            serde_json::Value::String("oauth".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "oauth".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::OAuth
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::ManagedDm).expect("serialize"),
+            serde_json::Value::String("managed_dm".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "managed_dm".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::ManagedDm
+        );
     }
 }
