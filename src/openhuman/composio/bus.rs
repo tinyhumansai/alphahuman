@@ -489,6 +489,13 @@ async fn wait_for_connection_active(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::Mutex;
+
+    /// Cargo runs tests concurrently by default, and `TRIAGE_DISABLED_ENV`
+    /// is process-global. Every test that reads or writes it must hold this
+    /// guard for the duration of its env-var usage, otherwise interleaved
+    /// `set_var` / `remove_var` calls cause spurious failures.
+    static TRIAGE_ENV_GUARD: Mutex<()> = Mutex::new(());
 
     #[tokio::test]
     async fn ignores_non_composio_events() {
@@ -505,6 +512,7 @@ mod tests {
     async fn handles_trigger_event_without_panic() {
         // Disable triage so this test takes the log-only path and
         // doesn't spawn a real LLM turn.
+        let _guard = TRIAGE_ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var(TRIAGE_DISABLED_ENV, "1");
         let sub = ComposioTriggerSubscriber::new();
         sub.handle(&DomainEvent::ComposioTriggerReceived {
@@ -520,6 +528,7 @@ mod tests {
 
     #[test]
     fn triage_disabled_flag_parser() {
+        let _guard = TRIAGE_ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Truthy values disable triage.
         for val in ["1", "true", "TRUE", "yes", "YES"] {
             std::env::set_var(TRIAGE_DISABLED_ENV, val);
