@@ -245,7 +245,7 @@ impl Summarizer for ProviderSummarizer {
 /// head length. Returns 0 when the adjustment would consume the entire
 /// history, meaning there is nothing we can safely summarize without
 /// breaking the API invariant.
-fn snap_split_forward(history: &[ConversationMessage], proposed_head: usize) -> usize {
+pub(crate) fn snap_split_forward(history: &[ConversationMessage], proposed_head: usize) -> usize {
     let mut head = proposed_head.min(history.len());
     // If the message immediately *before* the split is an
     // AssistantToolCalls and the message *at* the split is its
@@ -274,7 +274,7 @@ fn snap_split_forward(history: &[ConversationMessage], proposed_head: usize) -> 
 /// Render a slice of `ConversationMessage` as a plain-text transcript
 /// for the summarizer prompt. Format is intentionally simple — the
 /// summarizer reads it as-is.
-fn render_transcript(msgs: &[ConversationMessage]) -> String {
+pub(crate) fn render_transcript(msgs: &[ConversationMessage]) -> String {
     let mut out = String::new();
     for (i, msg) in msgs.iter().enumerate() {
         if i > 0 {

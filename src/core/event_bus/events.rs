@@ -280,6 +280,25 @@ pub enum DomainEvent {
         reason: String,
     },
 
+    // ── Context Compaction (HRD) ─────────────────────────────────────────────
+    /// HRD compressor successfully compressed a conversation head.
+    ConversationCompacted {
+        /// Thread ID of the conversation that was compacted.
+        thread_id: Option<String>,
+        /// How many messages were removed from the head.
+        messages_removed: usize,
+        /// How many distilled memory entries were persisted.
+        memories_stored: usize,
+        /// Approximate number of tokens freed (input bytes heuristic / 4).
+        approx_tokens_freed: u64,
+        /// Auxiliary model used for compression.
+        auxiliary_model: String,
+        /// Number of chunks processed in the map phase.
+        chunks_processed: usize,
+        /// Reduce depth reached (0 = single-pass reduce, 1+ = recursive).
+        reduce_depth: u8,
+    },
+
     // ── Tree Summarizer ──────────────────────────────────────────────────
     /// An hour leaf was created from buffered data.
     TreeSummarizerHourCompleted {
@@ -323,7 +342,8 @@ impl DomainEvent {
             | Self::AgentError { .. }
             | Self::SubagentSpawned { .. }
             | Self::SubagentCompleted { .. }
-            | Self::SubagentFailed { .. } => "agent",
+            | Self::SubagentFailed { .. }
+            | Self::ConversationCompacted { .. } => "agent",
 
             Self::MemoryStored { .. } | Self::MemoryRecalled { .. } => "memory",
 

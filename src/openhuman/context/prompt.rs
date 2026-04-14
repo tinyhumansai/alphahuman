@@ -5,6 +5,9 @@ use chrono::Local;
 use std::fmt::Write;
 use std::path::Path;
 
+// Re-export for callers that populate `LearnedContextData::thread_memory_bulletin`.
+pub use crate::openhuman::context_summarizer::bulletin::BulletinEntry;
+
 const BOOTSTRAP_MAX_CHARS: usize = 20_000;
 const CACHE_BOUNDARY_MARKER: &str = "<!-- CACHE_BOUNDARY -->";
 
@@ -39,6 +42,13 @@ pub struct LearnedContextData {
     /// Empty when the tree summarizer has never run on this workspace
     /// (the section then renders nothing and is dropped from the prompt).
     pub tree_root_summaries: Vec<(String, String)>,
+
+    /// Pre-fetched distilled memories from the HRD compressor for the current
+    /// conversation thread. Populated asynchronously by the caller before
+    /// building the system prompt; consumed by
+    /// [`ConversationMemoryBulletinSection`]. Empty when HRD has never run or
+    /// the caller does not have a `thread_id`.
+    pub thread_memory_bulletin: Vec<BulletinEntry>,
 }
 
 /// A connected external integration (e.g. a Composio OAuth connection)
@@ -179,6 +189,7 @@ pub struct SystemPromptBuilder {
 
 impl SystemPromptBuilder {
     pub fn with_defaults() -> Self {
+        use crate::openhuman::context_summarizer::bulletin::ConversationMemoryBulletinSection;
         Self {
             sections: vec![
                 Box::new(IdentitySection),
@@ -187,6 +198,9 @@ impl SystemPromptBuilder {
                 // sees the tool catalogue. Section is empty (and skipped) when
                 // the tree summarizer has nothing on disk yet.
                 Box::new(UserMemorySection),
+                // HRD distilled memories for the current conversation thread.
+                // Empty when HRD has not run or thread_id is absent.
+                Box::new(ConversationMemoryBulletinSection::default()),
                 Box::new(ToolsSection),
                 // Connected integrations sit after tools so the orchestrator
                 // sees which external services are available via the Skills

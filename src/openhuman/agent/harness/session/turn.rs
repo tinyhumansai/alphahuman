@@ -875,6 +875,10 @@ impl Agent {
                 .map(|e| sanitize_learned_entry(&e.content))
                 .collect(),
             tree_root_summaries,
+            // HRD bulletin: pre-fetched asynchronously by the caller when a
+            // thread_id is available. Left empty here; the channel / session
+            // layer can populate this before calling build_system_prompt.
+            thread_memory_bulletin: Vec::new(),
         }
     }
 

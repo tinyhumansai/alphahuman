@@ -35,6 +35,8 @@ impl AgentBuilder {
             memory_loader: None,
             config: None,
             context_config: None,
+            compression_config: None,
+            local_ai_config: None,
             model_name: None,
             temperature: None,
             workspace_dir: None,
@@ -115,6 +117,25 @@ impl AgentBuilder {
     /// [`ContextConfig::default`].
     pub fn context_config(mut self, context_config: ContextConfig) -> Self {
         self.context_config = Some(context_config);
+        self
+    }
+
+    /// Sets the HRD compression configuration for the summarizer selection.
+    /// When `compression.enabled == true`, the builder uses
+    /// `HermesDistillingSummarizer`; otherwise falls back to `ProviderSummarizer`.
+    pub fn compression_config(
+        mut self,
+        compression: crate::openhuman::config::CompressionConfig,
+    ) -> Self {
+        self.compression_config = Some(compression);
+        self
+    }
+
+    /// Forwards the [`LocalAiConfig`] from the full [`Config`] so the
+    /// HRD auxiliary provider builder can resolve the correct Ollama model
+    /// and base URL without falling back to hard-coded defaults.
+    pub fn local_ai_config(mut self, local_ai: crate::openhuman::config::LocalAiConfig) -> Self {
+        self.local_ai_config = Some(local_ai);
         self
     }
 
@@ -247,8 +268,43 @@ impl AgentBuilder {
         // the prompt builder, the reduction pipeline, and the
         // summarizer — every concern that touches "what's in the
         // model's context window" routes through this single handle.
+        //
+        // NOTE: additional ProviderSummarizer::new call sites may exist in
+        // channel-session builders; this is the primary one used by the main
+        // agent harness.
         let context_config = self.context_config.unwrap_or_default();
-        let summarizer = Arc::new(ProviderSummarizer::new(provider.clone()));
+        let summarizer: Arc<dyn crate::openhuman::context::Summarizer> = if let Some(compression) =
+            &self.compression_config
+        {
+            if compression.enabled {
+                // Try to build HRD; fall back to ProviderSummarizer on failure.
+                // Retrieve the global MemoryClient if it has been initialised.
+                let memory_arc = crate::openhuman::memory::global::client_if_ready();
+                let local_ai = self.local_ai_config.as_ref().cloned().unwrap_or_default();
+                match crate::openhuman::context_summarizer::HermesDistillingSummarizer::build(
+                    compression,
+                    &local_ai,
+                    memory_arc,
+                    None, // thread_id filled in per-session if needed
+                    provider.clone(),
+                ) {
+                    Ok(hrd) => {
+                        tracing::info!("[context::manager] HRD summarizer active");
+                        Arc::new(hrd)
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                                "[context::manager] HRD build failed, falling back to ProviderSummarizer: {e}"
+                            );
+                        Arc::new(ProviderSummarizer::new(provider.clone()))
+                    }
+                }
+            } else {
+                Arc::new(ProviderSummarizer::new(provider.clone()))
+            }
+        } else {
+            Arc::new(ProviderSummarizer::new(provider.clone()))
+        };
         let context = ContextManager::new(
             &context_config,
             summarizer,
@@ -777,6 +833,8 @@ impl Agent {
             .prompt_builder(prompt_builder)
             .config(config.agent.clone())
             .context_config(config.context.clone())
+            .compression_config(config.compression.clone())
+            .local_ai_config(config.local_ai.clone())
             .model_name(model_name)
             .temperature(effective_temperature)
             .workspace_dir(config.workspace_dir.clone())

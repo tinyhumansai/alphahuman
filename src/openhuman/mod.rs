@@ -25,6 +25,7 @@ pub mod channels;
 pub mod composio;
 pub mod config;
 pub mod context;
+pub mod context_summarizer;
 pub mod cost;
 pub mod credentials;
 pub mod cron;

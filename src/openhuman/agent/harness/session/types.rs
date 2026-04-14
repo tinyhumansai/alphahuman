@@ -108,6 +108,14 @@ pub struct AgentBuilder {
     /// `Agent::from_config`. When unset the builder falls back to
     /// [`crate::openhuman::config::ContextConfig::default`].
     pub(super) context_config: Option<crate::openhuman::config::ContextConfig>,
+    /// Optional [`CompressionConfig`] override for HRD summarizer selection.
+    /// When present and `enabled == true`, the builder uses `HermesDistillingSummarizer`
+    /// instead of `ProviderSummarizer`.
+    pub(super) compression_config: Option<crate::openhuman::config::CompressionConfig>,
+    /// Optional [`LocalAiConfig`] forwarded from the full [`Config`] so
+    /// `build_auxiliary_provider` can resolve the Ollama model/base-URL
+    /// without falling back to defaults when HRD is active.
+    pub(super) local_ai_config: Option<crate::openhuman::config::LocalAiConfig>,
     pub(super) model_name: Option<String>,
     pub(super) temperature: Option<f64>,
     pub(super) workspace_dir: Option<std::path::PathBuf>,

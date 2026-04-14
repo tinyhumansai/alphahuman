@@ -124,6 +124,13 @@ pub struct Config {
     #[serde(default)]
     pub local_ai: LocalAiConfig,
 
+    /// HRD context compression configuration — controls whether the Hermes
+    /// Recursive Distillation compressor is used instead of the default
+    /// `ProviderSummarizer`, and tunes the auxiliary model, chunking, and
+    /// bulletin injection behaviour.
+    #[serde(default)]
+    pub compression: CompressionConfig,
+
     #[serde(default)]
     pub voice_server: VoiceServerConfig,
 
@@ -247,6 +254,7 @@ impl Default for Config {
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             local_ai: LocalAiConfig::default(),
+            compression: CompressionConfig::default(),
             voice_server: VoiceServerConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             integrations: IntegrationsConfig::default(),

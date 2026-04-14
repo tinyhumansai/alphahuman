@@ -168,6 +168,7 @@ mod tests {
                 patterns: vec!["User prefers terse replies".into()],
                 user_profile: Vec::new(),
                 tree_root_summaries: Vec::new(),
+                thread_memory_bulletin: Vec::new(),
             }))
             .unwrap();
 
@@ -200,6 +201,7 @@ mod tests {
                     "Prefers Rust".into(),
                 ],
                 tree_root_summaries: Vec::new(),
+                thread_memory_bulletin: Vec::new(),
             }))
             .unwrap();
 

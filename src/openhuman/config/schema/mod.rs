@@ -4,6 +4,8 @@
 
 mod accessibility;
 mod agent;
+mod compression;
+pub use compression::CompressionConfig;
 mod autocomplete;
 mod autonomy;
 mod channels;
