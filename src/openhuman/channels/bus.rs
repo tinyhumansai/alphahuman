@@ -140,21 +140,34 @@ impl EventHandler for ChannelInboundSubscriber {
                                 }
                                 "chat_done" | "chat:done" => {
                                     let reply = ev.full_response.unwrap_or_default();
-                                    if reply.trim().is_empty() {
-                                        tracing::warn!("[channel-inbound] agent returned empty response");
-                                        return;
-                                    }
+                                    // Even when the agent produced no visible
+                                    // text, we must close out any draft we
+                                    // already posted — otherwise the user is
+                                    // left staring at a stale "_working…_"
+                                    // message indefinitely.
+                                    let reply_text = if reply.trim().is_empty() {
+                                        tracing::warn!(
+                                            "[channel-inbound] agent returned empty response — finalizing draft with fallback",
+                                        );
+                                        "(No response from agent.)"
+                                    } else {
+                                        reply.as_str()
+                                    };
                                     tracing::info!(
                                         "[channel-inbound] agent done, replying to channel='{}' len={} streamed_msg_id={:?}",
                                         channel,
-                                        reply.len(),
+                                        reply_text.len(),
                                         streaming_state.message_id,
                                     );
                                     // If we've been streaming progressive edits, replace
                                     // the outbound message with the final canonical text.
                                     // Otherwise send a fresh message atomically.
-                                    finalize_channel_reply(channel, &mut streaming_state, &reply)
-                                        .await;
+                                    finalize_channel_reply(
+                                        channel,
+                                        &mut streaming_state,
+                                        reply_text,
+                                    )
+                                    .await;
                                     return;
                                 }
                                 "chat_error" | "chat:error" => {

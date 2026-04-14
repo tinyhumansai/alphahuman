@@ -402,7 +402,66 @@ pub(crate) async fn run_tool_call_loop(
         // can emit one `role: tool` message per tool call with the correct ID.
         let mut tool_results = String::new();
         let mut individual_results: Vec<String> = Vec::new();
-        for call in &tool_calls {
+        for (call_idx, call) in tool_calls.iter().enumerate() {
+            // Stable id threaded through the start/complete pair (and
+            // any preceding args-delta events) so consumers can
+            // reconcile tool rows by id. The fallback includes
+            // `call_idx` to stay unique when the same tool name
+            // appears multiple times in one iteration.
+            let progress_call_id = call
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("loop-{iteration}-{call_idx}-{}", call.name));
+            // Emit `ToolCallStarted` for every parsed call, even ones
+            // that will be rejected below (approval denied, CliRpcOnly,
+            // unknown) — the client-side row was created from the
+            // streamed args and needs a terminal event to resolve.
+            if let Some(ref sink) = on_progress {
+                if let Err(e) = sink
+                    .send(AgentProgress::ToolCallStarted {
+                        call_id: progress_call_id.clone(),
+                        tool_name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                        iteration: (iteration + 1) as u32,
+                    })
+                    .await
+                {
+                    log::warn!(
+                        "[agent_loop] progress sink closed while emitting ToolCallStarted: {e}"
+                    );
+                }
+            }
+
+            // Helper: emit a failed `ToolCallCompleted` for an
+            // early-exit path (denied / CliRpcOnly / unknown) so the
+            // client row flips to `error` instead of staying running.
+            let emit_failed_completion = |message: &str| {
+                let call_id = progress_call_id.clone();
+                let tool_name = call.name.clone();
+                let output_chars = message.chars().count();
+                let iteration_u32 = (iteration + 1) as u32;
+                let sink_opt = on_progress.clone();
+                async move {
+                    if let Some(sink) = sink_opt {
+                        if let Err(e) = sink
+                            .send(AgentProgress::ToolCallCompleted {
+                                call_id,
+                                tool_name,
+                                success: false,
+                                output_chars,
+                                elapsed_ms: 0,
+                                iteration: iteration_u32,
+                            })
+                            .await
+                        {
+                            log::warn!(
+                                "[agent_loop] progress sink closed while emitting early-exit ToolCallCompleted: {e}"
+                            );
+                        }
+                    }
+                }
+            };
+
             // ── Approval hook ────────────────────────────────
             if let Some(mgr) = approval {
                 if mgr.needs_approval(&call.name) {
@@ -422,6 +481,7 @@ pub(crate) async fn run_tool_call_loop(
 
                     if decision == ApprovalResponse::No {
                         let denied = "Denied by user.".to_string();
+                        emit_failed_completion(&denied).await;
                         individual_results.push(denied.clone());
                         let _ = writeln!(
                             tool_results,
@@ -462,6 +522,7 @@ pub(crate) async fn run_tool_call_loop(
                         "Tool '{}' is only available via explicit CLI/RPC invocation, not in the autonomous agent loop.",
                         call.name
                     );
+                    emit_failed_completion(&denied).await;
                     individual_results.push(denied.clone());
                     let _ = writeln!(
                         tool_results,
@@ -476,28 +537,6 @@ pub(crate) async fn run_tool_call_loop(
                 let tool_deadline =
                     crate::openhuman::tool_timeout::tool_execution_timeout_duration();
                 let timeout_secs = crate::openhuman::tool_timeout::tool_execution_timeout_secs();
-                // Stable id threaded through the start/complete pair
-                // (and any preceding args-delta events) so consumers can
-                // reconcile tool rows by id.
-                let progress_call_id = call
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| format!("loop-{iteration}-{}", call.name));
-                if let Some(ref sink) = on_progress {
-                    if let Err(e) = sink
-                        .send(AgentProgress::ToolCallStarted {
-                            call_id: progress_call_id.clone(),
-                            tool_name: call.name.clone(),
-                            arguments: call.arguments.clone(),
-                            iteration: (iteration + 1) as u32,
-                        })
-                        .await
-                    {
-                        log::warn!(
-                            "[agent_loop] progress sink closed while emitting ToolCallStarted: {e}"
-                        );
-                    }
-                }
                 let tool_started = std::time::Instant::now();
                 let outcome =
                     tokio::time::timeout(tool_deadline, tool.execute(call.arguments.clone())).await;
@@ -569,7 +608,9 @@ pub(crate) async fn run_tool_call_loop(
                     tool = call.name.as_str(),
                     "[agent_loop] unknown tool requested"
                 );
-                format!("Unknown tool: {}", call.name)
+                let msg = format!("Unknown tool: {}", call.name);
+                emit_failed_completion(&msg).await;
+                msg
             };
 
             individual_results.push(result.clone());
