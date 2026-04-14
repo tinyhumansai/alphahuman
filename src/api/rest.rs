@@ -522,6 +522,27 @@ impl BackendOAuthClient {
         .await
     }
 
+    /// Broadcasts a typing indicator on a communication channel. Short-lived —
+    /// callers should re-invoke periodically to keep the indicator alive during
+    /// long-running operations.
+    pub async fn send_channel_typing(
+        &self,
+        channel: &str,
+        bearer_jwt: &str,
+        body: Value,
+    ) -> Result<Value> {
+        let channel = channel.trim().trim_matches('/');
+        anyhow::ensure!(!channel.is_empty(), "channel is required");
+        let encoded = urlencoding::encode(channel);
+        self.authed_json(
+            bearer_jwt,
+            Method::POST,
+            &format!("channels/{encoded}/typing"),
+            Some(body),
+        )
+        .await
+    }
+
     /// Sends a reaction (e.g. emoji) to a message in a channel.
     pub async fn send_channel_reaction(
         &self,
