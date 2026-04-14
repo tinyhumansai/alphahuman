@@ -102,6 +102,13 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
         log::info!("[socketio] client connected id={client_id}");
         // Join a room named after the client ID for targeted event delivery.
         let _ = socket.join(client_id.clone());
+        // Also auto-join the "system" room so every connected client
+        // receives broadcast-style events that aren't tied to a
+        // specific chat thread. Today this covers proactive messages
+        // (welcome agent, morning briefing, cron-driven announcements)
+        // which `channels::proactive::ProactiveMessageSubscriber`
+        // emits with `client_id = "system"` — see `emit_web_channel_event`.
+        let _ = socket.join("system");
         let ready_payload = json!({ "sid": client_id });
         log::debug!("[socketio] emit event=ready to_client={}", socket.id);
         let _ = socket.emit("ready", &ready_payload);
