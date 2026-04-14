@@ -16,11 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import {
-  authorize,
-  deleteConnection,
-  listConnections,
-} from '../../lib/composio/composioApi';
+import { authorize, deleteConnection, listConnections } from '../../lib/composio/composioApi';
 import { type ComposioConnection, deriveComposioState } from '../../lib/composio/types';
 import { openUrl } from '../../utils/openUrl';
 import type { ComposioToolkitMeta } from './toolkitMeta';
