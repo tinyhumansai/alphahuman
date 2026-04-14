@@ -69,6 +69,14 @@ async fn list_bot_guilds_at_base(base: &str, token: &str) -> anyhow::Result<Vec<
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            target: "discord-api",
+            endpoint = "list_guilds",
+            %url,
+            %status,
+            body = %body,
+            "[discord-api] non-success response"
+        );
         anyhow::bail!("Discord list guilds failed ({status}): {body}");
     }
 
@@ -103,6 +111,15 @@ async fn list_guild_channels_at_base(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            target: "discord-api",
+            endpoint = "list_guild_channels",
+            %guild_id,
+            %url,
+            %status,
+            body = %body,
+            "[discord-api] non-success response"
+        );
         anyhow::bail!("Discord list channels failed ({status}): {body}");
     }
 
@@ -156,6 +173,16 @@ async fn check_channel_permissions_at_base(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            target: "discord-api",
+            endpoint = "check_bot_permissions.member",
+            %guild_id,
+            %channel_id,
+            %url,
+            %status,
+            body = %body,
+            "[discord-api] non-success response"
+        );
         anyhow::bail!("Discord get member info failed ({status}): {body}");
     }
 
@@ -171,6 +198,16 @@ async fn check_channel_permissions_at_base(
     if !roles_resp.status().is_success() {
         let status = roles_resp.status();
         let body = roles_resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            target: "discord-api",
+            endpoint = "check_bot_permissions.roles",
+            %guild_id,
+            %channel_id,
+            url = %roles_url,
+            %status,
+            body = %body,
+            "[discord-api] non-success response"
+        );
         anyhow::bail!("Discord get guild roles failed ({status}): {body}");
     }
     let guild_roles: Vec<serde_json::Value> = roles_resp.json().await?;
@@ -219,6 +256,16 @@ async fn check_channel_permissions_at_base(
     if !ch_resp.status().is_success() {
         let status = ch_resp.status();
         let body = ch_resp.text().await.unwrap_or_default();
+        tracing::debug!(
+            target: "discord-api",
+            endpoint = "check_bot_permissions.channel",
+            %guild_id,
+            %channel_id,
+            url = %channel_url,
+            %status,
+            body = %body,
+            "[discord-api] non-success response"
+        );
         anyhow::bail!("Discord get channel failed ({status}): {body}");
     }
     let channel_data: serde_json::Value = ch_resp.json().await?;

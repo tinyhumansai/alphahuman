@@ -519,16 +519,20 @@ mod tests {
 
         let config = enabled_config();
         let service = ready_service(&config);
-        // `summarize` uses allow_empty=true internally, so prompt is a
-        // better test for the empty-reject path. `prompt()` also uses
-        // allow_empty=true — we exercise it via the `inference`
-        // lower-level fn through prompt() and accept either outcome as
-        // long as it doesn't panic.
-        let _ = service.prompt(&config, "hi", None, true).await;
+        // `inference()` is the lower-level entry that hard-codes
+        // allow_empty=false, so a whitespace-only mock response must
+        // surface as the "empty content" error.
+        let res = service.inference(&config, "", "hi", None, false).await;
 
         unsafe {
             std::env::remove_var("OPENHUMAN_OLLAMA_BASE_URL");
         }
+
+        let err = res.expect_err("whitespace response must be rejected when allow_empty=false");
+        assert!(
+            err.contains("empty"),
+            "expected an empty-content error, got: {err}"
+        );
     }
 
     #[tokio::test]

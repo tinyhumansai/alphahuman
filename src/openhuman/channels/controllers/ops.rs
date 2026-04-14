@@ -752,8 +752,11 @@ mod tests {
 
     #[tokio::test]
     async fn describe_unknown_channel_errors() {
-        let result = describe_channel("nonexistent").await;
-        assert!(result.is_err());
+        let err = describe_channel("nonexistent").await.unwrap_err();
+        assert!(
+            err.contains("unknown channel"),
+            "expected 'unknown channel' in error, got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -857,11 +860,12 @@ mod tests {
     fn parse_allowed_users_rejects_empty_and_at_only() {
         let v = serde_json::json!(",  ,@,@ ,@@@, ,");
         let out = parse_allowed_users(Some(&v));
-        // "@@@" trims to "@" then strips one '@' leaving "@@" which is non-empty
-        // — the canonical value should still survive once. Just ensure
-        // pure whitespace / empty tokens are dropped.
-        assert!(!out.contains(&"".to_string()));
-        assert!(!out.contains(&"@".to_string()));
+        // Normalisation: split on `,` / `\n` / `\r`, trim whitespace, strip
+        // *all* leading '@' via `trim_start_matches('@')`, then trim again.
+        // Every token here reduces to "" at some step, so the whole input
+        // produces an empty result.
+        let expected: Vec<String> = Vec::new();
+        assert_eq!(out, expected);
     }
 
     #[test]
@@ -886,37 +890,22 @@ mod tests {
 
     #[test]
     fn credential_provider_combines_channel_id_and_mode() {
-        let out = credential_provider("telegram", ChannelAuthMode::BotToken);
-        assert!(out.starts_with("channel:telegram:"));
-        let out = credential_provider("discord", ChannelAuthMode::OAuth);
-        assert!(out.starts_with("channel:discord:"));
-    }
-
-    // ── describe_channel / list_channels ───────────────────────────
-
-    #[tokio::test]
-    async fn list_channels_returns_nonempty_catalog() {
-        let out = list_channels().await.unwrap();
-        assert!(!out.value.is_empty());
-        let slugs: Vec<&str> = out.value.iter().map(|d| d.id).collect();
-        assert!(slugs.contains(&"telegram"));
-    }
-
-    #[tokio::test]
-    async fn describe_channel_returns_known_channel() {
-        let out = describe_channel("telegram").await.unwrap();
-        assert_eq!(out.value.id, "telegram");
-    }
-
-    #[tokio::test]
-    async fn describe_channel_errors_for_unknown_channel() {
-        let err = describe_channel("__definitely_unknown__")
-            .await
-            .unwrap_err();
-        assert!(err.contains("unknown channel"));
+        // Format: `channel:{channel_id}:{mode}` with mode rendered via
+        // `ChannelAuthMode`'s Display impl (`bot_token` / `oauth`).
+        assert_eq!(
+            credential_provider("telegram", ChannelAuthMode::BotToken),
+            "channel:telegram:bot_token"
+        );
+        assert_eq!(
+            credential_provider("discord", ChannelAuthMode::OAuth),
+            "channel:discord:oauth"
+        );
     }
 
     // ── connect_channel validation ─────────────────────────────────
+    // (list_channels / describe_channel catalog coverage lives in the
+    // earlier `list_channels_returns_definitions`, `describe_known_channel`,
+    // and `describe_unknown_channel_errors` tests.)
 
     #[tokio::test]
     async fn connect_channel_errors_for_unknown_channel() {

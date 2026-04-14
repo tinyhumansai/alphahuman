@@ -489,7 +489,11 @@ mod tests {
         // deterministic `Ok`, not what the value is.
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
-        let _ = decrypt_secret(&config, "not-a-real-ciphertext").await;
+        let res = decrypt_secret(&config, "not-a-real-ciphertext").await;
+        assert!(
+            res.is_ok(),
+            "decrypt should accept non-ciphertext via migrate path, got {res:?}"
+        );
     }
 
     // ── store_session (input validation) ──────────────────────────

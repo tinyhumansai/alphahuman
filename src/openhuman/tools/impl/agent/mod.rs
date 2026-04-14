@@ -122,12 +122,28 @@ mod tests {
         assert_eq!(tool.name(), "ask_user_clarification");
     }
 
-    #[test]
-    fn dispatch_subagent_fails_gracefully_without_registry() {
-        // dispatch_subagent is async and requires a global registry.
-        // We verify the function exists and is callable by checking it compiles
-        // and that AskClarificationTool (also re-exported) has correct metadata.
-        let t = AskClarificationTool::new();
-        assert!(!t.description().is_empty());
+    #[tokio::test]
+    async fn dispatch_subagent_returns_tool_error_when_agent_unknown() {
+        // Exercises the graceful-failure paths of `dispatch_subagent`:
+        // without a global registry we get the "registry not initialised"
+        // branch, and with one (set by another test in the same binary)
+        // a bogus agent id hits the "agent not found" branch. Either way
+        // the function must return `Ok(ToolResult::error(..))` rather than
+        // panicking or returning `Err`.
+        let res = dispatch_subagent(
+            "__definitely_not_a_real_agent__",
+            "test_tool",
+            "irrelevant prompt",
+            None,
+        )
+        .await
+        .expect("dispatch_subagent should not return Err on these inputs");
+
+        assert!(res.is_error, "expected a tool-error ToolResult");
+        let out = res.output();
+        assert!(
+            out.contains("registry not initialised") || out.contains("not found in registry"),
+            "unexpected graceful-failure message: {out}"
+        );
     }
 }

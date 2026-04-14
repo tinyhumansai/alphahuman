@@ -841,25 +841,50 @@ mod tests {
         assert!(result.output().contains("Not in a git repository"));
     }
 
+    /// Initialise a git repo at `path` and fail the test if `git init`
+    /// itself didn't succeed (so we don't misread later assertion failures
+    /// as product bugs when the real problem is a missing/broken git).
+    fn init_git_repo(path: &std::path::Path) {
+        let output = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .expect("failed to spawn `git init`");
+        assert!(
+            output.status.success(),
+            "`git init` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Extract the error text from a Result<ToolResult> — whether the
+    /// failure came through `Err(anyhow::Error)` or `Ok(ToolResult::error)`.
+    fn error_text(result: &anyhow::Result<ToolResult>) -> String {
+        match result {
+            Ok(r) => {
+                assert!(r.is_error, "expected a tool-error ToolResult");
+                r.output().to_string()
+            }
+            Err(e) => e.to_string(),
+        }
+    }
+
     // ── stash: unknown action returns error ────────────────────────────────────
 
     #[tokio::test]
     async fn stash_unknown_action_returns_error() {
         let tmp = TempDir::new().unwrap();
-        // Need a git repo so we get past the repo-existence check
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_git_repo(tmp.path());
 
         let tool = test_tool(tmp.path());
         let result = tool
             .execute(json!({"operation": "stash", "action": "squash"}))
             .await;
-        // This hits a bail! so it should propagate as Err or as error ToolResult
-        let is_error = result.as_ref().map_or(true, |r| r.is_error);
-        assert!(is_error, "unknown stash action should produce an error");
+        let msg = error_text(&result);
+        assert!(
+            msg.contains("Unknown stash action"),
+            "expected 'Unknown stash action' in error, got: {msg}"
+        );
     }
 
     // ── checkout: dangerous characters ────────────────────────────────────────
@@ -867,11 +892,7 @@ mod tests {
     #[tokio::test]
     async fn checkout_rejects_dangerous_branch_names() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_git_repo(tmp.path());
 
         let tool = test_tool(tmp.path());
 
@@ -879,10 +900,10 @@ mod tests {
             let result = tool
                 .execute(json!({"operation": "checkout", "branch": dangerous}))
                 .await;
-            let is_error = result.as_ref().map_or(true, |r| r.is_error);
+            let msg = error_text(&result);
             assert!(
-                is_error,
-                "checkout should reject dangerous branch name '{dangerous}'"
+                msg.contains("invalid characters") || msg.contains("Invalid branch"),
+                "expected a dangerous-branch rejection for '{dangerous}', got: {msg}"
             );
         }
     }
@@ -892,16 +913,15 @@ mod tests {
     #[tokio::test]
     async fn commit_missing_message_returns_error() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_git_repo(tmp.path());
 
         let tool = test_tool(tmp.path());
         let result = tool.execute(json!({"operation": "commit"})).await;
-        let is_error = result.as_ref().map_or(true, |r| r.is_error);
-        assert!(is_error, "commit without message should be an error");
+        let msg = error_text(&result);
+        assert!(
+            msg.contains("Missing 'message' parameter"),
+            "expected missing-message error, got: {msg}"
+        );
     }
 
     // ── add: missing paths ─────────────────────────────────────────────────────
@@ -909,15 +929,14 @@ mod tests {
     #[tokio::test]
     async fn add_missing_paths_returns_error() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_git_repo(tmp.path());
 
         let tool = test_tool(tmp.path());
         let result = tool.execute(json!({"operation": "add"})).await;
-        let is_error = result.as_ref().map_or(true, |r| r.is_error);
-        assert!(is_error, "add without paths should be an error");
+        let msg = error_text(&result);
+        assert!(
+            msg.contains("Missing 'paths' parameter"),
+            "expected missing-paths error, got: {msg}"
+        );
     }
 }

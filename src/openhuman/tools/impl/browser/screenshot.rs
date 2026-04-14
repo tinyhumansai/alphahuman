@@ -312,14 +312,18 @@ mod tests {
 
     #[test]
     fn screenshot_command_returns_none_for_unsupported_os() {
-        // We test the logic indirectly: on Windows the function returns None.
-        // We can replicate that by just confirming the API contracts:
-        // For any OS it must not panic.  The real value is checked per-platform.
-        // If we are on macOS or Linux this just confirms the command is Some.
-        // If we are on another OS it confirms it is None and doesn't panic.
         let result = ScreenshotTool::screenshot_command("/tmp/test.png");
-        // No panic — that is the important assertion here.
-        let _ = result;
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            assert!(
+                result.is_some(),
+                "macOS/Linux must produce a screenshot command"
+            );
+        } else {
+            assert_eq!(
+                result, None,
+                "unsupported platforms must return None (no panic)"
+            );
+        }
     }
 
     // ── safe filename that has no shell-unsafe chars is allowed ──────────────

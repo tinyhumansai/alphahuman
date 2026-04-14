@@ -545,18 +545,23 @@ mod tests {
     #[tokio::test]
     async fn scroll_only_x_is_valid_input() {
         let tool = make_tool();
-        // This should not be blocked by the zero-check and will attempt hardware access.
-        // We only verify it doesn't return the "non-zero" validation error.
+        // Should bypass the zero-check and attempt hardware access. Whether
+        // hardware access succeeds is environment-dependent, but neither
+        // branch may surface the "non-zero" validation error.
         let result = tool
             .execute(json!({"action": "scroll", "scroll_x": 3, "scroll_y": 0}))
             .await;
-        if let Ok(r) = result {
-            assert!(
+        match result {
+            Ok(r) => assert!(
                 !r.output().contains("non-zero"),
-                "single-axis scroll should not trigger zero guard"
-            );
+                "single-axis scroll should not trigger zero guard (got: {})",
+                r.output()
+            ),
+            Err(e) => assert!(
+                !e.to_string().contains("non-zero"),
+                "single-axis scroll should not trigger zero guard (got Err: {e})"
+            ),
         }
-        // If it's Err (no display available) that is fine — just not the zero guard.
     }
 
     #[tokio::test]
@@ -565,11 +570,16 @@ mod tests {
         let result = tool
             .execute(json!({"action": "scroll", "scroll_x": 0, "scroll_y": -5}))
             .await;
-        if let Ok(r) = result {
-            assert!(
+        match result {
+            Ok(r) => assert!(
                 !r.output().contains("non-zero"),
-                "single-axis scroll should not trigger zero guard"
-            );
+                "single-axis scroll should not trigger zero guard (got: {})",
+                r.output()
+            ),
+            Err(e) => assert!(
+                !e.to_string().contains("non-zero"),
+                "single-axis scroll should not trigger zero guard (got Err: {e})"
+            ),
         }
     }
 

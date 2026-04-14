@@ -1323,6 +1323,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_post_content_falls_back_to_href_when_anchor_text_missing() {
+        // Anchor without `text` must surface the `href` — otherwise the
+        // link is invisible in the rendered message.
+        let post = serde_json::json!({
+            "zh_cn": {
+                "title": "T",
+                "content": [[
+                    {"tag": "text", "text": "see "},
+                    {"tag": "a", "href": "https://example.com/no-text"}
+                ]]
+            }
+        })
+        .to_string();
+        let out = parse_post_content(&post).expect("parsed");
+        assert!(
+            out.contains("https://example.com/no-text"),
+            "href fallback should surface when anchor has no text, got: {out}"
+        );
+    }
+
+    #[test]
     fn parse_post_content_returns_none_when_all_sections_empty() {
         let post = serde_json::json!({ "zh_cn": { "title": "" } }).to_string();
         assert!(parse_post_content(&post).is_none());

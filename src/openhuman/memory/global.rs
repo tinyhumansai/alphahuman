@@ -108,10 +108,11 @@ mod tests {
 
     #[tokio::test]
     async fn client_returns_a_handle_either_via_lazy_init_or_existing() {
-        let _ = client_if_ready().or_else(|| {
-            let tmp = TempDir::new().unwrap();
-            init(tmp.path().join("ws")).ok()
-        });
+        // Bind TempDir at test scope so its directory outlives any lazy
+        // init — the global client holds the path and can be used later in
+        // this test (and potentially by other tests in the same binary).
+        let tmp = TempDir::new().unwrap();
+        let _ = client_if_ready().or_else(|| init(tmp.path().join("ws")).ok());
         let c = client().expect("global client should be available");
         let _arc: Arc<MemoryClient> = c;
     }

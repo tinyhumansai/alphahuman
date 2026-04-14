@@ -617,7 +617,7 @@ async fn capture_test_returns_diagnostics() {
     // not a product bug — treat it as "skip strict assertions" so
     // local runs stop failing while CI (Linux, no screen API at
     // all) still exercises the non-macOS assertion below.
-    if result.timing_ms >= 10_000 {
+    if cfg!(target_os = "macos") && result.timing_ms >= 10_000 {
         eprintln!(
             "[capture_test] capture_test() took {}ms — likely running \
              without Screen Recording permission. Skipping strict \

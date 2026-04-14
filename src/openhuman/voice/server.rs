@@ -1168,26 +1168,23 @@ mod tests {
 
     #[tokio::test]
     async fn try_global_server_returns_some_after_global_server_initialized() {
-        // `global_server` is OnceLock-backed; first call initialises it.
+        // `global_server` is OnceCell-backed; first call initialises it.
         let _ = global_server(VoiceServerConfig::default());
         assert!(try_global_server().is_some());
     }
 
     // ── ServerState transitions ───────────────────────────────────
-
-    #[tokio::test]
-    async fn server_status_reflects_current_state_and_counts() {
-        let server = VoiceServer::new(VoiceServerConfig::default());
-        let status = server.status().await;
-        assert_eq!(status.state, ServerState::Stopped);
-        assert_eq!(status.transcription_count, 0);
-    }
+    // Initial-status coverage lives in `server_status_initial` above.
 
     #[test]
     fn hallucination_detection_longer_real_phrase_is_not_flagged() {
         // Real multi-word speech should not be classified as hallucination.
-        assert!(!is_hallucinated_output("please summarise the meeting"));
-        assert!(!is_hallucinated_output("open the browser"));
+        let mode = HallucinationMode::Dictation;
+        assert!(!is_hallucinated_output(
+            "please summarise the meeting",
+            mode
+        ));
+        assert!(!is_hallucinated_output("open the browser", mode));
     }
 
     #[test]
@@ -1195,6 +1192,7 @@ mod tests {
         // Periods are stripped in normalisation; other punctuation behaviour
         // depends on the pattern list — we just lock in that exclamation
         // after "Thank you" does not accidentally un-flag it.
-        assert!(is_hallucinated_output("Thank you!"));
+        let mode = HallucinationMode::Dictation;
+        assert!(is_hallucinated_output("Thank you!", mode));
     }
 }

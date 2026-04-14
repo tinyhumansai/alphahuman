@@ -61,17 +61,48 @@ impl LocalAiService {
             }),
         };
 
-        let response = self
-            .http
-            .post(format!("{}/api/generate", ollama_base_url()))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("ollama vision request failed: {e}"))?;
-        if !response.status().is_success() {
-            let status = response.status();
+        let base = ollama_base_url();
+        let url = format!("{base}/api/generate");
+        let body_bytes = serde_json::to_vec(&body).map(|v| v.len()).unwrap_or(0);
+        tracing::debug!(
+            target: "local_ai::vision",
+            %base,
+            %url,
+            model = %body.model,
+            prompt_chars = body.prompt.chars().count(),
+            images = body.images.as_ref().map(|v| v.len()).unwrap_or(0),
+            body_bytes,
+            "[local_ai:vision] sending generate request"
+        );
+
+        let response = self.http.post(&url).json(&body).send().await.map_err(|e| {
+            tracing::error!(
+                target: "local_ai::vision",
+                %url,
+                error = %e,
+                "[local_ai:vision] request send failed"
+            );
+            format!("ollama vision request failed: {e}")
+        })?;
+
+        let status = response.status();
+        tracing::debug!(
+            target: "local_ai::vision",
+            %url,
+            %status,
+            "[local_ai:vision] received response"
+        );
+
+        if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             let detail = body.trim();
+            tracing::error!(
+                target: "local_ai::vision",
+                %url,
+                %status,
+                body = %detail,
+                "[local_ai:vision] non-success response"
+            );
             return Err(format!(
                 "ollama vision request failed with status {}{}",
                 status,

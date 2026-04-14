@@ -7,7 +7,7 @@ use crate::openhuman::local_ai::install::{find_system_ollama_binary, run_ollama_
 use crate::openhuman::local_ai::model_ids;
 use crate::openhuman::local_ai::ollama_api::{
     ollama_base_url, OllamaModelTag, OllamaPullEvent, OllamaPullProgress, OllamaPullRequest,
-    OllamaTagsResponse, OLLAMA_BASE_URL,
+    OllamaTagsResponse,
 };
 use crate::openhuman::local_ai::paths::{find_workspace_ollama_binary, workspace_ollama_binary};
 use crate::openhuman::local_ai::presets::{self, VisionMode};
@@ -372,7 +372,7 @@ impl LocalAiService {
 
             let response = match self
                 .http
-                .post(format!("{OLLAMA_BASE_URL}/api/pull"))
+                .post(format!("{}/api/pull", ollama_base_url()))
                 .json(&OllamaPullRequest {
                     name: model_id.to_string(),
                     stream: true,
@@ -610,10 +610,10 @@ impl LocalAiService {
 
         let mut issues: Vec<String> = Vec::new();
         if !healthy {
-            issues.push(
-                "Ollama server is not running or not reachable at http://127.0.0.1:11434"
-                    .to_string(),
-            );
+            issues.push(format!(
+                "Ollama server is not running or not reachable at {}",
+                ollama_base_url()
+            ));
         }
         if healthy && !chat_found {
             issues.push(format!("Chat model `{}` is not installed", expected_chat));
@@ -666,26 +666,84 @@ impl LocalAiService {
     }
 
     async fn list_models(&self) -> Result<Vec<OllamaModelTag>, String> {
+        let base = ollama_base_url();
+        let url = format!("{base}/api/tags");
+        tracing::debug!(
+            target: "local_ai::ollama_admin",
+            %base,
+            %url,
+            "[local_ai:ollama_admin] list_models: sending GET"
+        );
+
         let response = self
             .http
-            .get(format!("{}/api/tags", ollama_base_url()))
+            .get(&url)
             .timeout(std::time::Duration::from_secs(5))
             .send()
             .await
-            .map_err(|e| format!("ollama tags request failed: {e}"))?;
-        if !response.status().is_success() {
-            let status = response.status();
+            .map_err(|e| {
+                tracing::error!(
+                    target: "local_ai::ollama_admin",
+                    %url,
+                    error = %e,
+                    "[local_ai:ollama_admin] list_models: request send failed"
+                );
+                format!("ollama tags request failed: {e}")
+            })?;
+
+        let status = response.status();
+        tracing::debug!(
+            target: "local_ai::ollama_admin",
+            %url,
+            %status,
+            "[local_ai:ollama_admin] list_models: received response"
+        );
+
+        if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
+            tracing::error!(
+                target: "local_ai::ollama_admin",
+                %url,
+                %status,
+                body = %body,
+                "[local_ai:ollama_admin] list_models: non-success response"
+            );
             return Err(format!(
                 "ollama tags failed with status {}: {}",
                 status,
                 body.trim()
             ));
         }
-        let payload: OllamaTagsResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("ollama tags parse failed: {e}"))?;
+
+        // Read the body as text first so we can log it if JSON parsing fails.
+        let body = response.text().await.map_err(|e| {
+            tracing::error!(
+                target: "local_ai::ollama_admin",
+                %url,
+                error = %e,
+                "[local_ai:ollama_admin] list_models: failed to read response body"
+            );
+            format!("ollama tags body read failed: {e}")
+        })?;
+
+        let payload: OllamaTagsResponse = serde_json::from_str(&body).map_err(|e| {
+            tracing::error!(
+                target: "local_ai::ollama_admin",
+                %url,
+                body = %body,
+                error = %e,
+                "[local_ai:ollama_admin] list_models: JSON parse failed"
+            );
+            format!("ollama tags parse failed: {e}")
+        })?;
+
+        tracing::debug!(
+            target: "local_ai::ollama_admin",
+            %url,
+            models = payload.models.len(),
+            "[local_ai:ollama_admin] list_models: parsed successfully"
+        );
+
         Ok(payload.models)
     }
 
@@ -709,7 +767,7 @@ impl LocalAiService {
     async fn ollama_runner_ok(&self) -> bool {
         let resp = self
             .http
-            .post(format!("{OLLAMA_BASE_URL}/api/tags"))
+            .post(format!("{}/api/tags", ollama_base_url()))
             .timeout(std::time::Duration::from_secs(3))
             .send()
             .await;
@@ -719,7 +777,7 @@ impl LocalAiService {
                 // Do a lightweight pull-status check (won't download, just checks).
                 let check = self
                     .http
-                    .post(format!("{OLLAMA_BASE_URL}/api/show"))
+                    .post(format!("{}/api/show", ollama_base_url()))
                     .json(&serde_json::json!({"name": "___nonexistent_probe___"}))
                     .timeout(std::time::Duration::from_secs(3))
                     .send()

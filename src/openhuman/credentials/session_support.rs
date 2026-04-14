@@ -155,9 +155,7 @@ mod tests {
     #[test]
     fn profile_name_or_default_returns_value_when_present() {
         assert_eq!(profile_name_or_default(Some("work")), "work");
-        // Whitespace is preserved inside the returned reference because
-        // `str::trim()` returns a sub-slice; what matters is the empty-guard.
-        assert_eq!(profile_name_or_default(Some("  work  ")).trim(), "work");
+        assert_eq!(profile_name_or_default(Some("  work  ")), "work");
     }
 
     // ── parse_fields_value ─────────────────────────────────────────

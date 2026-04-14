@@ -775,6 +775,24 @@ mod tests {
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
+
+        // Wait until the axum accept loop is actually serving — not just
+        // until the kernel-level TCP socket is bound. Without this, fast
+        // tests can fire a request before `axum::serve` starts polling and
+        // occasionally see connection resets / hangs on loaded CI.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut backoff = std::time::Duration::from_millis(2);
+        loop {
+            if tokio::net::TcpStream::connect(addr).await.is_ok() {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                panic!("mock backend at {addr} did not become ready in time");
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(std::time::Duration::from_millis(50));
+        }
+
         format!("http://127.0.0.1:{}", addr.port())
     }
 
