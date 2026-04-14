@@ -21,8 +21,12 @@
 # Usage:
 #   bash scripts/debug-agent-prompts.sh [--out <dir>] [--no-stub-composio] [--with-tools] [-v]
 #
+# The output directory is wiped and recreated at the start of each run
+# so the snapshot only reflects the current agent set — stale files from
+# an earlier run cannot hide a regression.
+#
 # Defaults:
-#   --out                  ./prompt-dumps/<UTC timestamp>
+#   --out                  ./prompt-dumps   (deleted + recreated each run)
 #   --stub-composio        ON (override with --no-stub-composio)
 #   --with-tools           OFF (pass to also list each agent's tool names)
 #
@@ -34,10 +38,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BIN="${REPO_ROOT}/target/debug/openhuman-core"
 
-if [[ ! -x "${BIN}" ]]; then
-  echo "[debug-agent-prompts] building openhuman-core …" >&2
-  ( cd "${REPO_ROOT}" && cargo build --manifest-path Cargo.toml --bin openhuman-core )
-fi
+# Always run `cargo build` — it no-ops when the binary is already
+# up-to-date, and re-links quickly when it isn't. The old `-x` existence
+# check let a stale debug binary survive across agent-registry changes
+# (e.g. new entries in `agents::BUILTINS`), which made this script
+# silently skip newly added agents like `welcome`.
+echo "[debug-agent-prompts] building openhuman-core (no-op if up-to-date) …" >&2
+( cd "${REPO_ROOT}" && cargo build --manifest-path Cargo.toml --bin openhuman-core >&2 )
 
 # ── Parse flags ───────────────────────────────────────────────────────────
 OUT_DIR=""
@@ -83,9 +90,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${OUT_DIR}" ]]; then
-  TS="$(date -u +%Y%m%dT%H%M%SZ)"
-  OUT_DIR="${REPO_ROOT}/prompt-dumps/${TS}"
+  OUT_DIR="${REPO_ROOT}/prompt-dumps"
 fi
+# Wipe and recreate so each run produces a clean snapshot — no leftover
+# files from a previous run of a different agent set or config.
+# Guard against a caller pointing --out at something catastrophic.
+case "${OUT_DIR}" in
+  "" | "/" | "${HOME}" | "${REPO_ROOT}")
+    echo "[debug-agent-prompts] refusing to wipe --out=${OUT_DIR}" >&2
+    exit 64
+    ;;
+esac
+rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
 
 # Use a throwaway workspace so identity files (`SOUL.md`, `IDENTITY.md`,
