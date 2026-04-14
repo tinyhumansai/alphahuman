@@ -38,9 +38,7 @@ function resolveOnboardingStep(currentStep: number, skipReferralStep: boolean): 
 const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const { setOnboardingCompletedFlag, setOnboardingTasks, snapshot } = useCoreState();
   const [currentStep, setCurrentStep] = useState(0);
-  const [draft, setDraft] = useState<OnboardingDraft>({
-    connectedSources: [],
-  });
+  const [draft, setDraft] = useState<OnboardingDraft>({ connectedSources: [] });
   /** Last session token for which referral stats prefetch finished (async path only). */
   const [referralStatsToken, setReferralStatsToken] = useState<string | null>(null);
   const [skipReferralFromStats, setSkipReferralFromStats] = useState(false);
