@@ -53,14 +53,14 @@ interface Stage {
 const STAGES: Stage[] = [
   {
     id: 'gmail-search',
-    label: 'Searching your emails',
+    label: 'Indexing your GMail',
     doneSignal: 'Found LinkedIn profile',
     errorSignal: 'Gmail search failed',
     skipSignal: 'No LinkedIn profile URL',
   },
   {
     id: 'apify-scrape',
-    label: 'Scraping your LinkedIn',
+    label: 'Finding your LinkedIn',
     doneSignal: 'profile scraped successfully',
     errorSignal: 'scrape failed',
   },

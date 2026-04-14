@@ -54,8 +54,8 @@ describe('RewardsCouponSection', () => {
     expect(await screen.findByText('$3.00')).toBeInTheDocument();
     expect(screen.getByText('No reward codes redeemed yet.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Promo code'), { target: { value: 'aprl-2026' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+    fireEvent.change(screen.getByPlaceholderText('Coupon code'), { target: { value: 'aprl-2026' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Redeem Code' }));
 
     expect(
       await screen.findByText('APRL-2026 redeemed. $5.00 was added to your credits.')
@@ -80,8 +80,8 @@ describe('RewardsCouponSection', () => {
 
     expect(await screen.findByText('$3.00')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Promo code'), { target: { value: 'used-code' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+    fireEvent.change(screen.getByPlaceholderText('Coupon code'), { target: { value: 'used-code' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Redeem Code' }));
 
     expect(await screen.findByText('This coupon has already been used.')).toBeInTheDocument();
     expect(mocks.mockCreditsApi.getBalance).toHaveBeenCalledTimes(1);
@@ -115,8 +115,8 @@ describe('RewardsCouponSection', () => {
 
     expect(await screen.findByText('$3.00')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Promo code'), { target: { value: 'aprl-2026' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+    fireEvent.change(screen.getByPlaceholderText('Coupon code'), { target: { value: 'aprl-2026' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Redeem Code' }));
 
     expect(
       await screen.findByText(

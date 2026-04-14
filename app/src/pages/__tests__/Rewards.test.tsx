@@ -6,11 +6,11 @@ import Rewards from '../Rewards';
 
 const { rewardsApi } = vi.hoisted(() => ({ rewardsApi: { getMyRewards: vi.fn() } }));
 
-vi.mock('../../components/rewards/ReferralRewardsSection', () => ({
+vi.mock('../../components/rewards/RewardsReferralsTab', () => ({
   default: () => <div>Referral Rewards Section</div>,
 }));
 
-vi.mock('../../components/rewards/RewardsCouponSection', () => ({
+vi.mock('../../components/rewards/RewardsRedeemTab', () => ({
   default: () => <div>Rewards Coupon Section</div>,
 }));
 
@@ -76,7 +76,7 @@ describe('Rewards page', () => {
       expect(screen.getByText('7-Day Streak')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Assigned in Discord')).toBeInTheDocument();
+    expect(screen.getByText('Joined the server')).toBeInTheDocument();
     expect(screen.getByText('1 of 2 achievements unlocked')).toBeInTheDocument();
   });
 
