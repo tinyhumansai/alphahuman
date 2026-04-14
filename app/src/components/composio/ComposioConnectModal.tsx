@@ -18,16 +18,10 @@ import { createPortal } from 'react-dom';
 
 import {
   authorize,
-  createTrigger,
   deleteConnection,
   listConnections,
-  listGithubRepos,
 } from '../../lib/composio/composioApi';
-import {
-  type ComposioConnection,
-  type ComposioGithubRepo,
-  deriveComposioState,
-} from '../../lib/composio/types';
+import { type ComposioConnection, deriveComposioState } from '../../lib/composio/types';
 import { openUrl } from '../../utils/openUrl';
 import type { ComposioToolkitMeta } from './toolkitMeta';
 
@@ -67,13 +61,6 @@ export default function ComposioConnectModal({
   const [activeConnection, setActiveConnection] = useState<ComposioConnection | undefined>(
     connection
   );
-  const [githubRepos, setGithubRepos] = useState<ComposioGithubRepo[]>([]);
-  const [githubReposLoading, setGithubReposLoading] = useState(false);
-  const [githubRepoError, setGithubRepoError] = useState<string | null>(null);
-  const [selectedRepoFullName, setSelectedRepoFullName] = useState<string>('');
-  const [triggerActionError, setTriggerActionError] = useState<string | null>(null);
-  const [triggerActionSuccess, setTriggerActionSuccess] = useState<string | null>(null);
-  const [triggerActionInFlight, setTriggerActionInFlight] = useState(false);
 
   // Escape to close
   useEffect(() => {
@@ -208,63 +195,6 @@ export default function ComposioConnectModal({
     }
   }, [activeConnection, onChanged]);
 
-  const loadGithubRepos = useCallback(async () => {
-    if (!activeConnection || toolkit.slug.toLowerCase() !== 'github') return;
-    setGithubReposLoading(true);
-    setGithubRepoError(null);
-    try {
-      const resp = await listGithubRepos(activeConnection.id);
-      setGithubRepos(resp.repositories ?? []);
-      if ((resp.repositories?.length ?? 0) > 0) {
-        setSelectedRepoFullName(current => current || resp.repositories[0].fullName);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setGithubRepoError(`Failed to load repositories: ${msg}`);
-    } finally {
-      setGithubReposLoading(false);
-    }
-  }, [activeConnection, toolkit.slug]);
-
-  useEffect(() => {
-    if (phase !== 'connected') return;
-    if (toolkit.slug.toLowerCase() !== 'github') return;
-    if (!activeConnection) return;
-    if (githubRepos.length > 0 || githubReposLoading) return;
-    void loadGithubRepos();
-  }, [
-    phase,
-    toolkit.slug,
-    activeConnection,
-    githubRepos.length,
-    githubReposLoading,
-    loadGithubRepos,
-  ]);
-
-  const enableGithubTrigger = useCallback(
-    async (slug: string) => {
-      if (!activeConnection) return;
-      setTriggerActionInFlight(true);
-      setTriggerActionError(null);
-      setTriggerActionSuccess(null);
-      try {
-        const created = await createTrigger(slug, {
-          connectionId: activeConnection.id,
-          ...(selectedRepoFullName
-            ? { triggerConfig: { repoFullName: selectedRepoFullName } }
-            : {}),
-        });
-        setTriggerActionSuccess(`Enabled ${slug} (${created.triggerId}).`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setTriggerActionError(`Failed to enable trigger: ${msg}`);
-      } finally {
-        setTriggerActionInFlight(false);
-      }
-    },
-    [activeConnection, selectedRepoFullName]
-  );
-
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
   };
@@ -380,63 +310,6 @@ export default function ComposioConnectModal({
                 className="w-full rounded-xl border border-coral-200 bg-coral-50 text-coral-700 text-sm font-medium py-2.5 hover:bg-coral-100 transition-colors">
                 Disconnect
               </button>
-              {toolkit.slug.toLowerCase() === 'github' && activeConnection && (
-                <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-2">
-                  <p className="text-xs font-semibold text-stone-700">GitHub Triggers</p>
-                  {githubRepoError && <p className="text-xs text-coral-700">{githubRepoError}</p>}
-                  {githubReposLoading ? (
-                    <p className="text-xs text-stone-500">Loading repositories...</p>
-                  ) : githubRepos.length > 0 ? (
-                    <>
-                      <label className="block text-[11px] text-stone-500">Repository</label>
-                      <select
-                        value={selectedRepoFullName}
-                        onChange={e => setSelectedRepoFullName(e.target.value)}
-                        className="w-full rounded-lg border border-stone-200 bg-white text-sm text-stone-700 px-2 py-1.5">
-                        {githubRepos.map(repo => (
-                          <option key={repo.fullName} value={repo.fullName}>
-                            {repo.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs text-stone-500">
-                        No repositories found. You can still enable owner-level triggers.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void loadGithubRepos()}
-                        className="w-full rounded-lg border border-stone-200 bg-white text-stone-700 text-xs font-medium py-1.5 hover:bg-stone-100 transition-colors">
-                        Reload repositories
-                      </button>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={triggerActionInFlight}
-                      onClick={() => void enableGithubTrigger('GITHUB_PULL_REQUEST_EVENT')}
-                      className="rounded-lg border border-stone-200 bg-white text-stone-700 text-xs font-medium py-1.5 hover:bg-stone-100 transition-colors disabled:opacity-60">
-                      Enable PR Trigger
-                    </button>
-                    <button
-                      type="button"
-                      disabled={triggerActionInFlight}
-                      onClick={() => void enableGithubTrigger('GITHUB_PUSH_EVENT')}
-                      className="rounded-lg border border-stone-200 bg-white text-stone-700 text-xs font-medium py-1.5 hover:bg-stone-100 transition-colors disabled:opacity-60">
-                      Enable Push Trigger
-                    </button>
-                  </div>
-                  {triggerActionError && (
-                    <p className="text-xs text-coral-700">{triggerActionError}</p>
-                  )}
-                  {triggerActionSuccess && (
-                    <p className="text-xs text-sage-700">{triggerActionSuccess}</p>
-                  )}
-                </div>
-              )}
             </>
           )}
 

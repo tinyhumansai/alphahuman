@@ -14,10 +14,8 @@ import { callCoreRpc } from '../../services/coreRpcClient';
 import type {
   ComposioAuthorizeResponse,
   ComposioConnectionsResponse,
-  ComposioCreateTriggerResponse,
   ComposioDeleteResponse,
   ComposioExecuteResponse,
-  ComposioGithubReposResponse,
   ComposioToolkitsResponse,
   ComposioToolsResponse,
 } from './types';
@@ -107,33 +105,3 @@ export async function execute(
   return unwrapCliEnvelope<ComposioExecuteResponse>(raw);
 }
 
-/**
- * List repositories for the authenticated user's connected GitHub account.
- * Optionally pin to a specific Composio `connectionId`.
- */
-export async function listGithubRepos(connectionId?: string): Promise<ComposioGithubReposResponse> {
-  const raw = await callCoreRpc<unknown>({
-    method: 'openhuman.composio_list_github_repos',
-    params: connectionId ? { connection_id: connectionId } : {},
-  });
-  return unwrapCliEnvelope<ComposioGithubReposResponse>(raw);
-}
-
-/**
- * Create a Composio trigger instance. For GitHub slugs pass `owner/repo`
- * (or `repoFullName`) in `triggerConfig`.
- */
-export async function createTrigger(
-  slug: string,
-  options?: { connectionId?: string; triggerConfig?: Record<string, unknown> }
-): Promise<ComposioCreateTriggerResponse> {
-  const raw = await callCoreRpc<unknown>({
-    method: 'openhuman.composio_create_trigger',
-    params: {
-      slug,
-      ...(options?.connectionId ? { connection_id: options.connectionId } : {}),
-      ...(options?.triggerConfig ? { trigger_config: options.triggerConfig } : {}),
-    },
-  });
-  return unwrapCliEnvelope<ComposioCreateTriggerResponse>(raw);
-}

@@ -56,25 +56,6 @@ export interface ComposioExecuteResponse {
   costUsd: number;
 }
 
-export interface ComposioGithubRepo {
-  owner: string;
-  repo: string;
-  fullName: string;
-  private?: boolean;
-  defaultBranch?: string;
-  htmlUrl?: string;
-}
-
-export interface ComposioGithubReposResponse {
-  connectionId: string;
-  repositories: ComposioGithubRepo[];
-}
-
-export interface ComposioCreateTriggerResponse {
-  triggerId: string;
-  status?: string;
-}
-
 // ── UI helpers ────────────────────────────────────────────────────
 
 /**
