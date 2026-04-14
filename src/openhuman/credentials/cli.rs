@@ -106,12 +106,8 @@ pub async fn cli_auth_list(provider_filter: Option<String>) -> Result<serde_json
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
     use tempfile::TempDir;
-
-    /// Serialize CLI-level tests that scope `OPENHUMAN_WORKSPACE`. The env
-    /// var is global so parallel tests would stomp each other.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn set_workspace(tmp: &TempDir) {
         // SAFETY: env mutation is guarded by ENV_LOCK which every test in

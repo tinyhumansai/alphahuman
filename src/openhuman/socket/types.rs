@@ -52,4 +52,18 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn connection_outcome_reason_strings_are_preserved() {
+        if let ConnectionOutcome::Lost(r) = ConnectionOutcome::Lost("timeout".into()) {
+            assert_eq!(r, "timeout");
+        } else {
+            panic!("expected Lost");
+        }
+        if let ConnectionOutcome::Failed(r) = ConnectionOutcome::Failed("hs".into()) {
+            assert_eq!(r, "hs");
+        } else {
+            panic!("expected Failed");
+        }
+    }
 }

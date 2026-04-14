@@ -1235,6 +1235,14 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_dirs_uses_active_user_when_present() {
+        // Shares ENV_LOCK with env-mutating tests so a concurrent test
+        // setting `OPENHUMAN_WORKSPACE` can't steer this one into the
+        // env-override branch.
+        let _g = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let default_workspace = root.join("workspace");
@@ -1288,8 +1296,7 @@ mod tests {
     }
     // ── apply_env_overrides ────────────────────────────────────────
 
-    use std::sync::Mutex;
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
 
     fn clear_env(keys: &[&str]) {
         for key in keys {

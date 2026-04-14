@@ -859,8 +859,7 @@ mod tests {
 
     // ── env_flag_enabled ────────────────────────────────────────────
 
-    use std::sync::Mutex;
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
 
     #[test]
     fn env_flag_enabled_recognizes_truthy_forms() {
@@ -1030,5 +1029,360 @@ mod tests {
         std::fs::write(ws.join("onboarding.done"), "").unwrap();
         let res = workspace_onboarding_flag_exists(ws, "onboarding.done").expect("flag check ok");
         assert_eq!(res.value, true);
+    }
+
+    // ── apply_*_settings ─────────────────────────────────────────
+
+    fn tmp_config(tmp: &tempfile::TempDir) -> Config {
+        let mut cfg = Config::default();
+        cfg.workspace_dir = tmp.path().join("workspace");
+        cfg.config_path = tmp.path().join("config.toml");
+        std::fs::create_dir_all(&cfg.workspace_dir).unwrap();
+        cfg
+    }
+
+    #[tokio::test]
+    async fn apply_model_settings_updates_fields_and_persists_snapshot() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = ModelSettingsPatch {
+            api_key: Some("sk-test".into()),
+            api_url: Some("https://api.example.test".into()),
+            default_model: Some("gpt-4o".into()),
+            default_temperature: Some(0.25),
+        };
+        let outcome = apply_model_settings(&mut cfg, patch).await.expect("apply");
+        assert_eq!(cfg.api_key.as_deref(), Some("sk-test"));
+        assert_eq!(cfg.api_url.as_deref(), Some("https://api.example.test"));
+        assert_eq!(cfg.default_model.as_deref(), Some("gpt-4o"));
+        assert!((cfg.default_temperature - 0.25).abs() < f64::EPSILON);
+        assert_eq!(outcome.value["config"]["api_key"], "sk-test");
+    }
+
+    #[tokio::test]
+    async fn apply_model_settings_empty_strings_clear_optional_fields() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        cfg.api_key = Some("prev".into());
+        cfg.default_model = Some("prev-model".into());
+        let patch = ModelSettingsPatch {
+            api_key: Some("  ".into()),
+            api_url: Some("".into()),
+            default_model: Some("".into()),
+            default_temperature: None,
+        };
+        let _ = apply_model_settings(&mut cfg, patch).await.expect("apply");
+        assert!(cfg.api_key.is_none());
+        assert!(cfg.api_url.is_none());
+        assert!(cfg.default_model.is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_memory_settings_updates_all_provided_fields() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = MemorySettingsPatch {
+            backend: Some("sqlite".into()),
+            auto_save: Some(true),
+            embedding_provider: Some("ollama".into()),
+            embedding_model: Some("nomic".into()),
+            embedding_dimensions: Some(768),
+        };
+        let _ = apply_memory_settings(&mut cfg, patch).await.expect("apply");
+        assert_eq!(cfg.memory.backend, "sqlite");
+        assert!(cfg.memory.auto_save);
+        assert_eq!(cfg.memory.embedding_provider, "ollama");
+        assert_eq!(cfg.memory.embedding_model, "nomic");
+        assert_eq!(cfg.memory.embedding_dimensions, 768);
+    }
+
+    #[tokio::test]
+    async fn apply_runtime_settings_updates_kind_and_reasoning() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = RuntimeSettingsPatch {
+            kind: Some("desktop".into()),
+            reasoning_enabled: Some(true),
+        };
+        let _ = apply_runtime_settings(&mut cfg, patch)
+            .await
+            .expect("apply");
+        assert_eq!(cfg.runtime.kind, "desktop");
+        assert_eq!(cfg.runtime.reasoning_enabled, Some(true));
+    }
+
+    #[tokio::test]
+    async fn apply_browser_settings_updates_enabled_flag() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        cfg.browser.enabled = false;
+        let _ = apply_browser_settings(
+            &mut cfg,
+            BrowserSettingsPatch {
+                enabled: Some(true),
+            },
+        )
+        .await
+        .expect("apply");
+        assert!(cfg.browser.enabled);
+    }
+
+    #[tokio::test]
+    async fn apply_analytics_settings_updates_enabled() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let _ = apply_analytics_settings(
+            &mut cfg,
+            AnalyticsSettingsPatch {
+                enabled: Some(false),
+            },
+        )
+        .await
+        .expect("apply");
+        assert!(!cfg.observability.analytics_enabled);
+    }
+
+    #[tokio::test]
+    async fn get_config_snapshot_wraps_snapshot_in_rpc_outcome() {
+        let tmp = tempdir().unwrap();
+        let cfg = tmp_config(&tmp);
+        let outcome = get_config_snapshot(&cfg).await.expect("snapshot");
+        assert!(outcome.value.get("config").is_some());
+        assert!(outcome
+            .logs
+            .iter()
+            .any(|l| l.contains("config loaded from")));
+    }
+
+    // ── Dictation / voice_server settings patches ─────────────────
+
+    #[tokio::test]
+    async fn load_and_apply_dictation_settings_rejects_invalid_activation_mode() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let patch = DictationSettingsPatch {
+            enabled: None,
+            hotkey: None,
+            activation_mode: Some("not-a-mode".into()),
+            llm_refinement: None,
+            streaming: None,
+            streaming_interval_ms: None,
+        };
+        let err = load_and_apply_dictation_settings(patch).await.unwrap_err();
+        assert!(err.contains("invalid activation_mode"));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_voice_server_settings_rejects_invalid_activation_mode() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let patch = VoiceServerSettingsPatch {
+            auto_start: None,
+            hotkey: None,
+            activation_mode: Some("hold".into()),
+            skip_cleanup: None,
+            min_duration_secs: None,
+            silence_threshold: None,
+            custom_dictionary: None,
+        };
+        let err = load_and_apply_voice_server_settings(patch)
+            .await
+            .unwrap_err();
+        assert!(err.contains("invalid activation_mode"));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_dictation_settings_accepts_valid_modes() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        for mode in ["toggle", "push"] {
+            let patch = DictationSettingsPatch {
+                enabled: Some(true),
+                hotkey: Some("cmd+d".into()),
+                activation_mode: Some(mode.into()),
+                llm_refinement: Some(false),
+                streaming: Some(false),
+                streaming_interval_ms: Some(500),
+            };
+            assert!(
+                load_and_apply_dictation_settings(patch).await.is_ok(),
+                "mode `{mode}` should be accepted"
+            );
+        }
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_voice_server_settings_accepts_valid_modes_and_clamps() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        // Negative min_duration_secs and silence_threshold should be clamped to 0.
+        let patch = VoiceServerSettingsPatch {
+            auto_start: Some(true),
+            hotkey: Some("fn".into()),
+            activation_mode: Some("tap".into()),
+            skip_cleanup: Some(false),
+            min_duration_secs: Some(-5.0),
+            silence_threshold: Some(-1.0),
+            custom_dictionary: Some(vec!["term".into()]),
+        };
+        let outcome = load_and_apply_voice_server_settings(patch)
+            .await
+            .expect("ok");
+        assert!(
+            outcome.value["config"]["voice_server"]["min_duration_secs"]
+                .as_f64()
+                .unwrap_or(-1.0)
+                >= 0.0
+        );
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    // ── get_* via env override ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_dictation_settings_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_dictation_settings().await.expect("ok");
+        assert!(outcome.value.get("enabled").is_some());
+        assert!(outcome.value.get("hotkey").is_some());
+        assert!(outcome.value.get("streaming_interval_ms").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_voice_server_settings_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_voice_server_settings().await.expect("ok");
+        assert!(outcome.value.get("auto_start").is_some());
+        assert!(outcome.value.get("custom_dictionary").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_onboarding_completed_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_onboarding_completed().await.expect("ok");
+        // Default value — either true or false is fine; we just verify the call path.
+        let _ = outcome.value;
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_resolve_api_url_returns_api_url_in_response() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = load_and_resolve_api_url().await.expect("ok");
+        assert!(outcome.value.get("api_url").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_resolve_rejects_invalid_and_defaults() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let err = workspace_onboarding_flag_resolve(Some("a/b".into()), "done")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid onboarding flag"));
+
+        // Happy path: default name on a fresh workspace → file doesn't exist.
+        let outcome = workspace_onboarding_flag_resolve(None, "onboarding.done")
+            .await
+            .expect("ok");
+        let _ = outcome.value;
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_set_rejects_invalid_names() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        for bad in ["", "   ", "a/b", "a\\b", ".."] {
+            let err = workspace_onboarding_flag_set(Some(bad.into()), "default", true)
+                .await
+                .unwrap_err();
+            assert!(err.contains("Invalid onboarding flag"), "name {bad}: {err}");
+        }
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_set_round_trip() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        // Create flag
+        let created =
+            workspace_onboarding_flag_set(Some("onboarding.done".into()), "default", true)
+                .await
+                .expect("create");
+        assert!(created.value);
+        // Remove flag
+        let removed =
+            workspace_onboarding_flag_set(Some("onboarding.done".into()), "default", false)
+                .await
+                .expect("remove");
+        assert!(!removed.value);
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
     }
 }

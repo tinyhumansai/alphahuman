@@ -131,4 +131,28 @@ mod tests {
         let v = settings_section_json("memory", &snap, vec![]);
         assert!(v["result"]["settings"].is_null());
     }
+
+    #[test]
+    fn model_section_missing_fields_yields_null_entries() {
+        let snap = ConfigSnapshotFields {
+            config: json!({ "default_model": "gpt-4" }),
+            workspace_dir: "/tmp/ws".into(),
+            config_path: "/tmp/cfg.toml".into(),
+        };
+        let v = settings_section_json("model", &snap, vec![]);
+        // `default_model` present; the others (api_key/api_url/default_temperature) null.
+        assert_eq!(v["result"]["settings"]["default_model"], "gpt-4");
+        assert!(v["result"]["settings"]["api_key"].is_null());
+        assert!(v["result"]["settings"]["api_url"].is_null());
+    }
+
+    #[test]
+    fn section_is_echoed_back_verbatim() {
+        let snap = sample_snapshot();
+        let sections = ["model", "memory", "runtime", "browser", "whatever"];
+        for s in sections {
+            let v = settings_section_json(s, &snap, vec![]);
+            assert_eq!(v["result"]["section"], s);
+        }
+    }
 }

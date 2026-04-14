@@ -324,6 +324,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn all_registered_controllers_have_socket_namespace() {
+        for h in all_registered_controllers() {
+            assert_eq!(h.schema.namespace, "socket");
+            assert!(!h.schema.function.is_empty());
+        }
+    }
+
+    #[test]
+    fn connect_schema_inputs_contain_url_and_token() {
+        let s = schemas("connect");
+        let names: Vec<&str> = s.inputs.iter().map(|f| f.name).collect();
+        assert!(names.contains(&"url"));
+        assert!(names.contains(&"token"));
+    }
+
     // ── handlers (without manager): require_manager errors ─────────
 
     #[tokio::test]
