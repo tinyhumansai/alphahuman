@@ -99,10 +99,7 @@ impl Agent {
             // prompt-engineering iteration on tools/safety sections
             // stays easy.
             if self.omit_profile && self.omit_memory_md {
-                log::debug!(
-                    "[agent_loop] system prompt body:\n{}",
-                    rendered_prompt.text
-                );
+                log::debug!("[agent_loop] system prompt body:\n{}", rendered_prompt.text);
             } else {
                 use std::hash::{Hash, Hasher};
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
