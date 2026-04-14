@@ -735,4 +735,189 @@ mod tests {
 
         assert_eq!(truncated.chars().count(), 2000);
     }
+
+    // ── truncate_commit_message: short messages pass through unchanged ─────────
+
+    #[test]
+    fn truncate_short_message_unchanged() {
+        let msg = "Fix the bug";
+        assert_eq!(GitOperationsTool::truncate_commit_message(msg), msg);
+    }
+
+    #[test]
+    fn truncate_exact_2000_chars_unchanged() {
+        let msg = "a".repeat(2000);
+        let result = GitOperationsTool::truncate_commit_message(&msg);
+        assert_eq!(result.chars().count(), 2000);
+        assert!(!result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_2001_chars_adds_ellipsis() {
+        let msg = "a".repeat(2001);
+        let result = GitOperationsTool::truncate_commit_message(&msg);
+        assert!(result.ends_with("..."));
+        assert_eq!(result.chars().count(), 2000);
+    }
+
+    // ── sanitize_git_args: allow leading dash that is not -c ─────────────────
+
+    #[test]
+    fn sanitize_git_allows_other_flags() {
+        let tmp = TempDir::new().unwrap();
+        let tool = test_tool(tmp.path());
+        assert!(tool.sanitize_git_args("--follow").is_ok());
+        assert!(tool.sanitize_git_args("-p").is_ok());
+        assert!(tool.sanitize_git_args("-n5").is_ok());
+    }
+
+    // ── requires_write_access completeness ────────────────────────────────────
+
+    #[test]
+    fn requires_write_access_covers_all_write_ops() {
+        let tmp = TempDir::new().unwrap();
+        let tool = test_tool(tmp.path());
+        for op in ["commit", "add", "checkout", "stash", "reset", "revert"] {
+            assert!(
+                tool.requires_write_access(op),
+                "'{op}' should require write access"
+            );
+        }
+    }
+
+    // ── schema validation ─────────────────────────────────────────────────────
+
+    #[test]
+    fn schema_has_required_operation() {
+        let tmp = TempDir::new().unwrap();
+        let tool = test_tool(tmp.path());
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(
+            required.contains(&serde_json::json!("operation")),
+            "schema required should include 'operation'"
+        );
+    }
+
+    #[test]
+    fn schema_enumerates_operations() {
+        let tmp = TempDir::new().unwrap();
+        let tool = test_tool(tmp.path());
+        let schema = tool.parameters_schema();
+        let ops = schema["properties"]["operation"]["enum"]
+            .as_array()
+            .unwrap();
+        let op_names: Vec<&str> = ops.iter().map(|v| v.as_str().unwrap()).collect();
+        for expected in [
+            "status", "diff", "log", "branch", "commit", "add", "checkout", "stash",
+        ] {
+            assert!(
+                op_names.contains(&expected),
+                "schema should include '{expected}'"
+            );
+        }
+    }
+
+    // ── git_operations tool name / description ────────────────────────────────
+
+    #[test]
+    fn tool_name_and_description() {
+        let tmp = TempDir::new().unwrap();
+        let tool = test_tool(tmp.path());
+        assert_eq!(tool.name(), "git_operations");
+        assert!(!tool.description().is_empty());
+        assert!(tool.description().contains("Git"));
+    }
+
+    // ── not_in_git_repo returns error (covers the git-repo check) ─────────────
+
+    #[tokio::test]
+    async fn not_in_git_repo_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        // Do NOT init a git repo
+        let tool = test_tool(tmp.path());
+        let result = tool.execute(json!({"operation": "status"})).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output().contains("Not in a git repository"));
+    }
+
+    // ── stash: unknown action returns error ────────────────────────────────────
+
+    #[tokio::test]
+    async fn stash_unknown_action_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        // Need a git repo so we get past the repo-existence check
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+
+        let tool = test_tool(tmp.path());
+        let result = tool
+            .execute(json!({"operation": "stash", "action": "squash"}))
+            .await;
+        // This hits a bail! so it should propagate as Err or as error ToolResult
+        let is_error = result.as_ref().map_or(true, |r| r.is_error);
+        assert!(is_error, "unknown stash action should produce an error");
+    }
+
+    // ── checkout: dangerous characters ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn checkout_rejects_dangerous_branch_names() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+
+        let tool = test_tool(tmp.path());
+
+        for dangerous in ["main@{1}", "HEAD^", "v1~2"] {
+            let result = tool
+                .execute(json!({"operation": "checkout", "branch": dangerous}))
+                .await;
+            let is_error = result.as_ref().map_or(true, |r| r.is_error);
+            assert!(
+                is_error,
+                "checkout should reject dangerous branch name '{dangerous}'"
+            );
+        }
+    }
+
+    // ── commit: missing message ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn commit_missing_message_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+
+        let tool = test_tool(tmp.path());
+        let result = tool.execute(json!({"operation": "commit"})).await;
+        let is_error = result.as_ref().map_or(true, |r| r.is_error);
+        assert!(is_error, "commit without message should be an error");
+    }
+
+    // ── add: missing paths ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_missing_paths_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+
+        let tool = test_tool(tmp.path());
+        let result = tool.execute(json!({"operation": "add"})).await;
+        let is_error = result.as_ref().map_or(true, |r| r.is_error);
+        assert!(is_error, "add without paths should be an error");
+    }
 }
