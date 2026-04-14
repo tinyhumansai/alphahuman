@@ -261,6 +261,7 @@ async fn run_typed_mode(
         definition.omit_identity,
         definition.omit_safety_preamble,
         definition.omit_skills_catalog,
+        definition.omit_profile,
     );
     let rendered_prompt = extract_cache_boundary(&render_subagent_system_prompt(
         &parent.workspace_dir,

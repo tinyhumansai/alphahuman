@@ -457,6 +457,7 @@ fn render_main_agent_dump(
         visible_tool_names: &visible_filter,
         tool_call_format: ToolCallFormat::PFormat,
         connected_integrations,
+        include_profile: !orchestrator_def.omit_profile,
     };
 
     let rendered = SystemPromptBuilder::with_defaults()
@@ -567,6 +568,7 @@ fn render_subagent_dump(
         definition.omit_identity,
         definition.omit_safety_preamble,
         definition.omit_skills_catalog,
+        definition.omit_profile,
     );
 
     let raw = render_subagent_system_prompt(

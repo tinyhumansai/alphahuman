@@ -8,6 +8,10 @@ omit_identity = true
 omit_memory_context = true
 omit_safety_preamble = true
 omit_skills_catalog = true
+# The orchestrator is the user-facing front-line agent — it routes,
+# synthesises, and speaks to the user in their voice. PROFILE.md
+# (onboarding enrichment output) anchors that voice.
+omit_profile = false
 
 # Delegation surface. The `collect_orchestrator_tools` helper reads this
 # at agent-build time and synthesises one `delegate_*` tool per entry:

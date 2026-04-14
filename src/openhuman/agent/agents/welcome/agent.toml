@@ -11,6 +11,10 @@ omit_identity = true
 omit_memory_context = false
 omit_safety_preamble = true
 omit_skills_catalog = true
+# Personalises the greeting using the user's enriched PROFILE.md
+# (LinkedIn scrape, role, timezone, …). Without this the welcome
+# message can only reference setup state, not who the user is.
+omit_profile = false
 
 [model]
 hint = "agentic"
