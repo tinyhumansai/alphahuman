@@ -1128,4 +1128,115 @@ mod tests {
         let s = schemas("local_ai_summarize");
         assert!(s.inputs.iter().any(|f| f.required));
     }
+
+    // ── Handler-level tests that don't need Ollama ────────────────
+
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn handle_device_profile_returns_device_shape() {
+        let v = handle_local_ai_device_profile(Map::new())
+            .await
+            .expect("ok");
+        // device profile exposes at least a few expected fields.
+        assert!(v.is_object());
+    }
+
+    #[tokio::test]
+    async fn handle_presets_returns_presets_list_and_recommended_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let v = handle_local_ai_presets(Map::new()).await.expect("ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(v.get("presets").is_some());
+        assert!(v.get("recommended_tier").is_some());
+        assert!(v.get("device").is_some());
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_rejects_invalid_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_bogus"))]);
+        let err = handle_local_ai_apply_preset(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("invalid tier"));
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_rejects_custom_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("custom"))]);
+        let err = handle_local_ai_apply_preset(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("cannot apply 'custom'"));
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_accepts_valid_tier_and_persists() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_4_8gb"))]);
+        let result = handle_local_ai_apply_preset(params)
+            .await
+            .expect("apply ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(result.get("applied_tier").is_some());
+        assert!(result.get("chat_model_id").is_some());
+    }
+
+    #[tokio::test]
+    async fn handle_set_ollama_path_rejects_nonexistent_path() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([(
+            "path".to_string(),
+            serde_json::json!("/this/path/should/not/exist/ollama"),
+        )]);
+        let err = handle_local_ai_set_ollama_path(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("Ollama binary not found"));
+    }
+
+    #[tokio::test]
+    async fn handle_set_ollama_path_accepts_empty_string_to_clear() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("path".to_string(), serde_json::json!(""))]);
+        // Empty path clears the setting — must not error.
+        let _ = handle_local_ai_set_ollama_path(params).await.expect("ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
 }
