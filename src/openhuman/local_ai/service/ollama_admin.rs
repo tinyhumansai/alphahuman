@@ -6,8 +6,8 @@ use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::install::{find_system_ollama_binary, run_ollama_install_script};
 use crate::openhuman::local_ai::model_ids;
 use crate::openhuman::local_ai::ollama_api::{
-    OllamaModelTag, OllamaPullEvent, OllamaPullProgress, OllamaPullRequest, OllamaTagsResponse,
-    OLLAMA_BASE_URL,
+    ollama_base_url, OllamaModelTag, OllamaPullEvent, OllamaPullProgress, OllamaPullRequest,
+    OllamaTagsResponse, OLLAMA_BASE_URL,
 };
 use crate::openhuman::local_ai::paths::{find_workspace_ollama_binary, workspace_ollama_binary};
 use crate::openhuman::local_ai::presets::{self, VisionMode};
@@ -265,7 +265,7 @@ impl LocalAiService {
 
     async fn ollama_healthy(&self) -> bool {
         self.http
-            .get(format!("{OLLAMA_BASE_URL}/api/tags"))
+            .get(format!("{}/api/tags", ollama_base_url()))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await
@@ -774,7 +774,7 @@ impl LocalAiService {
     ) -> Result<bool, String> {
         let response = self
             .http
-            .get(format!("{OLLAMA_BASE_URL}/api/tags"))
+            .get(format!("{}/api/tags", ollama_base_url()))
             .send()
             .await
             .map_err(|e| format!("ollama tags request failed: {e}"))?;
@@ -825,5 +825,115 @@ mod tests {
     #[test]
     fn interrupted_pull_does_not_wait_before_any_progress() {
         assert_eq!(interrupted_pull_settle_window_secs(false, 20), 0);
+    }
+
+    use crate::openhuman::config::Config;
+    use crate::openhuman::local_ai::service::LocalAiService;
+    use axum::{routing::get, Json, Router};
+    use serde_json::json;
+
+    async fn spawn_mock(app: Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://127.0.0.1:{}", addr.port())
+    }
+
+    #[tokio::test]
+    async fn has_model_detects_exact_and_prefixed_tag() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai mutex");
+
+        let app = Router::new().route(
+            "/api/tags",
+            get(|| async {
+                Json(json!({
+                    "models": [
+                        {"name": "llama3:latest", "modified_at": "", "size": 1u64, "digest": "d"},
+                        {"name": "nomic-embed-text:v1", "modified_at": "", "size": 2u64, "digest": "d"}
+                    ]
+                }))
+            }),
+        );
+        let base = spawn_mock(app).await;
+        unsafe {
+            std::env::set_var("OPENHUMAN_OLLAMA_BASE_URL", &base);
+        }
+
+        let config = Config::default();
+        let service = LocalAiService::new(&config);
+        assert!(service.has_model("llama3").await.unwrap());
+        assert!(service.has_model("llama3:latest").await.unwrap());
+        assert!(service.has_model("nomic-embed-text").await.unwrap());
+        assert!(!service.has_model("__missing__").await.unwrap());
+
+        unsafe {
+            std::env::remove_var("OPENHUMAN_OLLAMA_BASE_URL");
+        }
+    }
+
+    #[tokio::test]
+    async fn has_model_errors_on_non_success_tags_response() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai mutex");
+
+        let app = Router::new().route(
+            "/api/tags",
+            get(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom") }),
+        );
+        let base = spawn_mock(app).await;
+        unsafe {
+            std::env::set_var("OPENHUMAN_OLLAMA_BASE_URL", &base);
+        }
+
+        let config = Config::default();
+        let service = LocalAiService::new(&config);
+        let err = service.has_model("any").await.unwrap_err();
+        assert!(err.contains("500") || err.contains("tags failed"));
+
+        unsafe {
+            std::env::remove_var("OPENHUMAN_OLLAMA_BASE_URL");
+        }
+    }
+
+    #[tokio::test]
+    async fn ollama_healthy_returns_true_on_200_tags_response() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai mutex");
+
+        let app = Router::new().route("/api/tags", get(|| async { Json(json!({ "models": [] })) }));
+        let base = spawn_mock(app).await;
+        unsafe {
+            std::env::set_var("OPENHUMAN_OLLAMA_BASE_URL", &base);
+        }
+
+        let config = Config::default();
+        let service = LocalAiService::new(&config);
+        assert!(service.ollama_healthy().await);
+
+        unsafe {
+            std::env::remove_var("OPENHUMAN_OLLAMA_BASE_URL");
+        }
+    }
+
+    #[tokio::test]
+    async fn ollama_healthy_returns_false_on_unreachable_url() {
+        let _guard = crate::openhuman::local_ai::LOCAL_AI_TEST_MUTEX
+            .lock()
+            .expect("local ai mutex");
+
+        // Point at a port we never bind → connect fails → healthy = false.
+        unsafe {
+            std::env::set_var("OPENHUMAN_OLLAMA_BASE_URL", "http://127.0.0.1:1");
+        }
+        let config = Config::default();
+        let service = LocalAiService::new(&config);
+        assert!(!service.ollama_healthy().await);
+        unsafe {
+            std::env::remove_var("OPENHUMAN_OLLAMA_BASE_URL");
+        }
     }
 }
