@@ -340,4 +340,69 @@ mod tests {
         assert_eq!(SEND_MESSAGES, 2048);
         assert_eq!(READ_MESSAGE_HISTORY, 65536);
     }
+
+    #[test]
+    fn auth_header_has_bot_prefix() {
+        assert_eq!(auth_header("abc"), "Bot abc");
+        assert_eq!(auth_header(""), "Bot ");
+    }
+
+    #[test]
+    fn permission_check_lists_all_missing_permissions_when_bot_lacks_any() {
+        let check = BotPermissionCheck {
+            can_view_channel: false,
+            can_send_messages: false,
+            can_read_message_history: false,
+            missing_permissions: vec![
+                "VIEW_CHANNEL".into(),
+                "SEND_MESSAGES".into(),
+                "READ_MESSAGE_HISTORY".into(),
+            ],
+        };
+        let json = serde_json::to_string(&check).unwrap();
+        assert!(json.contains("VIEW_CHANNEL"));
+        assert!(json.contains("SEND_MESSAGES"));
+        assert!(json.contains("READ_MESSAGE_HISTORY"));
+    }
+
+    #[test]
+    fn permission_check_with_all_granted_has_empty_missing_list() {
+        let check = BotPermissionCheck {
+            can_view_channel: true,
+            can_send_messages: true,
+            can_read_message_history: true,
+            missing_permissions: vec![],
+        };
+        let json = serde_json::to_string(&check).unwrap();
+        assert!(json.contains("\"missing_permissions\":[]"));
+    }
+
+    #[test]
+    fn text_channel_type_zero_is_standard_text() {
+        let json = r#"{"id":"1","name":"general","type":0,"position":0,"parent_id":null}"#;
+        let ch: DiscordTextChannel = serde_json::from_str(json).unwrap();
+        assert_eq!(ch.channel_type, 0);
+    }
+
+    #[test]
+    fn guild_deserializes_with_full_payload() {
+        let json = r#"{
+            "id": "999",
+            "name": "Full Guild",
+            "icon": "hash"
+        }"#;
+        let g: DiscordGuild = serde_json::from_str(json).unwrap();
+        assert_eq!(g.id, "999");
+        assert_eq!(g.name, "Full Guild");
+    }
+
+    #[test]
+    fn permission_bit_flags_are_disjoint() {
+        // Sanity: each permission is a single bit and distinct.
+        assert_eq!(VIEW_CHANNEL.count_ones(), 1);
+        assert_eq!(SEND_MESSAGES.count_ones(), 1);
+        assert_eq!(READ_MESSAGE_HISTORY.count_ones(), 1);
+        assert_ne!(VIEW_CHANNEL, SEND_MESSAGES);
+        assert_ne!(SEND_MESSAGES, READ_MESSAGE_HISTORY);
+    }
 }

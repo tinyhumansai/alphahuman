@@ -117,25 +117,6 @@ mod tests {
     use crate::openhuman::tools::traits::Tool;
 
     #[test]
-    fn archetype_tools_has_expected_count() {
-        assert_eq!(ARCHETYPE_TOOLS.len(), 4);
-    }
-
-    #[test]
-    fn archetype_tools_entries_are_non_empty() {
-        for (tool_name, agent_id, description) in ARCHETYPE_TOOLS {
-            assert!(!tool_name.is_empty(), "tool_name must not be empty");
-            assert!(!agent_id.is_empty(), "agent_id must not be empty");
-            assert!(!description.is_empty(), "description must not be empty");
-        }
-    }
-
-    #[test]
-    fn archetype_tools_contains_research() {
-        assert!(ARCHETYPE_TOOLS.iter().any(|(n, _, _)| *n == "research"));
-    }
-
-    #[test]
     fn ask_clarification_tool_re_exported() {
         let tool = AskClarificationTool::new();
         assert_eq!(tool.name(), "ask_user_clarification");

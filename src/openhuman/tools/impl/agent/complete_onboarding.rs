@@ -441,6 +441,8 @@ mod tests {
         let (is_auth, source) = detect_auth(&config);
         assert!(!is_auth);
         assert!(source.is_null());
+    }
+
     // ── description ───────────────────────────────────────────────────────────
 
     #[test]
