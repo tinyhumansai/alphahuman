@@ -9,13 +9,12 @@
  *     3. App receives JWT, dispatches to Redux authSlice
  *     4. UserProvider calls GET /auth/me  (mock server)
  *
- *   Phase 2 — Onboarding steps (6 steps in Onboarding.tsx):
+ *   Phase 2 — Onboarding steps (5 steps in Onboarding.tsx):
  *     Step 0: WelcomeStep       — "Continue"
  *     Step 1: LocalAIStep       — "Continue"
- *     Step 2: ScreenPermissions — "Continue Without Permission" or "Continue"
- *     Step 3: ToolsStep         — "Continue"
- *     Step 4: SkillsStep        — "Finish Setup"
- *     Step 5: MnemonicStep      — checkbox + "Finish Setup"
+ *     Step 2: ToolsStep         — "Continue"
+ *     Step 3: SkillsStep        — "Finish Setup"
+ *     Step 4: MnemonicStep      — checkbox + "Finish Setup"
  *
  *   Phase 3 — Completion verification:
  *     - App calls POST /settings/onboarding-complete (from SkillsStep)
@@ -201,10 +200,9 @@ describe('Login flow — complete with mock data (Linux)', () => {
   // Steps in order:
   //   0: WelcomeStep       — "Continue" button
   //   1: LocalAIStep       — "Continue"
-  //   2: ScreenPermissions — "Continue Without Permission" or "Continue"
-  //   3: ToolsStep         — "Continue" button
-  //   4: SkillsStep        — "Finish Setup" button (fires onboarding-complete)
-  //   5: MnemonicStep      — checkbox + "Finish Setup" button
+  //   2: ToolsStep         — "Continue" button
+  //   3: SkillsStep        — "Finish Setup" button (fires onboarding-complete)
+  //   4: MnemonicStep      — checkbox + "Finish Setup" button
   // -----------------------------------------------------------------------
 
   it('onboarding overlay or home page is visible', async () => {
@@ -265,16 +263,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
       }
     }
 
-    // Step 2: ScreenPermissionsStep — click "Continue Without Permission" (no accessibility on Linux CI)
-    {
-      const clicked = await clickFirstMatch(['Continue Without Permission', 'Continue'], 10_000);
-      if (clicked) {
-        console.log(`[LoginFlow] ScreenPermissionsStep: clicked "${clicked}"`);
-        await browser.pause(2_000);
-      }
-    }
-
-    // Step 3: ToolsStep — click "Continue" (keep defaults)
+    // Step 2: ToolsStep — click "Continue" (keep defaults)
     {
       const toolsVisible = await textExists('Enable Tools');
       if (toolsVisible) {
@@ -286,7 +275,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
       }
     }
 
-    // Step 4: SkillsStep — click "Continue" (no skills connected in E2E)
+    // Step 3: SkillsStep — click "Continue" (no skills connected in E2E)
     {
       const skillsVisible = await textExists('Install Skills');
       if (skillsVisible) {
@@ -298,7 +287,7 @@ describe('Login flow — complete with mock data (Linux)', () => {
       }
     }
 
-    // Step 5: MnemonicStep — tick the checkbox and click "Finish Setup"
+    // Step 4: MnemonicStep — tick the checkbox and click "Finish Setup"
     {
       const mnemonicVisible = await textExists('Your Recovery Phrase');
       if (mnemonicVisible) {
