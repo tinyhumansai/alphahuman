@@ -491,8 +491,6 @@ export default function OverlayApp() {
   }, [status]);
 
   // ── Render ────────────────────────────────────────────────────────────
-  const bubbles = useMemo<OverlayBubble[]>(() => (bubble ? [bubble] : []), [bubble]);
-
   const orbClassName = useMemo(() => {
     if (status === 'active') {
       return 'border-blue-950 bg-blue-700';

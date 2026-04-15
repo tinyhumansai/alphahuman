@@ -144,10 +144,7 @@ impl VoiceServer {
         let cancel = {
             let mut state = self.state.lock().await;
             if *state != ServerState::Stopped {
-                return Err(format!(
-                    "voice server already running (state={:?})",
-                    *state
-                ));
+                return Err(format!("voice server already running (state={:?})", *state));
             }
             *state = ServerState::Idle;
 
@@ -521,8 +518,13 @@ fn start_hotkey_listener(
     hotkey_str: &str,
     mode: hotkey::ActivationMode,
     server_cancel: &CancellationToken,
-) -> Result<(HotkeyListenerKind, tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>), String>
-{
+) -> Result<
+    (
+        HotkeyListenerKind,
+        tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>,
+    ),
+    String,
+> {
     #[cfg(target_os = "macos")]
     {
         if hotkey_str.trim().eq_ignore_ascii_case("fn") {
@@ -542,8 +544,13 @@ fn start_hotkey_listener(
 fn start_globe_hotkey_listener(
     mode: hotkey::ActivationMode,
     server_cancel: &CancellationToken,
-) -> Result<(HotkeyListenerKind, tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>), String>
-{
+) -> Result<
+    (
+        HotkeyListenerKind,
+        tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>,
+    ),
+    String,
+> {
     use crate::openhuman::accessibility::{globe_listener_poll, globe_listener_start};
 
     info!("{LOG_PREFIX} hotkey is Fn on macOS — using Swift globe listener instead of rdev");
@@ -555,7 +562,10 @@ fn start_globe_hotkey_listener(
             .unwrap_or_else(|| "globe listener failed to start".to_string());
         return Err(format!("globe listener: {err_msg}"));
     }
-    info!("{LOG_PREFIX} globe listener started, permission={:?}", status.input_monitoring_permission);
+    info!(
+        "{LOG_PREFIX} globe listener started, permission={:?}",
+        status.input_monitoring_permission
+    );
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let cancel = server_cancel.child_token();
