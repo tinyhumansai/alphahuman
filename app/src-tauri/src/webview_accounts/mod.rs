@@ -331,6 +331,22 @@ pub async fn webview_account_open<R: Runtime>(
                     log::warn!("[webview-accounts] CDP ScannerRegistry not in app state");
                 }
             }
+        } else if args.provider == "slack" {
+            if let Some(prefix) = provider_url(&args.provider) {
+                let registry = app
+                    .try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
+                    .map(|s| s.inner().clone());
+                if let Some(registry) = registry {
+                    let app_clone = app.clone();
+                    let acct = args.account_id.clone();
+                    let prefix = prefix.to_string();
+                    tokio::spawn(async move {
+                        registry.ensure_scanner(app_clone, acct, prefix).await;
+                    });
+                } else {
+                    log::warn!("[webview-accounts] slack ScannerRegistry not in app state");
+                }
+            }
         }
     }
 
@@ -360,6 +376,13 @@ pub async fn webview_account_close<R: Runtime>(
     {
         if let Some(registry) =
             app.try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
+        {
+            let registry = registry.inner().clone();
+            let acct = args.account_id.clone();
+            tokio::spawn(async move { registry.forget(&acct).await });
+        }
+        if let Some(registry) =
+            app.try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
         {
             let registry = registry.inner().clone();
             let acct = args.account_id.clone();

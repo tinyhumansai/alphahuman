@@ -3,6 +3,8 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 
 #[cfg(feature = "cef")]
 mod whatsapp_scanner;
+#[cfg(feature = "cef")]
+mod slack_scanner;
 mod core_process;
 mod core_update;
 mod webview_accounts;
@@ -478,6 +480,8 @@ pub fn run() {
         .manage(webview_accounts::WebviewAccountsState::default());
     #[cfg(feature = "cef")]
     let builder = builder.manage(whatsapp_scanner::ScannerRegistry::new());
+    #[cfg(feature = "cef")]
+    let builder = builder.manage(slack_scanner::ScannerRegistry::new());
     builder
         .setup(move |app| {
             #[cfg(any(windows, target_os = "linux"))]
@@ -589,6 +593,50 @@ pub fn run() {
                             ),
                             Err(e) => log::error!(
                                 "[dev-auto-whatsapp] failed: {} (account={})",
+                                e,
+                                account_id
+                            ),
+                        }
+                    });
+                }
+            }
+
+            // Same dev helper, Slack flavour. OPENHUMAN_DEV_AUTO_SLACK=<uuid>
+            // opens the Slack account webview on startup so the CDP scanner
+            // can iterate without manual UI clicks.
+            if let Ok(account_id) = std::env::var("OPENHUMAN_DEV_AUTO_SLACK") {
+                let account_id = account_id.trim().to_string();
+                if !account_id.is_empty() {
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        let state = app_handle
+                            .state::<webview_accounts::WebviewAccountsState>();
+                        let args = webview_accounts::OpenArgs {
+                            account_id: account_id.clone(),
+                            provider: "slack".to_string(),
+                            url: None,
+                            bounds: Some(webview_accounts::Bounds {
+                                x: 100.0,
+                                y: 100.0,
+                                width: 900.0,
+                                height: 700.0,
+                            }),
+                        };
+                        match webview_accounts::webview_account_open(
+                            app_handle.clone(),
+                            state,
+                            args,
+                        )
+                        .await
+                        {
+                            Ok(label) => log::info!(
+                                "[dev-auto-slack] spawned label={} account={}",
+                                label,
+                                account_id
+                            ),
+                            Err(e) => log::error!(
+                                "[dev-auto-slack] failed: {} (account={})",
                                 e,
                                 account_id
                             ),
