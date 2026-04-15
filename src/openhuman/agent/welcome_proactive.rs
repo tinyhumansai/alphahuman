@@ -76,7 +76,10 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     // connect and join the "system" room after the onboarding overlay
     // closes. Without this, the message can arrive before anyone is
     // listening.
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // Wait for frontend to mount Conversations page and subscribe to
+    // socket events. The onboarding overlay closing + page navigation +
+    // socket connection + event subscription takes ~3-4s.
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
     // ── Pre-build context in Rust (no LLM round-trip) ────────────
     //
