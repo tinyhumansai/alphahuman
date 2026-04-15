@@ -24,15 +24,13 @@
       {
         "label": "overlay",
         "title": "OpenHuman Overlay",
-        "width": 60,
-        "height": 60,
-        "minWidth": 60,
-        "minHeight": 60,
+        "width": 50,
+        "height": 50,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false,
+        "resizable": true,
         "visible": true,
         "center": false
       }
