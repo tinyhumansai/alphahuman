@@ -450,23 +450,20 @@ export default function OverlayApp() {
     const size = new LogicalSize(width, height);
 
     const updateWindowFrame = async () => {
+      // Remove all size constraints first, then set the new size, then
+      // re-apply constraints. This avoids the ordering problem where the
+      // old min/max clamps the new size.
+      try { await appWindow.setMinSize(null); } catch { /* ignore */ }
+      try { await appWindow.setMaxSize(null); } catch { /* ignore */ }
       try {
         await appWindow.setSize(size);
       } catch (error) {
         console.warn('[overlay] failed to resize overlay window', error);
       }
-
-      try {
-        await appWindow.setMinSize(size);
-      } catch (error) {
-        console.warn('[overlay] failed to set overlay min size', error);
-      }
-
-      try {
-        await appWindow.setMaxSize(size);
-      } catch (error) {
-        console.warn('[overlay] failed to set overlay max size', error);
-      }
+      console.debug(`[overlay] resized to ${width}x${height} (active=${isActive})`);
+      // Lock to exact size so the user can't accidentally resize
+      try { await appWindow.setMinSize(size); } catch { /* ignore */ }
+      try { await appWindow.setMaxSize(size); } catch { /* ignore */ }
 
       // If the user has dragged the overlay, keep their position
       const saved = localStorage.getItem(OVERLAY_POSITION_KEY);
@@ -512,15 +509,13 @@ export default function OverlayApp() {
     <div className="flex h-screen w-screen items-end justify-end bg-transparent px-0 py-0">
       <div
         className={`relative flex select-none flex-col items-end ${status === 'active' ? 'gap-3' : 'gap-0'}`}>
-        <div
-          className={`flex flex-col items-end gap-2 transition-all duration-200 ${status === 'active' ? 'max-w-[184px] opacity-100' : 'max-w-0 opacity-0'}`}>
-          {bubbles.map(b => (
-            <div key={b.id} className="animate-[overlay-bubble-in_220ms_ease-out]">
-              {/* key on the chip itself remounts the typewriter for each new bubble */}
-              <OverlayBubbleChip key={b.id} bubble={b} />
+        {status === 'active' && bubble && (
+          <div className="max-w-[184px]">
+            <div className="animate-[overlay-bubble-in_220ms_ease-out]">
+              <OverlayBubbleChip key={bubble.id} bubble={bubble} />
             </div>
-          ))}
-        </div>
+          </div>
+        )}
 
         <div className="relative">
           <button
