@@ -97,7 +97,10 @@ mod tests {
         assert_eq!(back.backend, "otel");
         assert_eq!(back.otel_endpoint.as_deref(), Some("http://localhost:4318"));
         assert_eq!(back.otel_service_name.as_deref(), Some("openhuman-test"));
-        assert!(back.sentry_dsn.is_some());
+        assert_eq!(
+            back.sentry_dsn.as_deref(),
+            Some("https://token@sentry.io/1")
+        );
         assert!(!back.analytics_enabled);
     }
 }
