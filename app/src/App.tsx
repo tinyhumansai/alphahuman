@@ -14,6 +14,7 @@ import OnboardingOverlay from './components/OnboardingOverlay';
 import RouteLoadingScreen from './components/RouteLoadingScreen';
 import GlobalUpsellBanner from './components/upsell/GlobalUpsellBanner';
 import CoreStateProvider from './providers/CoreStateProvider';
+import ChatRuntimeProvider from './providers/ChatRuntimeProvider';
 import SocketProvider from './providers/SocketProvider';
 import { tagErrorSource } from './services/errorReportQueue';
 import { persistor, store } from './store';
@@ -31,23 +32,25 @@ function App() {
         <PersistGate loading={<RouteLoadingScreen />} persistor={persistor}>
           <CoreStateProvider>
             <SocketProvider>
-              <Router>
-                <ServiceBlockingGate>
-                  <div className="relative h-screen flex flex-col overflow-hidden">
-                    <MeshGradient />
-                    <div className="app-dotted-canvas relative z-10 flex-1 flex flex-col overflow-hidden">
-                      <div className="flex-1 overflow-y-auto pb-16">
-                        <GlobalUpsellBanner />
-                        <AppRoutes />
+              <ChatRuntimeProvider>
+                <Router>
+                  <ServiceBlockingGate>
+                    <div className="relative h-screen flex flex-col overflow-hidden">
+                      <MeshGradient />
+                      <div className="app-dotted-canvas relative z-10 flex-1 flex flex-col overflow-hidden">
+                        <div className="flex-1 overflow-y-auto pb-16">
+                          <GlobalUpsellBanner />
+                          <AppRoutes />
+                        </div>
+                        <BottomTabBar />
                       </div>
-                      <BottomTabBar />
                     </div>
-                  </div>
-                  <OnboardingOverlay />
-                  <DictationHotkeyManager />
-                  <LocalAIDownloadSnackbar />
-                </ServiceBlockingGate>
-              </Router>
+                    <OnboardingOverlay />
+                    <DictationHotkeyManager />
+                    <LocalAIDownloadSnackbar />
+                  </ServiceBlockingGate>
+                </Router>
+              </ChatRuntimeProvider>
             </SocketProvider>
           </CoreStateProvider>
         </PersistGate>

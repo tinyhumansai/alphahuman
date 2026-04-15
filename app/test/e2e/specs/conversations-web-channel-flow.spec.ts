@@ -163,4 +163,49 @@ suiteRunner('Conversations web channel flow', () => {
 
     expect(await textExists('chat_send is not available')).toBe(false);
   });
+
+  it('continues in-flight chat when switching tabs', async () => {
+    clearRequestLog();
+    await navigateToConversations();
+
+    const foundInput = await browser.execute(() => {
+      const textarea = document.querySelector(
+        'textarea[placeholder*="Type a message"]'
+      ) as HTMLTextAreaElement;
+      if (!textarea) return false;
+      textarea.focus();
+      textarea.click();
+      return true;
+    });
+    if (!foundInput) {
+      throw new Error('Chat input textarea not found');
+    }
+
+    await browser.execute(() => {
+      const textarea = document.querySelector(
+        'textarea[placeholder*="Type a message"]'
+      ) as HTMLTextAreaElement;
+      if (!textarea) return;
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value'
+      )?.set;
+      nativeInputValueSetter?.call(textarea, 'tab switch continuity check');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.dispatchEvent(new Event('change', { bubbles: true }));
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })
+      );
+    });
+
+    await waitForText('tab switch continuity check', 20_000);
+    await navigateViaHash('/skills');
+    await browser.pause(1_500);
+    await navigateToConversations();
+    await waitForText('Hello from e2e mock agent', 30_000);
+
+    const chatReq = await waitForRequest('POST', '/openai/v1/chat/completions', 30_000);
+    expect(chatReq).toBeDefined();
+    expect(await textExists('Something went wrong — please try again.')).toBe(false);
+  });
 });
