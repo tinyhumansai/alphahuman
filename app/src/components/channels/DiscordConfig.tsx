@@ -68,6 +68,28 @@ const DiscordConfig = ({ definition }: DiscordConfigProps) => {
     };
   }, []);
 
+  useEffect(() => {
+    const handleOauthSuccess = (event: Event) => {
+      const customEvent = event as CustomEvent<{ toolkit?: string }>;
+      const toolkit = customEvent.detail?.toolkit?.toLowerCase();
+      if (toolkit !== 'discord') return;
+
+      log('discord oauth success deep link received');
+      dispatch(
+        upsertChannelConnection({
+          channel: 'discord',
+          authMode: 'oauth',
+          patch: { status: 'connected', lastError: undefined, capabilities: ['read', 'write'] },
+        })
+      );
+    };
+
+    window.addEventListener('oauth:success', handleOauthSuccess);
+    return () => {
+      window.removeEventListener('oauth:success', handleOauthSuccess);
+    };
+  }, [dispatch]);
+
   const startLinkPolling = useCallback(
     (token: string) => {
       pollAbort.current?.abort();
