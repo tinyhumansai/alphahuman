@@ -115,25 +115,44 @@ pub async fn check_channel_permissions(
     guild_id: &str,
     channel_id: &str,
 ) -> anyhow::Result<BotPermissionCheck> {
-    // Fetch the bot's guild member info which includes computed permissions
-    let url = format!("{DISCORD_API_BASE}/guilds/{guild_id}/members/@me");
     tracing::debug!(
         "[discord-api] checking permissions in channel {channel_id} (guild {guild_id})"
     );
 
-    let resp = build_client()
-        .get(&url)
+    // Resolve bot user id first (`members/@me` is not a valid Discord route).
+    let me_url = format!("{DISCORD_API_BASE}/users/@me");
+    let me_resp = build_client()
+        .get(&me_url)
         .header("Authorization", auth_header(token))
         .send()
         .await?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+    if !me_resp.status().is_success() {
+        let status = me_resp.status();
+        let body = me_resp.text().await.unwrap_or_default();
+        anyhow::bail!("Discord get bot user failed ({status}): {body}");
+    }
+    let me: serde_json::Value = me_resp.json().await?;
+    let bot_user_id = me.get("id").and_then(|i| i.as_str()).unwrap_or("").trim();
+    if bot_user_id.is_empty() {
+        anyhow::bail!("Discord get bot user returned empty id");
+    }
+
+    // Fetch the bot's guild member info which includes role ids.
+    let member_url = format!("{DISCORD_API_BASE}/guilds/{guild_id}/members/{bot_user_id}");
+    let member_resp = build_client()
+        .get(&member_url)
+        .header("Authorization", auth_header(token))
+        .send()
+        .await?;
+
+    if !member_resp.status().is_success() {
+        let status = member_resp.status();
+        let body = member_resp.text().await.unwrap_or_default();
         anyhow::bail!("Discord get member info failed ({status}): {body}");
     }
 
-    let member: serde_json::Value = resp.json().await?;
+    let member: serde_json::Value = member_resp.json().await?;
 
     // Fetch guild roles to compute permissions
     let roles_url = format!("{DISCORD_API_BASE}/guilds/{guild_id}/roles");
@@ -204,7 +223,7 @@ pub async fn check_channel_permissions(
             .get("user")
             .and_then(|u| u.get("id"))
             .and_then(|i| i.as_str())
-            .unwrap_or("");
+            .unwrap_or(bot_user_id);
 
         let mut everyone_allow = 0_u64;
         let mut everyone_deny = 0_u64;

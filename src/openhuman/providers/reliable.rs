@@ -75,6 +75,15 @@ fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
     hints.iter().any(|hint| lower.contains(hint))
 }
 
+/// Detect provider-side temporary capacity/outage errors that are often surfaced
+/// as HTTP 5xx with text like "no healthy upstream".
+fn is_upstream_unhealthy(err: &anyhow::Error) -> bool {
+    let lower = err.to_string().to_lowercase();
+    lower.contains("no healthy upstream")
+        || lower.contains("upstream unavailable")
+        || lower.contains("service unavailable")
+}
+
 /// Check if an error is a rate-limit (429) error.
 fn is_rate_limited(err: &anyhow::Error) -> bool {
     if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
@@ -166,8 +175,14 @@ fn parse_retry_after_ms(err: &anyhow::Error) -> Option<u64> {
     None
 }
 
-fn failure_reason(rate_limited: bool, non_retryable: bool) -> &'static str {
-    if rate_limited && non_retryable {
+fn failure_reason(
+    rate_limited: bool,
+    non_retryable: bool,
+    upstream_unhealthy: bool,
+) -> &'static str {
+    if upstream_unhealthy {
+        "upstream_unhealthy"
+    } else if rate_limited && non_retryable {
         "rate_limited_non_retryable"
     } else if rate_limited {
         "rate_limited"
@@ -315,7 +330,9 @@ impl Provider for ReliableProvider {
                             let non_retryable_rate_limit = is_non_retryable_rate_limit(&e);
                             let non_retryable = is_non_retryable(&e) || non_retryable_rate_limit;
                             let rate_limited = is_rate_limited(&e);
-                            let failure_reason = failure_reason(rate_limited, non_retryable);
+                            let upstream_unhealthy = is_upstream_unhealthy(&e);
+                            let failure_reason =
+                                failure_reason(rate_limited, non_retryable, upstream_unhealthy);
                             let error_detail = compact_error_detail(&e);
 
                             push_failure(
@@ -432,7 +449,9 @@ impl Provider for ReliableProvider {
                             let non_retryable_rate_limit = is_non_retryable_rate_limit(&e);
                             let non_retryable = is_non_retryable(&e) || non_retryable_rate_limit;
                             let rate_limited = is_rate_limited(&e);
-                            let failure_reason = failure_reason(rate_limited, non_retryable);
+                            let upstream_unhealthy = is_upstream_unhealthy(&e);
+                            let failure_reason =
+                                failure_reason(rate_limited, non_retryable, upstream_unhealthy);
                             let error_detail = compact_error_detail(&e);
 
                             push_failure(
@@ -577,7 +596,9 @@ impl Provider for ReliableProvider {
                             let non_retryable_rate_limit = is_non_retryable_rate_limit(&e);
                             let non_retryable = is_non_retryable(&e) || non_retryable_rate_limit;
                             let rate_limited = is_rate_limited(&e);
-                            let failure_reason = failure_reason(rate_limited, non_retryable);
+                            let upstream_unhealthy = is_upstream_unhealthy(&e);
+                            let failure_reason =
+                                failure_reason(rate_limited, non_retryable, upstream_unhealthy);
                             let error_detail = compact_error_detail(&e);
 
                             push_failure(
@@ -686,7 +707,9 @@ impl Provider for ReliableProvider {
                             let non_retryable_rate_limit = is_non_retryable_rate_limit(&e);
                             let non_retryable = is_non_retryable(&e) || non_retryable_rate_limit;
                             let rate_limited = is_rate_limited(&e);
-                            let failure_reason = failure_reason(rate_limited, non_retryable);
+                            let upstream_unhealthy = is_upstream_unhealthy(&e);
+                            let failure_reason =
+                                failure_reason(rate_limited, non_retryable, upstream_unhealthy);
                             let error_detail = compact_error_detail(&e);
 
                             push_failure(

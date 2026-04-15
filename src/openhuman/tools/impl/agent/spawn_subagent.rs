@@ -45,6 +45,23 @@ impl SpawnSubagentTool {
     pub fn new() -> Self {
         Self
     }
+
+    fn classify_subagent_failure(message: &str) -> String {
+        let lower = message.to_lowercase();
+        let upstream_unhealthy = lower.contains("no healthy upstream")
+            || lower.contains("upstream_unhealthy")
+            || lower.contains("provider call failed: all providers/models failed");
+
+        if upstream_unhealthy {
+            return format!(
+                "spawn_subagent failed: upstream inference unavailable \
+                 (LLM provider outage/capacity). This is NOT a Composio/integration auth issue. \
+                 Avoid immediate repeated retries; ask user to retry shortly.\nDetails: {message}"
+            );
+        }
+
+        format!("spawn_subagent failed: {message}")
+    }
 }
 
 #[async_trait]
@@ -226,6 +243,14 @@ impl Tool for SpawnSubagentTool {
             }
             Err(err) => {
                 let message = err.to_string();
+                let parent_visible_error = Self::classify_subagent_failure(&message);
+                tracing::error!(
+                    agent_id = %definition.id,
+                    task_id = %task_id,
+                    error = %message,
+                    classified_error = %parent_visible_error,
+                    "[spawn_subagent] sub-agent execution failed"
+                );
                 publish_global(DomainEvent::SubagentFailed {
                     parent_session,
                     task_id,
@@ -234,9 +259,7 @@ impl Tool for SpawnSubagentTool {
                 });
                 // Surface as a non-fatal tool error so the parent model
                 // can react and (e.g.) retry with different params.
-                Ok(ToolResult::error(format!(
-                    "spawn_subagent failed: {message}"
-                )))
+                Ok(ToolResult::error(parent_visible_error))
             }
         }
     }

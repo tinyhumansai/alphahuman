@@ -628,6 +628,7 @@ mod tests {
     #[tokio::test]
     async fn overlay_notify_recording_started_publishes_pressed_event() {
         use crate::openhuman::voice::dictation_listener::subscribe_dictation_events;
+        use tokio::time::{timeout, Duration};
 
         let mut rx = subscribe_dictation_events();
         let params = Map::from_iter([("state".to_string(), json!("recording_started"))]);
@@ -637,7 +638,19 @@ mod tests {
             .expect("overlay notify should succeed");
         assert_eq!(result["ok"], true);
 
-        let evt = rx.try_recv().expect("expected dictation event");
+        // Other voice tests may publish nearby events on the same broadcast bus;
+        // consume until we observe the pressed event from this transition.
+        let evt = timeout(Duration::from_secs(1), async {
+            loop {
+                match rx.recv().await {
+                    Ok(evt) if evt.event_type == "pressed" => return evt,
+                    Ok(_) => continue,
+                    Err(e) => panic!("expected dictation event: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for pressed dictation event");
         assert_eq!(evt.event_type, "pressed");
         assert_eq!(evt.hotkey, "chat_button");
     }

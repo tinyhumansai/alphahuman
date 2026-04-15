@@ -252,6 +252,12 @@ fn discord_definition() -> ChannelDefinition {
                 fields: vec![],
                 auth_action: Some("discord_oauth"),
             },
+            AuthModeSpec {
+                mode: ChannelAuthMode::ManagedDm,
+                description: "Link your personal Discord account to the OpenHuman bot.",
+                fields: vec![],
+                auth_action: Some("discord_managed_link"),
+            },
         ],
         capabilities: vec![
             ChannelCapability::SendText,
