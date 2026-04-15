@@ -5,8 +5,6 @@ interface DeviceCapabilitySectionProps {
   presetsLoading: boolean;
   presetError: string;
   presetSuccess: ApplyPresetResult | null;
-  isApplyingPreset: boolean;
-  onApplyPreset: (tier: string) => void;
   formatRamGb: (bytes: number) => string;
 }
 
@@ -15,8 +13,6 @@ const DeviceCapabilitySection = ({
   presetsLoading,
   presetError,
   presetSuccess,
-  isApplyingPreset,
-  onApplyPreset,
   formatRamGb,
 }: DeviceCapabilitySectionProps) => {
   return (

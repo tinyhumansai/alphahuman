@@ -276,7 +276,12 @@ fn config_with_recommended_tier_if_unselected(config: &Config, device: &DevicePr
 
     // If a tier is already selected, check whether it exceeds the MVP ceiling.
     // If so, clamp it down to the recommended (MVP-capped) tier.
-    if selected_tier.is_some() || !matches!(current_tier, crate::openhuman::local_ai::presets::ModelTier::Custom) {
+    if selected_tier.is_some()
+        || !matches!(
+            current_tier,
+            crate::openhuman::local_ai::presets::ModelTier::Custom
+        )
+    {
         if !current_tier.is_mvp_allowed() {
             let recommended = crate::openhuman::local_ai::presets::recommend_tier(device);
             tracing::warn!(

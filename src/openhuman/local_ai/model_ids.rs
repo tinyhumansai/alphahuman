@@ -14,21 +14,15 @@ pub(crate) const DEFAULT_OLLAMA_EMBED_MODEL: &str = "nomic-embed-text:latest";
 
 /// Chat models allowed in the current MVP build (2–4 GB tier only).
 /// Any resolved chat model ID not listed here is redirected to `MVP_DEFAULT_CHAT_MODEL`.
-const MVP_ALLOWED_CHAT_MODELS: &[&str] = &[
-    "gemma3:1b-it-qat",
-];
+const MVP_ALLOWED_CHAT_MODELS: &[&str] = &["gemma3:1b-it-qat"];
 const MVP_DEFAULT_CHAT_MODEL: &str = "gemma3:1b-it-qat";
 
 /// Vision models allowed in MVP — only disabled (empty string) since the
 /// 2–4 GB tier has no vision model.
-const MVP_ALLOWED_VISION_MODELS: &[&str] = &[
-    "",
-];
+const MVP_ALLOWED_VISION_MODELS: &[&str] = &[""];
 
 /// Embedding models allowed in MVP (2–4 GB tier uses all-minilm).
-const MVP_ALLOWED_EMBEDDING_MODELS: &[&str] = &[
-    "all-minilm:latest",
-];
+const MVP_ALLOWED_EMBEDDING_MODELS: &[&str] = &["all-minilm:latest"];
 
 fn enforce_mvp_chat_allowlist(resolved: &str) -> String {
     let lower = resolved.to_ascii_lowercase();
