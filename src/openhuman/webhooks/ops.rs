@@ -220,6 +220,7 @@ mod tests {
     };
     use axum::{
         extract::Path,
+        http::HeaderMap,
         routing::{delete, get, patch, post},
         Json, Router,
     };
@@ -441,9 +442,24 @@ mod tests {
 
     #[tokio::test]
     async fn list_tunnels_hits_webhooks_core_endpoint_and_returns_payload() {
+        // Inspect the inbound Authorization header so we catch regressions
+        // where the JWT stops being forwarded (or is sent with the wrong
+        // scheme). `config_with_backend` stores `test-session-token`, so
+        // the header must be `Bearer test-session-token`.
         let app = Router::new().route(
             "/webhooks/core",
-            get(|| async { Json(json!({"tunnels": [{"id": "t-1"}]})) }),
+            get(|headers: HeaderMap| async move {
+                let auth = headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                assert_eq!(
+                    auth, "Bearer test-session-token",
+                    "authorization header must forward the stored session token"
+                );
+                Json(json!({"tunnels": [{"id": "t-1"}]}))
+            }),
         );
         let base = spawn_mock_backend(app).await;
         let tmp = TempDir::new().unwrap();
@@ -490,6 +506,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_tunnel_encodes_id_in_path() {
+        // Use an id full of reserved URL characters so we actually verify
+        // percent-encoding on the outbound path. axum's `Path` extractor
+        // decodes before handing us the string, so the server must see
+        // the trimmed, *decoded* form of the id.
         let app = Router::new().route(
             "/webhooks/core/{id}",
             get(|Path(id): Path<String>| async move { Json(json!({ "id": id })) }),
@@ -497,9 +517,15 @@ mod tests {
         let base = spawn_mock_backend(app).await;
         let tmp = TempDir::new().unwrap();
         let config = config_with_backend(&tmp, base);
-        let out = get_tunnel(&config, "  abc-123  ").await.unwrap();
-        // Server should see the trimmed id.
-        assert_eq!(out.value["id"], json!("abc-123"));
+        let raw_id = "  abc:/?#[ ]@!$&'()*+,;=%  ";
+        let trimmed = raw_id.trim();
+        let out = get_tunnel(&config, raw_id).await.unwrap();
+        assert_eq!(
+            out.value["id"],
+            json!(trimmed),
+            "server should receive the trimmed, decoded id — proves the client \
+             percent-encoded reserved chars instead of sending them raw"
+        );
     }
 
     #[tokio::test]

@@ -51,6 +51,11 @@ mod tests {
     fn security_policy_info_matches_default_policy_values() {
         let outcome = security_policy_info();
         let default = SecurityPolicy::default();
+        assert_eq!(outcome.value["autonomy"], json!(default.autonomy));
+        assert_eq!(
+            outcome.value["allowed_commands"],
+            json!(default.allowed_commands)
+        );
         assert_eq!(
             outcome.value["max_actions_per_hour"],
             json!(default.max_actions_per_hour)

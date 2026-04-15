@@ -107,14 +107,14 @@ mod tests {
         run(cfg).await;
     }
 
-    #[tokio::test]
-    async fn tick_runs_without_panicking_when_event_bus_is_uninitialised() {
-        // `tick` calls `update_core::check_available` (which may hit
-        // GitHub) and then publishes a HealthChanged event. With no
-        // event bus initialised in the test process, publish_global
-        // must no-op. The HTTP call may succeed or fail depending on
-        // network availability — either branch is acceptable as long
-        // as `tick` returns cleanly.
-        tick().await;
-    }
+    // NOTE: We deliberately do NOT unit-test `tick()` directly. It calls
+    // `update_core::check_available()` which performs a real HTTPS request
+    // to api.github.com — running that from the unit suite makes the test
+    // flaky (offline CI runners, rate limits, DNS hiccups). Coverage of
+    // the HTTP + JSON-parse path is better handled via an integration test
+    // that uses an HTTP mock (e.g. `httpmock`) around a refactored
+    // `check_available_with_url(base_url)`. For now the surrounding
+    // properties are locked down by:
+    //   - `min_interval_is_at_least_ten_minutes` (rate-limit floor)
+    //   - `run_returns_immediately_when_disabled` (disabled short-circuit)
 }

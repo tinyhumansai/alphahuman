@@ -103,6 +103,34 @@ mod tests {
     use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
     use tempfile::tempdir;
 
+    /// RAII guard for `OPENHUMAN_WORKSPACE`. Sets the env var on
+    /// construction and clears it on drop so a panicking test doesn't
+    /// leak the override into sibling tests. Must be constructed while
+    /// holding `ENV_LOCK` — mutating process env vars concurrently is
+    /// unsafe and the lock serialises every test in this module.
+    struct WorkspaceEnvGuard;
+
+    impl WorkspaceEnvGuard {
+        fn set(path: &std::path::Path) -> Self {
+            // SAFETY: Caller holds `ENV_LOCK`, so no other thread in
+            // this process is reading or mutating this env var.
+            unsafe {
+                std::env::set_var("OPENHUMAN_WORKSPACE", path);
+            }
+            Self
+        }
+    }
+
+    impl Drop for WorkspaceEnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: Same contract as `set()` — `ENV_LOCK` is held for
+            // the whole test, so no concurrent env access is possible.
+            unsafe {
+                std::env::remove_var("OPENHUMAN_WORKSPACE");
+            }
+        }
+    }
+
     // ── ensure_workspace_file ──────────────────────────────────────
 
     #[test]
@@ -175,16 +203,11 @@ mod tests {
     async fn init_workspace_creates_dirs_and_files_in_fresh_workspace() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
-        unsafe {
-            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
-        }
+        let _env = WorkspaceEnvGuard::set(tmp.path());
 
-        let result = init_workspace(false).await;
-
-        unsafe {
-            std::env::remove_var("OPENHUMAN_WORKSPACE");
-        }
-        let value = result.expect("init_workspace on empty temp should succeed");
+        let value = init_workspace(false)
+            .await
+            .expect("init_workspace on empty temp should succeed");
 
         let workspace_dir = value["result"]["workspace_dir"]
             .as_str()
@@ -221,19 +244,13 @@ mod tests {
     async fn init_workspace_reports_existing_entries_on_second_call_without_force() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
-        unsafe {
-            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
-        }
+        let _env = WorkspaceEnvGuard::set(tmp.path());
 
         // First call populates the workspace.
         init_workspace(false).await.expect("first init ok");
         // Second call without force should report everything as existing
         // and nothing as created / overwritten.
         let value = init_workspace(false).await.expect("second init ok");
-
-        unsafe {
-            std::env::remove_var("OPENHUMAN_WORKSPACE");
-        }
 
         let created = value["result"]["files"]["created"].as_array().unwrap();
         let overwritten = value["result"]["files"]["overwritten"].as_array().unwrap();
@@ -261,9 +278,7 @@ mod tests {
     async fn init_workspace_with_force_overwrites_existing_bootstrap_files() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
-        unsafe {
-            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
-        }
+        let _env = WorkspaceEnvGuard::set(tmp.path());
 
         let first = init_workspace(false).await.expect("initial init");
         // The config loader may place the workspace at a subpath of the
@@ -279,10 +294,6 @@ mod tests {
         std::fs::write(&soul, "corrupted").unwrap();
 
         let value = init_workspace(true).await.expect("forced init");
-
-        unsafe {
-            std::env::remove_var("OPENHUMAN_WORKSPACE");
-        }
 
         let overwritten: Vec<&str> = value["result"]["files"]["overwritten"]
             .as_array()

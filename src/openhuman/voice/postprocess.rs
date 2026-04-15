@@ -412,6 +412,9 @@ mod tests {
             !result.contains("Conversation context:"),
             "whitespace-only context must NOT be forwarded, got: {result}"
         );
-        assert_eq!(result.trim(), "raw text");
+        // Exact equality: `cleanup_transcription` trims the LLM response,
+        // so either branch (LLM echo of the raw-only prompt, or the
+        // short-circuit fallback) must return exactly "raw text".
+        assert_eq!(result, "raw text");
     }
 }

@@ -273,30 +273,43 @@ mod tests {
     #[tokio::test]
     async fn insert_text_surfaces_accessibility_failure_as_inserted_false() {
         // A non-empty payload bypasses the guard and reaches the
-        // `accessibility::apply_text_to_focused_field` call. In a
-        // headless test there's no focused field, so the OS-side call
-        // errors and the wrapper packs the message into the result
-        // struct rather than propagating it as Err.
-        let result = insert_text(InsertTextParams {
+        // `accessibility::apply_text_to_focused_field` call. The contract
+        // of `insert_text` is: any platform failure is wrapped in
+        // `InsertTextResult { inserted: false, error: Some(..) }` and
+        // returned as `Ok` — never propagated as `Err` — so the JSON-RPC
+        // caller always gets a structured result. We pin that contract.
+        //
+        // On a host with a focused text field `inserted` can legitimately
+        // be `true`; in a headless CI runner it will be `false`. Either
+        // way, `inserted` and `error` must be mutually exclusive.
+        let r = insert_text(InsertTextParams {
             text: "hello".into(),
             // Keep validation flags off so the test only exercises the
-            // `apply_text_to_focused_field` error path; turning them on
-            // would route through `validate_focused_target` first which
-            // has its own OS-specific behaviour.
+            // `apply_text_to_focused_field` path; turning them on would
+            // route through `validate_focused_target` first which has its
+            // own OS-specific behaviour.
             validate_focus: None,
             expected_app: None,
             expected_role: None,
         })
-        .await;
-        // Either Ok(..) (error wrapped in result) or Err(..) — both
-        // shapes are acceptable proof we reached the platform call
-        // without panicking.
-        match result {
-            Ok(r) => assert!(
-                !r.value.inserted || r.value.inserted,
-                "insertion result must be a deterministic bool"
-            ),
-            Err(e) => assert!(!e.is_empty()),
+        .await
+        .expect("insert_text must wrap platform failures as Ok(inserted=false)");
+
+        if r.value.inserted {
+            assert!(
+                r.value.error.is_none(),
+                "inserted=true must not carry an error: {:?}",
+                r.value.error
+            );
+            assert!(r.logs.iter().any(|l| l.contains("insert_text: ok")));
+        } else {
+            let err = r
+                .value
+                .error
+                .as_deref()
+                .expect("inserted=false must carry an error message");
+            assert!(!err.is_empty(), "error message must be non-empty");
+            assert!(r.logs.iter().any(|l| l.contains("insert_text: failed")));
         }
     }
 }

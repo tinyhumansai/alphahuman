@@ -57,26 +57,18 @@ mod tests {
     #[tokio::test]
     async fn migrate_openclaw_returns_error_for_missing_source_workspace() {
         // Pointing at a non-existent source directory must surface as
-        // an Err from the wrapper (not a panic / ok), so the JSON-RPC
-        // adapter can return the error to the caller.
+        // an Err from the wrapper (the underlying `migrate_openclaw_memory`
+        // bails with "OpenClaw workspace not found at ..."), so the
+        // JSON-RPC adapter can return the error to the caller.
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
         let missing = tmp.path().join("does-not-exist").join("nested");
-        let result = migrate_openclaw(&config, Some(missing), false).await;
-        // Either an Err OR an Ok with a non-success report is
-        // acceptable here — we just pin the no-panic, deterministic-
-        // shape contract.
-        match result {
-            Ok(outcome) => {
-                // If the migration helper decides "nothing to do" for
-                // a missing source and returns Ok, we still expect the
-                // canonical log line.
-                assert!(outcome
-                    .logs
-                    .iter()
-                    .any(|l| l.contains("migration completed")));
-            }
-            Err(e) => assert!(!e.is_empty()),
-        }
+        let err = migrate_openclaw(&config, Some(missing), false)
+            .await
+            .expect_err("missing source workspace must surface as Err");
+        assert!(
+            !err.is_empty(),
+            "error string must be non-empty so the RPC caller sees a reason"
+        );
     }
 }
