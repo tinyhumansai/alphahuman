@@ -11,7 +11,11 @@ import { useUsageState } from '../hooks/useUsageState';
 import { chatEventManager } from '../services/chatEventManager';
 import { chatCancel, chatSend, useRustChat } from '../services/chatService';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { setThreadSending, setToolTimelineForThread } from '../store/inferenceSlice';
+import {
+  clearInferenceRuntimeForThread,
+  setThreadSending,
+  setToolTimelineForThread,
+} from '../store/inferenceSlice';
 import { selectSocketStatus } from '../store/socketSelectors';
 import {
   addMessageLocal,
@@ -196,7 +200,6 @@ const Conversations = () => {
   const lastSpokenMessageIdRef = useRef<string | null>(null);
   const autocompleteDebounceRef = useRef<number | null>(null);
   const autocompleteRequestSeqRef = useRef(0);
-  const sendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getAudioExtension = (mimeType: string): string => {
     const lower = mimeType.toLowerCase();
@@ -318,10 +321,6 @@ const Conversations = () => {
 
   useEffect(() => {
     return () => {
-      if (sendingTimeoutRef.current) {
-        clearTimeout(sendingTimeoutRef.current);
-        sendingTimeoutRef.current = null;
-      }
       mediaRecorderRef.current?.stop();
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
       replyAudioRef.current?.pause();
@@ -423,20 +422,17 @@ const Conversations = () => {
     setSendError(null);
     dispatch(setThreadSending({ threadId: sendingThreadId, sending: true }));
     // Safety: auto-clear isSending if no response arrives within 120s
-    if (sendingTimeoutRef.current) clearTimeout(sendingTimeoutRef.current);
-    sendingTimeoutRef.current = setTimeout(() => {
+    chatEventManager.startSendWatchdog(sendingThreadId, 120_000, () => {
       console.warn('[chat] safety timeout: clearing isSending after 120s with no response');
-      dispatch(setThreadSending({ threadId: sendingThreadId, sending: false }));
+      dispatch(clearInferenceRuntimeForThread({ threadId: sendingThreadId }));
       setSendError(
         chatSendError(
           'safety_timeout',
           'No response from the assistant after 2 minutes. Try again or check your connection.'
         )
       );
-      chatEventManager.clearPendingReaction(sendingThreadId);
       dispatch(setActiveThread(null));
-      sendingTimeoutRef.current = null;
-    }, 120_000);
+    });
     dispatch(setToolTimelineForThread({ threadId: sendingThreadId, entries: [] }));
     dispatch(setActiveThread(sendingThreadId));
 
@@ -450,14 +446,10 @@ const Conversations = () => {
       // setIsSending(false) and setActiveThread(null) happen in the onDone/onError event handlers
     } catch (err) {
       // Chat loop errors are emitted via socket events; this catch handles emit-level failures.
-      if (sendingTimeoutRef.current) {
-        clearTimeout(sendingTimeoutRef.current);
-        sendingTimeoutRef.current = null;
-      }
+      chatEventManager.clearSendWatchdog(sendingThreadId);
       const msg = err instanceof Error ? err.message : String(err);
       setSendError(chatSendError('cloud_send_failed', msg));
-      dispatch(setThreadSending({ threadId: sendingThreadId, sending: false }));
-      chatEventManager.clearPendingReaction(sendingThreadId);
+      dispatch(clearInferenceRuntimeForThread({ threadId: sendingThreadId }));
       dispatch(setActiveThread(null));
     }
   };

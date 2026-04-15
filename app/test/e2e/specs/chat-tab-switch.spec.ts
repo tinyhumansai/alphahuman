@@ -98,14 +98,46 @@ suiteRunner('Chat tab switch in-flight recovery', () => {
     // Immediately move to a different app tab while response is in-flight.
     await navigateToSkills();
 
-    const chatReq = await waitForRequest('POST', '/openai/v1/chat/completions', 30_000);
+    let chatReq;
+    try {
+      chatReq = await waitForRequest('POST', '/openai/v1/chat/completions', 30_000);
+      if (!chatReq) throw new Error('chat completion request not observed');
+    } catch (error) {
+      stepLog('chat completion wait failed', {
+        error: error instanceof Error ? error.message : String(error),
+        requests: getRequestLog().slice(-20),
+      });
+      const tree = await dumpAccessibilityTree();
+      stepLog('accessibility snapshot on missing request', tree.slice(0, 4000));
+      throw error;
+    }
     expect(chatReq).toBeDefined();
 
     // Wait long enough for response to complete in background.
     await browser.pause(2_000);
 
     await navigateToConversations();
-    await waitForText('Hello from e2e mock agent', 30_000);
-    expect(await textExists('Type a message...')).toBe(true);
+    try {
+      await waitForText('Hello from e2e mock agent', 30_000);
+    } catch (error) {
+      stepLog('assistant response not visible after tab return', {
+        error: error instanceof Error ? error.message : String(error),
+        requests: getRequestLog().slice(-20),
+      });
+      const tree = await dumpAccessibilityTree();
+      stepLog('accessibility snapshot on missing response', tree.slice(0, 4000));
+      throw error;
+    }
+    try {
+      expect(await textExists('Type a message...')).toBe(true);
+    } catch (error) {
+      stepLog('composer availability assertion failed', {
+        error: error instanceof Error ? error.message : String(error),
+        requests: getRequestLog().slice(-20),
+      });
+      const tree = await dumpAccessibilityTree();
+      stepLog('accessibility snapshot on composer assertion failure', tree.slice(0, 4000));
+      throw error;
+    }
   });
 });

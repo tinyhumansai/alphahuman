@@ -2,6 +2,7 @@ import debug from 'debug';
 
 import { store } from '../store';
 import {
+  clearInferenceRuntimeForThread,
   clearInferenceStatusForThread,
   clearStreamingForThread,
   setInferenceStatusForThread,
@@ -40,6 +41,7 @@ interface PendingReaction {
 let cleanupSubscription: CleanupFn | null = null;
 const seenChatEvents = new Map<string, number>();
 const pendingReactionByThread = new Map<string, PendingReaction>();
+const sendWatchdogsByThread = new Map<string, ReturnType<typeof setTimeout>>();
 
 function markChatEventSeen(key: string): boolean {
   const now = Date.now();
@@ -75,6 +77,10 @@ function applyReactionIfPending(threadId: string, emoji: string | null | undefin
 }
 
 function setInferenceStart(event: ChatInferenceStartEvent) {
+  chatEventLog('[chat-event-manager] inference_start', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+  });
   store.dispatch(
     setInferenceStatusForThread({
       threadId: event.thread_id,
@@ -84,6 +90,11 @@ function setInferenceStart(event: ChatInferenceStartEvent) {
 }
 
 function setIterationStart(event: ChatIterationStartEvent) {
+  chatEventLog('[chat-event-manager] iteration_start', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+  });
   const current = store.getState().inference.inferenceStatusByThread[event.thread_id];
   store.dispatch(
     setInferenceStatusForThread({
@@ -98,6 +109,13 @@ function setIterationStart(event: ChatIterationStartEvent) {
 }
 
 function setToolCall(event: ChatToolCallEvent) {
+  chatEventLog('[chat-event-manager] tool_call', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    toolName: event.tool_name,
+    toolCallId: event.tool_call_id,
+  });
   const current = store.getState().inference.inferenceStatusByThread[event.thread_id];
   store.dispatch(
     setInferenceStatusForThread({
@@ -111,7 +129,11 @@ function setToolCall(event: ChatToolCallEvent) {
   );
 
   const eventKey = `tool_call:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.tool_call_id ?? ''}`;
-  if (!markChatEventSeen(eventKey)) return;
+  const seen = markChatEventSeen(eventKey);
+  if (!seen) {
+    chatEventLog('[chat-event-manager] tool_call deduped', { threadId: event.thread_id, eventKey });
+    return;
+  }
 
   const existing = store.getState().inference.toolTimelineByThread[event.thread_id] ?? [];
   const existingIdx = event.tool_call_id
@@ -149,8 +171,23 @@ function setToolCall(event: ChatToolCallEvent) {
 }
 
 function setToolResult(event: ChatToolResultEvent) {
+  chatEventLog('[chat-event-manager] tool_result', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    toolName: event.tool_name,
+    toolCallId: event.tool_call_id,
+    success: event.success,
+  });
   const eventKey = `tool_result:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.success}:${event.tool_call_id ?? ''}`;
-  if (!markChatEventSeen(eventKey)) return;
+  const seen = markChatEventSeen(eventKey);
+  if (!seen) {
+    chatEventLog('[chat-event-manager] tool_result deduped', {
+      threadId: event.thread_id,
+      eventKey,
+    });
+    return;
+  }
 
   const existing = store.getState().inference.toolTimelineByThread[event.thread_id] ?? [];
   if (existing.length > 0) {
@@ -196,6 +233,13 @@ function setToolResult(event: ChatToolResultEvent) {
 }
 
 function setSubagentSpawned(event: ChatSubagentSpawnedEvent) {
+  chatEventLog('[chat-event-manager] subagent_spawned', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    toolName: event.tool_name,
+    skillId: event.skill_id,
+  });
   const current = store.getState().inference.inferenceStatusByThread[event.thread_id];
   store.dispatch(
     setInferenceStatusForThread({
@@ -226,15 +270,36 @@ function setSubagentSpawned(event: ChatSubagentSpawnedEvent) {
 }
 
 function setSubagentDone(event: ChatSubagentDoneEvent) {
+  chatEventLog('[chat-event-manager] subagent_done', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    toolName: event.tool_name,
+    skillId: event.skill_id,
+    success: event.success,
+  });
   const existing = store.getState().inference.toolTimelineByThread[event.thread_id] ?? [];
   if (existing.length > 0) {
+    const stableId = `${event.thread_id}:subagent:${event.skill_id}:${event.tool_name}`;
+    let targetIndex = existing.findIndex(
+      entry => entry.id === stableId && entry.status === 'running'
+    );
+    if (targetIndex < 0) {
+      for (let index = existing.length - 1; index >= 0; index -= 1) {
+        const entry = existing[index];
+        if (entry.name === `🤖 ${event.tool_name}` && entry.status === 'running') {
+          targetIndex = index;
+          break;
+        }
+      }
+    }
+    if (targetIndex < 0) return;
+
     store.dispatch(
       setToolTimelineForThread({
         threadId: event.thread_id,
-        entries: existing.map(entry =>
-          entry.name === `🤖 ${event.tool_name}` && entry.status === 'running'
-            ? { ...entry, status: event.success ? 'success' : 'error' }
-            : entry
+        entries: existing.map((entry, index) =>
+          index === targetIndex ? { ...entry, status: event.success ? 'success' : 'error' } : entry
         ),
       })
     );
@@ -251,8 +316,21 @@ function setSubagentDone(event: ChatSubagentDoneEvent) {
 }
 
 function setSegment(event: ChatSegmentEvent) {
+  chatEventLog('[chat-event-manager] chat_segment', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    segmentIndex: event.segment_index,
+    segmentTotal: event.segment_total,
+  });
   const eventKey = `segment:${event.thread_id}:${event.request_id}:${event.segment_index}`;
-  if (!markChatEventSeen(eventKey)) return;
+  const seen = markChatEventSeen(eventKey);
+  if (!seen) {
+    chatEventLog('[chat-event-manager] chat_segment deduped', {
+      threadId: event.thread_id,
+      eventKey,
+    });
+    return;
+  }
 
   applyReactionIfPending(event.thread_id, event.reaction_emoji);
   void store.dispatch(
@@ -261,6 +339,12 @@ function setSegment(event: ChatSegmentEvent) {
 }
 
 function setTextDelta(event: ChatTextDeltaEvent) {
+  chatEventLog('[chat-event-manager] text_delta', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    chars: event.delta?.length ?? 0,
+  });
   const existing = store.getState().inference.streamingAssistantByThread[event.thread_id];
   if (existing && existing.requestId !== event.request_id) {
     store.dispatch(
@@ -285,6 +369,12 @@ function setTextDelta(event: ChatTextDeltaEvent) {
 }
 
 function setThinkingDelta(event: ChatThinkingDeltaEvent) {
+  chatEventLog('[chat-event-manager] thinking_delta', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    chars: event.delta?.length ?? 0,
+  });
   const existing = store.getState().inference.streamingAssistantByThread[event.thread_id];
   if (existing && existing.requestId !== event.request_id) {
     store.dispatch(
@@ -309,6 +399,14 @@ function setThinkingDelta(event: ChatThinkingDeltaEvent) {
 }
 
 function setToolArgsDelta(event: ChatToolArgsDeltaEvent) {
+  chatEventLog('[chat-event-manager] tool_args_delta', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    round: event.round,
+    toolName: event.tool_name,
+    toolCallId: event.tool_call_id,
+    chars: event.delta?.length ?? 0,
+  });
   const existing = store.getState().inference.toolTimelineByThread[event.thread_id] ?? [];
   let matchIdx = -1;
 
@@ -355,9 +453,19 @@ function setToolArgsDelta(event: ChatToolArgsDeltaEvent) {
 }
 
 function setDone(event: ChatDoneEvent) {
+  chatEventLog('[chat-event-manager] chat_done', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    segmentTotal: event.segment_total,
+  });
   const eventKey = `done:${event.thread_id}:${event.request_id ?? 'none'}`;
-  if (!markChatEventSeen(eventKey)) return;
+  const seen = markChatEventSeen(eventKey);
+  if (!seen) {
+    chatEventLog('[chat-event-manager] chat_done deduped', { threadId: event.thread_id, eventKey });
+    return;
+  }
 
+  chatEventManager.clearSendWatchdog(event.thread_id);
   store.dispatch(clearInferenceStatusForThread({ threadId: event.thread_id }));
   store.dispatch(clearStreamingForThread({ threadId: event.thread_id }));
   store.dispatch(setThreadSending({ threadId: event.thread_id, sending: false }));
@@ -387,9 +495,23 @@ function setDone(event: ChatDoneEvent) {
 }
 
 function setError(event: ChatErrorEvent) {
+  chatEventLog('[chat-event-manager] chat_error', {
+    threadId: event.thread_id,
+    requestId: event.request_id,
+    errorType: event.error_type,
+    message: event.message,
+  });
   const eventKey = `error:${event.thread_id}:${event.request_id ?? 'none'}:${event.error_type}:${event.message}`;
-  if (!markChatEventSeen(eventKey)) return;
+  const seen = markChatEventSeen(eventKey);
+  if (!seen) {
+    chatEventLog('[chat-event-manager] chat_error deduped', {
+      threadId: event.thread_id,
+      eventKey,
+    });
+    return;
+  }
 
+  chatEventManager.clearSendWatchdog(event.thread_id);
   store.dispatch(setThreadSending({ threadId: event.thread_id, sending: false }));
   store.dispatch(clearInferenceStatusForThread({ threadId: event.thread_id }));
   store.dispatch(clearStreamingForThread({ threadId: event.thread_id }));
@@ -453,11 +575,36 @@ export const chatEventManager = {
     chatEventLog('[chat-event-manager] teardown: unsubscribing from chat events');
     cleanupSubscription();
     cleanupSubscription = null;
+    for (const timeoutId of sendWatchdogsByThread.values()) {
+      clearTimeout(timeoutId);
+    }
+    sendWatchdogsByThread.clear();
   },
   setPendingReaction(payload: PendingReaction) {
     pendingReactionByThread.set(payload.threadId, payload);
   },
   clearPendingReaction(threadId: string) {
     pendingReactionByThread.delete(threadId);
+  },
+  startSendWatchdog(threadId: string, timeoutMs: number, onTimeout: () => void) {
+    this.clearSendWatchdog(threadId);
+    const timeoutId = setTimeout(() => {
+      sendWatchdogsByThread.delete(threadId);
+      chatEventLog('[chat-event-manager] send_watchdog timeout', { threadId, timeoutMs });
+      onTimeout();
+    }, timeoutMs);
+    sendWatchdogsByThread.set(threadId, timeoutId);
+  },
+  clearSendWatchdog(threadId: string) {
+    const timeoutId = sendWatchdogsByThread.get(threadId);
+    if (!timeoutId) return;
+    clearTimeout(timeoutId);
+    sendWatchdogsByThread.delete(threadId);
+  },
+  clearThreadRuntime(threadId: string) {
+    this.clearSendWatchdog(threadId);
+    this.clearPendingReaction(threadId);
+    store.dispatch(clearInferenceRuntimeForThread({ threadId }));
+    store.dispatch(setActiveThread(null));
   },
 };

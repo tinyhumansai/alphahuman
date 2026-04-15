@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setActiveThread } from '../../store/threadSlice';
 
@@ -31,6 +31,11 @@ describe('chatEventManager', () => {
       thread: { messagesByThreadId: {} },
     });
     mockSubscribeChatEvents.mockReturnValue(mockCleanup);
+  });
+
+  afterEach(async () => {
+    const { chatEventManager } = await import('../chatEventManager');
+    chatEventManager.teardown();
   });
 
   it('subscribes once and tears down listeners', async () => {
