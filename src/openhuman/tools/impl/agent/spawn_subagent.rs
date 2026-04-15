@@ -50,6 +50,8 @@ impl SpawnSubagentTool {
         let lower = message.to_lowercase();
         let upstream_unhealthy = lower.contains("no healthy upstream")
             || lower.contains("upstream_unhealthy")
+            || lower.contains("upstream unavailable")
+            || lower.contains("service unavailable")
             || lower.contains("provider call failed: all providers/models failed");
 
         if upstream_unhealthy {
@@ -335,11 +337,18 @@ impl Tool for SpawnSubagentTool {
             Err(err) => {
                 let message = err.to_string();
                 let parent_visible_error = Self::classify_subagent_failure(&message);
+                // Log only non-sensitive context: agent_id and task_id. The raw
+                // error message and classified summary may contain user prompts or
+                // payload fragments — emit only a short type/kind indicator.
+                let error_kind = message
+                    .split(':')
+                    .next()
+                    .map(str::trim)
+                    .unwrap_or("unknown");
                 tracing::error!(
                     agent_id = %definition.id,
                     task_id = %task_id,
-                    error = %message,
-                    classified_error = %parent_visible_error,
+                    error_kind = %error_kind,
                     "[spawn_subagent] sub-agent execution failed"
                 );
                 publish_global(DomainEvent::SubagentFailed {

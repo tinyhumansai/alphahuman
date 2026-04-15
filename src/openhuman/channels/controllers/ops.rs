@@ -247,7 +247,7 @@ pub async fn connect_channel(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        let channel_id = creds_map
+        let discord_channel_id = creds_map
             .get("channel_id")
             .and_then(|v| v.as_str())
             .map(str::trim)
@@ -273,7 +273,7 @@ pub async fn connect_channel(
         persisted.channels_config.discord = Some(DiscordConfig {
             bot_token,
             guild_id: guild_id.clone(),
-            channel_id: channel_id.clone(),
+            channel_id: discord_channel_id.clone(),
             allowed_users,
             listen_to_bots,
             mention_only,
@@ -287,7 +287,7 @@ pub async fn connect_channel(
         tracing::info!(
             target: "openhuman::channels",
             has_guild_id = guild_id.is_some(),
-            has_channel_id = channel_id.is_some(),
+            has_channel_id = discord_channel_id.is_some(),
             allowed_users_count,
             listen_to_bots,
             mention_only,
@@ -560,8 +560,8 @@ pub async fn telegram_login_check(
     let linked = telegram_id.is_some();
 
     log::debug!(
-        "[telegram-login] user profile telegramId: {:?}, linked={}",
-        telegram_id,
+        "[telegram-login] user profile has_telegram_id={}, linked={}",
+        telegram_id.is_some(),
         linked
     );
 
@@ -718,8 +718,8 @@ pub async fn discord_link_check(
     let linked = discord_id.is_some();
 
     log::debug!(
-        "[discord-link] user profile discordId: {:?}, linked={}",
-        discord_id,
+        "[discord-link] user profile has_discord_id={}, linked={}",
+        discord_id.is_some(),
         linked
     );
 

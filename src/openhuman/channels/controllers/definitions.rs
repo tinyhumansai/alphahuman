@@ -363,6 +363,10 @@ mod tests {
 
         let oauth = def.auth_mode_spec(ChannelAuthMode::OAuth).unwrap();
         assert_eq!(oauth.auth_action, Some("discord_oauth"));
+
+        let managed = def.auth_mode_spec(ChannelAuthMode::ManagedDm);
+        assert!(managed.is_some());
+        assert_eq!(managed.unwrap().auth_action, Some("discord_managed_link"));
     }
 
     #[test]

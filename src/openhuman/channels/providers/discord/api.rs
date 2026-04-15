@@ -302,6 +302,9 @@ async fn check_channel_permissions_at_base(
         .get("permission_overwrites")
         .and_then(|o| o.as_array())
     {
+        // Intentional shadowing: prefer the ID returned inside the member
+        // object over the one fetched from /users/@me, because the guild
+        // member record is more authoritative for permission overwrite lookups.
         let bot_user_id = member
             .get("user")
             .and_then(|u| u.get("id"))

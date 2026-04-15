@@ -1633,4 +1633,48 @@ mod tests {
                 .await
         }
     }
+
+    // ── upstream_unhealthy classification and failure_reason precedence ──
+
+    #[test]
+    fn upstream_unhealthy_detects_no_healthy_upstream() {
+        let err = anyhow::anyhow!("no healthy upstream available");
+        assert!(is_upstream_unhealthy(&err));
+    }
+
+    #[test]
+    fn upstream_unhealthy_detects_upstream_unavailable() {
+        let err = anyhow::anyhow!("upstream unavailable: backend down");
+        assert!(is_upstream_unhealthy(&err));
+    }
+
+    #[test]
+    fn upstream_unhealthy_detects_service_unavailable() {
+        let err = anyhow::anyhow!("503 service unavailable");
+        assert!(is_upstream_unhealthy(&err));
+    }
+
+    #[test]
+    fn upstream_unhealthy_does_not_flag_generic_error() {
+        let err = anyhow::anyhow!("timeout after 30s");
+        assert!(!is_upstream_unhealthy(&err));
+    }
+
+    #[test]
+    fn failure_reason_upstream_unhealthy_wins_over_rate_limited() {
+        // Both rate_limited AND upstream_unhealthy — upstream_unhealthy must win.
+        assert_eq!(failure_reason(true, false, true), "upstream_unhealthy");
+    }
+
+    #[test]
+    fn failure_reason_upstream_unhealthy_wins_over_non_retryable() {
+        // Both non_retryable AND upstream_unhealthy — upstream_unhealthy must win.
+        assert_eq!(failure_reason(false, true, true), "upstream_unhealthy");
+    }
+
+    #[test]
+    fn failure_reason_upstream_unhealthy_wins_over_all_others() {
+        // All flags set — upstream_unhealthy must still win.
+        assert_eq!(failure_reason(true, true, true), "upstream_unhealthy");
+    }
 }
