@@ -9,7 +9,11 @@ import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDism
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
 import { useUsageState } from '../hooks/useUsageState';
 import { chatCancel, chatSend, useRustChat } from '../services/chatService';
-import { setToolTimelineForThread } from '../store/chatRuntimeSlice';
+import {
+  beginInferenceTurn,
+  endInferenceTurn,
+  setToolTimelineForThread,
+} from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
 import {
@@ -172,6 +176,9 @@ const Conversations = () => {
   );
   const streamingAssistantByThread = useAppSelector(
     state => state.chatRuntime.streamingAssistantByThread
+  );
+  const inferenceTurnLifecycleByThread = useAppSelector(
+    state => state.chatRuntime.inferenceTurnLifecycleByThread
   );
   const rustChat = useRustChat();
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
@@ -419,10 +426,12 @@ const Conversations = () => {
           'No response from the assistant after 2 minutes. Try again or check your connection.'
         )
       );
+      dispatch(endInferenceTurn({ threadId: sendingThreadId }));
       dispatch(setActiveThread(null));
       sendingTimeoutRef.current = null;
     }, 120_000);
     dispatch(setToolTimelineForThread({ threadId: sendingThreadId, entries: [] }));
+    dispatch(beginInferenceTurn({ threadId: sendingThreadId }));
     dispatch(setActiveThread(sendingThreadId));
 
     // ── Cloud socket path ─────────────────────────────────────────────────────
@@ -441,6 +450,7 @@ const Conversations = () => {
       }
       const msg = err instanceof Error ? err.message : String(err);
       setSendError(chatSendError('cloud_send_failed', msg));
+      dispatch(endInferenceTurn({ threadId: sendingThreadId }));
       dispatch(setActiveThread(null));
     }
   };
@@ -668,7 +678,11 @@ const Conversations = () => {
     ? (streamingAssistantByThread[selectedThreadId] ?? null)
     : null;
   const inlineCompletionSuffix = getInlineCompletionSuffix(inputValue, inlineSuggestionValue);
-  const isSending = Boolean(activeThreadId);
+  const isSending = Boolean(
+    selectedThreadId &&
+    (inferenceTurnLifecycleByThread[selectedThreadId] === 'started' ||
+      inferenceTurnLifecycleByThread[selectedThreadId] === 'streaming')
+  );
 
   return (
     <div className="h-full relative z-10 flex justify-center overflow-hidden p-4 pt-6">
@@ -837,8 +851,7 @@ const Conversations = () => {
                   </div>
                 </div>
               ))}
-              {activeThreadId === selectedThreadId &&
-                isSending &&
+              {isSending &&
                 // Suppress the legacy 3-dot placeholder once streaming
                 // output (visible text or thinking) has started — the
                 // streaming preview bubble below takes over as the

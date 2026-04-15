@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import reducer, {
+  beginInferenceTurn,
   clearInferenceStatusForThread,
   clearRuntimeForThread,
   clearStreamingAssistantForThread,
   clearToolTimelineForThread,
+  endInferenceTurn,
+  markInferenceTurnStreaming,
   setInferenceStatusForThread,
   setStreamingAssistantForThread,
   setToolTimelineForThread,
@@ -77,6 +80,17 @@ describe('chatRuntimeSlice', () => {
     expect(cleared.toolTimelineByThread['thread-1']).toBeUndefined();
   });
 
+  it('tracks per-thread inference turn lifecycle', () => {
+    const started = reducer(undefined, beginInferenceTurn({ threadId: 'thread-1' }));
+    expect(started.inferenceTurnLifecycleByThread['thread-1']).toBe('started');
+
+    const streaming = reducer(started, markInferenceTurnStreaming({ threadId: 'thread-1' }));
+    expect(streaming.inferenceTurnLifecycleByThread['thread-1']).toBe('streaming');
+
+    const ended = reducer(streaming, endInferenceTurn({ threadId: 'thread-1' }));
+    expect(ended.inferenceTurnLifecycleByThread['thread-1']).toBeUndefined();
+  });
+
   it('clears all runtime buckets for one thread', () => {
     const populated = reducer(
       reducer(
@@ -98,9 +112,11 @@ describe('chatRuntimeSlice', () => {
       })
     );
 
-    const cleared = reducer(populated, clearRuntimeForThread({ threadId: 'thread-1' }));
+    const withTurn = reducer(populated, beginInferenceTurn({ threadId: 'thread-1' }));
+    const cleared = reducer(withTurn, clearRuntimeForThread({ threadId: 'thread-1' }));
     expect(cleared.inferenceStatusByThread['thread-1']).toBeUndefined();
     expect(cleared.streamingAssistantByThread['thread-1']).toBeUndefined();
     expect(cleared.toolTimelineByThread['thread-1']).toBeUndefined();
+    expect(cleared.inferenceTurnLifecycleByThread['thread-1']).toBeUndefined();
   });
 });

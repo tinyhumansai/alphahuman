@@ -16,6 +16,8 @@ import { store } from '../store';
 import {
   clearInferenceStatusForThread,
   clearStreamingAssistantForThread,
+  endInferenceTurn,
+  markInferenceTurnStreaming,
   setInferenceStatusForThread,
   setStreamingAssistantForThread,
   setToolTimelineForThread,
@@ -109,6 +111,7 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
     const cleanup = subscribeChatEvents({
       onInferenceStart: (event: ChatInferenceStartEvent) => {
         rtLog('inference_start', { thread: event.thread_id, request: event.request_id });
+        dispatch(markInferenceTurnStreaming({ threadId: event.thread_id }));
         dispatch(
           setInferenceStatusForThread({
             threadId: event.thread_id,
@@ -397,6 +400,7 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
             addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
           );
         }
+        dispatch(endInferenceTurn({ threadId: event.thread_id }));
         dispatch(setActiveThread(null));
       },
       onError: event => {
@@ -442,6 +446,7 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
           }
         }
 
+        dispatch(endInferenceTurn({ threadId: event.thread_id }));
         dispatch(setActiveThread(null));
       },
     });

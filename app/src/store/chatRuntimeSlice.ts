@@ -25,21 +25,32 @@ export interface StreamingAssistantState {
 }
 
 /**
+ * Explicit per-thread agent-turn lifecycle for the composer and Cancel affordance.
+ * `started` is set when the user sends; `streaming` after the first inference/socket
+ * signal. Rows are removed on completion (not stored as `done`/`error` — those are
+ * terminal and handled by deleting the key). This does not rely on `threadSlice`
+ * segment appends, which can fire many times per turn.
+ */
+export type InferenceTurnLifecycle = 'started' | 'streaming';
+
+/**
  * Per-thread UI state for an in-flight agent turn (socket events while the user
  * may navigate away from Conversations). The thread slice keeps `activeThreadId`
- * set for the whole turn; it is cleared from `ChatRuntimeProvider` on `chat_done` /
- * `chat_error`, not on each persisted segment.
+ * in sync for cross-thread guards; it is cleared from `ChatRuntimeProvider` on
+ * `chat_done` / `chat_error`, not on each persisted segment.
  */
 interface ChatRuntimeState {
   inferenceStatusByThread: Record<string, InferenceStatus>;
   streamingAssistantByThread: Record<string, StreamingAssistantState>;
   toolTimelineByThread: Record<string, ToolTimelineEntry[]>;
+  inferenceTurnLifecycleByThread: Record<string, InferenceTurnLifecycle>;
 }
 
 const initialState: ChatRuntimeState = {
   inferenceStatusByThread: {},
   streamingAssistantByThread: {},
   toolTimelineByThread: {},
+  inferenceTurnLifecycleByThread: {},
 };
 
 const chatRuntimeSlice = createSlice({
@@ -73,15 +84,28 @@ const chatRuntimeSlice = createSlice({
     clearToolTimelineForThread: (state, action: PayloadAction<{ threadId: string }>) => {
       delete state.toolTimelineByThread[action.payload.threadId];
     },
+    beginInferenceTurn: (state, action: PayloadAction<{ threadId: string }>) => {
+      state.inferenceTurnLifecycleByThread[action.payload.threadId] = 'started';
+    },
+    markInferenceTurnStreaming: (state, action: PayloadAction<{ threadId: string }>) => {
+      if (state.inferenceTurnLifecycleByThread[action.payload.threadId]) {
+        state.inferenceTurnLifecycleByThread[action.payload.threadId] = 'streaming';
+      }
+    },
+    endInferenceTurn: (state, action: PayloadAction<{ threadId: string }>) => {
+      delete state.inferenceTurnLifecycleByThread[action.payload.threadId];
+    },
     clearRuntimeForThread: (state, action: PayloadAction<{ threadId: string }>) => {
       delete state.inferenceStatusByThread[action.payload.threadId];
       delete state.streamingAssistantByThread[action.payload.threadId];
       delete state.toolTimelineByThread[action.payload.threadId];
+      delete state.inferenceTurnLifecycleByThread[action.payload.threadId];
     },
     clearAllChatRuntime: state => {
       state.inferenceStatusByThread = {};
       state.streamingAssistantByThread = {};
       state.toolTimelineByThread = {};
+      state.inferenceTurnLifecycleByThread = {};
     },
   },
 });
@@ -93,6 +117,9 @@ export const {
   clearStreamingAssistantForThread,
   setToolTimelineForThread,
   clearToolTimelineForThread,
+  beginInferenceTurn,
+  markInferenceTurnStreaming,
+  endInferenceTurn,
   clearRuntimeForThread,
   clearAllChatRuntime,
 } = chatRuntimeSlice.actions;
