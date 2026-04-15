@@ -68,7 +68,7 @@ objc2-core-graphics = "0.3.2"
 # `--no-default-features --features cef`.
 default = ["wry"]
 wry = ["tauri/wry"]
-cef = ["tauri/cef"]
+cef = ["tauri/cef", "tauri/devtools"]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 sandbox-bubblewrap = []

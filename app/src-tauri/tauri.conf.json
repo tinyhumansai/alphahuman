@@ -16,7 +16,7 @@
         "title": "OpenHuman",
         "width": 800,
         "height": 720,
-        "visible": false,
+        "visible": true,
         "decorations": true,
         "resizable": true,
         "center": true
@@ -33,12 +33,13 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "visible": true,
+        "visible": false,
+        "create": false,
         "center": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https: ws: wss: ipc: http://ipc.localhost; img-src 'self' data: blob: https: http:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss: data: blob:; frame-src 'self' https: http: data: blob:"
     },
     "macOSPrivateApi": true
   },
@@ -61,7 +62,7 @@
     ],
     "resources": [
       "../../src/openhuman/agent/prompts",
-      "recipes/**"
+      "recipes/**/*"
     ],
     "externalBin": [
       "binaries/openhuman-core"

@@ -440,7 +440,18 @@ pub fn run() {
     #[cfg(not(feature = "cef"))]
     let builder = tauri::Builder::<tauri::Wry>::new();
     #[cfg(feature = "cef")]
-    let builder = tauri::Builder::<tauri::Cef>::new();
+    let builder = tauri::Builder::<tauri::Cef>::new()
+        // Bypass macOS Keychain. Without this, every embedded service that
+        // touches password / cookie / encryption-key storage triggers a
+        // "Allow access to your keychain?" prompt — WhatsApp Web hits it on
+        // every cold start, Chromium's own component-update store also does.
+        // `use-mock-keychain` swaps the Keychain backend for an in-process
+        // mock; `password-store=basic` is the equivalent for the password
+        // manager. Both are no-ops on Windows/Linux, so safe to always set.
+        .command_line_args::<&str, &str>([
+            ("use-mock-keychain", None),
+            ("password-store", Some("basic")),
+        ]);
 
     builder
         .plugin(tauri_plugin_opener::init())
