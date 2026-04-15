@@ -7,22 +7,17 @@
 //! 1. [`crate::openhuman::config::ops::set_onboarding_completed`]
 //!    detects a false→true transition and calls [`spawn_proactive_welcome`].
 //! 2. That function spawns a detached Tokio task that:
-//!    - Builds the same JSON status snapshot
-//!      `tools::implementations::agent::complete_onboarding`'s
-//!      `check_status` would have returned, with `finalize_action =
-//!      "flipped"` (the caller has already flipped
-//!      `chat_onboarding_completed`).
 //!    - Loads the `welcome` agent via
 //!      [`crate::openhuman::agent::Agent::from_config_for_agent`] so
 //!      the agent runs with its own `prompt.md`, tool allowlist, and
 //!      model hint.
-//!    - Calls [`crate::openhuman::agent::Agent::run_single`] with a
-//!      prompt that embeds the snapshot and instructs the agent to
-//!      skip iteration 1 (the tool call) and go straight to iteration
-//!      2 (writing the welcome message). Because we already flipped
-//!      `chat_onboarding_completed`, the `complete_onboarding` tool
-//!      would be a no-op anyway — but avoiding the extra round-trip
-//!      keeps latency down.
+//!    - Calls [`crate::openhuman::agent::Agent::run_single`] which
+//!      lets the agent run its full workflow: call `check_status` +
+//!      `composio_list_connections`, greet the user, pitch Gmail
+//!      connection via `composio_authorize`, and deliver the welcome.
+//!      Because we already flipped `chat_onboarding_completed`, the
+//!      `check_status` tool returns `finalize_action:
+//!      "already_complete"` which the prompt handles correctly.
 //!    - On success, publishes
 //!      [`DomainEvent::ProactiveMessageRequested`] so the existing
 //!      [`crate::openhuman::channels::proactive::ProactiveMessageSubscriber`]
@@ -35,7 +30,6 @@
 use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::Agent;
 use crate::openhuman::config::Config;
-use crate::openhuman::tools::implementations::agent::complete_onboarding::build_status_snapshot;
 
 /// Event-bus `source` label attached to the proactive welcome message.
 /// Kept as a constant so tests and channel-side filters have a stable
@@ -79,17 +73,11 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         config.onboarding_completed
     );
 
-    // The caller (set_onboarding_completed) already flipped
-    // `chat_onboarding_completed`, so the snapshot always reports
-    // `"flipped"` — matches the state the welcome agent's prompt.md
-    // treats as "first run, authenticated, deliver the full welcome".
-    let snapshot = build_status_snapshot(&config, "flipped");
-    let snapshot_json = serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| anyhow::anyhow!("serialize status snapshot: {e}"))?;
-    tracing::debug!(
-        snapshot_chars = snapshot_json.len(),
-        "[welcome::proactive] built status snapshot"
-    );
+    // Brief delay so the frontend Socket.IO client has time to
+    // connect and join the "system" room after the onboarding overlay
+    // closes. Without this, the message can arrive before anyone is
+    // listening.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let mut agent = Agent::from_config_for_agent(&config, "welcome").map_err(|e| {
         anyhow::anyhow!("build welcome agent: {e} — ensure AgentDefinitionRegistry is initialised")
@@ -99,34 +87,31 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         "proactive",
     );
 
-    // The welcome prompt.md is insistent that iteration 1 must be a
-    // `complete_onboarding` tool call. We bypass that here by
-    // pre-delivering the snapshot inside the user message and
-    // explicitly overriding iteration 1. Capable models comply; if a
-    // model calls the tool anyway, the tool returns
-    // `finalize_action: "already_complete"` (we've pre-flipped the
-    // flag) so the message still lands — just with a slightly
-    // different framing.
-    let prompt = format!(
-        "[PROACTIVE INVOCATION — the user just finished the desktop onboarding wizard; \
-         this is not a reply to anything they typed, it is your opening message.]\n\n\
-         Skip iteration 1. Do NOT call `complete_onboarding` or any other tool. The \
-         status snapshot that `complete_onboarding(check_status)` would have returned \
-         is already provided below. Jump straight to iteration 2 and write the \
-         personalised welcome message per your system prompt guidelines.\n\n\
-         Status snapshot (treat exactly as if it were the tool return value):\n\
-         ```json\n{snapshot_json}\n```\n\n\
-         Write iteration 2 now."
-    );
+    // Let the agent run its full workflow — call check_status,
+    // composio_list_connections, greet the user, pitch Gmail, etc.
+    // The agent's prompt.md defines the iteration flow; we just
+    // provide the opening context. check_status will return
+    // `finalize_action: "already_complete"` (since we pre-flipped
+    // the flag) which the prompt handles correctly.
+    let prompt = "[PROACTIVE INVOCATION — the user just finished the desktop \
+         onboarding wizard; this is not a reply to anything they typed, it is \
+         your opening message.]\n\n\
+         Run your full workflow starting from iteration 1. Call your tools, \
+         gather context, and deliver the personalised welcome message per \
+         your system prompt guidelines."
+        .to_string();
     tracing::debug!(
         prompt_chars = prompt.len(),
         "[welcome::proactive] invoking welcome agent run_single"
     );
 
-    let response = agent
-        .run_single(&prompt)
-        .await
-        .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        agent.run_single(&prompt),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("welcome agent timed out after 120s"))?
+    .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
 
     let trimmed = response.trim();
     if trimmed.is_empty() {
