@@ -45,6 +45,8 @@ const OVERLAY_IDLE_MARGIN = 10;
 const OVERLAY_ACTIVE_MARGIN = 20;
 const OVERLAY_IDLE_OPACITY = 0.6;
 
+const OVERLAY_POSITION_KEY = 'overlay-position';
+
 /** Default auto-dismiss for an attention bubble when no ttl is supplied. */
 const DEFAULT_ATTENTION_TTL_MS = 6000;
 /** Grace period after STT `released` before returning to idle, giving the
@@ -398,6 +400,46 @@ export default function OverlayApp() {
 
   // ── Window framing: resize / reposition on mode change ────────────────
   const status: 'idle' | 'active' = mode === 'idle' ? 'idle' : 'active';
+  const userDraggedRef = useRef(false);
+
+  /** Save the current window position to localStorage after a drag. */
+  const persistPosition = useCallback(async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      const pos = await appWindow.outerPosition();
+      localStorage.setItem(
+        OVERLAY_POSITION_KEY,
+        JSON.stringify({ x: pos.x, y: pos.y }),
+      );
+      userDraggedRef.current = true;
+    } catch {
+      // position read failed — ignore
+    }
+  }, []);
+
+  /** Reset saved position so the overlay snaps back to the default corner. */
+  const resetPosition = useCallback(() => {
+    localStorage.removeItem(OVERLAY_POSITION_KEY);
+    userDraggedRef.current = false;
+  }, []);
+
+  /** Initiate native window drag on mouse-down. */
+  const handleDragStart = useCallback(
+    async (e: React.MouseEvent) => {
+      // Only drag on primary button; ignore if a click handler should fire
+      if (e.button !== 0) return;
+      e.preventDefault();
+      try {
+        const appWindow = getCurrentWindow();
+        await appWindow.startDragging();
+        // After the drag completes, persist the new position
+        void persistPosition();
+      } catch {
+        // startDragging can fail if not supported — fall through silently
+      }
+    },
+    [persistPosition],
+  );
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -426,6 +468,13 @@ export default function OverlayApp() {
         console.warn('[overlay] failed to set overlay max size', error);
       }
 
+      // If the user has dragged the overlay, keep their position
+      const saved = localStorage.getItem(OVERLAY_POSITION_KEY);
+      if (saved || userDraggedRef.current) {
+        return;
+      }
+
+      // Default: pin to bottom-right corner
       try {
         const monitor = await currentMonitor();
         if (!monitor) {
@@ -484,15 +533,17 @@ export default function OverlayApp() {
                   : 'OpenHuman overlay'
             }
             onClick={goIdle}
+            onMouseDown={handleDragStart}
+            onDoubleClick={resetPosition}
             onMouseEnter={() => {
               setIsHovered(true);
             }}
             onMouseLeave={() => {
               setIsHovered(false);
             }}
-            className={`group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all duration-200 ${orbClassName} ${orbSizeClassName}`}
+            className={`group relative flex cursor-grab items-center justify-center overflow-hidden rounded-full border transition-all duration-200 active:cursor-grabbing ${orbClassName} ${orbSizeClassName}`}
             style={orbStyle}
-            title="Click to dismiss">
+            title="Drag to move · Double-click to reset position">
             <div
               className={`pointer-events-none opacity-95 transition-transform duration-300 group-hover:scale-105 ${orbCanvasClassName}`}>
               <RotatingTetrahedronCanvas inverted={tetrahedronInverted} />
