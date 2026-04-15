@@ -617,9 +617,7 @@ fn format_thinking_summary(thinking: &str) -> String {
             .unwrap_or(0);
         let slice = &trimmed[..safe_end];
         // Back off further to the last whitespace to avoid cutting mid-word.
-        let boundary = slice
-            .rfind(|c: char| c.is_whitespace())
-            .unwrap_or(safe_end);
+        let boundary = slice.rfind(|c: char| c.is_whitespace()).unwrap_or(safe_end);
         format!("{}…", &slice[..boundary])
     } else {
         trimmed.to_string()

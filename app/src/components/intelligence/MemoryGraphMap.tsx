@@ -1,9 +1,9 @@
 import debug from 'debug';
 import { useCallback, useMemo, useState } from 'react';
 
-const log = debug('openhuman:memory-graph');
-
 import type { GraphRelation } from '../../utils/tauriCommands';
+
+const log = debug('openhuman:memory-graph');
 
 interface MemoryGraphMapProps {
   relations: GraphRelation[];
@@ -199,7 +199,8 @@ export function MemoryGraphMap({ relations, loading }: MemoryGraphMapProps) {
 
   // Guard against stale selectedNode — if the node no longer exists in the current
   // graph (e.g. after a relations refresh), treat it as deselected so no dimming occurs.
-  const activeSelectedNode = selectedNode !== null && nodeMap.has(selectedNode) ? selectedNode : null;
+  const activeSelectedNode =
+    selectedNode !== null && nodeMap.has(selectedNode) ? selectedNode : null;
 
   const centerNodeId =
     nodes.find(n => n.id === 'user' || n.id === 'self' || n.id === 'you')?.id ??
@@ -268,7 +269,9 @@ export function MemoryGraphMap({ relations, loading }: MemoryGraphMapProps) {
             if (!src || !tgt) return null;
 
             const isHighlighted =
-              activeSelectedNode === null || edge.source === activeSelectedNode || edge.target === activeSelectedNode;
+              activeSelectedNode === null ||
+              edge.source === activeSelectedNode ||
+              edge.target === activeSelectedNode;
 
             const midX = (src.x + tgt.x) / 2;
             const midY = (src.y + tgt.y) / 2;
