@@ -128,11 +128,8 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
 
         // Composio connections — async HTTP, 5s timeout
         if let Some(client) = crate::openhuman::composio::client::build_composio_client(&config) {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                client.list_connections(),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(5), client.list_connections())
+                .await
             {
                 Ok(Ok(connections)) => {
                     map.insert(

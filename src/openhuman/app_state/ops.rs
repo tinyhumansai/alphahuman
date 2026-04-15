@@ -250,7 +250,10 @@ fn resolve_base(config: &Config) -> Result<Url, String> {
     Ok(parsed)
 }
 
-pub(crate) async fn fetch_current_user(config: &Config, token: &str) -> Result<Option<Value>, String> {
+pub(crate) async fn fetch_current_user(
+    config: &Config,
+    token: &str,
+) -> Result<Option<Value>, String> {
     let client = build_client()?;
     let base = resolve_base(config)?;
     let url = base
