@@ -145,25 +145,31 @@ async fn scan_once(account_id: &str, url_prefix: &str) -> Result<idb::IdbDump, S
     Ok(dump)
 }
 
-/// Slack names Redux-persist DBs like `ReduxPersistIDB:<team_id>_<user_id>`
-/// — strip off the prefix and take the leading `T…` token.
+/// Slack names its per-workspace DB `objectStore-<TEAM_ID>-<USER_ID>`.
+/// Pull the `T…` token from the middle. Returns None if no such DB
+/// exists — in which case we fall back to the `id`-shape match in
+/// `extract::walk` (any record with `id.starts_with('T')`).
 fn infer_team_id(dump: &idb::IdbDump) -> Option<String> {
     for db in &dump.dbs {
-        if let Some(rest) = db.name.strip_prefix("ReduxPersistIDB:") {
-            let id: String = rest
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric())
-                .collect();
-            if !id.is_empty() && id.starts_with('T') {
-                return Some(id);
+        if let Some(rest) = db.name.strip_prefix("objectStore-") {
+            // e.g. "T01CWHNCJ9Z-U01CT9ADP6H"
+            let team = rest.split('-').next().unwrap_or("");
+            if team.starts_with('T')
+                && team.len() >= 9
+                && team.chars().all(|c| c.is_ascii_alphanumeric())
+            {
+                return Some(team.to_string());
             }
         }
     }
     None
 }
 
-/// Group messages by (channel_id, day), emit one `webview:event` per group,
-/// and POST the same payload to `openhuman.memory_doc_ingest`.
+/// Group messages by channel (no per-day split), emit one
+/// `webview:event` per channel, and POST the same payload to
+/// `openhuman.memory_doc_ingest`. One memory doc per channel — the
+/// transcript inside can be long, each message line still carries its
+/// date so the full chronology stays readable.
 #[allow(clippy::too_many_arguments)]
 fn emit_and_persist<R: Runtime>(
     app: &AppHandle<R>,
@@ -178,7 +184,7 @@ fn emit_and_persist<R: Runtime>(
     struct Group {
         rows: Vec<Value>,
     }
-    let mut groups: HashMap<(String, String), Group> = HashMap::new();
+    let mut groups: HashMap<String, Group> = HashMap::new();
     for m in messages {
         if m.channel.is_empty() || m.ts.is_empty() {
             continue;
@@ -187,7 +193,6 @@ fn emit_and_persist<R: Runtime>(
         if ts_secs <= 0 {
             continue;
         }
-        let day = seconds_to_ymd(ts_secs);
         let sender = users
             .get(&m.user)
             .cloned()
@@ -206,15 +211,11 @@ fn emit_and_persist<R: Runtime>(
             "user_id": m.user,
             "body": m.text,
         });
-        groups
-            .entry((m.channel.clone(), day))
-            .or_default()
-            .rows
-            .push(row);
+        groups.entry(m.channel.clone()).or_default().rows.push(row);
     }
 
     let mut emitted = 0usize;
-    for ((channel_id, day), group) in groups {
+    for (channel_id, group) in groups {
         let mut rows = group.rows;
         rows.sort_by(|a, b| {
             a.get("ts_secs")
@@ -222,9 +223,9 @@ fn emit_and_persist<R: Runtime>(
                 .unwrap_or(0)
                 .cmp(&b.get("ts_secs").and_then(|v| v.as_i64()).unwrap_or(0))
         });
-        // De-duplicate within the group by `ts` (Slack messages are unique
-        // per-channel per-ts). The walker can see the same record in
-        // multiple Redux snapshots, so dedupe is not optional.
+        // De-duplicate within the channel by `ts` (Slack messages are
+        // unique per-channel per-ts). The walker can see the same record
+        // in multiple Redux snapshots, so dedupe is not optional.
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         rows.retain(|r| {
             let ts = r
@@ -249,7 +250,6 @@ fn emit_and_persist<R: Runtime>(
             "workspaceName": workspace_name,
             "channelId": channel_id,
             "channelName": channel_name,
-            "day": day,
             "messages": rows,
         });
         let envelope = json!({
@@ -272,7 +272,7 @@ fn emit_and_persist<R: Runtime>(
         });
     }
     log::info!(
-        "[sl][{}] emitted {} ingest group(s)",
+        "[sl][{}] emitted {} channel doc(s)",
         account_id,
         emitted
     );
@@ -341,10 +341,6 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
         .get("channelName")
         .and_then(|v| v.as_str())
         .unwrap_or(channel_id);
-    let day = ingest
-        .get("day")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
     let team_id = ingest
         .get("teamId")
         .and_then(|v| v.as_str())
@@ -358,22 +354,41 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
         .get("messages")
         .and_then(|v| v.as_array())
         .unwrap_or(&empty);
-    if channel_id.is_empty() || day.is_empty() || msgs.is_empty() {
+    if channel_id.is_empty() || msgs.is_empty() {
         return Ok(());
     }
 
     let mut sorted: Vec<&Value> = msgs.iter().collect();
     sorted.sort_by_key(|m| m.get("ts_secs").and_then(|v| v.as_i64()).unwrap_or(0));
 
+    let first_ts = sorted
+        .first()
+        .and_then(|m| m.get("ts_secs"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let last_ts = sorted
+        .last()
+        .and_then(|m| m.get("ts_secs"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // Full-channel transcript — every line carries its own date + time so
+    // the reader can scan chronology without needing per-day splits.
     let transcript: String = sorted
         .iter()
         .map(|m| {
             let ts = m.get("ts_secs").and_then(|v| v.as_i64()).unwrap_or(0);
-            let hhmm = if ts > 0 {
+            let stamp = if ts > 0 {
+                let day = seconds_to_ymd(ts);
                 let secs_of_day = (ts.rem_euclid(86_400)) as u32;
-                format!("{:02}:{:02}Z", secs_of_day / 3600, (secs_of_day / 60) % 60)
+                format!(
+                    "{} {:02}:{:02}Z",
+                    day,
+                    secs_of_day / 3600,
+                    (secs_of_day / 60) % 60
+                )
             } else {
-                "--:--".to_string()
+                "?".to_string()
             };
             let who = m
                 .get("sender")
@@ -385,30 +400,50 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .replace(['\r', '\n'], " ");
-            format!("[{hhmm}] {who}: {body}")
+            format!("[{stamp}] {who}: {body}")
         })
         .collect::<Vec<_>>()
         .join("\n");
 
+    let first_day = if first_ts > 0 {
+        seconds_to_ymd(first_ts)
+    } else {
+        String::new()
+    };
+    let last_day = if last_ts > 0 {
+        seconds_to_ymd(last_ts)
+    } else {
+        String::new()
+    };
     let header = format!(
-        "# Slack — {workspace} · #{channel} — {day}\nchannel_id: {channel_id}\nteam_id: {team_id}\naccount_id: {account_id}\nmessages: {n}\n\n",
+        "# Slack — {workspace} · #{channel}\nchannel_id: {channel_id}\nteam_id: {team_id}\naccount_id: {account_id}\nmessages: {n}\nrange: {first_day} → {last_day}\n\n",
         workspace = if workspace_name.is_empty() {
             "workspace"
         } else {
             workspace_name
         },
         channel = channel_name,
-        day = day,
         channel_id = channel_id,
         team_id = team_id,
         account_id = account_id,
         n = sorted.len(),
+        first_day = first_day,
+        last_day = last_day,
     );
     let content = format!("{header}{transcript}");
 
+    // Key = channel name when available (what the user asked for),
+    // falling back to the channel id for anonymous DMs / unnamed rooms.
+    // `:` is reserved by the memory layer (it rewrites to `_`), other
+    // characters pass through. Slack channel names are already lowercase
+    // letters/digits/dashes/underscores, so no further sanitisation needed.
     let namespace = format!("slack-web:{account_id}");
-    let key = format!("{channel_id}:{day}");
-    let title = format!("Slack · #{channel_name} · {day}");
+    let key = if channels_key_looks_clean(channel_name) {
+        channel_name.to_string()
+    } else {
+        channel_id.to_string()
+    };
+    let title = format!("Slack · #{channel_name}");
 
     let params = json!({
         "namespace": namespace,
@@ -417,7 +452,7 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
         "content": content,
         "source_type": "slack-web",
         "priority": "medium",
-        "tags": ["slack", "channel-transcript", day],
+        "tags": ["slack", "channel-transcript"],
         "metadata": {
             "provider": "slack",
             "account_id": account_id,
@@ -425,7 +460,8 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
             "workspace_name": workspace_name,
             "channel_id": channel_id,
             "channel_name": channel_name,
-            "day": day,
+            "first_day": first_day,
+            "last_day": last_day,
             "message_count": sorted.len(),
         },
         "category": "core",
@@ -459,13 +495,27 @@ async fn post_memory_doc_ingest(account_id: &str, ingest: &Value) -> Result<(), 
         return Err(format!("rpc error: {err}"));
     }
     log::info!(
-        "[sl][{}] memory upsert ok namespace={} key={} msgs={}",
+        "[sl][{}] memory upsert ok namespace={} key={} msgs={} range={}→{}",
         account_id,
         namespace,
         key,
-        sorted.len()
+        sorted.len(),
+        first_day,
+        last_day,
     );
     Ok(())
+}
+
+/// Allow a channel name as a memory-doc key only if it looks like a
+/// Slack-style slug — lowercase letters, digits, `-`, `_`. Reject
+/// anything with `:` (reserved by the memory layer), spaces, or other
+/// surprises; those fall back to the stable channel id.
+fn channels_key_looks_clean(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
 fn parse_targets(v: &Value) -> Vec<CdpTarget> {
