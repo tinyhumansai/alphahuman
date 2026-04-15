@@ -187,11 +187,11 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     );
 
     let response = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(180),
         agent.run_single(&prompt),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("welcome agent timed out after 60s"))?
+    .map_err(|_| anyhow::anyhow!("welcome agent timed out after 180s"))?
     .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
 
     let trimmed = response.trim();
