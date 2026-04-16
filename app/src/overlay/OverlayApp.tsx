@@ -439,6 +439,9 @@ export default function OverlayApp() {
   // `mouseup` normally and we can activate the main window there.
   const pressRef = useRef<{ x: number; y: number; dragStarted: boolean } | null>(null);
   const CLICK_SLOP_PX = 4;
+  /** Pending single-click, deferred so a follow-up double-click can cancel it. */
+  const clickTimerRef = useRef<number | null>(null);
+  const CLICK_DOUBLE_CLICK_DELAY_MS = 250;
 
   /** Record mouse-down position; defer drag until the pointer actually moves. */
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -450,7 +453,15 @@ export default function OverlayApp() {
   const handleMouseMove = useCallback(
     async (e: React.MouseEvent) => {
       const press = pressRef.current;
-      if (!press || press.dragStarted) return;
+      if (!press) return;
+      // If the primary button is no longer held, a prior mouseup was missed
+      // (window-drag steals it, focus change, etc). Drop the stale press so
+      // we don't spuriously start a drag on a hover.
+      if ((e.buttons & 1) === 0) {
+        pressRef.current = null;
+        return;
+      }
+      if (press.dragStarted) return;
       const dx = Math.abs(e.screenX - press.x);
       const dy = Math.abs(e.screenY - press.y);
       if (dx <= CLICK_SLOP_PX && dy <= CLICK_SLOP_PX) return;
@@ -468,20 +479,44 @@ export default function OverlayApp() {
 
   /**
    * On mouse-up, treat as a click if no drag was initiated. Emulates
-   * `onClick` for the non-activating panel.
+   * `onClick` for the non-activating panel. The click is deferred briefly
+   * so a follow-up `dblclick` (used to reset position) can cancel it.
    */
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
       const press = pressRef.current;
       pressRef.current = null;
       if (e.button !== 0 || !press) return;
-      if (!press.dragStarted) {
+      if (press.dragStarted) return;
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+      clickTimerRef.current = window.setTimeout(() => {
+        clickTimerRef.current = null;
         console.debug('[overlay] orb mouseup → click');
         handleOrbClick();
-      }
+      }, CLICK_DOUBLE_CLICK_DELAY_MS);
     },
     [handleOrbClick]
   );
+
+  /** Double-click resets position — cancel any pending single-click first. */
+  const handleDoubleClick = useCallback(() => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    resetPosition();
+  }, [resetPosition]);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -597,7 +632,7 @@ export default function OverlayApp() {
             onMouseDown={handleDragStart}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onDoubleClick={resetPosition}
+            onDoubleClick={handleDoubleClick}
             onMouseEnter={() => {
               setIsHovered(true);
             }}
