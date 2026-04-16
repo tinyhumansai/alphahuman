@@ -9,23 +9,22 @@ import { useSettingsNavigation } from './hooks/useSettingsNavigation';
 
 const SettingsHome = () => {
   const { navigateToSettings } = useSettingsNavigation();
-  const { clearSession, setOnboardingCompletedFlag } = useCoreState();
+  const { clearSession } = useCoreState();
   const [showLogoutAndClearModal, setShowLogoutAndClearModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLogout = async () => {
-    try {
-      await setOnboardingCompletedFlag(false);
-    } catch (err) {
-      console.warn('[Settings] Failed to clear onboarding_completed in config:', err);
-    }
+    let logoutSucceeded = true;
     try {
       await clearSession();
     } catch (err) {
+      logoutSucceeded = false;
       console.warn('[Settings] Rust logout failed:', err);
     }
-    window.location.hash = '/';
+    if (!logoutSucceeded) {
+      setError('Failed to log out. Please try again.');
+    }
   };
 
   const clearAllAppData = async () => {
@@ -46,8 +45,7 @@ const SettingsHome = () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
 
-    // Complete reset - redirect to login for fresh start
-    window.location.hash = '/';
+    // Route guards will redirect signed-out users to the public entry route.
   };
 
   const handleLogoutAndClearData = async () => {
