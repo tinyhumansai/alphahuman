@@ -1,4 +1,10 @@
-export type AccountProvider = 'whatsapp' | 'telegram' | 'linkedin' | 'gmail' | 'slack';
+export type AccountProvider =
+  | 'whatsapp'
+  | 'telegram'
+  | 'linkedin'
+  | 'gmail'
+  | 'slack'
+  | 'discord';
 
 export type AccountStatus = 'pending' | 'open' | 'error' | 'closed';
 
@@ -71,5 +77,11 @@ export const PROVIDERS: ProviderDescriptor[] = [
     label: 'Slack',
     description: 'Slack workspaces and channels.',
     serviceUrl: 'https://app.slack.com/client/',
+  },
+  {
+    id: 'discord',
+    label: 'Discord',
+    description: 'Discord servers and DMs — channel list and unread counts.',
+    serviceUrl: 'https://discord.com/channels/@me',
   },
 ];

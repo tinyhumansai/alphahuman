@@ -720,6 +720,7 @@ pub fn run() {
             unregister_dictation_hotkey,
             webview_accounts::webview_account_open,
             webview_accounts::webview_account_close,
+            webview_accounts::webview_account_purge,
             webview_accounts::webview_account_bounds,
             webview_accounts::webview_account_hide,
             webview_accounts::webview_account_show,

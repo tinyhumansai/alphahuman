@@ -35,6 +35,7 @@ const TELEGRAM_RECIPE_JS: &str = include_str!("../../recipes/telegram/recipe.js"
 const LINKEDIN_RECIPE_JS: &str = include_str!("../../recipes/linkedin/recipe.js");
 const GMAIL_RECIPE_JS: &str = include_str!("../../recipes/gmail/recipe.js");
 const SLACK_RECIPE_JS: &str = include_str!("../../recipes/slack/recipe.js");
+const DISCORD_RECIPE_JS: &str = include_str!("../../recipes/discord/recipe.js");
 
 /// User agent we pretend to be for all external services. Web-app services
 /// (WhatsApp, Gmail, Google's login flow) reject "unknown" WebView UAs with
@@ -52,13 +53,14 @@ fn provider_url(provider: &str) -> Option<&'static str> {
         "linkedin" => Some("https://www.linkedin.com/messaging/"),
         "gmail" => Some("https://mail.google.com/mail/u/0/"),
         "slack" => Some("https://app.slack.com/client/"),
+        "discord" => Some("https://discord.com/channels/@me"),
         _ => None,
     }
 }
 
 fn provider_user_agent(provider: &str) -> Option<&'static str> {
     match provider {
-        "whatsapp" | "telegram" | "linkedin" | "gmail" | "slack" => Some(CHROME_UA),
+        "whatsapp" | "telegram" | "linkedin" | "gmail" | "slack" | "discord" => Some(CHROME_UA),
         _ => None,
     }
 }
@@ -70,6 +72,7 @@ fn provider_recipe_js(provider: &str) -> Option<&'static str> {
         "linkedin" => Some(LINKEDIN_RECIPE_JS),
         "gmail" => Some(GMAIL_RECIPE_JS),
         "slack" => Some(SLACK_RECIPE_JS),
+        "discord" => Some(DISCORD_RECIPE_JS),
         _ => None,
     }
 }
@@ -79,7 +82,7 @@ fn provider_recipe_js(provider: &str) -> Option<&'static str> {
 /// WhatsApp & Telegram are happy with the Chrome UA alone and running the
 /// spoof risks breaking perfectly-working integrations for no gain.
 fn provider_ua_spoof(provider: &str) -> bool {
-    matches!(provider, "slack" | "gmail" | "linkedin")
+    matches!(provider, "slack" | "gmail" | "linkedin" | "discord")
 }
 
 #[derive(Default)]
@@ -390,6 +393,71 @@ pub async fn webview_account_close<R: Runtime>(
         }
     }
     log::info!("[webview-accounts] closed label={}", label);
+    Ok(())
+}
+
+/// Close the webview AND wipe its on-disk `data_directory` so cookies,
+/// storage and cached credentials are forgotten. Use this for the
+/// user-initiated "logout" action — `webview_account_close` keeps the
+/// data dir intact so the next open restores the session.
+#[tauri::command]
+pub async fn webview_account_purge<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, WebviewAccountsState>,
+    args: AccountIdArgs,
+) -> Result<(), String> {
+    // Close first so the native webview releases its file handles before we
+    // try to delete the data directory.
+    let label_opt = state.inner.lock().unwrap().remove(&args.account_id);
+    if let Some(label) = label_opt.as_ref() {
+        if let Some(wv) = app.get_webview(label) {
+            if let Err(e) = wv.close() {
+                log::warn!("[webview-accounts] purge close({label}) failed: {e}");
+            }
+        }
+    }
+
+    #[cfg(feature = "cef")]
+    {
+        if let Some(registry) =
+            app.try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
+        {
+            let registry = registry.inner().clone();
+            let acct = args.account_id.clone();
+            tokio::spawn(async move { registry.forget(&acct).await });
+        }
+        if let Some(registry) =
+            app.try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
+        {
+            let registry = registry.inner().clone();
+            let acct = args.account_id.clone();
+            tokio::spawn(async move { registry.forget(&acct).await });
+        }
+    }
+
+    let data_dir = data_directory_for(&app, &args.account_id)?;
+    if data_dir.exists() {
+        if let Err(err) = std::fs::remove_dir_all(&data_dir) {
+            // WKWebView can keep handles open briefly after `close()` — log
+            // and keep going rather than failing the logout outright.
+            log::warn!(
+                "[webview-accounts] purge remove_dir_all {} failed: {}",
+                data_dir.display(),
+                err
+            );
+        } else {
+            log::info!(
+                "[webview-accounts] purged data dir {}",
+                data_dir.display()
+            );
+        }
+    }
+
+    log::info!(
+        "[webview-accounts] purged account={} label={:?}",
+        args.account_id,
+        label_opt
+    );
     Ok(())
 }
 

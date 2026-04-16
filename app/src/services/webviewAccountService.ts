@@ -325,3 +325,19 @@ export async function closeWebviewAccount(accountId: string): Promise<void> {
     errLog('close failed: %o', err);
   }
 }
+
+/**
+ * Close the webview and wipe its on-disk data directory so the provider
+ * treats the next open as a fresh login. Use for user-initiated logout.
+ */
+export async function purgeWebviewAccount(accountId: string): Promise<void> {
+  if (!isTauri()) return;
+  log('purge account=%s', accountId);
+  try {
+    await invoke('webview_account_purge', { args: { account_id: accountId } });
+    store.dispatch(setAccountStatus({ accountId, status: 'closed' }));
+  } catch (err) {
+    errLog('purge failed: %o', err);
+    throw err;
+  }
+}

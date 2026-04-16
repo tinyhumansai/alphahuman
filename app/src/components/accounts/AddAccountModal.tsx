@@ -1,13 +1,29 @@
-import { PROVIDERS, type ProviderDescriptor } from '../../types/accounts';
+import { ProviderIcon } from './providerIcons';
+import {
+  PROVIDERS,
+  type AccountProvider,
+  type ProviderDescriptor,
+} from '../../types/accounts';
 
 interface AddAccountModalProps {
   open: boolean;
   onClose: () => void;
   onPick: (provider: ProviderDescriptor) => void;
+  /** Providers the user has already connected — filtered out of the picker. */
+  connectedProviders?: ReadonlySet<AccountProvider>;
 }
 
-const AddAccountModal = ({ open, onClose, onPick }: AddAccountModalProps) => {
+const AddAccountModal = ({
+  open,
+  onClose,
+  onPick,
+  connectedProviders,
+}: AddAccountModalProps) => {
   if (!open) return null;
+
+  const available = connectedProviders
+    ? PROVIDERS.filter(p => !connectedProviders.has(p.id))
+    : PROVIDERS;
 
   return (
     <div
@@ -30,25 +46,22 @@ const AddAccountModal = ({ open, onClose, onPick }: AddAccountModalProps) => {
           </button>
         </div>
 
-        <p className="mb-4 text-sm text-stone-500">
-          Open a service inside the app and stream its conversations into your memory.
-        </p>
-
-        <div className="space-y-2">
-          {PROVIDERS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => onPick(p)}
-              className="flex w-full items-start gap-3 rounded-lg border border-stone-200 p-3 text-left transition-colors hover:border-primary-300 hover:bg-primary-50">
-              <div className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-stone-100 text-base font-semibold text-stone-700">
-                {p.label.charAt(0)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-stone-900">{p.label}</div>
-                <div className="text-xs text-stone-500">{p.description}</div>
-              </div>
-            </button>
-          ))}
+        <div className="space-y-1">
+          {available.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-stone-200 p-6 text-center text-sm text-stone-500">
+              You've connected every supported app.
+            </div>
+          ) : (
+            available.map(p => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-stone-100">
+                <ProviderIcon provider={p.id} className="h-5 w-5 flex-none" />
+                <span className="text-sm font-medium text-stone-900">{p.label}</span>
+              </button>
+            ))
+          )}
         </div>
       </div>
     </div>

@@ -4,10 +4,15 @@ import AddAccountModal from '../components/accounts/AddAccountModal';
 import { AgentIcon, ProviderIcon } from '../components/accounts/providerIcons';
 import WebviewHost from '../components/accounts/WebviewHost';
 import { AgentChatPanel } from './Conversations';
-import { startWebviewAccountService } from '../services/webviewAccountService';
-import { addAccount, setActiveAccount } from '../store/accountsSlice';
+import {
+  hideWebviewAccount,
+  purgeWebviewAccount,
+  showWebviewAccount,
+  startWebviewAccountService,
+} from '../services/webviewAccountService';
+import { addAccount, removeAccount, setActiveAccount } from '../store/accountsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import type { Account, ProviderDescriptor } from '../types/accounts';
+import type { Account, AccountProvider, ProviderDescriptor } from '../types/accounts';
 import { AGENT_ACCOUNT_ID as AGENT_ID } from '../utils/accountsFullscreen';
 
 function makeAccountId(): string {
@@ -19,14 +24,23 @@ function makeAccountId(): string {
 interface RailButtonProps {
   active: boolean;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   tooltip: string;
   badge?: number;
   children: React.ReactNode;
 }
 
-const RailButton = ({ active, onClick, tooltip, badge, children }: RailButtonProps) => (
+const RailButton = ({
+  active,
+  onClick,
+  onContextMenu,
+  tooltip,
+  badge,
+  children,
+}: RailButtonProps) => (
   <button
     onClick={onClick}
+    onContextMenu={onContextMenu}
     className={`group relative flex h-11 w-11 items-center justify-center rounded-xl transition-all ${
       active
         ? 'bg-primary-50 ring-2 ring-primary-500'
@@ -45,6 +59,12 @@ const RailButton = ({ active, onClick, tooltip, badge, children }: RailButtonPro
   </button>
 );
 
+interface ContextMenuState {
+  accountId: string;
+  x: number;
+  y: number;
+}
+
 const Accounts = () => {
   const dispatch = useAppDispatch();
   const accountsById = useAppSelector(state => state.accounts.accounts);
@@ -53,6 +73,7 @@ const Accounts = () => {
   const unreadByAccount = useAppSelector(state => state.accounts.unread);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
 
   useEffect(() => {
     startWebviewAccountService();
@@ -63,9 +84,30 @@ const Accounts = () => {
     [order, accountsById]
   );
 
+  const connectedProviders = useMemo(
+    () => new Set<AccountProvider>(accounts.map(a => a.provider)),
+    [accounts]
+  );
+
   const selectedId = activeAccountId ?? AGENT_ID;
   const active = selectedId === AGENT_ID ? null : (accountsById[selectedId] ?? null);
   const isAgentSelected = selectedId === AGENT_ID;
+
+  // The child Tauri webview is a native view composited above the HTML
+  // canvas, so DOM z-index can't put React overlays on top of it. Hide
+  // the active webview while any overlay (add-account modal or the
+  // right-click context menu) is open and restore it on close. No-op
+  // when the agent pane is selected (pure HTML).
+  const activeId = active?.id ?? null;
+  const overlayOpen = addOpen || ctxMenu !== null;
+  useEffect(() => {
+    if (!activeId) return;
+    if (overlayOpen) {
+      void hideWebviewAccount(activeId);
+    } else {
+      void showWebviewAccount(activeId);
+    }
+  }, [overlayOpen, activeId]);
 
   const handlePickProvider = (p: ProviderDescriptor) => {
     setAddOpen(false);
@@ -83,6 +125,37 @@ const Accounts = () => {
 
   const selectAgent = () => dispatch(setActiveAccount(AGENT_ID));
   const selectAccount = (id: string) => dispatch(setActiveAccount(id));
+
+  const openContextMenu = (accountId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setCtxMenu({ accountId, x: e.clientX, y: e.clientY });
+  };
+
+  const handleLogout = async (accountId: string) => {
+    setCtxMenu(null);
+    try {
+      await purgeWebviewAccount(accountId);
+    } catch {
+      // Purge failures are already logged by the service; still drop the
+      // account from the UI so the user isn't stuck with a zombie icon.
+    }
+    dispatch(removeAccount({ accountId }));
+  };
+
+  // Close the context menu on Escape or any outside click.
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [ctxMenu]);
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -103,6 +176,7 @@ const Accounts = () => {
             key={acct.id}
             active={acct.id === selectedId}
             onClick={() => selectAccount(acct.id)}
+            onContextMenu={e => openContextMenu(acct.id, e)}
             tooltip={acct.label}
             badge={unreadByAccount[acct.id]}>
             <ProviderIcon provider={acct.provider} className="h-8 w-8 rounded-md" />
@@ -141,7 +215,29 @@ const Accounts = () => {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onPick={handlePickProvider}
+        connectedProviders={connectedProviders}
       />
+
+      {ctxMenu && (
+        <div
+          className="fixed z-50 min-w-[140px] rounded-lg border border-stone-200 bg-white py-1 shadow-strong"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onMouseDown={e => e.stopPropagation()}>
+          <button
+            onClick={() => void handleLogout(ctxMenu.accountId)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-coral-600 hover:bg-stone-100">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+            Logout
+          </button>
+        </div>
+      )}
     </div>
   );
 };
