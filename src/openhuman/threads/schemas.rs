@@ -343,7 +343,11 @@ mod tests {
     #[test]
     fn every_schema_uses_threads_namespace() {
         for s in all_controller_schemas() {
-            assert_eq!(s.namespace, "threads", "schema {} wrong namespace", s.function);
+            assert_eq!(
+                s.namespace, "threads",
+                "schema {} wrong namespace",
+                s.function
+            );
         }
     }
 

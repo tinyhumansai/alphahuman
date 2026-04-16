@@ -175,11 +175,8 @@ pub async fn message_append(
     request: AppendConversationMessageRequest,
 ) -> Result<RpcOutcome<ApiEnvelope<ConversationMessageRecord>>, String> {
     let dir = workspace_dir().await?;
-    let message = conversations::append_message(
-        dir,
-        &request.thread_id,
-        record_to_message(request.message),
-    )?;
+    let message =
+        conversations::append_message(dir, &request.thread_id, record_to_message(request.message))?;
     Ok(envelope(
         message_to_record(message),
         Some(counts([("num_messages", 1)])),
