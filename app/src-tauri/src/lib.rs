@@ -578,7 +578,9 @@ pub fn run() {
                 event: WindowEvent::CloseRequested { api, .. },
                 ..
             } if label == "main" => {
-                log::info!("[window] close requested on main window — hiding instead of destroying");
+                log::info!(
+                    "[window] close requested on main window — hiding instead of destroying"
+                );
                 api.prevent_close();
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.hide();
