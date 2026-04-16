@@ -81,9 +81,9 @@ pub async fn stop_login_gated_services(config: &Config) {
         log::info!("[services] local AI reset to idle on logout");
     }
 
-    // Note: the dictation listener has no explicit stop mechanism — it's a
-    // lightweight event forwarder that becomes inert once the voice server
-    // is stopped (no consumers of dictation events remain).
+    // 5. Dictation listener — abort the hotkey forwarder task so it doesn't
+    //    accumulate duplicate rdev listeners across logout → login cycles.
+    crate::openhuman::voice::dictation_listener::stop();
 
     log::info!("[services] all login-gated services stopped");
 }
