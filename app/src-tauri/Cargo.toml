@@ -62,8 +62,10 @@ env_logger = "0.11"
 # Direct CEF + tauri-runtime-cef dependencies (used only with `--features cef`).
 # `tauri-runtime-cef::notification::register` is how we hook native Web
 # Notification interception per webview, and `cef::Browser` is what we downcast
-# from the boxed handle returned by `Webview::with_webview`.
-tauri-runtime-cef = { version = "0.1.0", optional = true }
+# from the boxed handle returned by `Webview::with_webview`. tauri-runtime-cef
+# isn't published to crates.io — we vendor the whole tauri fork as a submodule
+# at `vendor/tauri-cef` and reference the crate by path.
+tauri-runtime-cef = { path = "vendor/tauri-cef/crates/tauri-runtime-cef", optional = true }
 cef = { version = "=146.4.1", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -92,17 +94,18 @@ sandbox-bubblewrap = []
 # adds native Web Notifications interception — `tauri-runtime-cef::notification`
 # (browser-process callback registry) plus `cef-helper` patching `window.Notification`
 # and `ServiceWorkerRegistration.prototype.showNotification` from the renderer
-# side. Pinned by rev so cargo updates can't silently shift behavior.
+# side. The fork is vendored as a git submodule at `vendor/tauri-cef`; the
+# submodule's recorded commit is the pin.
 #
 # Plugins still patch from upstream tauri-apps/plugins-workspace@feat/cef — the
 # fork is tauri-only.
-tauri = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-build = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-utils = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-macros = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-runtime = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-runtime-wry = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
-tauri-plugin = { git = "https://github.com/tinyhumansai/tauri-cef", rev = "d7cbc251b285366ae573327370096fd781598fdc" }
+tauri = { path = "vendor/tauri-cef/crates/tauri" }
+tauri-build = { path = "vendor/tauri-cef/crates/tauri-build" }
+tauri-utils = { path = "vendor/tauri-cef/crates/tauri-utils" }
+tauri-macros = { path = "vendor/tauri-cef/crates/tauri-macros" }
+tauri-runtime = { path = "vendor/tauri-cef/crates/tauri-runtime" }
+tauri-runtime-wry = { path = "vendor/tauri-cef/crates/tauri-runtime-wry" }
+tauri-plugin = { path = "vendor/tauri-cef/crates/tauri-plugin" }
 
 tauri-plugin-opener = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "feat/cef" }
 tauri-plugin-deep-link = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "feat/cef" }

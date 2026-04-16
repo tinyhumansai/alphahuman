@@ -6,6 +6,7 @@ version = 4
 name = "OpenHuman"
 version = "0.52.17"
 dependencies = [
+ "cef",
  "env_logger",
  "futures-util",
  "log",
@@ -22,6 +23,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
+ "tauri-runtime-cef",
  "tokio",
  "tokio-tungstenite",
 ]
@@ -4409,7 +4411,6 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 [[package]]
 name = "tauri"
 version = "2.10.3"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4460,7 +4461,6 @@ dependencies = [
 [[package]]
 name = "tauri-build"
 version = "2.5.6"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -4481,7 +4481,6 @@ dependencies = [
 [[package]]
 name = "tauri-codegen"
 version = "2.5.5"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "base64 0.22.1",
  "ico",
@@ -4506,7 +4505,6 @@ dependencies = [
 [[package]]
 name = "tauri-macros"
 version = "2.5.5"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -4519,7 +4517,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin"
 version = "2.5.4"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "anyhow",
  "glob",
@@ -4608,7 +4605,6 @@ dependencies = [
 [[package]]
 name = "tauri-runtime"
 version = "2.10.1"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "cookie",
  "dpi",
@@ -4629,7 +4625,6 @@ dependencies = [
 [[package]]
 name = "tauri-runtime-cef"
 version = "0.1.0"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "base64 0.22.1",
  "cef",
@@ -4657,7 +4652,6 @@ dependencies = [
 [[package]]
 name = "tauri-runtime-wry"
 version = "2.10.1"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "gtk",
  "http",
@@ -4683,7 +4677,6 @@ dependencies = [
 [[package]]
 name = "tauri-utils"
 version = "2.8.3"
-source = "git+https://github.com/tauri-apps/tauri?branch=feat%2Fcef#562bc592b337de417aa48e72034c7816cfb4c142"
 dependencies = [
  "anyhow",
  "cargo_metadata",
