@@ -1,24 +1,51 @@
-import type { ApplyPresetResult, PresetsResponse } from '../../../../utils/tauriCommands';
+import { useState } from 'react';
+
+import {
+  type ApplyPresetResult,
+  openhumanLocalAiApplyPreset,
+  type PresetsResponse,
+} from '../../../../utils/tauriCommands';
 
 interface DeviceCapabilitySectionProps {
   presetsData: PresetsResponse | null;
   presetsLoading: boolean;
   presetError: string;
   presetSuccess: ApplyPresetResult | null;
-  isApplyingPreset: boolean;
-  onApplyPreset: (tier: string) => void;
   formatRamGb: (bytes: number) => string;
+  onPresetApplied?: (result: ApplyPresetResult) => void;
 }
+
+const DISABLED_TIER_ID = 'disabled';
 
 const DeviceCapabilitySection = ({
   presetsData,
   presetsLoading,
   presetError,
   presetSuccess,
-  isApplyingPreset,
-  onApplyPreset,
   formatRamGb,
+  onPresetApplied,
 }: DeviceCapabilitySectionProps) => {
+  const [applying, setApplying] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string>('');
+  const [applySuccess, setApplySuccess] = useState<ApplyPresetResult | null>(null);
+
+  const isDisabledActive = presetsData ? presetsData.local_ai_enabled === false : false;
+
+  const handleApply = async (tierId: string) => {
+    setApplying(tierId);
+    setApplyError('');
+    try {
+      const result = await openhumanLocalAiApplyPreset(tierId);
+      setApplySuccess(result);
+      onPresetApplied?.(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to apply preset';
+      setApplyError(msg);
+    } finally {
+      setApplying(null);
+    }
+  };
+
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-semibold text-stone-900">Model Tier</h3>
@@ -67,35 +94,68 @@ const DeviceCapabilitySection = ({
 
       {presetsData && (
         <div className="space-y-2">
+          {/* Disabled — Cloud fallback card (always available, recommended on low-RAM) */}
+          <button
+            type="button"
+            onClick={() => void handleApply(DISABLED_TIER_ID)}
+            disabled={applying !== null}
+            className={`w-full text-left rounded-lg border p-3 transition-colors ${
+              isDisabledActive
+                ? 'border-primary-400 bg-primary-50'
+                : 'border-stone-200 bg-stone-50 hover:bg-stone-100'
+            } ${applying !== null ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-stone-900">Disabled</span>
+                {isDisabledActive && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary-50 text-primary-600 uppercase tracking-wide">
+                    Active
+                  </span>
+                )}
+                {presetsData.recommend_disabled && !isDisabledActive && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 uppercase tracking-wide">
+                    Recommended
+                  </span>
+                )}
+              </div>
+              <span className="text-xs text-stone-500">0 GB</span>
+            </div>
+            <div className="text-xs text-stone-500 mt-1">
+              Fallback to the cloud summarizer model. No local download or Ollama install required.
+            </div>
+          </button>
+
           {presetsData.presets.map(preset => {
-            const isRecommended = preset.tier === presetsData.recommended_tier;
-            const isCurrent = preset.tier === presetsData.current_tier;
+            const isCurrent = !isDisabledActive && preset.tier === presetsData.current_tier;
+            const isApplying = applying === preset.tier;
             return (
               <button
-                key={preset.tier}
                 type="button"
-                onClick={() => onApplyPreset(preset.tier)}
-                disabled={isApplyingPreset || isCurrent}
+                key={preset.tier}
+                onClick={() => void handleApply(preset.tier)}
+                disabled={applying !== null}
                 className={`w-full text-left rounded-lg border p-3 transition-colors ${
                   isCurrent
                     ? 'border-primary-400 bg-primary-50'
-                    : 'border-stone-200 bg-white hover:border-stone-300'
-                } ${isApplyingPreset ? 'opacity-60' : ''}`}>
+                    : 'border-stone-200 bg-stone-50 hover:bg-stone-100'
+                } ${applying !== null && !isApplying ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-stone-900">{preset.label}</span>
-                    {isRecommended && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-emerald-50 text-emerald-700 uppercase tracking-wide">
-                        Recommended
-                      </span>
-                    )}
                     {isCurrent && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary-50 text-primary-600 uppercase tracking-wide">
                         Active
                       </span>
                     )}
+                    {isApplying && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-stone-100 text-stone-500 uppercase tracking-wide">
+                        Applying…
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-stone-500">~{preset.approx_download_gb} GB</span>
+                  <span className="text-xs text-stone-500">
+                    ~{Number(preset.approx_download_gb).toFixed(1)} GB
+                  </span>
                 </div>
                 <div className="text-xs text-stone-400 mt-1">{preset.description}</div>
                 <div className="text-[10px] text-stone-500 mt-1">
@@ -109,7 +169,7 @@ const DeviceCapabilitySection = ({
             );
           })}
 
-          {presetsData.current_tier === 'custom' && (
+          {presetsData.current_tier === 'custom' && !isDisabledActive && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
               You are using custom model IDs that do not match any built-in preset.
             </div>
@@ -117,12 +177,19 @@ const DeviceCapabilitySection = ({
         </div>
       )}
 
+      {applyError && <div className="text-xs text-red-600">{applyError}</div>}
       {presetError && !(!presetsLoading && !presetsData) && (
         <div className="text-xs text-red-600">{presetError}</div>
       )}
-      {presetSuccess && (
+      {(applySuccess ?? presetSuccess) && (
         <div className="text-xs text-green-700">
-          Applied {presetSuccess.applied_tier} tier: {presetSuccess.chat_model_id}
+          {(applySuccess ?? presetSuccess)?.applied_tier === DISABLED_TIER_ID
+            ? 'Local AI disabled — using cloud fallback.'
+            : `Applied ${(applySuccess ?? presetSuccess)?.applied_tier} tier${
+                (applySuccess ?? presetSuccess)?.chat_model_id
+                  ? `: ${(applySuccess ?? presetSuccess)?.chat_model_id}`
+                  : ''
+              }`}
         </div>
       )}
     </section>

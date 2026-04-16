@@ -8,33 +8,23 @@ import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
 import { useUsageState } from '../hooks/useUsageState';
+import { chatCancel, chatSend, useRustChat } from '../services/chatService';
 import {
-  chatCancel,
-  type ChatInferenceStartEvent,
-  type ChatIterationStartEvent,
-  type ChatSegmentEvent,
-  chatSend,
-  type ChatSubagentDoneEvent,
-  type ChatSubagentSpawnedEvent,
-  type ChatToolCallEvent,
-  type ChatToolResultEvent,
-  segmentText,
-  subscribeChatEvents,
-  useRustChat,
-} from '../services/chatService';
-import { store } from '../store';
+  beginInferenceTurn,
+  clearRuntimeForThread,
+  setToolTimelineForThread,
+} from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
 import {
-  addInferenceResponse,
   addMessageLocal,
-  createThreadLocal,
+  createNewThread,
+  deleteThread,
   fetchSuggestedQuestions,
   loadThreadMessages,
   loadThreads,
   persistReaction,
   setActiveThread,
-  setLastViewed,
   setSelectedThread,
 } from '../store/threadSlice';
 import type { ThreadMessage } from '../types/thread';
@@ -43,60 +33,23 @@ import {
   notifyOverlaySttState,
   openhumanAutocompleteAccept,
   openhumanAutocompleteCurrent,
-  openhumanLocalAiAnalyzeSentiment,
-  openhumanLocalAiShouldSendGif,
-  openhumanLocalAiTenorSearch,
   openhumanVoiceStatus,
   openhumanVoiceTranscribeBytes,
   openhumanVoiceTts,
 } from '../utils/tauriCommands';
 
-const DEFAULT_THREAD_ID = 'default-thread';
-const DEFAULT_THREAD_TITLE = 'Conversation';
-const AGENTIC_MODEL_ID = 'agentic-v1';
+// Chat uses the reasoning model; `agentic-v1` is reserved for sub-agents
+// that execute tool calls, not the primary user-facing conversation.
+const CHAT_MODEL_ID = 'reasoning-v1';
 /** Maximum trailing characters rendered in the live-streaming assistant
  *  preview bubble. The full response is revealed via `addInferenceResponse`
  *  on `chat_done` — this is purely a ticker-tape affordance to signal
  *  progress without jumping the scroll position as tokens arrive. */
 const STREAMING_PREVIEW_CHARS = 120;
-type ToolTimelineEntryStatus = 'running' | 'success' | 'error';
 type InputMode = 'text' | 'voice';
 type ReplyMode = 'text' | 'voice';
-
-/** Tracks the live inference state for a thread's in-flight request. */
-interface InferenceStatus {
-  /** Current phase: thinking (LLM call), tool_use, subagent. */
-  phase: 'thinking' | 'tool_use' | 'subagent';
-  /** 1-based iteration index. */
-  iteration: number;
-  maxIterations: number;
-  /** Active tool name (when phase is tool_use). */
-  activeTool?: string;
-  /** Active sub-agent id (when phase is subagent). */
-  activeSubagent?: string;
-}
 const AUTOCOMPLETE_POLL_DEBOUNCE_MS = 320;
 const AUTOCOMPLETE_MIN_CONTEXT_CHARS = 3;
-
-interface ToolTimelineEntry {
-  id: string;
-  name: string;
-  round: number;
-  status: ToolTimelineEntryStatus;
-  /** Live JSON fragment streamed while the model composes the call. */
-  argsBuffer?: string;
-}
-
-/**
- * Live streaming state for the in-flight agent turn on a thread. Cleared
- * on `chat_done` / `chat_error`. Rendered as a provisional assistant
- * bubble + optional "Thinking…" collapsible while present.
- */
-interface StreamingAssistantState {
-  requestId: string;
-  content: string;
-  thinking: string;
-}
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -207,6 +160,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const {
+    threads,
     selectedThreadId,
     messages,
     isLoadingMessages,
@@ -216,6 +170,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     activeThreadId,
   } = useAppSelector(state => state.thread);
 
+  const [showSidebar, setShowSidebar] = useState(true);
   const [inputValue, setInputValue] = useState('');
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<InputMode>('text');
@@ -225,39 +180,20 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [isPlayingReply, setIsPlayingReply] = useState(false);
   const [inlineSuggestionValue, setInlineSuggestionValue] = useState('');
-
-  const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<ChatSendError | null>(null);
   const socketStatus = useAppSelector(selectSocketStatus);
-  const [toolTimelineByThread, setToolTimelineByThread] = useState<
-    Record<string, ToolTimelineEntry[]>
-  >({});
-  const [inferenceStatusByThread, setInferenceStatusByThread] = useState<
-    Record<string, InferenceStatus>
-  >({});
-  const [streamingAssistantByThread, setStreamingAssistantByThread] = useState<
-    Record<string, StreamingAssistantState>
-  >({});
-  const rustChat = useRustChat();
-  const defaultChannelType = useAppSelector(
-    state => state.channelConnections?.defaultMessagingChannel ?? 'web'
+  const toolTimelineByThread = useAppSelector(state => state.chatRuntime.toolTimelineByThread);
+  const inferenceStatusByThread = useAppSelector(
+    state => state.chatRuntime.inferenceStatusByThread
   );
+  const streamingAssistantByThread = useAppSelector(
+    state => state.chatRuntime.streamingAssistantByThread
+  );
+  const inferenceTurnLifecycleByThread = useAppSelector(
+    state => state.chatRuntime.inferenceTurnLifecycleByThread
+  );
+  const rustChat = useRustChat();
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
-  const pendingReactionRef = useRef<
-    Map<string, { msgId: string; content: string; threadId: string }>
-  >(new Map());
-
-  /** Message counter for GIF cadence — check every ~7 messages. */
-  const gifCadenceCountRef = useRef(0);
-  const GIF_CADENCE_MESSAGES = 7;
-  /** Timestamp (ms) of last sentiment analysis — run roughly every hour. */
-  const lastSentimentAtRef = useRef(0);
-  const SENTIMENT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
-  const selectedThreadIdRef = useRef(selectedThreadId);
-  useEffect(() => {
-    selectedThreadIdRef.current = selectedThreadId;
-  }, [selectedThreadId]);
 
   const {
     teamUsage,
@@ -284,34 +220,6 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const autocompleteDebounceRef = useRef<number | null>(null);
   const autocompleteRequestSeqRef = useRef(0);
   const sendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seenChatEventsRef = useRef<Map<string, number>>(new Map());
-
-  const markChatEventSeen = (key: string): boolean => {
-    const now = Date.now();
-    const cache = seenChatEventsRef.current;
-    const ttlMs = 10 * 60_000;
-    const maxEntries = 500;
-
-    if (cache.has(key)) return false;
-
-    cache.set(key, now);
-
-    // Prune old entries first.
-    for (const [existingKey, timestamp] of cache) {
-      if (now - timestamp > ttlMs) {
-        cache.delete(existingKey);
-      }
-    }
-
-    // Keep bounded memory in long sessions.
-    while (cache.size > maxEntries) {
-      const oldest = cache.keys().next().value;
-      if (!oldest) break;
-      cache.delete(oldest);
-    }
-
-    return true;
-  };
 
   const getAudioExtension = (mimeType: string): string => {
     const lower = mimeType.toLowerCase();
@@ -326,23 +234,26 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     typeof navigator.mediaDevices !== 'undefined' &&
     typeof navigator.mediaDevices.getUserMedia === 'function';
 
-  useEffect(() => {
-    void dispatch(loadThreads());
-    void dispatch(
-      createThreadLocal({
-        id: DEFAULT_THREAD_ID,
-        title: DEFAULT_THREAD_TITLE,
-        createdAt: new Date().toISOString(),
-      })
-    ).then(() => {
-      dispatch(setSelectedThread(DEFAULT_THREAD_ID));
-      void dispatch(loadThreadMessages(DEFAULT_THREAD_ID));
-    });
-  }, [dispatch]);
+  const handleCreateNewThread = async () => {
+    const thread = await dispatch(createNewThread()).unwrap();
+    dispatch(setSelectedThread(thread.id));
+    void dispatch(loadThreadMessages(thread.id));
+  };
 
   useEffect(() => {
-    if (selectedThreadId) dispatch(setLastViewed(selectedThreadId));
-  }, [selectedThreadId, dispatch]);
+    void dispatch(loadThreads())
+      .unwrap()
+      .then(data => {
+        if (data.threads.length > 0) {
+          const mostRecent = data.threads[0];
+          dispatch(setSelectedThread(mostRecent.id));
+          void dispatch(loadThreadMessages(mostRecent.id));
+        } else {
+          void handleCreateNewThread();
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
 
   useEffect(() => {
     if (selectedThreadId) {
@@ -397,7 +308,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       !isTauri() ||
       !rustChat ||
       inputMode !== 'text' ||
-      isSending ||
+      Boolean(activeThreadId) ||
       inputValue.trim().length < AUTOCOMPLETE_MIN_CONTEXT_CHARS
     ) {
       setInlineSuggestionValue('');
@@ -429,7 +340,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         autocompleteDebounceRef.current = null;
       }
     };
-  }, [inputValue, inputMode, isSending, rustChat]);
+  }, [activeThreadId, inputValue, inputMode, rustChat]);
 
   useEffect(() => {
     return () => {
@@ -480,493 +391,24 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     };
   }, [inputMode, rustChat]);
 
-  useEffect(() => {
-    if (!rustChat || socketStatus !== 'connected') return;
-
-    const cleanup = subscribeChatEvents({
-      onInferenceStart: (event: ChatInferenceStartEvent) => {
-        setInferenceStatusByThread(prev => ({
-          ...prev,
-          [event.thread_id]: { phase: 'thinking', iteration: 0, maxIterations: 0 },
-        }));
-      },
-      onIterationStart: (event: ChatIterationStartEvent) => {
-        setInferenceStatusByThread(prev => ({
-          ...prev,
-          [event.thread_id]: {
-            phase: 'thinking',
-            iteration: event.round,
-            maxIterations: prev[event.thread_id]?.maxIterations ?? 0,
-          },
-        }));
-      },
-      onToolCall: (event: ChatToolCallEvent) => {
-        // Update inference status to show active tool
-        setInferenceStatusByThread(prev => ({
-          ...prev,
-          [event.thread_id]: {
-            ...(prev[event.thread_id] ?? { iteration: event.round, maxIterations: 0 }),
-            phase: 'tool_use' as const,
-            activeTool: event.tool_name,
-          },
-        }));
-        const eventKey = `tool_call:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.tool_call_id ?? ''}`;
-        if (!markChatEventSeen(eventKey)) return;
-
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          // If a row was already created by onToolArgsDelta (keyed by
-          // tool_call_id), upgrade it in place so we don't duplicate.
-          const existingIdx = event.tool_call_id
-            ? existing.findIndex(entry => entry.id === event.tool_call_id)
-            : -1;
-          if (existingIdx >= 0) {
-            const merged = [...existing];
-            merged[existingIdx] = {
-              ...merged[existingIdx],
-              name: event.tool_name,
-              round: event.round,
-              status: 'running',
-            };
-            return { ...prev, [event.thread_id]: merged };
-          }
-          return {
-            ...prev,
-            [event.thread_id]: [
-              ...existing,
-              {
-                id:
-                  event.tool_call_id ??
-                  `${event.thread_id}:${event.round}:${existing.length}:${event.tool_name}`,
-                name: event.tool_name,
-                round: event.round,
-                status: 'running',
-              },
-            ],
-          };
-        });
-      },
-      onToolResult: (event: ChatToolResultEvent) => {
-        const eventKey = `tool_result:${event.thread_id}:${event.request_id ?? 'none'}:${event.round}:${event.tool_name}:${event.success}:${event.tool_call_id ?? ''}`;
-        if (!markChatEventSeen(eventKey)) return;
-
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          if (existing.length === 0) return prev;
-
-          const nextEntries = [...existing];
-          let changed = false;
-          // Prefer matching by tool_call_id; fall back to name+round
-          // for legacy events that don't carry an id.
-          if (event.tool_call_id) {
-            const idx = nextEntries.findIndex(entry => entry.id === event.tool_call_id);
-            if (idx >= 0) {
-              nextEntries[idx] = {
-                ...nextEntries[idx],
-                status: event.success ? 'success' : 'error',
-              };
-              changed = true;
-            }
-          }
-          if (!changed) {
-            for (let i = nextEntries.length - 1; i >= 0; i--) {
-              const entry = nextEntries[i];
-              if (
-                entry.status === 'running' &&
-                entry.name === event.tool_name &&
-                entry.round === event.round
-              ) {
-                nextEntries[i] = { ...entry, status: event.success ? 'success' : 'error' };
-                changed = true;
-                break;
-              }
-            }
-          }
-
-          if (!changed) return prev;
-          return { ...prev, [event.thread_id]: nextEntries };
-        });
-        // Tool completed — go back to thinking for the next iteration
-        setInferenceStatusByThread(prev => {
-          const current = prev[event.thread_id];
-          if (!current) return prev;
-          return {
-            ...prev,
-            [event.thread_id]: { ...current, phase: 'thinking', activeTool: undefined },
-          };
-        });
-      },
-      onSubagentSpawned: (event: ChatSubagentSpawnedEvent) => {
-        setInferenceStatusByThread(prev => ({
-          ...prev,
-          [event.thread_id]: {
-            ...(prev[event.thread_id] ?? { iteration: event.round, maxIterations: 0 }),
-            phase: 'subagent' as const,
-            activeSubagent: event.tool_name,
-          },
-        }));
-        // Add sub-agent to tool timeline for visual tracking
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          return {
-            ...prev,
-            [event.thread_id]: [
-              ...existing,
-              {
-                id: `${event.thread_id}:subagent:${event.skill_id}:${event.tool_name}`,
-                name: `🤖 ${event.tool_name}`,
-                round: event.round,
-                status: 'running' as const,
-              },
-            ],
-          };
-        });
-      },
-      onSubagentDone: (event: ChatSubagentDoneEvent) => {
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          return {
-            ...prev,
-            [event.thread_id]: existing.map(entry =>
-              entry.name === `🤖 ${event.tool_name}` && entry.status === 'running'
-                ? {
-                    ...entry,
-                    status: (event.success ? 'success' : 'error') as ToolTimelineEntryStatus,
-                  }
-                : entry
-            ),
-          };
-        });
-        setInferenceStatusByThread(prev => {
-          const current = prev[event.thread_id];
-          if (!current) return prev;
-          return {
-            ...prev,
-            [event.thread_id]: { ...current, phase: 'thinking', activeSubagent: undefined },
-          };
-        });
-      },
-      onSegment: (event: ChatSegmentEvent) => {
-        const eventKey = `segment:${event.thread_id}:${event.request_id}:${event.segment_index}`;
-        if (!markChatEventSeen(eventKey)) return;
-
-        // Rust delivers segments with delays already applied — just dispatch.
-        if (event.reaction_emoji) {
-          const pending = pendingReactionRef.current.get(event.thread_id);
-          if (pending) {
-            void dispatch(
-              persistReaction({
-                threadId: pending.threadId,
-                messageId: pending.msgId,
-                emoji: event.reaction_emoji,
-              })
-            );
-            pendingReactionRef.current.delete(event.thread_id);
-          }
-        }
-        dispatch(addInferenceResponse({ content: segmentText(event), threadId: event.thread_id }));
-      },
-      onTextDelta: event => {
-        setStreamingAssistantByThread(prev => {
-          const existing = prev[event.thread_id];
-          if (existing && existing.requestId !== event.request_id) {
-            return {
-              ...prev,
-              [event.thread_id]: {
-                requestId: event.request_id,
-                content: event.delta,
-                thinking: '',
-              },
-            };
-          }
-          return {
-            ...prev,
-            [event.thread_id]: {
-              requestId: event.request_id,
-              content: (existing?.content ?? '') + event.delta,
-              thinking: existing?.thinking ?? '',
-            },
-          };
-        });
-      },
-      onThinkingDelta: event => {
-        setStreamingAssistantByThread(prev => {
-          const existing = prev[event.thread_id];
-          if (existing && existing.requestId !== event.request_id) {
-            return {
-              ...prev,
-              [event.thread_id]: {
-                requestId: event.request_id,
-                content: '',
-                thinking: event.delta,
-              },
-            };
-          }
-          return {
-            ...prev,
-            [event.thread_id]: {
-              requestId: event.request_id,
-              content: existing?.content ?? '',
-              thinking: (existing?.thinking ?? '') + event.delta,
-            },
-          };
-        });
-      },
-      onToolArgsDelta: event => {
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          // Reconcile strategy (matches onToolCall/onToolResult keys):
-          //   1. Match by tool_call_id when known.
-          //   2. Fall back to an in-flight running row with the same
-          //      name+round (legacy path when tool_call_id is absent).
-          //   3. Create a fresh row keyed by tool_call_id.
-          let matchIdx = -1;
-          if (event.tool_call_id) {
-            matchIdx = existing.findIndex(entry => entry.id === event.tool_call_id);
-          }
-          if (matchIdx < 0 && event.tool_name) {
-            matchIdx = existing.findIndex(
-              entry =>
-                entry.status === 'running' &&
-                entry.name === event.tool_name &&
-                entry.round === event.round
-            );
-          }
-          if (matchIdx >= 0) {
-            const merged = [...existing];
-            merged[matchIdx] = {
-              ...merged[matchIdx],
-              argsBuffer: (merged[matchIdx].argsBuffer ?? '') + event.delta,
-              // Fill in the tool name once the provider sends it.
-              name:
-                merged[matchIdx].name.length === 0 && event.tool_name
-                  ? event.tool_name
-                  : merged[matchIdx].name,
-            };
-            return { ...prev, [event.thread_id]: merged };
-          }
-          return {
-            ...prev,
-            [event.thread_id]: [
-              ...existing,
-              {
-                id: event.tool_call_id,
-                name: event.tool_name ?? '',
-                round: event.round,
-                status: 'running' as const,
-                argsBuffer: event.delta,
-              },
-            ],
-          };
-        });
-      },
-      onDone: event => {
-        const eventKey = `done:${event.thread_id}:${event.request_id ?? 'none'}`;
-        if (!markChatEventSeen(eventKey)) return;
-
-        // Clear inference status — the turn is finished
-        setInferenceStatusByThread(prev => {
-          if (!prev[event.thread_id]) return prev;
-          const next = { ...prev };
-          delete next[event.thread_id];
-          return next;
-        });
-        // Clear the streaming buffer — the final message replaces it.
-        setStreamingAssistantByThread(prev => {
-          if (!prev[event.thread_id]) return prev;
-          const next = { ...prev };
-          delete next[event.thread_id];
-          return next;
-        });
-
-        // Update tool timeline
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          if (existing.length === 0) return prev;
-          return {
-            ...prev,
-            [event.thread_id]: existing.map(entry =>
-              entry.status === 'running' ? { ...entry, status: 'success' as const } : entry
-            ),
-          };
-        });
-        if (sendingTimeoutRef.current) {
-          clearTimeout(sendingTimeoutRef.current);
-          sendingTimeoutRef.current = null;
-        }
-
-        // Apply reaction emoji from Rust (when not segmented — no onSegment fired).
-        if (event.reaction_emoji) {
-          const pending = pendingReactionRef.current.get(event.thread_id);
-          if (pending) {
-            void dispatch(
-              persistReaction({
-                threadId: pending.threadId,
-                messageId: pending.msgId,
-                emoji: event.reaction_emoji,
-              })
-            );
-          }
-        }
-
-        // Fire-and-forget: GIF decision + sentiment analysis (cadence-based)
-        const pendingMsg = pendingReactionRef.current.get(event.thread_id);
-        if (pendingMsg) {
-          maybeCheckGif(pendingMsg.content, pendingMsg.threadId);
-          maybeSentimentAnalysis(pendingMsg.content);
-        }
-        pendingReactionRef.current.delete(event.thread_id);
-
-        // Only add the response bubble if Rust didn't already deliver it
-        // via chat_segment events (segment_total > 0 means segments were sent).
-        if (!event.segment_total) {
-          dispatch(
-            addInferenceResponse({ content: event.full_response, threadId: event.thread_id })
-          );
-        }
-
-        setIsSending(false);
-        dispatch(setActiveThread(null));
-      },
-      onError: event => {
-        const eventKey = `error:${event.thread_id}:${event.request_id ?? 'none'}:${event.error_type}:${event.message}`;
-        if (!markChatEventSeen(eventKey)) return;
-
-        if (event.thread_id !== selectedThreadIdRef.current) return;
-        if (sendingTimeoutRef.current) {
-          clearTimeout(sendingTimeoutRef.current);
-          sendingTimeoutRef.current = null;
-        }
-        setIsSending(false);
-        // Clear inference status on error
-        setInferenceStatusByThread(prev => {
-          if (!prev[event.thread_id]) return prev;
-          const next = { ...prev };
-          delete next[event.thread_id];
-          return next;
-        });
-        setStreamingAssistantByThread(prev => {
-          if (!prev[event.thread_id]) return prev;
-          const next = { ...prev };
-          delete next[event.thread_id];
-          return next;
-        });
-        setToolTimelineByThread(prev => {
-          const existing = prev[event.thread_id] ?? [];
-          if (existing.length === 0) return prev;
-          return {
-            ...prev,
-            [event.thread_id]: existing.map(entry =>
-              entry.status === 'running' ? { ...entry, status: 'error' as const } : entry
-            ),
-          };
-        });
-
-        // Clear pending reaction so stale callbacks are ignored
-        pendingReactionRef.current.delete(event.thread_id);
-
-        if (event.error_type !== 'cancelled') {
-          // Deduplicate: skip if the last message is already an error
-          const currentState = store.getState() as {
-            thread: { messagesByThreadId: Record<string, ThreadMessage[]> };
-          };
-          const threadMessages = currentState.thread.messagesByThreadId[event.thread_id] || [];
-          const lastMsg = threadMessages[threadMessages.length - 1];
-          if (
-            lastMsg?.sender === 'agent' &&
-            lastMsg?.content === 'Something went wrong — please try again.'
-          ) {
-            return;
-          }
-
-          dispatch(
-            addInferenceResponse({
-              content: 'Something went wrong — please try again.',
-              threadId: event.thread_id,
-            })
-          );
-        } else {
-          dispatch(setActiveThread(null));
-        }
-      },
-    });
-
-    return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rustChat, socketStatus]);
-
-  /**
-   * Fire-and-forget: periodically check if a GIF response is appropriate
-   * (every ~GIF_CADENCE_MESSAGES messages). If the model says yes, search
-   * Tenor and dispatch the top result as a gif-type message.
-   */
-  const maybeCheckGif = (messageContent: string, threadId: string) => {
-    if (!isTauri()) return;
-
-    gifCadenceCountRef.current += 1;
-    if (gifCadenceCountRef.current < GIF_CADENCE_MESSAGES) return;
-    gifCadenceCountRef.current = 0;
-
-    console.debug('[conversations:gif] cadence reached, evaluating gif decision');
-
-    void openhumanLocalAiShouldSendGif(messageContent, defaultChannelType)
-      .then(async response => {
-        const decision = response.result;
-        if (!decision?.should_send_gif || !decision.search_query) return;
-
-        console.debug('[conversations:gif] searching tenor for:', decision.search_query);
-        const tenorResponse = await openhumanLocalAiTenorSearch(decision.search_query, 5);
-        const results = tenorResponse.result?.results;
-        if (!results || results.length === 0) return;
-
-        // Pick a random GIF from top results
-        const picked = results[Math.floor(Math.random() * Math.min(results.length, 3))];
-        const gifUrl =
-          picked.media?.mediumgif?.url || picked.media?.gif?.url || picked.media?.tinygif?.url;
-        if (!gifUrl) return;
-
-        console.debug('[conversations:gif] sending gif:', picked.title || picked.id);
-        void dispatch(addInferenceResponse({ content: gifUrl, threadId, type: 'gif' }));
-      })
-      .catch(err => {
-        console.debug('[conversations:gif] failed:', err);
-      });
-  };
-
-  /**
-   * Fire-and-forget: periodically analyze user sentiment (~every hour).
-   * Stores the result in debug logs for now.
-   */
-  const maybeSentimentAnalysis = (messageContent: string) => {
-    if (!isTauri()) return;
-
-    const now = Date.now();
-    if (now - lastSentimentAtRef.current < SENTIMENT_INTERVAL_MS) return;
-    lastSentimentAtRef.current = now;
-
-    console.debug('[conversations:sentiment] interval reached, analyzing sentiment');
-
-    void openhumanLocalAiAnalyzeSentiment(messageContent)
-      .then(response => {
-        const sentiment = response.result;
-        if (!sentiment) return;
-        console.debug(
-          '[conversations:sentiment] result:',
-          sentiment.emotion,
-          sentiment.valence,
-          `(${sentiment.confidence})`
-        );
-      })
-      .catch(err => {
-        console.debug('[conversations:sentiment] failed:', err);
-      });
+  const handleSlashCommand = (command: string): boolean => {
+    const cmd = command.toLowerCase();
+    if (cmd === '/new' || cmd === '/clear') {
+      setInputValue('');
+      void handleCreateNewThread();
+      return true;
+    }
+    return false;
   };
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
     const trimmed = normalized.trim();
 
-    if (!trimmed || !selectedThreadId || isSending) return;
+    if (!trimmed || !selectedThreadId || composerBlocked) return;
+
+    if (handleSlashCommand(trimmed)) return;
+
     if (isAtLimit) {
       setShowLimitModal(true);
       setSendError(
@@ -984,9 +426,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       return;
     }
 
-    if (activeThreadId && activeThreadId !== selectedThreadId) {
-      return;
-    }
+    if (composerBlocked) return;
 
     const sendingThreadId = selectedThreadId;
 
@@ -1000,30 +440,24 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     };
 
     void dispatch(addMessageLocal({ threadId: sendingThreadId, message: userMessage }));
-    pendingReactionRef.current.set(sendingThreadId, {
-      msgId: userMessage.id,
-      content: trimmed,
-      threadId: sendingThreadId,
-    });
-
     setInputValue('');
     setSendError(null);
-    setIsSending(true);
     // Safety: auto-clear isSending if no response arrives within 120s
     if (sendingTimeoutRef.current) clearTimeout(sendingTimeoutRef.current);
     sendingTimeoutRef.current = setTimeout(() => {
       console.warn('[chat] safety timeout: clearing isSending after 120s with no response');
-      setIsSending(false);
       setSendError(
         chatSendError(
           'safety_timeout',
           'No response from the assistant after 2 minutes. Try again or check your connection.'
         )
       );
+      dispatch(clearRuntimeForThread({ threadId: sendingThreadId }));
       dispatch(setActiveThread(null));
       sendingTimeoutRef.current = null;
     }, 120_000);
-    setToolTimelineByThread(prev => ({ ...prev, [sendingThreadId]: [] }));
+    dispatch(setToolTimelineForThread({ threadId: sendingThreadId, entries: [] }));
+    dispatch(beginInferenceTurn({ threadId: sendingThreadId }));
     dispatch(setActiveThread(sendingThreadId));
 
     // ── Cloud socket path ─────────────────────────────────────────────────────
@@ -1031,9 +465,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     // Local model (Ollama) is used only for supplementary features
     // (auto-react, autocomplete, etc.) — never as a primary chat path.
     try {
-      await chatSend({ threadId: sendingThreadId, message: trimmed, model: AGENTIC_MODEL_ID });
+      await chatSend({ threadId: sendingThreadId, message: trimmed, model: CHAT_MODEL_ID });
 
-      // setIsSending(false) and setActiveThread(null) happen in the onDone/onError event handlers
+      // Active-thread reset happens in the global ChatRuntimeProvider events.
     } catch (err) {
       // Chat loop errors are emitted via socket events; this catch handles emit-level failures.
       if (sendingTimeoutRef.current) {
@@ -1042,7 +476,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       }
       const msg = err instanceof Error ? err.message : String(err);
       setSendError(chatSendError('cloud_send_failed', msg));
-      setIsSending(false);
+      dispatch(clearRuntimeForThread({ threadId: sendingThreadId }));
       dispatch(setActiveThread(null));
     }
   };
@@ -1098,7 +532,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   };
 
   const handleVoiceRecordToggle = async () => {
-    if (!rustChat || isSending || isTranscribing) return;
+    if (!rustChat || Boolean(activeThreadId) || isTranscribing) return;
     if (!canUseMicrophoneApi) {
       setSendError(
         chatSendError(
@@ -1270,22 +704,145 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     ? (streamingAssistantByThread[selectedThreadId] ?? null)
     : null;
   const inlineCompletionSuffix = getInlineCompletionSuffix(inputValue, inlineSuggestionValue);
+  // composerBlocked: any thread is in-flight (blocks ALL sends/voice actions).
+  // isSending: the *selected* thread is in-flight (drives selected-thread UI only).
+  const composerBlocked = Boolean(activeThreadId);
+  const isSending = Boolean(
+    selectedThreadId &&
+    (inferenceTurnLifecycleByThread[selectedThreadId] === 'started' ||
+      inferenceTurnLifecycleByThread[selectedThreadId] === 'streaming')
+  );
+
+  const sortedThreads = [...threads].sort(
+    (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+  );
 
   const isSidebar = variant === 'sidebar';
 
-  return (
     <div
       className={
         isSidebar
-          ? 'h-full relative z-10 flex flex-col overflow-hidden'
-          : 'h-full relative z-10 flex justify-center overflow-hidden p-4 pt-6'
+          ? 'h-full relative z-10 flex overflow-hidden'
+          : 'h-full relative z-10 flex overflow-hidden p-4 pt-6 gap-3'
       }>
+      {/* Thread sidebar — only shown in page mode (when Conversations itself
+          is a top-level route, not embedded as a sidebar in another page). */}
+      {!isSidebar && showSidebar && (
+        <div className="w-64 flex-shrink-0 flex flex-col bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
+            <h2 className="text-sm font-semibold text-stone-700">Threads</h2>
+            <button
+              onClick={() => void handleCreateNewThread()}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 transition-colors"
+              title="New thread">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {sortedThreads.length === 0 ? (
+              <p className="px-4 py-6 text-xs text-stone-400 text-center">No threads yet</p>
+            ) : (
+              sortedThreads.map(thread => (
+                <button
+                  key={thread.id}
+                  onClick={() => {
+                    dispatch(setSelectedThread(thread.id));
+                    void dispatch(loadThreadMessages(thread.id));
+                  }}
+                  className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group ${
+                    selectedThreadId === thread.id
+                      ? 'bg-primary-50 border-l-2 border-l-primary-500'
+                      : 'hover:bg-stone-50'
+                  }`}>
+                  <div className="flex items-center justify-between">
+                    <p
+                      className={`text-sm truncate flex-1 ${
+                        selectedThreadId === thread.id
+                          ? 'font-medium text-primary-700'
+                          : 'text-stone-700'
+                      }`}>
+                      {thread.title}
+                    </p>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        void dispatch(deleteThread(thread.id));
+                      }}
+                      className="ml-2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-stone-200 text-stone-400 hover:text-coral-500 transition-all flex-shrink-0"
+                      title="Delete thread">
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] text-stone-400">
+                      {formatRelativeTime(thread.lastMessageAt)}
+                    </span>
+                    {thread.messageCount > 0 && (
+                      <span className="text-[10px] text-stone-400">
+                        {thread.messageCount} msg{thread.messageCount !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main chat area */}
       <div
         className={
           isSidebar
             ? 'flex-1 flex flex-col min-w-0 bg-white border-l border-stone-200 overflow-hidden'
             : 'flex-1 flex flex-col min-w-0 max-w-2xl bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden'
         }>
+        {/* Chat header — only shown in page mode; the sidebar embed uses the
+            parent page's chrome instead. */}
+        {!isSidebar && (
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
+            <button
+              onClick={() => setShowSidebar(prev => !prev)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 transition-colors"
+              title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            </button>
+            <h3 className="text-sm font-medium text-stone-700 truncate flex-1">
+              {threads.find(t => t.id === selectedThreadId)?.title ?? 'Select a thread'}
+            </h3>
+            <button
+              onClick={() => void handleCreateNewThread()}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium text-primary-600 hover:bg-primary-50 transition-colors"
+              title="New thread (/new)">
+              + New
+            </button>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto px-5 py-4 bg-stone-50">
           {isLoadingMessages ? (
             <div className="space-y-4">
@@ -1450,8 +1007,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   </div>
                 </div>
               ))}
-              {activeThreadId === selectedThreadId &&
-                isSending &&
+              {isSending &&
                 // Suppress the legacy 3-dot placeholder once streaming
                 // output (visible text or thinking) has started — the
                 // streaming preview bubble below takes over as the

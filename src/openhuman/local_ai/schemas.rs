@@ -437,7 +437,11 @@ pub fn schemas(function: &str) -> ControllerSchema {
             inputs: vec![],
             outputs: vec![json_output(
                 "presets",
-                "Presets, recommended tier, current tier.",
+                "Object containing: presets (array of ModelPreset), recommended_tier (string), \
+                 current_tier (string), selected_tier (string | null), device (DeviceProfile), \
+                 recommend_disabled (boolean — true when the device is below the RAM floor and \
+                 cloud fallback is the recommended default), local_ai_enabled (boolean — mirrors \
+                 config.local_ai.enabled so the UI can render the active state when disabled).",
             )],
         },
         "local_ai_apply_preset" => ControllerSchema {
@@ -759,12 +763,16 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
             preset_count = presets.len(),
             "[local_ai] presets: returning"
         );
+        let recommend_disabled =
+            crate::openhuman::local_ai::presets::should_default_to_cloud_fallback(&device);
         let value = serde_json::json!({
             "presets": presets,
             "recommended_tier": recommended,
             "current_tier": current,
             "selected_tier": selected_tier,
             "device": device,
+            "recommend_disabled": recommend_disabled,
+            "local_ai_enabled": config.local_ai.enabled,
         });
         Ok(value)
     })
@@ -776,10 +784,26 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         let tier_str = p.tier.trim().to_ascii_lowercase();
         tracing::debug!(tier = %tier_str, "[local_ai] apply_preset: parsing tier");
 
+        // Special "disabled" tier: turn local_ai off and route AI to cloud.
+        if tier_str == "disabled" {
+            let mut config = config_rpc::load_config_with_timeout().await?;
+            config.local_ai.enabled = false;
+            config.local_ai.selected_tier = Some("disabled".to_string());
+            config
+                .save()
+                .await
+                .map_err(|e| format!("save config: {e}"))?;
+            tracing::debug!("[local_ai] apply_preset: local_ai disabled (cloud fallback)");
+            return Ok(serde_json::json!({
+                "applied_tier": "disabled",
+                "local_ai_enabled": false,
+            }));
+        }
+
         let tier = crate::openhuman::local_ai::presets::ModelTier::from_str_opt(&tier_str)
             .ok_or_else(|| {
                 format!(
-                    "invalid tier '{}': expected one of ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb",
+                    "invalid tier '{}': expected one of disabled, ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb",
                     tier_str
                 )
             })?;
@@ -789,6 +813,9 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         }
 
         let mut config = config_rpc::load_config_with_timeout().await?;
+        // Re-enable local AI in case it was previously disabled via the
+        // "disabled" tier, so the user can switch back to local inference.
+        config.local_ai.enabled = true;
         crate::openhuman::local_ai::presets::apply_preset_to_config(&mut config.local_ai, tier);
         config
             .save()
@@ -803,6 +830,7 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
             "embedding_model_id": config.local_ai.embedding_model_id,
             "quantization": config.local_ai.quantization,
             "vision_mode": crate::openhuman::local_ai::presets::vision_mode_for_config(&config.local_ai),
+            "local_ai_enabled": true,
         }))
     })
 }
@@ -1196,7 +1224,7 @@ mod tests {
         unsafe {
             std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
         }
-        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_4_8gb"))]);
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_2_4gb"))]);
         let result = handle_local_ai_apply_preset(params)
             .await
             .expect("apply ok");

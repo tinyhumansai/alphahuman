@@ -15,6 +15,7 @@ import MeshGradient from './components/MeshGradient';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import RouteLoadingScreen from './components/RouteLoadingScreen';
 import GlobalUpsellBanner from './components/upsell/GlobalUpsellBanner';
+import ChatRuntimeProvider from './providers/ChatRuntimeProvider';
 import CoreStateProvider from './providers/CoreStateProvider';
 import SocketProvider from './providers/SocketProvider';
 import { tagErrorSource } from './services/errorReportQueue';
@@ -33,14 +34,16 @@ function App() {
         <PersistGate loading={<RouteLoadingScreen />} persistor={persistor}>
           <CoreStateProvider>
             <SocketProvider>
-              <Router>
-                <ServiceBlockingGate>
-                  <AppShell />
-                  <OnboardingOverlay />
-                  <DictationHotkeyManager />
-                  <LocalAIDownloadSnackbar />
-                </ServiceBlockingGate>
-              </Router>
+              <ChatRuntimeProvider>
+                <Router>
+                  <ServiceBlockingGate>
+                    <AppShell />
+                    <OnboardingOverlay />
+                    <DictationHotkeyManager />
+                    <LocalAIDownloadSnackbar />
+                  </ServiceBlockingGate>
+                </Router>
+              </ChatRuntimeProvider>
             </SocketProvider>
           </CoreStateProvider>
         </PersistGate>

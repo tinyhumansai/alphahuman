@@ -33,6 +33,20 @@ impl Agent {
         &self.event_channel
     }
 
+    /// The agent definition id this session is running
+    /// (`"welcome"`, `"orchestrator"`, `"skills_agent"`, …).
+    ///
+    /// Exposed so callers that build sessions via
+    /// [`Agent::from_config_for_agent`] can stamp the resolved id onto
+    /// correlation logs and progress events without reaching for the
+    /// source `Config`. See [`AgentBuilder::agent_definition_name`]
+    /// for the full list of downstream surfaces (transcript filename,
+    /// transcript metadata header, and `PromptContext::agent_id`) that
+    /// read this field.
+    pub fn agent_definition_name(&self) -> &str {
+        &self.agent_definition_name
+    }
+
     /// Returns a new `AgentBuilder`.
     pub fn builder() -> AgentBuilder {
         AgentBuilder::new()
@@ -124,6 +138,14 @@ impl Agent {
     pub fn set_event_context(&mut self, session_id: impl Into<String>, channel: impl Into<String>) {
         self.event_session_id = session_id.into();
         self.event_channel = channel.into();
+    }
+
+    /// Override the agent definition name used for session transcript
+    /// file paths. Callers (e.g. the web channel) use this to scope
+    /// transcripts per thread so each conversation thread gets its own
+    /// transcript namespace instead of sharing one by agent type.
+    pub fn set_agent_definition_name(&mut self, name: impl Into<String>) {
+        self.agent_definition_name = name.into();
     }
 
     /// Attach a progress event sender for real-time turn updates.
