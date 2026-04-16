@@ -166,7 +166,7 @@ fn load_stored_app_state_unlocked(config: &Config) -> Result<StoredAppState, Str
     }
 }
 
-fn load_stored_app_state(config: &Config) -> Result<StoredAppState, String> {
+pub(crate) fn load_stored_app_state(config: &Config) -> Result<StoredAppState, String> {
     let _guard = APP_STATE_FILE_LOCK.lock();
     load_stored_app_state_unlocked(config)
 }
@@ -250,7 +250,10 @@ fn resolve_base(config: &Config) -> Result<Url, String> {
     Ok(parsed)
 }
 
-async fn fetch_current_user(config: &Config, token: &str) -> Result<Option<Value>, String> {
+pub(crate) async fn fetch_current_user(
+    config: &Config,
+    token: &str,
+) -> Result<Option<Value>, String> {
     let client = build_client()?;
     let base = resolve_base(config)?;
     let url = base

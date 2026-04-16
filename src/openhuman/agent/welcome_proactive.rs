@@ -7,22 +7,15 @@
 //! 1. [`crate::openhuman::config::ops::set_onboarding_completed`]
 //!    detects a false→true transition and calls [`spawn_proactive_welcome`].
 //! 2. That function spawns a detached Tokio task that:
-//!    - Builds the same JSON status snapshot
-//!      `tools::implementations::agent::complete_onboarding`'s
-//!      `check_status` would have returned, with `finalize_action =
-//!      "flipped"` (the caller has already flipped
-//!      `chat_onboarding_completed`).
+//!    - Pre-builds the JSON snapshot (config + user profile + onboarding
+//!      tasks + composio connections) in Rust — no LLM round-trip needed.
 //!    - Loads the `welcome` agent via
 //!      [`crate::openhuman::agent::Agent::from_config_for_agent`] so
 //!      the agent runs with its own `prompt.md`, tool allowlist, and
-//!      model hint.
-//!    - Calls [`crate::openhuman::agent::Agent::run_single`] with a
-//!      prompt that embeds the snapshot and instructs the agent to
-//!      skip iteration 1 (the tool call) and go straight to iteration
-//!      2 (writing the welcome message). Because we already flipped
-//!      `chat_onboarding_completed`, the `complete_onboarding` tool
-//!      would be a no-op anyway — but avoiding the extra round-trip
-//!      keeps latency down.
+//!      model hint (`agentic-v1`).
+//!    - Calls [`crate::openhuman::agent::Agent::run_single`] with the
+//!      pre-built context, skipping iteration 1 (tool calls). The agent
+//!      goes straight to writing the personalised welcome message.
 //!    - On success, publishes
 //!      [`DomainEvent::ProactiveMessageRequested`] so the existing
 //!      [`crate::openhuman::channels::proactive::ProactiveMessageSubscriber`]
@@ -69,7 +62,7 @@ pub fn spawn_proactive_welcome(config: Config) {
     });
 }
 
-/// Internal: build the snapshot, run the welcome agent, publish the
+/// Internal: pre-build context, run the welcome agent, publish the
 /// result. Split out from the spawn so it can be unit-tested with
 /// an injected Config + mocked provider.
 async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
@@ -79,17 +72,115 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         config.onboarding_completed
     );
 
-    // The caller (set_onboarding_completed) already flipped
-    // `chat_onboarding_completed`, so the snapshot always reports
-    // `"flipped"` — matches the state the welcome agent's prompt.md
-    // treats as "first run, authenticated, deliver the full welcome".
-    let snapshot = build_status_snapshot(&config, "flipped");
+    // Brief delay so the frontend Socket.IO client has time to
+    // connect and join the "system" room after the onboarding overlay
+    // closes. Without this, the message can arrive before anyone is
+    // listening.
+    // Wait for frontend to mount Conversations page and subscribe to
+    // socket events. The onboarding overlay closing + page navigation +
+    // socket connection + event subscription takes ~3-4s.
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+
+    // ── Pre-build context in Rust (no LLM round-trip) ────────────
+    //
+    // Gather the same data the agent would get from calling
+    // check_status + composio_list_connections, but directly in Rust.
+    // This saves one full LLM iteration (~30-50s).
+
+    let mut snapshot = build_status_snapshot(&config, "flipped");
+
+    // Enrich with user profile + onboarding tasks (best-effort)
+    if let serde_json::Value::Object(ref mut map) = snapshot {
+        // Onboarding tasks — sync local file read
+        match crate::openhuman::app_state::ops::load_stored_app_state(&config) {
+            Ok(local_state) => {
+                if let Some(tasks) = local_state.onboarding_tasks {
+                    map.insert(
+                        "onboarding_tasks".to_string(),
+                        serde_json::to_value(&tasks).unwrap_or_default(),
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!("[welcome::proactive] failed to load app state: {e}");
+            }
+        }
+
+        // User profile — async HTTP, 5s timeout
+        match crate::api::jwt::get_session_token(&config) {
+            Ok(Some(token)) if !token.is_empty() => {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    crate::openhuman::app_state::ops::fetch_current_user(&config, &token),
+                )
+                .await
+                {
+                    Ok(Ok(Some(user))) => {
+                        map.insert("user_profile".to_string(), user);
+                    }
+                    _ => {
+                        tracing::debug!("[welcome::proactive] user profile unavailable; omitting");
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Composio connections — async HTTP, 5s timeout
+        if let Some(client) = crate::openhuman::composio::client::build_composio_client(&config) {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), client.list_connections())
+                .await
+            {
+                Ok(Ok(connections)) => {
+                    map.insert(
+                        "composio_connections".to_string(),
+                        serde_json::to_value(&connections).unwrap_or_default(),
+                    );
+                }
+                _ => {
+                    tracing::debug!(
+                        "[welcome::proactive] composio connections unavailable; omitting"
+                    );
+                }
+            }
+        }
+    }
+
     let snapshot_json = serde_json::to_string_pretty(&snapshot)
         .map_err(|e| anyhow::anyhow!("serialize status snapshot: {e}"))?;
+
     tracing::debug!(
         snapshot_chars = snapshot_json.len(),
-        "[welcome::proactive] built status snapshot"
+        "[welcome::proactive] pre-built context snapshot"
     );
+
+    // ── Instant draft message (no LLM, appears in ~1-2s) ─────────
+    //
+    // Publish a short template greeting immediately so the user sees
+    // something in the chat while the LLM generates the full welcome.
+    let first_name = snapshot
+        .get("user_profile")
+        .and_then(|u| u.get("firstName"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("there");
+
+    let draft = format!(
+        "Hey {}! Welcome to OpenHuman — give me a sec while I look around your setup...",
+        first_name
+    );
+
+    publish_global(DomainEvent::ProactiveMessageRequested {
+        source: PROACTIVE_WELCOME_SOURCE.to_string(),
+        message: draft,
+        job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
+    });
+
+    tracing::info!(
+        "[welcome::proactive] instant draft published for user '{}'",
+        first_name
+    );
+
+    // ── Run the welcome agent (single LLM call) ─────────────────
 
     let mut agent = Agent::from_config_for_agent(&config, "welcome").map_err(|e| {
         anyhow::anyhow!("build welcome agent: {e} — ensure AgentDefinitionRegistry is initialised")
@@ -99,34 +190,35 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         "proactive",
     );
 
-    // The welcome prompt.md is insistent that iteration 1 must be a
-    // `complete_onboarding` tool call. We bypass that here by
-    // pre-delivering the snapshot inside the user message and
-    // explicitly overriding iteration 1. Capable models comply; if a
-    // model calls the tool anyway, the tool returns
-    // `finalize_action: "already_complete"` (we've pre-flipped the
-    // flag) so the message still lands — just with a slightly
-    // different framing.
+    // Pre-deliver all context so the agent skips iteration 1 (tool
+    // calls) and goes straight to writing the welcome message. This
+    // saves one full LLM round-trip. The agent still has tools
+    // available for Gmail OAuth (composio_authorize) if needed in
+    // subsequent iterations.
     let prompt = format!(
         "[PROACTIVE INVOCATION — the user just finished the desktop onboarding wizard; \
          this is not a reply to anything they typed, it is your opening message.]\n\n\
-         Skip iteration 1. Do NOT call `complete_onboarding` or any other tool. The \
-         status snapshot that `complete_onboarding(check_status)` would have returned \
-         is already provided below. Jump straight to iteration 2 and write the \
-         personalised welcome message per your system prompt guidelines.\n\n\
-         Status snapshot (treat exactly as if it were the tool return value):\n\
+         Skip iteration 1. The context that `complete_onboarding(check_status)` and \
+         `composio_list_connections` would have returned is already provided below. \
+         Jump straight to iteration 2 and write the personalised welcome message \
+         per your system prompt guidelines.\n\n\
+         Status snapshot (treat exactly as if it were the tool return values):\n\
          ```json\n{snapshot_json}\n```\n\n\
-         Write iteration 2 now."
+         Write your welcome message now."
     );
+
     tracing::debug!(
         prompt_chars = prompt.len(),
         "[welcome::proactive] invoking welcome agent run_single"
     );
 
-    let response = agent
-        .run_single(&prompt)
-        .await
-        .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        agent.run_single(&prompt),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("welcome agent timed out after 180s"))?
+    .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
 
     let trimmed = response.trim();
     if trimmed.is_empty() {
@@ -144,11 +236,6 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
     });
 
-    // Post-publish confirmation. `publish_global` is a best-effort
-    // broadcast send that swallows lag / no-subscriber errors, so
-    // without this line the caller can't distinguish "reached the
-    // end successfully" from "silently bailed somewhere above" by
-    // reading the log alone.
     tracing::debug!(
         source = PROACTIVE_WELCOME_SOURCE,
         job_name = PROACTIVE_WELCOME_JOB_NAME,

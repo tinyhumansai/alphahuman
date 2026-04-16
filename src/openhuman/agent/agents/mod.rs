@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(def.sandbox_mode, SandboxMode::ReadOnly);
         match &def.tools {
             ToolScope::Named(tools) => {
-                assert_eq!(tools.len(), 2, "welcome should have exactly two tools");
+                assert_eq!(tools.len(), 4, "welcome should have exactly four tools");
                 assert!(
                     tools.iter().any(|t| t == "complete_onboarding"),
                     "welcome needs complete_onboarding"
@@ -334,11 +334,19 @@ mod tests {
                     tools.iter().any(|t| t == "memory_recall"),
                     "welcome needs memory_recall"
                 );
+                assert!(
+                    tools.iter().any(|t| t == "composio_list_connections"),
+                    "welcome needs composio_list_connections"
+                );
+                assert!(
+                    tools.iter().any(|t| t == "composio_authorize"),
+                    "welcome needs composio_authorize"
+                );
             }
             ToolScope::Wildcard => panic!("welcome must have a Named tool scope"),
         }
         assert!(!def.omit_memory_context);
         assert!(def.omit_identity);
-        assert_eq!(def.max_iterations, 6);
+        assert_eq!(def.max_iterations, 10);
     }
 }

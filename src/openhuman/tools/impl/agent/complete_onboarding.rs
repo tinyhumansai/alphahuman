@@ -1,17 +1,18 @@
 //! Tool: complete_onboarding — inspects workspace setup status and (when
 //! the user is authenticated) auto-finalizes the chat welcome flow.
 //!
-//! Used exclusively by the **welcome** agent. There is only one normal
-//! path: call `check_status` once. The tool returns a structured JSON
-//! snapshot of the user's config AND, if the user is authenticated,
+//! Used exclusively by the **welcome** agent. The primary path is to call
+//! `check_status` once (iteration 1). The tool returns a structured JSON
+//! snapshot of the user's config — including user profile from `/auth/me`
+//! and onboarding task state — AND, if the user is authenticated,
 //! flips `chat_onboarding_completed = true` + seeds proactive cron jobs
-//! as a side effect. The welcome agent then drafts a personalised
-//! welcome message based on the JSON in its next iteration. No second
-//! tool call. No race conditions. No way to forget the flip.
+//! as a side effect. The welcome agent uses the JSON alongside
+//! `composio_list_connections` results to draft a personalised greeting.
 //!
 //! The legacy `complete` action is kept as a manual override for admin
 //! tools and tests but the welcome agent should never call it directly.
 
+use crate::openhuman::app_state::ops::{fetch_current_user, load_stored_app_state};
 use crate::openhuman::config::Config;
 use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolResult, ToolScope};
 use async_trait::async_trait;
@@ -33,15 +34,16 @@ impl Tool for CompleteOnboardingTool {
 
     fn description(&self) -> &str {
         "Read the user's OpenHuman config snapshot and auto-finalize the \
-         chat welcome flow when the user is authenticated. The welcome \
-         agent's single tool call.\n\
+         chat welcome flow when the user is authenticated. Called by the \
+         welcome agent on its first iteration alongside \
+         `composio_list_connections` to gather full context before greeting.\n\
          \n\
          **action=\"check_status\"** — returns a JSON object describing \
          the user's setup state and (as a side effect when the user has \
          a valid session JWT) flips `chat_onboarding_completed` to true \
          + seeds proactive agent cron jobs. Call this ONCE on your first \
-         iteration with no other parameters. Use the JSON to draft a \
-         personalised welcome message in your second iteration.\n\
+         iteration. Use the JSON alongside composio connection data to \
+         draft a personalised welcome message.\n\
          \n\
          The returned JSON has this shape:\n\
          ```\n\
@@ -62,7 +64,21 @@ impl Tool for CompleteOnboardingTool {
            \"delegate_agents\": [\"researcher\", \"coder\"], // configured custom agents\n\
            \"ui_onboarding_completed\": true,             // React wizard flag\n\
            \"chat_onboarding_completed\": true,           // POST-finalize value\n\
-           \"finalize_action\": \"flipped\"                // \"flipped\" | \"already_complete\" | \"skipped_no_auth\"\n\
+           \"finalize_action\": \"flipped\",               // \"flipped\" | \"already_complete\" | \"skipped_no_auth\"\n\
+           \"user_profile\": {                             // optional — from /auth/me; omitted on timeout/error\n\
+             \"firstName\": \"Alice\",\n\
+             \"lastName\": \"Smith\",\n\
+             \"username\": \"alice\",\n\
+             \"subscription\": { \"plan\": \"FREE\" }\n\
+           },\n\
+           \"onboarding_tasks\": {                        // optional — from local app-state.json\n\
+             \"connectedSources\": [\"gmail\"],\n\
+             \"enabledTools\": [\"web_search\"],\n\
+             \"accessibilityPermissionGranted\": true,\n\
+             \"localModelConsentGiven\": false,\n\
+             \"localModelDownloadStarted\": false,\n\
+             \"updatedAtMs\": 1234567890\n\
+           }\n\
          }\n\
          ```\n\
          \n\
@@ -81,6 +97,12 @@ impl Tool for CompleteOnboardingTool {
            login flow, and stop. The next chat turn will re-route to \
            welcome (because the flag is still false), so they'll get \
            another chance once they log in.\n\
+         \n\
+         `user_profile` is best-effort: present when the backend \
+         responds within 5 seconds, absent otherwise. If missing, \
+         check PROFILE.md injection or ask the user directly.\n\
+         `onboarding_tasks` is best-effort: present when the local \
+         app-state file is readable, absent otherwise.\n\
          \n\
          Use the JSON fields directly when drafting your welcome \
          message. Don't quote the JSON back to the user — translate \
@@ -197,7 +219,68 @@ async fn check_status() -> anyhow::Result<ToolResult> {
         "flipped"
     };
 
-    let snapshot = build_status_snapshot(&config, finalize_action);
+    let mut snapshot = build_status_snapshot(&config, finalize_action);
+
+    // ── Enrich snapshot with onboarding tasks + user profile ─────────
+    //
+    // Both are best-effort: a failure/timeout omits the field rather
+    // than failing the whole tool call. The prompt handles missing data
+    // by asking the user directly or falling back to PROFILE.md.
+    if let Value::Object(ref mut map) = snapshot {
+        // Onboarding tasks — sync local file read, cheap
+        match load_stored_app_state(&config) {
+            Ok(local_state) => {
+                if let Some(tasks) = local_state.onboarding_tasks {
+                    map.insert(
+                        "onboarding_tasks".to_string(),
+                        serde_json::to_value(&tasks).unwrap_or_default(),
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "[complete_onboarding] failed to load stored app state for snapshot: {e}"
+                );
+            }
+        }
+
+        // User profile — async HTTP, wrapped with a 5-second timeout
+        match crate::api::jwt::get_session_token(&config) {
+            Ok(Some(token)) if !token.is_empty() => {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    fetch_current_user(&config, &token),
+                )
+                .await
+                {
+                    Ok(Ok(Some(user))) => {
+                        map.insert("user_profile".to_string(), user);
+                    }
+                    Ok(Ok(None)) => {
+                        tracing::debug!(
+                            "[complete_onboarding] /auth/me returned no user data; omitting user_profile"
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            "[complete_onboarding] /auth/me request failed; omitting user_profile: {e}"
+                        );
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "[complete_onboarding] /auth/me timed out after 5s; omitting user_profile"
+                        );
+                    }
+                }
+            }
+            _ => {
+                tracing::debug!(
+                    "[complete_onboarding] no session token; skipping user_profile fetch"
+                );
+            }
+        }
+    }
+
     let payload = serde_json::to_string_pretty(&snapshot)
         .map_err(|e| anyhow::anyhow!("Failed to serialize status snapshot: {e}"))?;
 

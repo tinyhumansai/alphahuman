@@ -107,7 +107,10 @@ impl EventHandler for ProactiveMessageSubscriber {
             return;
         };
 
-        let thread_id = format!("proactive:{}", job_name.as_deref().unwrap_or("system"));
+        // Use "default-thread" so the message appears in the user's
+        // visible conversation thread (matches DEFAULT_THREAD_ID in
+        // the frontend Conversations page).
+        let thread_id = "default-thread".to_string();
         let request_id = uuid::Uuid::new_v4().to_string();
 
         tracing::debug!(
@@ -118,8 +121,10 @@ impl EventHandler for ProactiveMessageSubscriber {
         );
 
         // 1. Always deliver to the web channel via Socket.IO.
+        // Emit as `chat_done` so the existing frontend chat handlers
+        // pick it up — no dedicated `proactive_message` listener needed.
         publish_web_channel_event(WebChannelEvent {
-            event: "proactive_message".to_string(),
+            event: "chat_done".to_string(),
             client_id: "system".to_string(),
             thread_id: thread_id.clone(),
             request_id: request_id.clone(),

@@ -1,6 +1,6 @@
 //! Core-owned app state exposed to the React shell via polling.
 
-mod ops;
+pub(crate) mod ops;
 mod schemas;
 
 pub use ops::*;
