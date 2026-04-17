@@ -263,6 +263,17 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         llm_result.map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
 
     let trimmed = response.trim();
+    // Tolerate common fenced JSON wrappers from the model:
+    // ```json
+    // { ... }
+    // ```
+    let trimmed = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(str::trim_start)
+        .and_then(|s| s.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
     if trimmed.is_empty() {
         anyhow::bail!("welcome agent returned empty response");
     }
@@ -307,7 +318,12 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     );
 
     // --- Publish LLM responses (messages 3+) --------------------------
-    for message in &messages {
+    for (idx, message) in messages.iter().enumerate() {
+        if idx > 0 {
+            // Slight pacing so bubbles appear progressively instead of as a wall.
+            let pace_ms = (message.chars().count() as u64).clamp(600, 1200);
+            tokio::time::sleep(tokio::time::Duration::from_millis(pace_ms)).await;
+        }
         publish_global(DomainEvent::ProactiveMessageRequested {
             source: PROACTIVE_WELCOME_SOURCE.to_string(),
             message: message.clone(),

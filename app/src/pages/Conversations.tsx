@@ -117,6 +117,15 @@ function buildAcceptedInlineCompletion(input: string, suffix: string): string {
   return `${normalizedInput}${needsSpace ? ' ' : ''}${cleanSuffix}`;
 }
 
+function isAllowedExternalHref(rawHref: string): boolean {
+  try {
+    const url = new URL(rawHref);
+    return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
+
 function formatResetTime(isoStr: string): string {
   const ms = new Date(isoStr).getTime() - Date.now();
   if (ms <= 0) return 'now';
@@ -885,7 +894,10 @@ const Conversations = () => {
                                     href={href}
                                     onClick={e => {
                                       e.preventDefault();
-                                      if (href) openUrl(href);
+                                      if (!href || !isAllowedExternalHref(href)) return;
+                                      void openUrl(href).catch(() => {
+                                        // Ignore launcher errors from OS URL handler failures.
+                                      });
                                     }}
                                     className="cursor-pointer underline text-primary-500">
                                     {children}
