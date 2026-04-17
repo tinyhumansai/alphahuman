@@ -274,45 +274,24 @@ fn config_with_recommended_tier_if_unselected(config: &Config, device: &DevicePr
     let current_tier =
         crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
 
-    // When the user has *not* explicitly picked a tier and the device is below
-    // the RAM floor, default to disabled (cloud fallback). The user can still
-    // opt in via Settings. This check runs first so even a "detected" tier from
-    // matching defaults gets overridden on low-RAM hosts.
-    if selected_tier.is_none()
-        && crate::openhuman::local_ai::presets::should_default_to_cloud_fallback(device)
-    {
+    // Local AI is opt-in. When the user has *not* explicitly picked a tier,
+    // default to disabled (cloud fallback) regardless of device RAM. The user
+    // can still opt in via onboarding or Settings. This is the MVP behavior:
+    // all users start on cloud and must explicitly turn local AI on.
+    if selected_tier.is_none() {
         tracing::debug!(
             total_ram_gb = device.total_ram_gb(),
             min_required_gb = crate::openhuman::local_ai::presets::MIN_RAM_GB_FOR_LOCAL_AI,
-            "[local_ai] bootstrap: device below RAM floor, defaulting to disabled (cloud fallback)"
+            ?current_tier,
+            "[local_ai] bootstrap: no tier selected, defaulting to disabled (opt-in cloud fallback)"
         );
         let mut effective_config = config.clone();
         effective_config.local_ai.enabled = false;
         return effective_config;
     }
 
-    // If the user has already picked a tier (explicit or matching defaults),
-    // honor it. No MVP ceiling — users can pick any tier.
-    if selected_tier.is_some()
-        || !matches!(
-            current_tier,
-            crate::openhuman::local_ai::presets::ModelTier::Custom
-        )
-    {
-        return config.clone();
-    }
-
-    let recommended = crate::openhuman::local_ai::presets::recommend_tier(device);
-    let mut effective_config = config.clone();
-    crate::openhuman::local_ai::presets::apply_preset_to_config(
-        &mut effective_config.local_ai,
-        recommended,
-    );
-    tracing::debug!(
-        ?recommended,
-        "[local_ai] bootstrap: no tier selected, using recommended preset"
-    );
-    effective_config
+    // User has already picked a tier (explicit selection). Honor it as-is.
+    config.clone()
 }
 
 fn format_degraded_warning(err: &str, config: &Config) -> String {
@@ -389,15 +368,17 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_keeps_enabled_on_sufficient_ram_device() {
+    fn bootstrap_defaults_to_disabled_on_sufficient_ram_device() {
+        // Local AI is opt-in. Even with >= 8 GB RAM, an unselected tier must
+        // leave local AI disabled — the user has to explicitly turn it on.
         let config = Config::default();
         let device = test_device(16);
 
         let effective = config_with_recommended_tier_if_unselected(&config, &device);
 
         assert!(
-            effective.local_ai.enabled,
-            "local_ai.enabled must stay true on >= 8 GB device"
+            !effective.local_ai.enabled,
+            "local_ai.enabled must default to false when no tier selected, regardless of RAM"
         );
     }
 
@@ -421,18 +402,27 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_keeps_default_tier_when_selection_missing_and_ram_sufficient() {
-        // Default config already matches a preset (Ram8To16Gb) and device has
-        // enough RAM, so bootstrap returns it untouched (no auto-change).
-        let config = Config::default();
-        let device = test_device(8);
+    fn bootstrap_respects_explicit_tier_on_sufficient_ram_device() {
+        // Opt-in confirmation: once the user has picked a tier, local AI stays
+        // enabled and the config is returned untouched.
+        let mut config = Config::default();
+        config.local_ai.selected_tier = Some("ram_8_16gb".to_string());
+        crate::openhuman::local_ai::presets::apply_preset_to_config(
+            &mut config.local_ai,
+            crate::openhuman::local_ai::presets::ModelTier::Ram8To16Gb,
+        );
+        let device = test_device(16);
 
         let effective = config_with_recommended_tier_if_unselected(&config, &device);
 
-        assert!(effective.local_ai.enabled);
+        assert!(
+            effective.local_ai.enabled,
+            "explicit tier selection on sufficient-RAM device must stay enabled"
+        );
         assert_eq!(
             effective.local_ai.chat_model_id,
-            config.local_ai.chat_model_id
+            config.local_ai.chat_model_id,
+            "explicit config must not be mutated"
         );
     }
 
