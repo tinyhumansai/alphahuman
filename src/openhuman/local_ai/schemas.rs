@@ -755,7 +755,11 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
                 .map(|tier| tier.as_str().to_string())
                 .or_else(|| (!normalized.is_empty()).then_some(normalized))
         });
-        let presets = crate::openhuman::local_ai::presets::all_presets();
+        // MVP: expose only the single allowed tier (`ram_2_4gb` / `gemma3:1b-it-qat`).
+        // The full preset catalog is still available in Rust via `all_presets()`
+        // for internal use (e.g., honoring a legacy `selected_tier`), but the UI
+        // should render a single opt-in option, not 5 tier choices.
+        let presets = crate::openhuman::local_ai::presets::mvp_presets();
         tracing::debug!(
             ?recommended,
             ?current,
@@ -789,6 +793,9 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
             let mut config = config_rpc::load_config_with_timeout().await?;
             config.local_ai.enabled = false;
             config.local_ai.selected_tier = Some("disabled".to_string());
+            // Explicit opt-out also clears the MVP opt-in marker so bootstrap
+            // keeps local AI off across restarts.
+            config.local_ai.opt_in_confirmed = false;
             config
                 .save()
                 .await
@@ -816,6 +823,10 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         // Re-enable local AI in case it was previously disabled via the
         // "disabled" tier, so the user can switch back to local inference.
         config.local_ai.enabled = true;
+        // Explicit tier selection is the MVP opt-in — flip the marker so
+        // `config_with_recommended_tier_if_unselected` stops hard-overriding
+        // to disabled on subsequent boots.
+        config.local_ai.opt_in_confirmed = true;
         crate::openhuman::local_ai::presets::apply_preset_to_config(&mut config.local_ai, tier);
         config
             .save()
