@@ -226,9 +226,14 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
          have been exchanged yet. Write the personalised welcome message per your \
          system prompt. Do NOT call `complete_onboarding` with `complete` — the user \
          has not yet had a real conversation.\n\n\
+         Output format is STRICT JSON only:\n\
+         {{\"messages\":[\"<message 1>\",\"<message 2>\",\"<message 3>\"]}}\n\
+         - Return 2-4 assistant messages.\n\
+         - Each message should be short and conversational (1-3 sentences).\n\
+         - Do not include markdown code fences or any text outside the JSON object.\n\n\
          Status snapshot (treat exactly as if it were the tool return value):\n\
          ```json\n{snapshot_json}\n```\n\n\
-         Write your welcome message now."
+         Write your welcome messages now."
     );
     tracing::debug!(
         prompt_chars = prompt.len(),
@@ -262,17 +267,53 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         anyhow::bail!("welcome agent returned empty response");
     }
 
+    #[derive(serde::Deserialize)]
+    struct ProactiveMessagesPayload {
+        messages: Vec<String>,
+    }
+
+    // Preferred path: strict JSON payload from the model.
+    // Fallback path: split freeform prose into paragraph-ish chunks so users
+    // still receive multiple chat bubbles even if the provider drifts format.
+    let messages: Vec<String> = match serde_json::from_str::<ProactiveMessagesPayload>(trimmed) {
+        Ok(payload) => payload
+            .messages
+            .into_iter()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .collect(),
+        Err(parse_err) => {
+            tracing::warn!(
+                error = %parse_err,
+                "[welcome::proactive] response was not valid JSON payload; falling back to paragraph splitting"
+            );
+            trimmed
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        }
+    };
+
+    if messages.is_empty() {
+        anyhow::bail!("welcome agent returned no publishable messages");
+    }
+
     tracing::info!(
+        message_count = messages.len(),
         response_chars = trimmed.chars().count(),
-        "[welcome::proactive] welcome agent produced message — publishing ProactiveMessageRequested"
+        "[welcome::proactive] welcome agent produced multi-message payload — publishing ProactiveMessageRequested"
     );
 
-    // --- Publish LLM response (message 3) -----------------------------
-    publish_global(DomainEvent::ProactiveMessageRequested {
-        source: PROACTIVE_WELCOME_SOURCE.to_string(),
-        message: trimmed.to_string(),
-        job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
-    });
+    // --- Publish LLM responses (messages 3+) --------------------------
+    for message in &messages {
+        publish_global(DomainEvent::ProactiveMessageRequested {
+            source: PROACTIVE_WELCOME_SOURCE.to_string(),
+            message: message.clone(),
+            job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
+        });
+    }
 
     // Post-publish confirmation so the log clearly marks end-to-end
     // success (publish_global is fire-and-forget; without this line,
@@ -280,9 +321,9 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     tracing::debug!(
         source = PROACTIVE_WELCOME_SOURCE,
         job_name = PROACTIVE_WELCOME_JOB_NAME,
-        response_chars = trimmed.chars().count(),
+        published_llm_messages = messages.len(),
         "[welcome::proactive] proactive welcome flow complete \
-         (3 messages published: greeting, loading, llm-response)"
+         (template messages + multi-part llm response published)"
     );
 
     Ok(())

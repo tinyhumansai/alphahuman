@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import {
   type ChatInferenceStartEvent,
   type ChatIterationStartEvent,
+  type ProactiveMessageEvent,
   type ChatSegmentEvent,
   type ChatSubagentDoneEvent,
   type ChatSubagentSpawnedEvent,
@@ -27,7 +28,12 @@ import {
 } from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
-import { addInferenceResponse, setActiveThread } from '../store/threadSlice';
+import {
+  addInferenceResponse,
+  createNewThread,
+  setActiveThread,
+  setSelectedThread,
+} from '../store/threadSlice';
 
 const logChatRuntime = debug('openhuman:chat-runtime');
 
@@ -102,6 +108,32 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
       cache.delete(oldest);
     }
     return true;
+  };
+
+  const resolveVisibleThreadForProactive = async (
+    incomingThreadId: string
+  ): Promise<string | null> => {
+    if (!incomingThreadId.startsWith('proactive:')) {
+      return incomingThreadId;
+    }
+
+    const state = store.getState().thread;
+    const targetFromState =
+      state.selectedThreadId ?? state.activeThreadId ?? state.threads[0]?.id ?? null;
+    if (targetFromState) {
+      return targetFromState;
+    }
+
+    try {
+      const newThread = await dispatch(createNewThread()).unwrap();
+      dispatch(setSelectedThread(newThread.id));
+      return newThread.id;
+    } catch (error) {
+      rtLog('proactive_thread_create_failed', {
+        err: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   };
 
   useEffect(() => {
@@ -370,6 +402,29 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
           ];
         }
         dispatch(setToolTimelineForThread({ threadId: event.thread_id, entries }));
+      },
+      onProactiveMessage: (event: ProactiveMessageEvent) => {
+        const eventKey = `proactive:${event.thread_id}:${event.request_id ?? 'none'}:${event.full_response}`;
+        if (
+          !markChatEventSeen(eventKey, { threadId: event.thread_id, requestId: event.request_id })
+        )
+          return;
+
+        void (async () => {
+          const targetThreadId = await resolveVisibleThreadForProactive(event.thread_id);
+          if (!targetThreadId) return;
+          rtLog('proactive_message', {
+            from: event.thread_id,
+            to: targetThreadId,
+            request: event.request_id,
+          });
+          await dispatch(
+            addInferenceResponse({
+              content: event.full_response,
+              threadId: targetThreadId,
+            })
+          );
+        })();
       },
       onDone: event => {
         const eventKey = `done:${event.thread_id}:${event.request_id ?? 'none'}`;

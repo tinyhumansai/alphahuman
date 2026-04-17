@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 
+import { openUrl } from '../utils/openUrl';
+
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
@@ -231,9 +233,12 @@ const Conversations = () => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     void dispatch(loadThreads())
       .unwrap()
       .then(data => {
+        if (cancelled) return;
         if (data.threads.length > 0) {
           const mostRecent = data.threads[0];
           dispatch(setSelectedThread(mostRecent.id));
@@ -242,6 +247,10 @@ const Conversations = () => {
           void handleCreateNewThread();
         }
       });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
@@ -855,7 +864,7 @@ const Conversations = () => {
             </div>
           ) : messages.length > 0 ? (
             <div className="space-y-3">
-              {messages.map(msg => (
+              {messages.filter(msg => !msg.extraMetadata?.hidden).map(msg => (
                 <div
                   key={msg.id}
                   className={`group/msg flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -868,7 +877,24 @@ const Conversations = () => {
                       }`}>
                       {msg.sender === 'agent' ? (
                         <div className="text-sm prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-stone-300/50 prose-pre:rounded-lg prose-code:text-primary-700 prose-code:text-xs prose-a:text-primary-500 prose-headings:text-sm prose-headings:font-semibold prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
-                          <Markdown>{msg.content}</Markdown>
+                          <Markdown
+                            components={{
+                              a: ({ href, children }) => (
+                                <a
+                                  href={href}
+                                  onClick={e => {
+                                    e.preventDefault();
+                                    if (href) openUrl(href);
+                                  }}
+                                  className="cursor-pointer underline text-primary-500"
+                                >
+                                  {children}
+                                </a>
+                              ),
+                            }}
+                          >
+                            {msg.content}
+                          </Markdown>
                         </div>
                       ) : (
                         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
