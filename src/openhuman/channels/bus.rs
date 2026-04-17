@@ -481,7 +481,7 @@ async fn flush_thinking_message(channel: &str, state: &mut StreamingState) {
         snippet.truncate(MAX_THINKING_DISPLAY_CHARS);
         snippet.push('…');
     }
-    let text = format!("💭 _{snippet}_");
+    let text = format!("💭 Thinking:\n_{snippet}_");
 
     let Some((client, jwt)) = build_channel_client().await else {
         return;
