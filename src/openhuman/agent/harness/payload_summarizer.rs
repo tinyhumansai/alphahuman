@@ -28,11 +28,13 @@
 //! pass-through, do nothing) when:
 //!
 //! * The raw payload is below
-//!   [`SubagentPayloadSummarizer::threshold_bytes`] (default 100 KB —
-//!   small payloads aren't worth an extra LLM round-trip).
+//!   [`SubagentPayloadSummarizer::threshold_tokens`] (default 500 000
+//!   tokens — small payloads aren't worth an extra LLM round-trip).
+//!   Token count is estimated as `chars / 4`, matching
+//!   `tree_summarizer::estimate_tokens`.
 //! * The raw payload is above
-//!   [`SubagentPayloadSummarizer::max_payload_bytes`] (default 5 MB —
-//!   too big to summarize cost-effectively; existing
+//!   [`SubagentPayloadSummarizer::max_payload_tokens`] (default
+//!   2 000 000 tokens — too big to summarize cost-effectively; existing
 //!   `tool_result_budget_bytes` truncation handles it instead).
 //! * The internal failure circuit-breaker has tripped (3 consecutive
 //!   sub-agent failures within the same session disable summarization
@@ -117,16 +119,17 @@ pub struct SubagentPayloadSummarizer {
     /// agent build time so the runner doesn't have to re-resolve it
     /// per call.
     definition: AgentDefinition,
-    /// Lower bound: tool results smaller than this are passed through
-    /// untouched. Default is `summarizer_payload_threshold_bytes` from
-    /// [`crate::openhuman::config::ContextConfig`] (100 KB).
-    threshold_bytes: usize,
-    /// Upper bound: tool results larger than this are also passed
-    /// through (no LLM call) and fall through to the existing
-    /// `tool_result_budget_bytes` truncation downstream. Default is
-    /// `summarizer_max_payload_bytes` from
-    /// [`crate::openhuman::config::ContextConfig`] (5 MB).
-    max_payload_bytes: usize,
+    /// Lower bound, in **estimated tokens** (`chars / 4`): tool results
+    /// smaller than this are passed through untouched. Default is
+    /// `summarizer_payload_threshold_tokens` from
+    /// [`crate::openhuman::config::ContextConfig`] (500 000 tokens).
+    threshold_tokens: usize,
+    /// Upper bound, in **estimated tokens**: tool results larger than
+    /// this are also passed through (no LLM call) and fall through to
+    /// the existing `tool_result_budget_bytes` truncation downstream.
+    /// Default is `summarizer_max_payload_tokens` from
+    /// [`crate::openhuman::config::ContextConfig`] (2 000 000 tokens).
+    max_payload_tokens: usize,
     /// Consecutive failure count. Reset to zero on any successful
     /// summarization. Once it reaches
     /// [`Self::max_failures_before_disable`] the circuit breaker
@@ -141,15 +144,18 @@ pub struct SubagentPayloadSummarizer {
 
 impl SubagentPayloadSummarizer {
     /// Build a new summarizer wrapping the given definition and limits.
+    ///
+    /// `threshold_tokens` and `max_payload_tokens` are both in
+    /// estimated tokens (`chars / 4`).
     pub fn new(
         definition: AgentDefinition,
-        threshold_bytes: usize,
-        max_payload_bytes: usize,
+        threshold_tokens: usize,
+        max_payload_tokens: usize,
     ) -> Self {
         Self {
             definition,
-            threshold_bytes,
-            max_payload_bytes,
+            threshold_tokens,
+            max_payload_tokens,
             failures: Arc::new(Mutex::new(0)),
             max_failures_before_disable: 3,
         }
@@ -196,21 +202,25 @@ impl PayloadSummarizer for SubagentPayloadSummarizer {
         parent_task_hint: Option<&str>,
         raw: &str,
     ) -> Result<Option<SummarizedPayload>> {
+        let tokens = estimate_tokens(raw);
+
         // ── 1. Pass-through checks ─────────────────────────────────────
-        if raw.len() < self.threshold_bytes {
+        if tokens < self.threshold_tokens {
             debug!(
                 tool = tool_name,
+                tokens = tokens,
                 bytes = raw.len(),
-                threshold = self.threshold_bytes,
+                threshold = self.threshold_tokens,
                 "[payload_summarizer] below threshold, passing through"
             );
             return Ok(None);
         }
-        if raw.len() > self.max_payload_bytes {
+        if tokens > self.max_payload_tokens {
             warn!(
                 tool = tool_name,
+                tokens = tokens,
                 bytes = raw.len(),
-                max = self.max_payload_bytes,
+                max = self.max_payload_tokens,
                 "[payload_summarizer] payload exceeds max cap, skipping summarization (will be truncated downstream)"
             );
             return Ok(None);
@@ -218,6 +228,7 @@ impl PayloadSummarizer for SubagentPayloadSummarizer {
         if self.breaker_tripped() {
             warn!(
                 tool = tool_name,
+                tokens = tokens,
                 bytes = raw.len(),
                 "[payload_summarizer] circuit breaker tripped, skipping summarization"
             );
@@ -226,6 +237,7 @@ impl PayloadSummarizer for SubagentPayloadSummarizer {
 
         info!(
             tool = tool_name,
+            tokens = tokens,
             bytes = raw.len(),
             "[payload_summarizer] dispatching summarizer sub-agent"
         );
@@ -296,6 +308,14 @@ impl PayloadSummarizer for SubagentPayloadSummarizer {
     }
 }
 
+/// Rough token estimate: ~4 characters per token. Mirrors
+/// [`crate::openhuman::tree_summarizer::types::estimate_tokens`] but
+/// returns `usize` (not `u32`) and lives here to avoid a cross-module
+/// dependency from the agent harness on the tree summarizer.
+fn estimate_tokens(text: &str) -> usize {
+    text.len().div_ceil(4)
+}
+
 /// Build the user-message prompt fed into the summarizer sub-agent.
 ///
 /// Wraps the raw payload in `--- BEGIN ---` / `--- END ---` markers so
@@ -350,46 +370,66 @@ mod tests {
         }
     }
 
+    // Tests use the production-default thresholds expressed as tokens:
+    // 500 000 tokens lower bound, 2 000 000 tokens upper bound.
+    // Since estimate_tokens = chars / 4, 1 char ≈ 0.25 tokens.
+    const TEST_THRESHOLD_TOKENS: usize = 500_000;
+    const TEST_MAX_TOKENS: usize = 2_000_000;
+
     #[tokio::test]
     async fn maybe_summarize_returns_none_below_threshold() {
-        let summarizer = SubagentPayloadSummarizer::new(dummy_definition(), 100_000, 5_242_880);
-        let raw = "x".repeat(1_024); // 1 KB
+        let summarizer = SubagentPayloadSummarizer::new(
+            dummy_definition(),
+            TEST_THRESHOLD_TOKENS,
+            TEST_MAX_TOKENS,
+        );
+        // 1 KB of 'x' → ~256 tokens, well below the 500 000 threshold.
+        let raw = "x".repeat(1_024);
         let outcome = summarizer
             .maybe_summarize("test_tool", None, &raw)
             .await
             .expect("below-threshold check should not error");
         assert!(
             outcome.is_none(),
-            "1 KB payload below 100 KB threshold should be passed through"
+            "~256-token payload below 500k threshold should be passed through"
         );
     }
 
     #[tokio::test]
     async fn maybe_summarize_returns_none_above_max_cap() {
-        let summarizer = SubagentPayloadSummarizer::new(dummy_definition(), 100_000, 5_242_880);
-        // 6 MB payload — above the 5 MB hard cap.
-        let raw = "x".repeat(6 * 1024 * 1024);
+        let summarizer = SubagentPayloadSummarizer::new(
+            dummy_definition(),
+            TEST_THRESHOLD_TOKENS,
+            TEST_MAX_TOKENS,
+        );
+        // 9 MB of 'x' → ~2 359 296 tokens, above the 2 000 000 cap.
+        let raw = "x".repeat(9 * 1024 * 1024);
         let outcome = summarizer
             .maybe_summarize("test_tool", None, &raw)
             .await
             .expect("above-cap check should not error");
         assert!(
             outcome.is_none(),
-            "6 MB payload above 5 MB cap should be passed through (truncation handles it downstream)"
+            "~2.36M-token payload above 2M cap should be passed through (truncation handles it downstream)"
         );
     }
 
     #[tokio::test]
     async fn maybe_summarize_returns_none_when_breaker_tripped() {
-        let summarizer = SubagentPayloadSummarizer::new(dummy_definition(), 100_000, 5_242_880);
+        let summarizer = SubagentPayloadSummarizer::new(
+            dummy_definition(),
+            TEST_THRESHOLD_TOKENS,
+            TEST_MAX_TOKENS,
+        );
         // Manually trip the breaker by recording 3 failures.
         summarizer.record_failure();
         summarizer.record_failure();
         summarizer.record_failure();
         assert!(summarizer.breaker_tripped(), "breaker should be tripped");
 
-        // 200 KB payload — would normally be summarized, but breaker is tripped.
-        let raw = "x".repeat(200_000);
+        // 3 MB of 'x' → ~786 432 tokens: inside the [500k, 2M] summarize
+        // window, so would normally dispatch — but breaker is tripped.
+        let raw = "x".repeat(3 * 1024 * 1024);
         let outcome = summarizer
             .maybe_summarize("test_tool", None, &raw)
             .await
@@ -430,7 +470,11 @@ mod tests {
 
     #[test]
     fn record_success_resets_breaker() {
-        let summarizer = SubagentPayloadSummarizer::new(dummy_definition(), 100_000, 5_242_880);
+        let summarizer = SubagentPayloadSummarizer::new(
+            dummy_definition(),
+            TEST_THRESHOLD_TOKENS,
+            TEST_MAX_TOKENS,
+        );
         summarizer.record_failure();
         summarizer.record_failure();
         assert!(!summarizer.breaker_tripped());

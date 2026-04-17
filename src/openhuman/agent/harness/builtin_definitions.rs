@@ -127,9 +127,12 @@ mod tests {
             skills.extra_tools.contains(&"file_write".to_string()),
             "skills_agent must include file_write in extra_tools"
         );
+        // csv_export was removed from extra_tools — it triggered
+        // superfluous export calls after extraction had already
+        // answered. file_write alone covers the Path B export flow.
         assert!(
-            skills.extra_tools.contains(&"csv_export".to_string()),
-            "skills_agent must include csv_export in extra_tools"
+            !skills.extra_tools.contains(&"csv_export".to_string()),
+            "csv_export should not be present in extra_tools"
         );
     }
 

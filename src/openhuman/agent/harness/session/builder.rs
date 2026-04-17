@@ -821,9 +821,42 @@ impl Agent {
             // `agent.tool_dispatcher` config to `"xml"` to revert.
             _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
         };
+
+        // Provider-side grammar decoders (e.g. Fireworks) compile every
+        // tool JSON schema into a grammar and index its rules with a
+        // uint16_t — max 65 535 rules. Large Composio toolkits (Notion,
+        // Salesforce, Gmail) produce per-action schemas dense enough
+        // that even 16–25 of them blow past that ceiling, regardless of
+        // how aggressively the fuzzy filter in `tool_filter.rs` narrows
+        // the list. When that happens the provider rejects the request
+        // with a 400 before any generation starts, so skills_agent can
+        // never actually invoke the toolkit.
+        //
+        // Workaround: if we're building skills_agent and the selected
+        // dispatcher would ship `tools: [...]` in the API payload
+        // (`should_send_tool_specs() == true`, i.e. native mode), swap
+        // to XML mode. XmlToolDispatcher puts the tool catalogue inside
+        // the system prompt as prose instead — the provider never
+        // compiles a grammar for it, so the rule-count ceiling stops
+        // mattering. Downside: slightly looser tool-call formatting
+        // than native; the existing `parse_tool_calls` recovers from
+        // stray formatting and the loop retries on malformed output.
+        let tool_dispatcher: Box<dyn ToolDispatcher> =
+            if agent_id == "skills_agent" && tool_dispatcher.should_send_tool_specs() {
+                log::info!(
+                    "[agent::builder] skills_agent: overriding native tool dispatcher with \
+                     XmlToolDispatcher (native mode hits provider grammar-rule limits on \
+                     large Composio toolkits)"
+                );
+                Box::new(XmlToolDispatcher)
+            } else {
+                tool_dispatcher
+            };
+
         log::debug!(
-            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
-             default_text_format=pformat pformat_registry_entries={}",
+            "[agent] tool dispatcher selected: choice={dispatcher_choice} agent_id={agent_id} \
+             sends_tool_specs={} default_text_format=pformat pformat_registry_entries={}",
+            tool_dispatcher.should_send_tool_specs(),
             pformat_registry.len()
         );
 
@@ -884,21 +917,22 @@ impl Agent {
             std::sync::Arc<
                 dyn crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer,
             >,
-        > = if agent_id == "orchestrator" && config.context.summarizer_payload_threshold_bytes > 0 {
+        > = if agent_id == "orchestrator" && config.context.summarizer_payload_threshold_tokens > 0
+        {
             match crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global() {
                 Some(reg) => match reg.get("summarizer") {
                     Some(summarizer_def) => {
                         log::info!(
                             "[agent::builder] wiring payload_summarizer for orchestrator: \
-                             threshold={} max={}",
-                            config.context.summarizer_payload_threshold_bytes,
-                            config.context.summarizer_max_payload_bytes
+                             threshold_tokens={} max_tokens={}",
+                            config.context.summarizer_payload_threshold_tokens,
+                            config.context.summarizer_max_payload_tokens
                         );
                         Some(std::sync::Arc::new(
                             crate::openhuman::agent::harness::payload_summarizer::SubagentPayloadSummarizer::new(
                                 summarizer_def.clone(),
-                                config.context.summarizer_payload_threshold_bytes,
-                                config.context.summarizer_max_payload_bytes,
+                                config.context.summarizer_payload_threshold_tokens,
+                                config.context.summarizer_max_payload_tokens,
                             ),
                         ))
                     }

@@ -10,10 +10,12 @@ omit_safety_preamble = false
 omit_skills_catalog = true
 category_filter = "skill"
 
-# These system tools bypass category_filter so the agent can export
-# oversized tool payloads to workspace files instead of pasting them
-# inline (see "Handling Oversized Tool Results" in prompt.md).
-extra_tools = ["file_write", "csv_export"]
+# `file_write` bypasses category_filter so the agent can save
+# oversized tool payloads to workspace files (Path B in prompt.md).
+# `csv_export` was previously included but removed — it was triggering
+# superfluous export calls even after the answer had already been
+# synthesised. Re-add here only if a typed CSV path is needed again.
+extra_tools = ["file_write"]
 
 [model]
 hint = "agentic"

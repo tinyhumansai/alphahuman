@@ -1,6 +1,6 @@
 id = "summarizer"
 display_name = "Summarizer"
-when_to_use = "Compresses oversized tool results for the orchestrator. Called automatically by the runtime when a tool returns more than summarizer_payload_threshold_bytes. Do NOT call from an LLM — this agent is runtime-dispatched only."
+when_to_use = "Compresses oversized tool results for the orchestrator. Called automatically by the runtime when a tool returns more than summarizer_payload_threshold_tokens (default 500000). Do NOT call from an LLM — this agent is runtime-dispatched only."
 temperature = 0.2
 max_iterations = 1
 sandbox_mode = "none"

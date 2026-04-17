@@ -72,25 +72,36 @@ pub struct ContextConfig {
     #[serde(default = "default_tool_result_budget_bytes")]
     pub tool_result_budget_bytes: usize,
 
-    /// Tool results larger than this byte count trigger the `summarizer`
-    /// sub-agent (orchestrator session only). The summarizer compresses
-    /// the payload into a dense note that preserves identifiers and key
-    /// facts, and the compressed summary replaces the raw payload before
-    /// it enters agent history. Set to `0` to disable summarization
-    /// entirely. Default: `100_000` (100 KB).
+    /// Tool results larger than this **token** count trigger the
+    /// `summarizer` sub-agent (orchestrator session only). The summarizer
+    /// compresses the payload into a dense note that preserves
+    /// identifiers and key facts, and the compressed summary replaces
+    /// the raw payload before it enters agent history. Set to `0` to
+    /// disable summarization entirely. Default: `500_000` tokens.
     ///
-    /// Pairs with [`Self::summarizer_max_payload_bytes`] which caps the
-    /// upper end (paying for an LLM call on a 5 MB blob makes no
+    /// Token count is estimated as `chars / 4` (the same heuristic used
+    /// by `tree_summarizer::estimate_tokens`). Pairs with
+    /// [`Self::summarizer_max_payload_tokens`] which caps the upper end
+    /// (paying for an LLM call on a multi-million-token blob makes no
     /// economic sense, so above the cap the existing
     /// [`Self::tool_result_budget_bytes`] truncation handles it instead).
-    #[serde(default = "default_summarizer_payload_threshold_bytes")]
-    pub summarizer_payload_threshold_bytes: usize,
+    #[serde(
+        default = "default_summarizer_payload_threshold_tokens",
+        alias = "summarizer_payload_threshold_bytes"
+    )]
+    pub summarizer_payload_threshold_tokens: usize,
 
-    /// Hard cap on payload size above which summarization is skipped
-    /// entirely and the existing [`Self::tool_result_budget_bytes`]
-    /// truncation path takes over. Default: `5_242_880` (5 MB).
-    #[serde(default = "default_summarizer_max_payload_bytes")]
-    pub summarizer_max_payload_bytes: usize,
+    /// Hard cap on payload size (in **tokens**) above which summarization
+    /// is skipped entirely and the existing
+    /// [`Self::tool_result_budget_bytes`] truncation path takes over.
+    /// Default: `2_000_000` tokens (above the context window of every
+    /// model we ship against — a payload this big can't be summarized
+    /// cost-effectively).
+    #[serde(
+        default = "default_summarizer_max_payload_tokens",
+        alias = "summarizer_max_payload_bytes"
+    )]
+    pub summarizer_max_payload_tokens: usize,
 
     /// Session-memory extraction thresholds (stage 5 of the pipeline).
     #[serde(default)]
@@ -132,12 +143,12 @@ fn default_tool_result_budget_bytes() -> usize {
     crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES
 }
 
-fn default_summarizer_payload_threshold_bytes() -> usize {
-    100_000
+fn default_summarizer_payload_threshold_tokens() -> usize {
+    500_000
 }
 
-fn default_summarizer_max_payload_bytes() -> usize {
-    5_242_880
+fn default_summarizer_max_payload_tokens() -> usize {
+    2_000_000
 }
 
 impl Default for ContextConfig {
@@ -151,8 +162,8 @@ impl Default for ContextConfig {
             reserve_output_tokens: default_reserve_output_tokens(),
             microcompact_keep_recent: default_microcompact_keep_recent(),
             tool_result_budget_bytes: default_tool_result_budget_bytes(),
-            summarizer_payload_threshold_bytes: default_summarizer_payload_threshold_bytes(),
-            summarizer_max_payload_bytes: default_summarizer_max_payload_bytes(),
+            summarizer_payload_threshold_tokens: default_summarizer_payload_threshold_tokens(),
+            summarizer_max_payload_tokens: default_summarizer_max_payload_tokens(),
             session_memory: SessionMemoryConfig::default(),
             summarizer_model: None,
         }
