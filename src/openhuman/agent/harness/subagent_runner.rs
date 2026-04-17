@@ -37,9 +37,10 @@ use crate::openhuman::context::prompt::{
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolCategory, ToolResult, ToolSpec};
 use async_trait::async_trait;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -955,27 +956,49 @@ async fn run_inner_loop(
             // next turn. Errors and already-extracted output go through
             // unchanged — no point handing off a 200-byte error or an
             // already-compressed summary.
+            //
+            // Cleaning happens before the size check so HTML-heavy tool
+            // outputs (Gmail bodies, HTML-embedded Notion blocks) that
+            // drop below threshold after stripping markup skip the
+            // extract pipeline entirely. For anything still over
+            // threshold, the cache stores the cleaned text — chunks see
+            // real content, not `<div>` soup.
             let result_text = if let Some(cache) = handoff_cache {
-                let tokens = result_text.len().div_ceil(4);
-                if call.name != "extract_from_result"
-                    && !result_text.starts_with("Error")
-                    && tokens > HANDOFF_OVERSIZE_THRESHOLD_TOKENS
-                {
-                    let id = cache.store(call.name.clone(), result_text.clone());
-                    let placeholder = build_handoff_placeholder(&call.name, &id, &result_text);
+                let skip_cleaning =
+                    call.name == "extract_from_result" || result_text.starts_with("Error");
+                let cleaned = if skip_cleaning {
+                    result_text
+                } else {
+                    let pre_len = result_text.len();
+                    let cleaned = clean_tool_output(&result_text);
+                    if cleaned.len() < pre_len {
+                        tracing::debug!(
+                            tool = %call.name,
+                            before_bytes = pre_len,
+                            after_bytes = cleaned.len(),
+                            saved_pct = ((pre_len - cleaned.len()) * 100) / pre_len.max(1),
+                            "[subagent_runner:handoff] cleaned tool output (stripped markup/data-uris/whitespace)"
+                        );
+                    }
+                    cleaned
+                };
+                let tokens = cleaned.len().div_ceil(4);
+                if !skip_cleaning && tokens > HANDOFF_OVERSIZE_THRESHOLD_TOKENS {
+                    let id = cache.store(call.name.clone(), cleaned.clone());
+                    let placeholder = build_handoff_placeholder(&call.name, &id, &cleaned);
                     tracing::info!(
                         task_id = %task_id,
                         agent_id = %agent_id,
                         tool = %call.name,
                         raw_tokens = tokens,
-                        raw_bytes = result_text.len(),
+                        raw_bytes = cleaned.len(),
                         threshold_tokens = HANDOFF_OVERSIZE_THRESHOLD_TOKENS,
                         result_id = %id,
                         "[subagent_runner:handoff] stashed oversized tool output; substituted placeholder into history"
                     );
                     placeholder
                 } else {
-                    result_text
+                    cleaned
                 }
             } else {
                 result_text
@@ -1123,13 +1146,20 @@ impl ResultHandoffCache {
 }
 
 /// Build the placeholder text that replaces an oversized tool result in
-/// the sub-agent's history. Shows the payload size, a preview, and a
-/// call shape for the `extract_from_result` tool. The sub-agent decides
-/// whether to answer from the preview or dispatch the extractor.
+/// the sub-agent's history. Shows the payload size (estimated tokens
+/// and raw bytes), a preview, and a call shape for the
+/// `extract_from_result` tool. The sub-agent decides whether to answer
+/// from the preview or dispatch the extractor.
+///
+/// Token count is estimated at ~4 chars/token (same heuristic as the
+/// trigger threshold in `HANDOFF_OVERSIZE_THRESHOLD_TOKENS`), so the
+/// unit the sub-agent sees matches the unit the runtime used to decide
+/// to hand off in the first place.
 fn build_handoff_placeholder(tool_name: &str, result_id: &str, raw: &str) -> String {
     let preview: String = raw.chars().take(HANDOFF_PREVIEW_CHARS).collect();
+    let raw_tokens = raw.len().div_ceil(4);
     format!(
-        "[oversized tool output: {raw_bytes} bytes — stashed as result_id=\"{result_id}\"]\n\
+        "[oversized tool output: {raw_tokens} tokens ({raw_bytes} bytes) — stashed as result_id=\"{result_id}\"]\n\
          Preview (first {preview_chars} chars):\n{preview}\n\n\
          If the preview does not answer your task, call:\n\
          extract_from_result(result_id=\"{result_id}\", query=\"<specific question>\")\n\
@@ -1227,7 +1257,7 @@ impl Tool for ExtractFromResultTool {
                 .await;
         }
 
-        // Slow path: chunk + map-reduce. A single summarizer call on a
+        // Slow path: chunk + parallel map. A single summarizer call on a
         // payload large enough to need the handoff (hundreds of KB
         // common for Gmail/Notion list operations) risks either (a)
         // overflowing the summarizer's own context window, or (b)
@@ -1236,6 +1266,15 @@ impl Tool for ExtractFromResultTool {
         // them in parallel keeps each summarizer turn under its
         // context budget and usually finishes faster than a sequential
         // single-shot call on the whole blob.
+        //
+        // No reduce stage: per-chunk summaries are concatenated in
+        // original chunk order. The reduce LLM call previously used
+        // here added latency (often the slowest single turn of the
+        // whole pipeline) and was the single point of failure when
+        // the upstream provider hung — a hung reduce could burn
+        // minutes before giving up. For listing/extraction queries
+        // concatenation is equivalent; for top-N / global-ordering
+        // queries the caller can post-process.
         let chunks = chunk_content(&cached.content, SUMMARIZER_CHUNK_CHAR_BUDGET);
         tracing::info!(
             tool = %cached.tool_name,
@@ -1279,19 +1318,27 @@ impl Tool for ExtractFromResultTool {
                     idx = i + 1,
                     total = total_chunks,
                 );
-                run_subagent(&summarizer_def, &prompt, SubagentRunOptions::default()).await
+                (
+                    i,
+                    run_subagent(&summarizer_def, &prompt, SubagentRunOptions::default()).await,
+                )
             }
         });
 
         use futures::stream::StreamExt;
-        let map_results: Vec<_> = futures::stream::iter(map_futures)
+        let mut map_results: Vec<(usize, _)> = futures::stream::iter(map_futures)
             .buffer_unordered(MAP_CONCURRENCY)
             .collect()
             .await;
+        // `buffer_unordered` yields futures in completion order; restore
+        // original chunk order so the concatenated output matches the
+        // natural ordering of the underlying tool result (e.g. Notion's
+        // reverse-chrono page list).
+        map_results.sort_by_key(|(i, _)| *i);
 
         let partials: Vec<String> = map_results
             .into_iter()
-            .filter_map(|r| match r {
+            .filter_map(|(i, r)| match r {
                 Ok(outcome) => {
                     let trimmed = outcome.output.trim();
                     if trimmed.is_empty() {
@@ -1302,6 +1349,7 @@ impl Tool for ExtractFromResultTool {
                 }
                 Err(e) => {
                     tracing::warn!(
+                        chunk_idx = i,
                         error = %e,
                         "[extract_from_result] map-stage summarizer call failed; dropping partial"
                     );
@@ -1316,57 +1364,10 @@ impl Tool for ExtractFromResultTool {
             ));
         }
 
-        // Reduce stage: if only one chunk had content, return it
-        // directly — no need to pay for a merge turn. Otherwise ask
-        // the summarizer to consolidate, deduplicate, and reconcile
-        // ordering (e.g. "5 most recent" might span chunks).
-        if partials.len() == 1 {
-            return Ok(ToolResult::success(partials.into_iter().next().unwrap()));
-        }
-
-        let reduce_prompt = format!(
-            "Query: {query}\n\n\
-             Below are {n} partial answers extracted from separate slices of \
-             a larger tool output. Consolidate them into a single direct \
-             answer to the query. Deduplicate, reconcile ordering (e.g. if \
-             the query asks for N most recent, sort by timestamp across all \
-             slices and keep only N), and preserve identifiers exactly as \
-             they appear. No preamble.\n\n\
-             {partials}",
-            n = partials.len(),
-            partials = partials
-                .iter()
-                .enumerate()
-                .map(|(i, p)| format!("--- Partial {} ---\n{}", i + 1, p))
-                .collect::<Vec<_>>()
-                .join("\n\n"),
-        );
-
-        match run_subagent(
-            &self.summarizer_def,
-            &reduce_prompt,
-            SubagentRunOptions::default(),
-        )
-        .await
-        {
-            Ok(run) => {
-                let trimmed = run.output.trim();
-                if trimmed.is_empty() {
-                    // Reduce returned empty — fall back to concatenated
-                    // partials rather than pretend there's no answer.
-                    Ok(ToolResult::success(partials.join("\n\n---\n\n")))
-                } else {
-                    Ok(ToolResult::success(trimmed.to_string()))
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "[extract_from_result] reduce-stage failed; returning raw concatenation"
-                );
-                Ok(ToolResult::success(partials.join("\n\n---\n\n")))
-            }
-        }
+        // Concatenate per-chunk summaries in original chunk order.
+        // `join` with a single partial yields it unchanged (no trailing
+        // separator), so no special-case is needed.
+        Ok(ToolResult::success(partials.join("\n\n---\n\n")))
     }
 }
 
@@ -1413,6 +1414,55 @@ const SUMMARIZER_CHUNK_CHAR_BUDGET: usize = 60_000;
 /// at natural boundaries (blank lines, then single newlines) so the
 /// summarizer rarely sees a structure torn mid-record. Falls back to
 /// char-safe slicing for pathological single-line inputs.
+/// Strip common noise from tool outputs before they're stashed or chunked.
+///
+/// Agent tools frequently return raw HTML email bodies, inline SVG, base64
+/// data URIs, CSS/JS blocks, and collapsed whitespace — all of which bloat
+/// the handoff cache and waste summarizer context on tokens that carry
+/// zero semantic value for most extraction queries. Cleaning before the
+/// oversize check means (a) some payloads drop below threshold entirely
+/// and skip the extract pipeline, (b) chunked payloads fit more real
+/// content per chunk, and (c) summarizers see clean text instead of
+/// parsing around markup.
+///
+/// Applied generically to every tool output — no per-tool gating. The
+/// patterns below target universally-noisy markup; non-HTML outputs
+/// (plain JSON, plain text) are left essentially untouched because none
+/// of these regexes match.
+fn clean_tool_output(content: &str) -> String {
+    // Block-level containers with entirely useless payloads — match lazily
+    // across lines, case-insensitive. `(?s)` enables `.` matching `\n`.
+    static SCRIPT_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?is)<script\b[^>]*>.*?</script\s*>").unwrap());
+    static STYLE_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?is)<style\b[^>]*>.*?</style\s*>").unwrap());
+    static SVG_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?is)<svg\b[^>]*>.*?</svg\s*>").unwrap());
+    static HTML_COMMENT_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)<!--.*?-->").unwrap());
+    // `data:<mime>;base64,<...>` inline payloads — keep the agent aware
+    // an image/asset was there, but drop the bytes.
+    static DATA_URI_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)data:[a-z0-9.+\-/]+;base64,[A-Za-z0-9+/=]+").unwrap());
+    // Everything remaining that still looks like an HTML tag — strip the
+    // tag but keep the text content. Deliberately greedy across attributes
+    // but not across `>` so we don't eat inter-tag content.
+    static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
+    // Runs of whitespace → single space; collapse vertical bloat.
+    static WS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t\f\v]+").unwrap());
+    static BLANK_LINE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
+
+    let cleaned = SCRIPT_RE.replace_all(content, "");
+    let cleaned = STYLE_RE.replace_all(&cleaned, "");
+    let cleaned = SVG_RE.replace_all(&cleaned, "[svg]");
+    let cleaned = HTML_COMMENT_RE.replace_all(&cleaned, "");
+    let cleaned = DATA_URI_RE.replace_all(&cleaned, "[data-uri]");
+    let cleaned = HTML_TAG_RE.replace_all(&cleaned, "");
+    let cleaned = WS_RE.replace_all(&cleaned, " ");
+    let cleaned = BLANK_LINE_RE.replace_all(&cleaned, "\n\n");
+    cleaned.trim().to_string()
+}
+
 fn chunk_content(content: &str, budget: usize) -> Vec<String> {
     if content.len() <= budget {
         return vec![content.to_string()];
