@@ -516,7 +516,7 @@ fn render_subagent_dump(
         PromptSource::Inline(body) => body.clone(),
         PromptSource::Dynamic(build) => {
             use crate::openhuman::agent::harness::definition::{PromptContext, ToolSummary};
-            let tool_summaries: Vec<ToolSummary<'_>> = tools_vec
+            let tool_summaries: Vec<ToolSummary> = tools_vec
                 .iter()
                 .map(|t| ToolSummary {
                     name: t.name(),

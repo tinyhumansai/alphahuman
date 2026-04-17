@@ -34,10 +34,11 @@ pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
 mod tests {
     use super::*;
     use crate::openhuman::agent::harness::definition::ToolSummary;
+    use crate::openhuman::context::prompt::ConnectedIntegration;
 
     fn ctx_with<'a>(
         tools: &'a [ToolSummary<'a>],
-        integrations: &'a [crate::openhuman::context::prompt::ConnectedIntegration],
+        integrations: &'a [ConnectedIntegration],
     ) -> PromptContext<'a> {
         PromptContext {
             agent_id: "orchestrator",
@@ -51,8 +52,8 @@ mod tests {
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<ToolSummary<'_>> = Vec::new();
-        let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
+        let integrations: Vec<ConnectedIntegration> = Vec::new();
         let body = build(&ctx_with(&tools, &integrations)).unwrap();
         assert!(!body.is_empty());
         assert!(!body.contains("## Available Tools"));
@@ -70,7 +71,7 @@ mod tests {
                 description: "Recall persisted memory.",
             },
         ];
-        let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
+        let integrations: Vec<ConnectedIntegration> = Vec::new();
         let body = build(&ctx_with(&tools, &integrations)).unwrap();
         assert!(body.contains("## Available Tools"));
         assert!(body.contains("- `spawn_subagent` — Delegate to a specialised sub-agent."));
@@ -79,8 +80,7 @@ mod tests {
 
     #[test]
     fn build_appends_connected_integrations_from_live_context() {
-        use crate::openhuman::context::prompt::ConnectedIntegration;
-        let tools: Vec<ToolSummary<'_>> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
         let integrations = vec![
             ConnectedIntegration {
                 toolkit: "gmail".into(),

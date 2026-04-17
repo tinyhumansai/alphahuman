@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<ToolSummary<'_>> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
         let integrations: Vec<ConnectedIntegration> = Vec::new();
         let body = build(&ctx_with(&tools, &integrations)).unwrap();
         assert!(!body.is_empty());
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn build_lists_connected_integrations_only() {
-        let tools: Vec<ToolSummary<'_>> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
         let integrations = vec![
             ConnectedIntegration {
                 toolkit: "gmail".into(),

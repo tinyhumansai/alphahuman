@@ -322,9 +322,9 @@ fn extract_inline_prompt(def: &AgentDefinition) -> Option<String> {
         PromptSource::Inline(body) if !body.is_empty() => Some(body.clone()),
         PromptSource::Dynamic(build) => {
             use crate::openhuman::agent::harness::definition::{PromptContext, ToolSummary};
-            let empty_tools: Vec<ToolSummary<'_>> = Vec::new();
-            let empty_integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> =
-                Vec::new();
+            use crate::openhuman::context::prompt::ConnectedIntegration;
+            let empty_tools: Vec<ToolSummary> = Vec::new();
+            let empty_integrations: Vec<ConnectedIntegration> = Vec::new();
             let ctx = PromptContext {
                 agent_id: &def.id,
                 workspace_dir: std::path::Path::new("."),

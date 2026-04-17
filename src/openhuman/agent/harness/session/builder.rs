@@ -614,12 +614,13 @@ impl Agent {
                         use crate::openhuman::agent::harness::definition::{
                             PromptContext, ToolSummary,
                         };
+                        use crate::openhuman::context::prompt::ConnectedIntegration;
                         // Tools are already resolved at this point, so
                         // we pass them straight through to the dynamic
                         // builder — `render_tool_catalog` can then
                         // produce an accurate "## Available Tools"
                         // section in the rendered prompt.
-                        let tool_summaries: Vec<ToolSummary<'_>> = tools
+                        let tool_summaries: Vec<ToolSummary> = tools
                             .iter()
                             .map(|t| ToolSummary {
                                 name: t.name(),
@@ -642,9 +643,7 @@ impl Agent {
                         // `subagent_runner::run_typed_mode` which
                         // always passes the parent's live
                         // `narrowed_integrations`.
-                        let empty_integrations: Vec<
-                            crate::openhuman::context::prompt::ConnectedIntegration,
-                        > = Vec::new();
+                        let empty_integrations: Vec<ConnectedIntegration> = Vec::new();
                         let ctx = PromptContext {
                             agent_id: &def.id,
                             workspace_dir: &config.workspace_dir,

@@ -1,10 +1,7 @@
 //! System prompt builder for the `researcher` built-in agent.
 //!
-//! Today the body is a static template `include_str!`'d from the
-//! sibling `prompt.md`. The signature is already `fn(&PromptContext)
-//! -> Result<String>` so future revisions can branch on available
-//! tools, connected integrations, or the parent model without
-//! changing the call surface or the registry wiring.
+//! Renders the sibling `prompt.md` template and appends a live tool
+//! catalog derived from [`PromptContext::available_tools`].
 
 use crate::openhuman::agent::harness::definition::{render_tool_catalog, PromptContext};
 use anyhow::Result;
@@ -16,9 +13,7 @@ pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
     out.push_str(TEMPLATE.trim_end());
     let catalog = render_tool_catalog(ctx.available_tools);
     if !catalog.is_empty() {
-        out.push_str("
-
-");
+        out.push_str("\n\n");
         out.push_str(&catalog);
     }
     Ok(out)
@@ -27,11 +22,13 @@ pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::agent::harness::definition::ToolSummary;
+    use crate::openhuman::context::prompt::ConnectedIntegration;
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<crate::openhuman::agent::harness::definition::ToolSummary<'_>> = Vec::new();
-        let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
+        let integrations: Vec<ConnectedIntegration> = Vec::new();
         let ctx = PromptContext {
             agent_id: "researcher",
             workspace_dir: std::path::Path::new("."),

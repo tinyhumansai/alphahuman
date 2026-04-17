@@ -1,10 +1,8 @@
 //! System prompt builder for the `archivist` built-in agent.
 //!
-//! Today the body is a static template `include_str!`'d from the
-//! sibling `prompt.md`. The signature is already `fn(&PromptContext)
-//! -> Result<String>` so future revisions can branch on available
-//! tools, connected integrations, or the parent model without
-//! changing the call surface or the registry wiring.
+//! Body is the sibling `prompt.md` template. The `fn(&PromptContext)
+//! -> Result<String>` signature leaves room for future revisions to
+//! branch on runtime state without changing the loader wiring.
 
 use crate::openhuman::agent::harness::definition::PromptContext;
 use anyhow::Result;
@@ -18,11 +16,13 @@ pub fn build(_ctx: &PromptContext<'_>) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::agent::harness::definition::ToolSummary;
+    use crate::openhuman::context::prompt::ConnectedIntegration;
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<crate::openhuman::agent::harness::definition::ToolSummary<'_>> = Vec::new();
-        let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
+        let tools: Vec<ToolSummary> = Vec::new();
+        let integrations: Vec<ConnectedIntegration> = Vec::new();
         let ctx = PromptContext {
             agent_id: "archivist",
             workspace_dir: std::path::Path::new("."),
