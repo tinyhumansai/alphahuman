@@ -755,11 +755,7 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
                 .map(|tier| tier.as_str().to_string())
                 .or_else(|| (!normalized.is_empty()).then_some(normalized))
         });
-        // MVP: expose only the single allowed tier (`ram_2_4gb` / `gemma3:1b-it-qat`).
-        // The full preset catalog is still available in Rust via `all_presets()`
-        // for internal use (e.g., honoring a legacy `selected_tier`), but the UI
-        // should render a single opt-in option, not 5 tier choices.
-        let presets = crate::openhuman::local_ai::presets::mvp_presets();
+        let presets = crate::openhuman::local_ai::presets::all_presets();
         tracing::debug!(
             ?recommended,
             ?current,
