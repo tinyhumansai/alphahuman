@@ -28,11 +28,12 @@
 //! - **Fork-mode prefix replay** — `uses_fork_context` definitions
 //!   replay the parent's exact bytes for backend prefix-cache hits.
 
-use super::definition::{AgentDefinition, PromptContext, PromptSource, ToolScope, ToolSummary};
+use super::definition::{AgentDefinition, PromptSource, ToolScope};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
 use super::session::transcript;
 use crate::openhuman::context::prompt::{
-    extract_cache_boundary, render_subagent_system_prompt, SubagentRenderOptions,
+    extract_cache_boundary, render_subagent_system_prompt, PromptContext, PromptTool,
+    SubagentRenderOptions,
 };
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolCategory, ToolResult, ToolSpec};
@@ -494,47 +495,73 @@ async fn run_typed_mode(
         };
     // ── Resolve archetype prompt body (post-filter) ────────────────────
     //
-    // Build a `ToolSummary` list describing the sub-agent's final
-    // toolset — parent tools kept after scope/disallow/category
-    // filtering plus any dynamically-constructed tools (Composio
-    // per-action, ExtractFromResult, …). Passing this into
-    // `PromptContext` lets dynamic prompts render an accurate "##
-    // Available Tools" section via `render_tool_catalog`.
-    let prompt_tool_summaries: Vec<ToolSummary<'_>> = allowed_indices
+    // Build a live [`PromptContext`] — same shape the main agent uses
+    // on every turn — so `Dynamic` builders can compose the full
+    // system prompt via the section helpers in
+    // [`crate::openhuman::context::prompt`]. `Inline` / `File` sources
+    // continue to use the legacy `render_subagent_system_prompt`
+    // wrapper.
+    let prompt_tools: Vec<PromptTool<'_>> = allowed_indices
         .iter()
         .map(|&i| {
             let t = parent.all_tools[i].as_ref();
-            ToolSummary {
+            PromptTool {
                 name: t.name(),
                 description: t.description(),
+                parameters_schema: Some(t.parameters_schema().to_string()),
             }
         })
-        .chain(dynamic_tools.iter().map(|t| ToolSummary {
+        .chain(dynamic_tools.iter().map(|t| PromptTool {
             name: t.name(),
             description: t.description(),
+            parameters_schema: Some(t.parameters_schema().to_string()),
         }))
         .collect();
+    let empty_visible: std::collections::HashSet<String> = std::collections::HashSet::new();
     let prompt_ctx = PromptContext {
-        agent_id: &definition.id,
         workspace_dir: &parent.workspace_dir,
-        parent_model: &model,
-        available_tools: &prompt_tool_summaries,
-        memory_context: parent.memory_context.as_deref(),
+        model_name: &model,
+        agent_id: &definition.id,
+        tools: &prompt_tools,
+        skills: &parent.skills,
+        dispatcher_instructions: "",
+        learned: crate::openhuman::context::prompt::LearnedContextData::default(),
+        visible_tool_names: &empty_visible,
+        tool_call_format: parent.tool_call_format,
         connected_integrations: &narrowed_integrations,
+        include_profile: !definition.omit_profile,
+        include_memory_md: !definition.omit_memory_md,
     };
-    let archetype_prompt_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)?;
 
-    let rendered_prompt = extract_cache_boundary(&render_subagent_system_prompt(
-        &parent.workspace_dir,
-        &model,
-        &allowed_indices,
-        &parent.all_tools,
-        &dynamic_tools,
-        &archetype_prompt_body,
-        render_options,
-        parent.tool_call_format,
-        &narrowed_integrations,
-    ));
+    let rendered_prompt = match &definition.system_prompt {
+        PromptSource::Dynamic(build) => {
+            // Function-driven builder returns the *final* prompt text,
+            // potentially containing a `CACHE_BOUNDARY` marker that
+            // `extract_cache_boundary` strips on the way out.
+            let text =
+                build(&prompt_ctx).map_err(|e| SubagentRunError::PromptLoad {
+                    path: format!("<dynamic:{}>", definition.id),
+                    source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                })?;
+            extract_cache_boundary(&text)
+        }
+        PromptSource::Inline(_) | PromptSource::File { .. } => {
+            // Legacy path for TOML-authored agents: load the raw body,
+            // then wrap it with the canonical section layout.
+            let archetype_prompt_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)?;
+            extract_cache_boundary(&render_subagent_system_prompt(
+                &parent.workspace_dir,
+                &model,
+                &allowed_indices,
+                &parent.all_tools,
+                &dynamic_tools,
+                &archetype_prompt_body,
+                render_options,
+                parent.tool_call_format,
+                &narrowed_integrations,
+            ))
+        }
+    };
     let system_prompt = rendered_prompt.text;
     let system_prompt_cache_boundary = rendered_prompt.cache_boundary;
 

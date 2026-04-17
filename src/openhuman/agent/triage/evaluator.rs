@@ -321,17 +321,26 @@ fn extract_inline_prompt(def: &AgentDefinition) -> Option<String> {
     match &def.system_prompt {
         PromptSource::Inline(body) if !body.is_empty() => Some(body.clone()),
         PromptSource::Dynamic(build) => {
-            use crate::openhuman::agent::harness::definition::{PromptContext, ToolSummary};
-            use crate::openhuman::context::prompt::ConnectedIntegration;
-            let empty_tools: Vec<ToolSummary> = Vec::new();
+            use crate::openhuman::context::prompt::{
+                ConnectedIntegration, LearnedContextData, PromptContext, PromptTool, ToolCallFormat,
+            };
+            let empty_tools: Vec<PromptTool<'_>> = Vec::new();
             let empty_integrations: Vec<ConnectedIntegration> = Vec::new();
+            let empty_visible: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             let ctx = PromptContext {
-                agent_id: &def.id,
                 workspace_dir: std::path::Path::new("."),
-                parent_model: "",
-                available_tools: &empty_tools,
-                memory_context: None,
+                model_name: "",
+                agent_id: &def.id,
+                tools: &empty_tools,
+                skills: &[],
+                dispatcher_instructions: "",
+                learned: LearnedContextData::default(),
+                visible_tool_names: &empty_visible,
+                tool_call_format: ToolCallFormat::PFormat,
                 connected_integrations: &empty_integrations,
+                include_profile: false,
+                include_memory_md: false,
             };
             match build(&ctx) {
                 Ok(body) if !body.is_empty() => Some(body),

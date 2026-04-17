@@ -13,7 +13,7 @@ use crate::openhuman::agent::dispatcher::{
 use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::openhuman::config::{Config, ContextConfig};
-use crate::openhuman::context::prompt::SystemPromptBuilder;
+use crate::openhuman::context::prompt::{SystemPromptBuilder, ToolCallFormat};
 use crate::openhuman::context::{ContextManager, ProviderSummarizer};
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{self, Provider};
@@ -608,57 +608,61 @@ impl Agent {
                 // at crate-build time from the sibling `prompt.md` via
                 // `include_str!` in `agents/mod.rs`. File-based prompts
                 // (custom workspace overrides) read from disk.
+                // Dynamic prompts return the *final* assembled body.
+                // When a `Dynamic` builder is in play we skip the usual
+                // `SystemPromptBuilder::for_subagent` section-wrapping
+                // and install the full body directly via
+                // `from_final_body`. `Inline`/`File` sources still
+                // resolve to just the archetype body and get wrapped
+                // below.
+                enum PromptResolution {
+                    Body(String),
+                    FinalBody(String),
+                }
                 let body = match &def.system_prompt {
-                    PromptSource::Inline(text) => text.clone(),
+                    PromptSource::Inline(text) => PromptResolution::Body(text.clone()),
                     PromptSource::Dynamic(build) => {
-                        use crate::openhuman::agent::harness::definition::{
-                            PromptContext, ToolSummary,
+                        use crate::openhuman::context::prompt::{
+                            ConnectedIntegration, LearnedContextData, PromptContext, PromptTool,
                         };
-                        use crate::openhuman::context::prompt::ConnectedIntegration;
-                        // Tools are already resolved at this point, so
-                        // we pass them straight through to the dynamic
-                        // builder — `render_tool_catalog` can then
-                        // produce an accurate "## Available Tools"
-                        // section in the rendered prompt.
-                        let tool_summaries: Vec<ToolSummary> = tools
+                        let prompt_tools: Vec<PromptTool<'_>> = tools
                             .iter()
-                            .map(|t| ToolSummary {
+                            .map(|t| PromptTool {
                                 name: t.name(),
                                 description: t.description(),
+                                parameters_schema: Some(t.parameters_schema().to_string()),
                             })
                             .collect();
-                        // NOTE: connected_integrations are genuinely
-                        // unavailable at session-build time — they are
-                        // fetched asynchronously from Composio in
-                        // `fetch_connected_integrations` on first turn
-                        // (see `session/turn.rs`). Because the archetype
-                        // body is baked into `ArchetypePromptSection`
-                        // once, live integrations only reach main
-                        // agents through the orchestrator's default
-                        // layout (`ConnectedIntegrationsSection` in
-                        // `with_defaults`). Narrow main agents (welcome,
-                        // trigger pair) that need a live integrations
-                        // list today get it via the orchestrator's
-                        // delegation guide. Sub-agent spawns go through
-                        // `subagent_runner::run_typed_mode` which
-                        // always passes the parent's live
-                        // `narrowed_integrations`.
+                        let empty_visible: std::collections::HashSet<String> =
+                            std::collections::HashSet::new();
+                        // NOTE: `connected_integrations` are fetched
+                        // asynchronously on first turn — empty here.
+                        // The per-turn rebuild in `session/turn.rs`
+                        // will supply live integrations once they're
+                        // available.
                         let empty_integrations: Vec<ConnectedIntegration> = Vec::new();
                         let ctx = PromptContext {
-                            agent_id: &def.id,
                             workspace_dir: &config.workspace_dir,
-                            parent_model: &model_name,
-                            available_tools: &tool_summaries,
-                            memory_context: None,
+                            model_name: &model_name,
+                            agent_id: &def.id,
+                            tools: &prompt_tools,
+                            skills: &[],
+                            dispatcher_instructions: "",
+                            learned: LearnedContextData::default(),
+                            visible_tool_names: &empty_visible,
+                            tool_call_format: ToolCallFormat::PFormat,
                             connected_integrations: &empty_integrations,
+                            include_profile: !def.omit_profile,
+                            include_memory_md: !def.omit_memory_md,
                         };
-                        build(&ctx).unwrap_or_else(|e| {
+                        let rendered = build(&ctx).unwrap_or_else(|e| {
                             log::warn!(
                                 "[agent::builder] dynamic prompt for `{}` failed: {e} — using empty body",
                                 def.id
                             );
                             String::new()
-                        })
+                        });
+                        PromptResolution::FinalBody(rendered)
                     }
                     PromptSource::File { path } => {
                         let workspace_path = config
@@ -666,7 +670,7 @@ impl Agent {
                             .join("agent")
                             .join("prompts")
                             .join(path);
-                        if workspace_path.is_file() {
+                        let body_text = if workspace_path.is_file() {
                             std::fs::read_to_string(&workspace_path).unwrap_or_else(|e| {
                                 log::warn!(
                                     "[agent::builder] failed to read prompt {}: {e} — using empty body",
@@ -680,15 +684,21 @@ impl Agent {
                                 path
                             );
                             String::new()
-                        }
+                        };
+                        PromptResolution::Body(body_text)
                     }
                 };
-                SystemPromptBuilder::for_subagent(
-                    body,
-                    def.omit_identity,
-                    def.omit_safety_preamble,
-                    def.omit_skills_catalog,
-                )
+                match body {
+                    PromptResolution::FinalBody(final_text) => {
+                        SystemPromptBuilder::from_final_body(final_text)
+                    }
+                    PromptResolution::Body(archetype) => SystemPromptBuilder::for_subagent(
+                        archetype,
+                        def.omit_identity,
+                        def.omit_safety_preamble,
+                        def.omit_skills_catalog,
+                    ),
+                }
             }
             _ => SystemPromptBuilder::with_defaults(),
         };

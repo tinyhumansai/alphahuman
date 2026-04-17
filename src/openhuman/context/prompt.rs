@@ -325,6 +325,20 @@ impl SystemPromptBuilder {
         Self { sections }
     }
 
+    /// Build from a fully-assembled prompt string — no section wrapping.
+    ///
+    /// Used when the caller has already composed the final prompt (e.g.
+    /// via a function-driven `PromptSource::Dynamic` builder that calls
+    /// the `render_*` section helpers itself). The returned builder has
+    /// a single [`ArchetypePromptSection`] containing the body verbatim;
+    /// `build_with_cache_metadata` still runs `extract_cache_boundary`
+    /// on the output so embedded `CACHE_BOUNDARY` markers are honoured.
+    pub fn from_final_body(body: String) -> Self {
+        Self {
+            sections: vec![Box::new(ArchetypePromptSection::new(body))],
+        }
+    }
+
     pub fn add_section(mut self, section: Box<dyn PromptSection>) -> Self {
         self.sections.push(section);
         self
