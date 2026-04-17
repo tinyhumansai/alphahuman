@@ -73,13 +73,28 @@
     try {
       const img = row.querySelector('img[alt]');
       if (img) {
-        const name = (img.getAttribute('alt') || '').trim();
-        if (name) return name;
+        const alt = (img.getAttribute('alt') || '').trim();
+        // Skip icon alts ("arrow_downward", "avatar", etc).
+        if (alt && alt.length > 1 && !looksLikeIconLigature(alt) &&
+            !/^avatar$/i.test(alt)) {
+          return alt;
+        }
       }
       const self = row.querySelector('[data-self-name]');
       if (self) {
         const name = (self.getAttribute('data-self-name') || '').trim();
         if (name) return name;
+      }
+      // Current Meet layout: speaker display name is the first non-empty
+      // <span> inside the row (e.g. "You", "Alice"). Use it as a fallback
+      // as long as it doesn't look like icon/chrome text.
+      const spans = row.querySelectorAll('span');
+      for (let i = 0; i < spans.length; i++) {
+        const t = (spans[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if (!t) continue;
+        if (looksLikeIconLigature(t)) continue;
+        if (t.length > 40) continue; // too long to be a display name
+        return t;
       }
     } catch (_) {}
     return 'Unknown';
@@ -91,45 +106,287 @@
   // and aren't the `[data-self-name]` node.
   function rowText(row) {
     try {
-      // Fast path: Meet currently wraps the actual words in a
-      // `div > span` pair directly under the row. Grab the deepest span
-      // with non-empty text.
+      // Current Meet layout (2026-04): the row's textContent concatenates
+      // the speaker display name (inside a <span>) and the live caption
+      // text (a sibling text node), with no separator — e.g.
+      // "YouMake a massive improvement...". Picking the longest span
+      // returns only "You"; we want the text AFTER the speaker span.
+      const full = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!full) return '';
+      // Prefer stripping the first non-empty span's text from the front.
       const spans = row.querySelectorAll('span');
-      let best = '';
+      let prefix = '';
       for (let i = 0; i < spans.length; i++) {
-        const t = textOf(spans[i]);
-        if (t.length > best.length) best = t;
+        const t = (spans[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if (t) {
+          prefix = t;
+          break;
+        }
       }
-      if (best) return best;
-      return textOf(row);
+      let stripped = full;
+      if (prefix && full.toLowerCase().startsWith(prefix.toLowerCase())) {
+        stripped = full.slice(prefix.length).trim();
+      }
+      // Drop the "Jump to bottom" chrome if it trails the caption.
+      stripped = stripped.replace(/\s*arrow_downward\s*Jump to bottom\s*$/i, '').trim();
+      return stripped;
     } catch (_) {
       return textOf(row);
     }
   }
 
-  function captionRows() {
-    // Two selectors kept in a single query so we degrade gracefully if
-    // Meet swaps the jsname: fall back to anything labelled "captions".
-    let region = null;
+  // Reject text that's clearly a Material Icon ligature rather than real
+  // caption content. Meet's toolbar buttons (e.g. "closed_caption_off",
+  // "settings", "mic_off") render the icon name as textContent because the
+  // Material Symbols font turns ligatures into glyphs. Real captions are
+  // natural language, so anything that's a single snake_case token is noise.
+  function looksLikeIconLigature(text) {
+    if (!text) return true;
+    const t = text.trim();
+    if (!t) return true;
+    // Single token, all lowercase letters / digits / underscores: icon name.
+    if (/^[a-z0-9_]+$/.test(t) && t.length < 40) return true;
+    return false;
+  }
+
+  // Heuristic: real caption lines look like natural language — they contain
+  // at least one whitespace separator once they're more than a word or two
+  // long, and they rarely contain the same token concatenated with itself
+  // (which is what Meet's IconButton tooltip + label fusion produces, e.g.
+  // "closeClose", "settingsSettings", "micMic off").
+  function looksLikeCaptionLine(text) {
+    if (!text) return false;
+    const t = text.trim();
+    if (t.length < 3) return false;
+    if (looksLikeIconLigature(t)) return false;
+    // Toast/snackbar patterns: short, no whitespace, PascalCase-ish.
+    if (t.length < 20 && !/\s/.test(t)) return false;
+    // Repeated-token pattern like "closeClose" or "settingsSettings".
+    if (/^([a-z]+)([A-Z][a-z]*)$/.test(t)) {
+      const m = /^([a-z]+)([A-Z][a-z]*)$/.exec(t);
+      if (m && m[2].toLowerCase() === m[1]) return false;
+    }
+    // Embedded Material icon ligature inside the text (e.g.
+    // "Your meeting is safe: content_copyCopy link", "mic_offMic off").
+    // Real caption lines never contain `foo_bar` tokens.
+    if (/\b[a-z]+_[a-z]+\b/.test(t)) return false;
+    // Known Meet snackbar / modal strings that slip through otherwise.
+    if (/Your meeting is safe|Your meeting's ready|Copy link|Meeting details|Add people|Add others|Jump to bottom|Jump to most recent/i.test(t)) return false;
+    // Repeated-token suffix like "closeClose" appearing anywhere.
+    if (/([a-z]{3,})\1/i.test(t)) return false;
+    return true;
+  }
+
+  // Heuristic: a real caption region contains multiple speaker rows, each
+  // with an `img[alt]` avatar (or a `[data-self-name]` for the local user).
+  // A toolbar button labelled "caption" does not. Score a candidate region
+  // by how many plausible speaker rows live inside.
+  function scoreCaptionRegion(el) {
+    if (!el) return 0;
     try {
-      region = document.querySelector('[jsname="tgaKEf"]');
-      if (!region) {
-        // Match English ("Captions") and localized ("Live captions",
-        // "Sous-titres", …) by searching for the substring case-insensitive.
-        const labelled = document.querySelectorAll('[aria-label]');
-        for (let i = 0; i < labelled.length; i++) {
-          const label = labelled[i].getAttribute('aria-label') || '';
-          if (/caption|sous-titre|untertitel|leyenda/i.test(label)) {
-            region = labelled[i];
-            break;
-          }
+      const imgs = el.querySelectorAll('img[alt]');
+      const selves = el.querySelectorAll('[data-self-name]');
+      const spans = el.querySelectorAll('span');
+      let plausible = 0;
+      for (let i = 0; i < imgs.length; i++) {
+        const alt = (imgs[i].getAttribute('alt') || '').trim();
+        if (!alt || alt.length < 2) continue;
+        // Exclude Material icon alts (content_copy, mic_off, etc) — those
+        // are icons, not participant avatars.
+        if (looksLikeIconLigature(alt)) continue;
+        // Exclude generic labels like "Avatar" that some toasts use.
+        if (/^avatar$/i.test(alt)) continue;
+        plausible++;
+      }
+      for (let i = 0; i < selves.length; i++) {
+        const name = (selves[i].getAttribute('data-self-name') || '').trim();
+        if (name) plausible++;
+      }
+      // Needs speakers AND enough spans to host transcript text.
+      if (plausible === 0) return 0;
+      if (spans.length < 2) return 0;
+      return plausible * 10 + spans.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  // Locate the live captions container. Try the stable jsname first, then
+  // fall back to *scored* candidates matching "captions" in aria-label or
+  // an aria-live polite region. We only accept a candidate that actually
+  // looks like a caption surface (see `scoreCaptionRegion`).
+  function findCaptionRegion() {
+    try {
+      const primary = document.querySelector('[jsname="tgaKEf"]');
+      if (primary && scoreCaptionRegion(primary) > 0) {
+        return { region: primary, how: 'jsname=tgaKEf' };
+      }
+      if (primary) {
+        api.log(
+          'warn',
+          '[google-meet-recipe] primary [jsname=tgaKEf] matched but scored 0 — Meet DOM may have changed'
+        );
+      }
+    } catch (_) {}
+
+    // Strong signal: Meet exposes the live captions container with
+    // role="region" and a localized "Captions" aria-label. Current DOM
+    // (as of 2026-04) no longer keeps participant avatars inside this
+    // container, so scoring by `img[alt]` speakers rejects it. Accept it
+    // directly as a high-confidence match.
+    try {
+      const labelled = document.querySelectorAll(
+        '[role="region"][aria-label],[aria-label]'
+      );
+      for (let i = 0; i < labelled.length; i++) {
+        const lbl = (labelled[i].getAttribute('aria-label') || '').trim();
+        if (/^(captions|sous-titres|untertitel|leyendas|字幕)$/i.test(lbl)) {
+          return {
+            region: labelled[i],
+            how: 'aria-label="' + lbl + '"',
+          };
         }
       }
     } catch (_) {}
-    if (!region) return [];
 
-    // Each top-level child is (in current layout) one "speaker block".
-    // Defensive: walk one level deep and pull the first div children.
+    // Candidate pool: aria-label containing "caption" (localized) OR
+    // aria-live="polite" regions (Meet marks the captions container as a
+    // live region so screen readers announce new lines).
+    const candidates = [];
+    try {
+      const labelled = document.querySelectorAll('[aria-label]');
+      for (let i = 0; i < labelled.length; i++) {
+        const label = labelled[i].getAttribute('aria-label') || '';
+        if (/caption|sous-titre|untertitel|leyenda|字幕/i.test(label)) {
+          candidates.push(labelled[i]);
+        }
+      }
+      const live = document.querySelectorAll('[aria-live="polite"]');
+      for (let i = 0; i < live.length; i++) {
+        candidates.push(live[i]);
+      }
+    } catch (_) {}
+
+    let best = null;
+    let bestScore = 0;
+    let bestHow = '';
+    for (let i = 0; i < candidates.length; i++) {
+      const s = scoreCaptionRegion(candidates[i]);
+      if (s > bestScore) {
+        bestScore = s;
+        best = candidates[i];
+        const lbl = (candidates[i].getAttribute('aria-label') || '').slice(0, 40);
+        const live = candidates[i].getAttribute('aria-live') || '';
+        bestHow = 'fallback(aria-label="' + lbl + '",aria-live="' + live + '",score=' + s + ')';
+      }
+    }
+    if (best) return { region: best, how: bestHow };
+    return null;
+  }
+
+  // Throttled diagnostic so we can see what the recipe is actually looking
+  // at inside a live call without spamming the log every tick.
+  let lastDiagAt = 0;
+  function maybeLogDiag(found, rows) {
+    const now = Date.now();
+    if (now - lastDiagAt < 5000) return;
+    lastDiagAt = now;
+    if (!found) {
+      // Verbose dump: describe candidate regions across several selector
+      // strategies so we can identify the renamed captions container.
+      let dump = '';
+      try {
+        const seen = new Set();
+        const regions = [];
+        const addAll = (nodes, tag) => {
+          for (let i = 0; i < nodes.length; i++) {
+            if (seen.has(nodes[i])) continue;
+            seen.add(nodes[i]);
+            regions.push({ el: nodes[i], tag: tag });
+          }
+        };
+        addAll(document.querySelectorAll('[aria-live="polite"]'), 'polite');
+        addAll(document.querySelectorAll('[aria-live="assertive"]'), 'assertive');
+        addAll(document.querySelectorAll('[role="log"]'), 'role=log');
+        addAll(document.querySelectorAll('[role="region"]'), 'role=region');
+        // aria-label containing "caption" in multiple locales
+        const labelled = document.querySelectorAll('[aria-label]');
+        for (let i = 0; i < labelled.length; i++) {
+          const lbl = labelled[i].getAttribute('aria-label') || '';
+          if (/caption|sous-titre|untertitel|leyenda|字幕/i.test(lbl)) {
+            if (!seen.has(labelled[i])) {
+              seen.add(labelled[i]);
+              regions.push({ el: labelled[i], tag: 'label~caption' });
+            }
+          }
+        }
+        for (let i = 0; i < regions.length; i++) {
+          const r = regions[i].el;
+          const tag = regions[i].tag;
+          const label = (r.getAttribute('aria-label') || '').slice(0, 40);
+          const role = r.getAttribute('role') || '';
+          const jsname = r.getAttribute('jsname') || '';
+          const cls = (r.className || '').toString().slice(0, 40);
+          const imgs = r.querySelectorAll('img[alt]').length;
+          const selves = r.querySelectorAll('[data-self-name]').length;
+          const spans = r.querySelectorAll('span').length;
+          const txt = (r.textContent || '').trim().slice(0, 60);
+          dump +=
+            ' || [' + i + ' ' + tag + '] label="' + label + '" role="' + role +
+            '" jsname="' + jsname + '" class="' + cls +
+            '" imgs=' + imgs + ' selves=' + selves + ' spans=' + spans +
+            ' text="' + txt.replace(/\n/g, ' ') + '"';
+        }
+      } catch (_) {}
+      api.log(
+        'info',
+        '[google-meet-recipe] diag: no caption region found. jsname=' +
+          (document.querySelector('[jsname="tgaKEf"]') ? 'present' : 'absent') +
+          ' aria-live-polite=' +
+          document.querySelectorAll('[aria-live="polite"]').length +
+          dump
+      );
+      return;
+    }
+    let extra = '';
+    if (!rows.length && found.region) {
+      // No rows came through the filter — dump the region's child tree so
+      // we can see how Meet is laying out captions now.
+      try {
+        const region = found.region;
+        extra += ' children=' + region.children.length;
+        for (let i = 0; i < Math.min(region.children.length, 3); i++) {
+          const child = region.children[i];
+          const txt = (child.textContent || '').trim().slice(0, 60).replace(/\n/g, ' ');
+          const spans = child.querySelectorAll('span').length;
+          const imgs = child.querySelectorAll('img[alt]').length;
+          extra += ' ch[' + i + '](tag=' + child.tagName +
+            ' spans=' + spans + ' imgs=' + imgs + ' text="' + txt + '")';
+        }
+      } catch (_) {}
+    }
+    api.log(
+      'info',
+      '[google-meet-recipe] diag: region found via ' +
+        found.how +
+        ' rows=' +
+        rows.length +
+        (rows.length
+          ? ' sample="' +
+            (rows[0].speaker + ': ' + rows[0].text).slice(0, 80) +
+            '"'
+          : '') +
+        extra
+    );
+  }
+
+  function captionRows() {
+    const found = findCaptionRegion();
+    if (!found) {
+      maybeLogDiag(null, []);
+      return [];
+    }
+    const region = found.region;
     const rows = [];
     try {
       const children = region.children;
@@ -137,9 +394,18 @@
         const row = children[i];
         const speaker = rowSpeaker(row);
         const text = rowText(row);
-        if (text) rows.push({ speaker: speaker, text: text });
+        if (!text) continue;
+        // Reject toolbar icon ligatures, snackbar "closeClose" duplications,
+        // and other non-caption chrome.
+        if (!looksLikeCaptionLine(text)) continue;
+        // A row without a real speaker avatar AND short text is almost
+        // certainly chrome (tooltip, icon label). Keep it only if it has
+        // enough length to plausibly be a caption line.
+        if (speaker === 'Unknown' && text.length < 12) continue;
+        rows.push({ speaker: speaker, text: text });
       }
     } catch (_) {}
+    maybeLogDiag(found, rows);
     return rows;
   }
 
