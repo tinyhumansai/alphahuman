@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::pick_str;
+use crate::openhuman::composio::providers::pick_str;
 
 /// Walk the Composio response envelope for Notion page results.
 pub(crate) fn extract_results(data: &Value) -> Vec<Value> {

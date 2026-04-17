@@ -19,5 +19,6 @@ allow = [
     "webview_account_hide",
     "webview_account_show",
     "webview_recipe_event",
+    "activate_main_window",
 ]
 deny = []

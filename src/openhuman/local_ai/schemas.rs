@@ -789,6 +789,9 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
             let mut config = config_rpc::load_config_with_timeout().await?;
             config.local_ai.enabled = false;
             config.local_ai.selected_tier = Some("disabled".to_string());
+            // Explicit opt-out also clears the MVP opt-in marker so bootstrap
+            // keeps local AI off across restarts.
+            config.local_ai.opt_in_confirmed = false;
             config
                 .save()
                 .await
@@ -816,6 +819,10 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         // Re-enable local AI in case it was previously disabled via the
         // "disabled" tier, so the user can switch back to local inference.
         config.local_ai.enabled = true;
+        // Explicit tier selection is the MVP opt-in — flip the marker so
+        // `config_with_recommended_tier_if_unselected` stops hard-overriding
+        // to disabled on subsequent boots.
+        config.local_ai.opt_in_confirmed = true;
         crate::openhuman::local_ai::presets::apply_preset_to_config(&mut config.local_ai, tier);
         config
             .save()

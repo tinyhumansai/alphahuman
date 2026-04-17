@@ -34,18 +34,38 @@ describe('LocalAIStep', () => {
     vi.clearAllMocks();
   });
 
-  it('happy path: advances immediately and calls onNext with correct payload', async () => {
+  it('happy path (sufficient RAM): defaults to cloud, no local AI bootstrap', async () => {
+    const { bootstrapLocalAiWithRecommendedPreset } =
+      await import('../../../../utils/localAiBootstrap');
+
     const onNext = vi.fn();
     renderWithProviders(<LocalAIStep onNext={onNext} />);
 
-    const button = await screen.findByRole('button', { name: /continue/i });
-    fireEvent.click(button);
+    const cloudButton = await screen.findByRole('button', { name: /continue with cloud/i });
+    fireEvent.click(cloudButton);
+
+    expect(onNext).toHaveBeenCalledOnce();
+    expect(onNext).toHaveBeenCalledWith({ consentGiven: false, downloadStarted: false });
+    expect(bootstrapLocalAiWithRecommendedPreset).not.toHaveBeenCalled();
+  });
+
+  it('opt-in (sufficient RAM): starts local AI bootstrap when user chooses local AI', async () => {
+    const { bootstrapLocalAiWithRecommendedPreset } =
+      await import('../../../../utils/localAiBootstrap');
+
+    const onNext = vi.fn();
+    renderWithProviders(<LocalAIStep onNext={onNext} />);
+
+    const optInButton = await screen.findByRole('button', { name: /use local ai instead/i });
+    fireEvent.click(optInButton);
 
     expect(onNext).toHaveBeenCalledOnce();
     expect(onNext).toHaveBeenCalledWith({ consentGiven: true, downloadStarted: true });
+    expect(bootstrapLocalAiWithRecommendedPreset).toHaveBeenCalledOnce();
+    expect(bootstrapLocalAiWithRecommendedPreset).toHaveBeenCalledWith(false, '[LocalAIStep]');
   });
 
-  it('error path: calls onDownloadError once when bootstrap fails', async () => {
+  it('error path: calls onDownloadError once when opt-in bootstrap fails', async () => {
     const { bootstrapLocalAiWithRecommendedPreset } =
       await import('../../../../utils/localAiBootstrap');
     vi.mocked(bootstrapLocalAiWithRecommendedPreset).mockRejectedValueOnce(
@@ -56,8 +76,8 @@ describe('LocalAIStep', () => {
     const onDownloadError = vi.fn();
     renderWithProviders(<LocalAIStep onNext={onNext} onDownloadError={onDownloadError} />);
 
-    const button = await screen.findByRole('button', { name: /continue/i });
-    fireEvent.click(button);
+    const optInButton = await screen.findByRole('button', { name: /use local ai instead/i });
+    fireEvent.click(optInButton);
 
     // onNext still fires immediately
     expect(onNext).toHaveBeenCalledOnce();
@@ -69,21 +89,7 @@ describe('LocalAIStep', () => {
     expect(onDownloadError).toHaveBeenCalledWith('Local AI setup encountered an issue');
   });
 
-  it('starts the recommended-preset bootstrap flow once', async () => {
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
-
-    const onNext = vi.fn();
-    renderWithProviders(<LocalAIStep onNext={onNext} />);
-
-    const button = await screen.findByRole('button', { name: /continue/i });
-    fireEvent.click(button);
-
-    expect(bootstrapLocalAiWithRecommendedPreset).toHaveBeenCalledOnce();
-    expect(bootstrapLocalAiWithRecommendedPreset).toHaveBeenCalledWith(false, '[LocalAIStep]');
-  });
-
-  it('double-click guard: download functions called only once', async () => {
+  it('double-click guard (opt-in): bootstrap runs only once', async () => {
     const { bootstrapLocalAiWithRecommendedPreset } =
       await import('../../../../utils/localAiBootstrap');
     vi.mocked(bootstrapLocalAiWithRecommendedPreset).mockResolvedValue({} as never);
@@ -91,9 +97,9 @@ describe('LocalAIStep', () => {
     const onNext = vi.fn();
     renderWithProviders(<LocalAIStep onNext={onNext} />);
 
-    const button = await screen.findByRole('button', { name: /continue/i });
-    fireEvent.click(button);
-    fireEvent.click(button);
+    const optInButton = await screen.findByRole('button', { name: /use local ai instead/i });
+    fireEvent.click(optInButton);
+    fireEvent.click(optInButton);
 
     expect(onNext).toHaveBeenCalledOnce();
     expect(bootstrapLocalAiWithRecommendedPreset).toHaveBeenCalledOnce();
