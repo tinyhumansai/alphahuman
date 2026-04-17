@@ -233,8 +233,8 @@ mod tests {
 
     #[test]
     fn every_builtin_has_a_prompt_body() {
-        use crate::openhuman::agent::harness::definition::PromptContext;
-        let empty_tools: Vec<String> = Vec::new();
+        use crate::openhuman::agent::harness::definition::{PromptContext, ToolSummary};
+        let empty_tools: Vec<ToolSummary<'_>> = Vec::new();
         let empty_integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> =
             Vec::new();
         let ctx = PromptContext {

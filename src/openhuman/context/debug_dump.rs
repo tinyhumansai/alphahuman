@@ -515,12 +515,19 @@ fn render_subagent_dump(
     let archetype_body = match &definition.system_prompt {
         PromptSource::Inline(body) => body.clone(),
         PromptSource::Dynamic(build) => {
-            let tool_names: Vec<String> = tools_vec.iter().map(|t| t.name().to_string()).collect();
-            let ctx = crate::openhuman::agent::harness::definition::PromptContext {
+            use crate::openhuman::agent::harness::definition::{PromptContext, ToolSummary};
+            let tool_summaries: Vec<ToolSummary<'_>> = tools_vec
+                .iter()
+                .map(|t| ToolSummary {
+                    name: t.name(),
+                    description: t.description(),
+                })
+                .collect();
+            let ctx = PromptContext {
                 agent_id: &definition.id,
                 workspace_dir,
                 parent_model: model_name,
-                available_tools: &tool_names,
+                available_tools: &tool_summaries,
                 memory_context: None,
                 connected_integrations,
             };

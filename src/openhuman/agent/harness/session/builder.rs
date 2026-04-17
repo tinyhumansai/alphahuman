@@ -611,15 +611,45 @@ impl Agent {
                 let body = match &def.system_prompt {
                     PromptSource::Inline(text) => text.clone(),
                     PromptSource::Dynamic(build) => {
-                        let empty_tools: Vec<String> = Vec::new();
+                        use crate::openhuman::agent::harness::definition::{
+                            PromptContext, ToolSummary,
+                        };
+                        // Tools are already resolved at this point, so
+                        // we pass them straight through to the dynamic
+                        // builder — `render_tool_catalog` can then
+                        // produce an accurate "## Available Tools"
+                        // section in the rendered prompt.
+                        let tool_summaries: Vec<ToolSummary<'_>> = tools
+                            .iter()
+                            .map(|t| ToolSummary {
+                                name: t.name(),
+                                description: t.description(),
+                            })
+                            .collect();
+                        // NOTE: connected_integrations are genuinely
+                        // unavailable at session-build time — they are
+                        // fetched asynchronously from Composio in
+                        // `fetch_connected_integrations` on first turn
+                        // (see `session/turn.rs`). Because the archetype
+                        // body is baked into `ArchetypePromptSection`
+                        // once, live integrations only reach main
+                        // agents through the orchestrator's default
+                        // layout (`ConnectedIntegrationsSection` in
+                        // `with_defaults`). Narrow main agents (welcome,
+                        // trigger pair) that need a live integrations
+                        // list today get it via the orchestrator's
+                        // delegation guide. Sub-agent spawns go through
+                        // `subagent_runner::run_typed_mode` which
+                        // always passes the parent's live
+                        // `narrowed_integrations`.
                         let empty_integrations: Vec<
                             crate::openhuman::context::prompt::ConnectedIntegration,
                         > = Vec::new();
-                        let ctx = crate::openhuman::agent::harness::definition::PromptContext {
+                        let ctx = PromptContext {
                             agent_id: &def.id,
                             workspace_dir: &config.workspace_dir,
-                            parent_model: "",
-                            available_tools: &empty_tools,
+                            parent_model: &model_name,
+                            available_tools: &tool_summaries,
                             memory_context: None,
                             connected_integrations: &empty_integrations,
                         };

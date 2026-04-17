@@ -6,13 +6,22 @@
 //! tools, connected integrations, or the parent model without
 //! changing the call surface or the registry wiring.
 
-use crate::openhuman::agent::harness::definition::PromptContext;
+use crate::openhuman::agent::harness::definition::{render_tool_catalog, PromptContext};
 use anyhow::Result;
 
 const TEMPLATE: &str = include_str!("prompt.md");
 
-pub fn build(_ctx: &PromptContext<'_>) -> Result<String> {
-    Ok(TEMPLATE.to_string())
+pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
+    let mut out = String::with_capacity(TEMPLATE.len() + 512);
+    out.push_str(TEMPLATE.trim_end());
+    let catalog = render_tool_catalog(ctx.available_tools);
+    if !catalog.is_empty() {
+        out.push_str("
+
+");
+        out.push_str(&catalog);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -21,7 +30,7 @@ mod tests {
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<String> = Vec::new();
+        let tools: Vec<crate::openhuman::agent::harness::definition::ToolSummary<'_>> = Vec::new();
         let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
         let ctx = PromptContext {
             agent_id: "critic",

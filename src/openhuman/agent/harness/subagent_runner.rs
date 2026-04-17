@@ -28,7 +28,7 @@
 //! - **Fork-mode prefix replay** — `uses_fork_context` definitions
 //!   replay the parent's exact bytes for backend prefix-cache hits.
 
-use super::definition::{AgentDefinition, PromptContext, PromptSource, ToolScope};
+use super::definition::{AgentDefinition, PromptContext, PromptSource, ToolScope, ToolSummary};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
 use super::session::transcript;
 use crate::openhuman::context::prompt::{
@@ -218,27 +218,11 @@ async fn run_typed_mode(
     let model = definition.model.resolve(&parent.model_name);
     let temperature = definition.temperature;
 
-    // ── Resolve archetype prompt body ──────────────────────────────────
-    //
-    // Prompts may be dynamic (function-driven) — build a [`PromptContext`]
-    // with what we know at this point: available tool names are not yet
-    // filtered here so we pass an empty slice; dynamic builders that
-    // need the final tool list should branch on `agent_id` and rely on
-    // the fact that the runner injects the skills catalog separately.
-    let prompt_tool_names: Vec<String> = parent
-        .all_tools
-        .iter()
-        .map(|t| t.name().to_string())
-        .collect();
-    let prompt_ctx = PromptContext {
-        agent_id: &definition.id,
-        workspace_dir: &parent.workspace_dir,
-        parent_model: &model,
-        available_tools: &prompt_tool_names,
-        memory_context: parent.memory_context.as_deref(),
-        connected_integrations: &parent.connected_integrations,
-    };
-    let archetype_prompt_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)?;
+    // Archetype prompt loading is deferred until AFTER tool filtering so
+    // dynamic builders receive the final, filtered tool list (rather
+    // than the parent's full registry). The actual
+    // `load_prompt_source(...)` call lives just above
+    // `render_subagent_system_prompt` below.
 
     // ── Filter tools per definition + per-spawn override ───────────────
     let category_filter = options
@@ -508,6 +492,38 @@ async fn run_typed_mode(
                 .cloned()
                 .collect(),
         };
+    // ── Resolve archetype prompt body (post-filter) ────────────────────
+    //
+    // Build a `ToolSummary` list describing the sub-agent's final
+    // toolset — parent tools kept after scope/disallow/category
+    // filtering plus any dynamically-constructed tools (Composio
+    // per-action, ExtractFromResult, …). Passing this into
+    // `PromptContext` lets dynamic prompts render an accurate "##
+    // Available Tools" section via `render_tool_catalog`.
+    let prompt_tool_summaries: Vec<ToolSummary<'_>> = allowed_indices
+        .iter()
+        .map(|&i| {
+            let t = parent.all_tools[i].as_ref();
+            ToolSummary {
+                name: t.name(),
+                description: t.description(),
+            }
+        })
+        .chain(dynamic_tools.iter().map(|t| ToolSummary {
+            name: t.name(),
+            description: t.description(),
+        }))
+        .collect();
+    let prompt_ctx = PromptContext {
+        agent_id: &definition.id,
+        workspace_dir: &parent.workspace_dir,
+        parent_model: &model,
+        available_tools: &prompt_tool_summaries,
+        memory_context: parent.memory_context.as_deref(),
+        connected_integrations: &narrowed_integrations,
+    };
+    let archetype_prompt_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)?;
+
     let rendered_prompt = extract_cache_boundary(&render_subagent_system_prompt(
         &parent.workspace_dir,
         &model,

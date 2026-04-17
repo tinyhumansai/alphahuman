@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn build_returns_nonempty_body() {
-        let tools: Vec<String> = Vec::new();
+        let tools: Vec<crate::openhuman::agent::harness::definition::ToolSummary<'_>> = Vec::new();
         let integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = Vec::new();
         let ctx = PromptContext {
             agent_id: "archivist",

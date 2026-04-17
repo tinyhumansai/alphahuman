@@ -248,6 +248,16 @@ impl AgentDefinition {
 // Prompt source
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Minimal per-tool metadata a prompt builder needs to render a tool
+/// catalog — just the name and description. Kept as borrowed strings
+/// so callers can build it from the parent's live `Vec<Box<dyn Tool>>`
+/// without allocating.
+#[derive(Debug, Clone, Copy)]
+pub struct ToolSummary<'a> {
+    pub name: &'a str,
+    pub description: &'a str,
+}
+
 /// Runtime context passed to [`PromptSource::Dynamic`] builder functions.
 ///
 /// Exposes the bits of parent state a prompt may legitimately branch on
@@ -264,15 +274,99 @@ pub struct PromptContext<'a> {
     /// Resolved parent model name (post-router) at spawn time. Prompts
     /// may branch for small vs. reasoning-class models.
     pub parent_model: &'a str,
-    /// Tool names available to this sub-agent after scope + disallow +
-    /// category filtering. Empty when the runner hasn't yet computed
-    /// allowed tools at the time of prompt load.
-    pub available_tools: &'a [String],
+    /// Tools (name + description) available to this sub-agent after
+    /// scope + disallow + category filtering. Empty when the runner
+    /// hasn't yet computed allowed tools at the time of prompt load.
+    pub available_tools: &'a [ToolSummary<'a>],
     /// Archivist-curated MEMORY.md contents if the parent has injected
     /// memory context, else `None`.
     pub memory_context: Option<&'a str>,
     /// Composio integrations the user has connected.
     pub connected_integrations: &'a [crate::openhuman::context::prompt::ConnectedIntegration],
+}
+
+/// Render a markdown "## Connected Integrations" section from a slice
+/// of [`crate::openhuman::context::prompt::ConnectedIntegration`]s. Only
+/// integrations with `connected == true` are listed — unconnected
+/// toolkits belong in the orchestrator's delegation guide, not in the
+/// live prompt. Returns an empty string when no integrations are
+/// connected so prompt builders can unconditionally concatenate.
+///
+/// Output format — one integration per bullet with its toolkit slug and
+/// one-line description; an action count is appended when available:
+///
+/// ```text
+/// ## Connected Integrations
+///
+/// - `gmail` — Read and send email on behalf of the user. (42 actions)
+/// - `notion` — Read and write pages in the user's workspace. (18 actions)
+/// ```
+pub fn render_connected_integrations(
+    integrations: &[crate::openhuman::context::prompt::ConnectedIntegration],
+) -> String {
+    let connected: Vec<&crate::openhuman::context::prompt::ConnectedIntegration> =
+        integrations.iter().filter(|ci| ci.connected).collect();
+    if connected.is_empty() {
+        return String::new();
+    }
+    let mut out = String::with_capacity(64 + connected.len() * 80);
+    out.push_str("## Connected Integrations\n\n");
+    for ci in connected {
+        let desc_one_line: String = ci
+            .description
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str("- `");
+        out.push_str(&ci.toolkit);
+        out.push('`');
+        if !desc_one_line.is_empty() {
+            out.push_str(" — ");
+            out.push_str(&desc_one_line);
+        }
+        if !ci.tools.is_empty() {
+            out.push_str(&format!(" ({} actions)", ci.tools.len()));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Render a markdown "## Available Tools" section from a slice of
+/// [`ToolSummary`]s. Returns an empty string when the slice is empty so
+/// prompt builders can unconditionally concatenate the result.
+///
+/// Output format — one tool per bullet, name in backticks, description
+/// trimmed and collapsed to a single line so the block stays compact:
+///
+/// ```text
+/// ## Available Tools
+///
+/// - `memory_recall` — Recall persisted memory matching a query.
+/// - `spawn_subagent` — Dispatch a specialised sub-agent for a task.
+/// ```
+pub fn render_tool_catalog(tools: &[ToolSummary<'_>]) -> String {
+    if tools.is_empty() {
+        return String::new();
+    }
+    let mut out = String::with_capacity(64 + tools.len() * 80);
+    out.push_str("## Available Tools\n\n");
+    for t in tools {
+        let desc_one_line: String = t
+            .description
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str("- `");
+        out.push_str(t.name);
+        out.push('`');
+        if !desc_one_line.is_empty() {
+            out.push_str(" — ");
+            out.push_str(&desc_one_line);
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// Builder function signature for [`PromptSource::Dynamic`]. Takes a
@@ -642,6 +736,31 @@ mod tests {
         let list: Vec<&str> = reg.list().iter().map(|d| d.id.as_str()).collect();
         assert_eq!(list, vec!["alpha", "beta"]);
         assert_eq!(reg.get("alpha").unwrap().when_to_use, "replaced");
+    }
+
+    #[test]
+    fn render_tool_catalog_empty_returns_empty_string() {
+        assert_eq!(render_tool_catalog(&[]), "");
+    }
+
+    #[test]
+    fn render_tool_catalog_formats_name_and_description() {
+        let tools = [
+            ToolSummary {
+                name: "memory_recall",
+                description: "Recall persisted memory matching a query.",
+            },
+            ToolSummary {
+                name: "spawn_subagent",
+                description: "Dispatch a\n  specialised sub-agent\nfor a task.",
+            },
+        ];
+        let body = render_tool_catalog(&tools);
+        assert!(body.starts_with("## Available Tools\n\n"));
+        assert!(body.contains("- `memory_recall` — Recall persisted memory matching a query."));
+        // Whitespace/newlines in descriptions are collapsed to keep the
+        // block compact.
+        assert!(body.contains("- `spawn_subagent` — Dispatch a specialised sub-agent for a task."));
     }
 
     #[test]
