@@ -109,6 +109,17 @@ impl EventHandler for ChannelInboundSubscriber {
         send_typing_indicator(channel, &mut typing_state).await;
         typing_timer.tick().await; // consume the immediate tick
 
+        // ── Filler messages ──────────────────────────────────────────
+        // Once progressive edits + thinking streams go quiet (backend
+        // doesn't support PATCH, reasoning has finished, etc.) the user
+        // can wait 30–90 s seeing no fresh activity. Post a short filler
+        // every FILLER_INTERVAL so the chat keeps moving. All filler ids
+        // are tracked in `StreamingState.filler_message_ids` and deleted
+        // in `finalize_channel_reply` once the real response is on screen.
+        let mut filler_timer = tokio::time::interval(FILLER_INTERVAL);
+        filler_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        filler_timer.tick().await; // consume the immediate tick — first filler fires after FILLER_INTERVAL
+
         loop {
             tokio::select! {
                 event = event_rx.recv() => {
@@ -198,7 +209,7 @@ impl EventHandler for ChannelInboundSubscriber {
                     }
                 }
                 _ = edit_timer.tick() => {
-                    if streaming_state.thinking_dirty {
+                    if streaming_state.thinking_dirty && !streaming_state.thinking_edit_disabled {
                         flush_thinking_message(channel, &mut streaming_state).await;
                     }
                     if streaming_state.dirty && !streaming_state.edit_disabled {
@@ -208,6 +219,11 @@ impl EventHandler for ChannelInboundSubscriber {
                 _ = typing_timer.tick() => {
                     if !typing_state.disabled {
                         send_typing_indicator(channel, &mut typing_state).await;
+                    }
+                }
+                _ = filler_timer.tick() => {
+                    if !streaming_state.filler_disabled {
+                        send_filler_message(channel, &mut streaming_state).await;
                     }
                 }
                 _ = tokio::time::sleep_until(deadline) => {
@@ -239,6 +255,28 @@ const TYPING_REFRESH_INTERVAL: tokio::time::Duration = tokio::time::Duration::fr
 /// trying. One failure is usually "endpoint doesn't exist"; two is
 /// enough to conclude the backend doesn't support it on this channel.
 const MAX_TYPING_FAILURES: u32 = 2;
+
+/// How often to post a filler "still working" message to the channel
+/// so the user keeps seeing activity during long agent turns. Deleted
+/// on finalization alongside the ephemeral thinking bubble.
+const FILLER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(13);
+
+/// Maximum consecutive filler-send failures before we stop trying.
+/// Same rationale as the thinking/typing latches.
+const MAX_FILLER_FAILURES: u32 = 2;
+
+/// Maximum number of Unicode scalars to include in a dynamic filler
+/// derived from the thinking accumulator. Keeps each bubble compact.
+const MAX_FILLER_CHARS: usize = 200;
+
+/// Fallback rotating pool used when the thinking stream has produced
+/// nothing new since the previous filler (or nothing at all). Index in
+/// `StreamingState.filler_index` advances only when this branch is hit.
+const STATIC_FILLERS: &[&str] = &[
+    "💭 Still working on it…",
+    "💭 Just a moment…",
+    "💭 Almost there…",
+];
 
 /// Per-turn progressive-edit buffer. `dirty=true` means there's new
 /// content to flush; `edit_disabled=true` means the backend doesn't
@@ -276,6 +314,30 @@ struct StreamingState {
     thinking_sent: bool,
     /// New thinking content has arrived since the last thinking flush.
     thinking_dirty: bool,
+    /// Latched when the first thinking POST succeeded with 200 but the
+    /// backend didn't return an id we can edit. Without this latch,
+    /// every subsequent `thinking_dirty` tick re-enters the "send new
+    /// message" branch and the user sees one italic bubble per
+    /// accumulated snippet instead of a single evolving one (#600).
+    thinking_edit_disabled: bool,
+    /// Ids of ephemeral filler messages posted during long turns, in
+    /// send order. Deleted in `finalize_channel_reply` after the
+    /// canonical response is on screen.
+    filler_message_ids: Vec<String>,
+    /// Next entry in `STATIC_FILLERS` to send when we fall back to the
+    /// rotating pool (no fresh thinking content to surface). Wraps
+    /// modulo pool size.
+    filler_index: usize,
+    /// Consecutive filler-send failures. Reset to zero on success.
+    filler_failures: u32,
+    /// Latched when the backend rejects filler sends — stops hitting
+    /// a broken endpoint every 13 s.
+    filler_disabled: bool,
+    /// Last dynamic snippet we posted as a filler. Used to skip a
+    /// duplicate post when the thinking accumulator hasn't advanced
+    /// enough to produce a new tail slice — we fall through to the
+    /// static pool instead so the chat still sees movement.
+    last_filler_snippet: Option<String>,
 }
 
 /// Typing-indicator bookkeeping. One per in-flight turn. Latches
@@ -402,11 +464,7 @@ async fn flush_streaming_edit(channel: &str, state: &mut StreamingState) {
                 // one (and thus can't edit it further), we must never
                 // later fall back to sending a second atomic message.
                 state.draft_sent = true;
-                let id = resp
-                    .get("id")
-                    .or_else(|| resp.get("data").and_then(|d| d.get("id")))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let id = extract_message_id(&resp);
                 if let Some(id) = id {
                     tracing::debug!(
                         "[channel-inbound][stream] initial draft sent channel='{}' msg_id={}",
@@ -416,7 +474,9 @@ async fn flush_streaming_edit(channel: &str, state: &mut StreamingState) {
                     state.message_id = Some(id);
                 } else {
                     tracing::warn!(
-                        "[channel-inbound][stream] initial draft sent but response lacked id — disabling progressive edits (finalize will skip sending a duplicate)"
+                        "[channel-inbound][stream] initial draft sent but response lacked id — disabling progressive edits (finalize will skip sending a duplicate) channel='{}' resp={}",
+                        channel,
+                        resp,
                     );
                     state.edit_disabled = true;
                 }
@@ -435,6 +495,29 @@ async fn flush_streaming_edit(channel: &str, state: &mut StreamingState) {
             }
         }
     }
+}
+
+/// Extract a message id from a backend `send_channel_message` response.
+/// The backend has used at least three shapes: `{"id":"..."}`,
+/// `{"data":{"id":"..."}}`, and `{"messageId":1456,"success":true}` —
+/// the last one returns the id as a JSON number, not a string, so
+/// `as_str()` alone misses it (#600).
+fn extract_message_id(resp: &serde_json::Value) -> Option<String> {
+    let candidate = resp
+        .get("id")
+        .or_else(|| resp.get("messageId"))
+        .or_else(|| resp.get("data").and_then(|d| d.get("id")))
+        .or_else(|| resp.get("data").and_then(|d| d.get("messageId")))?;
+    if let Some(s) = candidate.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(n) = candidate.as_i64() {
+        return Some(n.to_string());
+    }
+    if let Some(n) = candidate.as_u64() {
+        return Some(n.to_string());
+    }
+    None
 }
 
 /// Maximum length of the thinking snippet shown in the ephemeral
@@ -456,7 +539,7 @@ async fn flush_thinking_message(channel: &str, state: &mut StreamingState) {
         snippet.truncate(MAX_THINKING_DISPLAY_CHARS);
         snippet.push('…');
     }
-    let text = format!("💭 _{snippet}_");
+    let text = format!("💭 Thinking:\n_{snippet}_");
 
     let Some((client, jwt)) = build_channel_client().await else {
         return;
@@ -479,11 +562,7 @@ async fn flush_thinking_message(channel: &str, state: &mut StreamingState) {
         match client.send_channel_message(channel, &jwt, body).await {
             Ok(resp) => {
                 state.thinking_sent = true;
-                let id = resp
-                    .get("id")
-                    .or_else(|| resp.get("data").and_then(|d| d.get("id")))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let id = extract_message_id(&resp);
                 if let Some(id) = id {
                     tracing::debug!(
                         "[channel-inbound][thinking] thinking msg sent channel='{}' msg_id={}",
@@ -492,17 +571,109 @@ async fn flush_thinking_message(channel: &str, state: &mut StreamingState) {
                     );
                     state.thinking_message_id = Some(id);
                 } else {
-                    tracing::debug!(
-                        "[channel-inbound][thinking] thinking msg sent but no id returned — will not be deletable",
+                    tracing::warn!(
+                        "[channel-inbound][thinking] thinking msg sent but response lacked id — disabling further thinking flushes (message won't be deletable) channel='{}' resp={}",
+                        channel,
+                        resp,
                     );
+                    state.thinking_edit_disabled = true;
                 }
             }
             Err(err) => {
                 tracing::warn!(
-                    "[channel-inbound][thinking] failed to send thinking msg channel='{}' err={}",
+                    "[channel-inbound][thinking] failed to send thinking msg channel='{}' err={} — disabling further thinking flushes",
                     channel,
                     err,
                 );
+                state.thinking_edit_disabled = true;
+            }
+        }
+    }
+}
+
+/// Pull the most recent `MAX_FILLER_CHARS` Unicode scalars out of the
+/// thinking accumulator so we can surface a live snapshot of the agent's
+/// reasoning as a filler. Returns `None` when there's nothing to show
+/// yet. Trims any partial leading word so the snippet reads cleanly.
+fn latest_thinking_snippet(state: &StreamingState) -> Option<String> {
+    let acc = state.thinking_accumulator.trim();
+    if acc.is_empty() {
+        return None;
+    }
+    let total = acc.chars().count();
+    let snippet: String = if total <= MAX_FILLER_CHARS {
+        acc.to_string()
+    } else {
+        acc.chars().skip(total - MAX_FILLER_CHARS).collect()
+    };
+    let trimmed = snippet
+        .trim_start_matches(|c: char| !c.is_whitespace())
+        .trim_start()
+        .to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Post a fresh filler message to the channel and record its id so
+/// `finalize_channel_reply` can delete it once the real response is on
+/// screen. Prefers a live snippet of the agent's latest reasoning
+/// (`thinking_accumulator`); falls back to the rotating `STATIC_FILLERS`
+/// pool when there's no new thinking to show.
+async fn send_filler_message(channel: &str, state: &mut StreamingState) {
+    let text = match latest_thinking_snippet(state) {
+        Some(snippet) if state.last_filler_snippet.as_deref() != Some(snippet.as_str()) => {
+            state.last_filler_snippet = Some(snippet.clone());
+            format!("💭 _{snippet}…_")
+        }
+        _ => {
+            let pool = STATIC_FILLERS;
+            let idx = state.filler_index % pool.len();
+            state.filler_index = state.filler_index.wrapping_add(1);
+            pool[idx].to_string()
+        }
+    };
+
+    let Some((client, jwt)) = build_channel_client().await else {
+        return;
+    };
+    let body = json!({ "text": text });
+    match client.send_channel_message(channel, &jwt, body).await {
+        Ok(resp) => {
+            state.filler_failures = 0;
+            if let Some(id) = extract_message_id(&resp) {
+                tracing::debug!(
+                    "[channel-inbound][filler] sent channel='{}' len={} msg_id={}",
+                    channel,
+                    text.len(),
+                    id,
+                );
+                state.filler_message_ids.push(id);
+            } else {
+                tracing::warn!(
+                    "[channel-inbound][filler] sent but response lacked id — cannot clean up on finalize channel='{}' resp={}",
+                    channel,
+                    resp,
+                );
+            }
+        }
+        Err(err) => {
+            state.filler_failures = state.filler_failures.saturating_add(1);
+            tracing::warn!(
+                "[channel-inbound][filler] send failed channel='{}' err={} (failures={}/{})",
+                channel,
+                err,
+                state.filler_failures,
+                MAX_FILLER_FAILURES,
+            );
+            if state.filler_failures >= MAX_FILLER_FAILURES {
+                tracing::info!(
+                    "[channel-inbound][filler] disabling filler messages for channel='{}' — backend unsupported",
+                    channel,
+                );
+                state.filler_disabled = true;
             }
         }
     }
@@ -543,69 +714,84 @@ async fn delete_channel_message(channel: &str, message_id: &str) {
 /// creates a fresh outbound message is when no draft has been posted
 /// at all.
 async fn finalize_channel_reply(channel: &str, state: &mut StreamingState, final_text: &str) {
-    // ── Clean up ephemeral thinking message ──────────────────────
-    // Delete the "💭 Thinking…" message so the user only sees the
-    // clean final response (#600).
-    if let Some(ref thinking_id) = state.thinking_message_id {
-        delete_channel_message(channel, thinking_id).await;
+    // Deliver the canonical reply FIRST, then clean up the ephemeral
+    // "💭 Thinking:" bubble. Deleting before the reply would leave the
+    // chat empty for a beat; this order keeps something visible at all
+    // times (#600).
+    'send: {
+        if let Some(ref message_id) = state.message_id {
+            // We committed to a draft earlier in the turn. Always attempt
+            // to edit it with the canonical reply, even when we'd
+            // previously latched `edit_disabled` during the streaming
+            // phase — the user is already looking at that message, so a
+            // late edit attempt is still the right call. If the edit
+            // fails, delete the orphan draft and send the final reply
+            // as a fresh atomic message so the user always sees it.
+            if let Some((client, jwt)) = build_channel_client().await {
+                let body = json!({ "text": final_text });
+                match client
+                    .send_channel_edit(channel, message_id, &jwt, body)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::info!(
+                            "[channel-inbound] final edit ok channel='{}' msg_id={} chars={}",
+                            channel,
+                            message_id,
+                            final_text.len(),
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "[channel-inbound] final edit failed channel='{}' msg_id={} err={} — deleting orphan draft and sending fresh atomic reply so user still sees the canonical response",
+                            channel,
+                            message_id,
+                            err,
+                        );
+                        let orphan = message_id.clone();
+                        delete_channel_message(channel, &orphan).await;
+                        send_channel_reply(channel, final_text).await;
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "[channel-inbound] cannot finalize channel='{}' msg_id={} — backend client unavailable, draft left in place",
+                    channel,
+                    message_id,
+                );
+            }
+            break 'send;
+        }
+        if state.draft_sent {
+            // A draft was posted but the backend didn't return an id, so
+            // we have nothing to edit. Since the draft only contains a
+            // clean text prefix (or "_working…_" placeholder), sending the
+            // final response as a second bubble is acceptable — leaving
+            // the user without the canonical reply is worse (#600).
+            tracing::warn!(
+                "[channel-inbound] sending fresh reply on channel='{}' — id-less draft exists but user needs the final response",
+                channel,
+            );
+            send_channel_reply(channel, final_text).await;
+            break 'send;
+        }
+        // No draft exists — this is the first (and only) message for the
+        // turn. Safe to send atomically.
+        send_channel_reply(channel, final_text).await;
     }
 
-    if let Some(ref message_id) = state.message_id {
-        // We committed to a draft earlier in the turn. Always attempt
-        // to edit it with the canonical reply, even when we'd
-        // previously latched `edit_disabled` during the streaming
-        // phase — the user is already looking at that message, so a
-        // late edit attempt is still the right call. If the edit
-        // fails, leave the draft in place rather than spamming a
-        // duplicate bubble.
-        if let Some((client, jwt)) = build_channel_client().await {
-            let body = json!({ "text": final_text });
-            match client
-                .send_channel_edit(channel, message_id, &jwt, body)
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!(
-                        "[channel-inbound] final edit ok channel='{}' msg_id={} chars={}",
-                        channel,
-                        message_id,
-                        final_text.len(),
-                    );
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        "[channel-inbound] final edit failed channel='{}' msg_id={} err={} — draft left in place (no duplicate message sent)",
-                        channel,
-                        message_id,
-                        err,
-                    );
-                }
-            }
-        } else {
-            tracing::warn!(
-                "[channel-inbound] cannot finalize channel='{}' msg_id={} — backend client unavailable, draft left in place",
-                channel,
-                message_id,
-            );
-        }
-        return;
+    // ── Clean up ephemeral filler + thinking messages ───────────
+    // Delete after the canonical reply is already on screen so the
+    // chat is never momentarily empty between the two operations.
+    // Fillers first (more of them, oldest-first), then the thinking
+    // bubble — purely cosmetic ordering.
+    let fillers = std::mem::take(&mut state.filler_message_ids);
+    for id in fillers {
+        delete_channel_message(channel, &id).await;
     }
-    if state.draft_sent {
-        // A draft was posted but the backend didn't return an id, so
-        // we have nothing to edit. Since the draft only contains a
-        // clean text prefix (or "_working…_" placeholder), sending the
-        // final response as a second bubble is acceptable — leaving
-        // the user without the canonical reply is worse (#600).
-        tracing::warn!(
-            "[channel-inbound] sending fresh reply on channel='{}' — id-less draft exists but user needs the final response",
-            channel,
-        );
-        send_channel_reply(channel, final_text).await;
-        return;
+    if let Some(thinking_id) = state.thinking_message_id.take() {
+        delete_channel_message(channel, &thinking_id).await;
     }
-    // No draft exists — this is the first (and only) message for the
-    // turn. Safe to send atomically.
-    send_channel_reply(channel, final_text).await;
 }
 
 /// Construct the REST client + session JWT shared by every outbound

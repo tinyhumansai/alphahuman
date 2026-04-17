@@ -201,6 +201,10 @@ impl Agent {
         let mut cumulative_cached_input_tokens: u64 = 0;
         let mut cumulative_charged_usd: f64 = 0.0;
 
+        // Per-turn usage from the final provider response, attached to the
+        // last assistant message in the persisted transcript.
+        let mut last_turn_usage: Option<transcript::TurnUsage> = None;
+
         let turn_body = async {
             for iteration in 0..self.config.max_tool_iterations {
                 self.emit_progress(AgentProgress::IterationStarted {
@@ -405,6 +409,25 @@ impl Agent {
                             cumulative_output_tokens += usage.output_tokens;
                             cumulative_cached_input_tokens += usage.cached_input_tokens;
                             cumulative_charged_usd += usage.charged_amount_usd;
+                            // Snapshot this turn's usage so the transcript
+                            // writer can attribute it to the last assistant
+                            // message.
+                            last_turn_usage = Some(transcript::TurnUsage {
+                                model: effective_model.clone(),
+                                usage: transcript::MessageUsage {
+                                    input: usage.input_tokens,
+                                    output: usage.output_tokens,
+                                    cached_input: usage.cached_input_tokens,
+                                    cost_usd: usage.charged_amount_usd,
+                                },
+                                ts: chrono::Utc::now().to_rfc3339(),
+                            });
+                        } else {
+                            // Missing usage on this iteration: clear any
+                            // snapshot carried from a prior iteration so
+                            // the transcript doesn't attribute stale
+                            // numbers to the final assistant message.
+                            last_turn_usage = None;
                         }
                         resp
                     }
@@ -460,6 +483,13 @@ impl Agent {
                             final_text.clone(),
                         )));
                     self.trim_history();
+
+                    // Mirror the final assistant reply into the transcript
+                    // snapshot so the JSONL persisted below captures the
+                    // response (not just the prompt that was sent).
+                    if let Some(ref mut msgs) = last_provider_messages {
+                        msgs.push(ChatMessage::assistant(final_text.clone()));
+                    }
 
                     if self.auto_save {
                         let summary = truncate_with_ellipsis(&final_text, 100);
@@ -604,6 +634,7 @@ impl Agent {
                     cumulative_output_tokens,
                     cumulative_cached_input_tokens,
                     cumulative_charged_usd,
+                    last_turn_usage.as_ref(),
                 );
             }
         }
@@ -1143,9 +1174,14 @@ impl Agent {
 
     /// Persist the exact provider messages as a session transcript.
     ///
-    /// Best-effort: failures are logged and silently ignored. The JSONL
-    /// conversation store remains the authoritative persistence layer;
-    /// session transcripts are an optimization for KV cache stability.
+    /// Writes JSONL as source of truth and re-renders the companion `.md`
+    /// for human readability. Best-effort: failures are logged and silently
+    /// ignored. The JSONL conversation store remains the authoritative
+    /// persistence layer; session transcripts are an optimization for KV
+    /// cache stability.
+    ///
+    /// `turn_usage` — when `Some`, attributes per-message token/cost figures
+    /// to the last assistant message in the written transcript.
     pub(super) fn persist_session_transcript(
         &mut self,
         messages: &[ChatMessage],
@@ -1153,6 +1189,7 @@ impl Agent {
         output_tokens: u64,
         cached_input_tokens: u64,
         charged_amount_usd: f64,
+        turn_usage: Option<&transcript::TurnUsage>,
     ) {
         // Resolve the transcript path on first write.
         if self.session_transcript_path.is_none() {
@@ -1194,7 +1231,7 @@ impl Agent {
             charged_amount_usd,
         };
 
-        if let Err(err) = transcript::write_transcript(path, messages, &meta) {
+        if let Err(err) = transcript::write_transcript(path, messages, &meta, turn_usage) {
             log::warn!(
                 "[transcript] failed to write transcript {}: {err}",
                 path.display()
@@ -1618,7 +1655,7 @@ mod tests {
             ChatMessage::assistant("done"),
         ];
         agent.system_prompt_cache_boundary = Some(12);
-        agent.persist_session_transcript(&messages, 10, 5, 3, 0.25);
+        agent.persist_session_transcript(&messages, 10, 5, 3, 0.25, None);
         assert!(agent.session_transcript_path.is_some());
 
         let loaded = transcript::read_transcript(agent.session_transcript_path.as_ref().unwrap())

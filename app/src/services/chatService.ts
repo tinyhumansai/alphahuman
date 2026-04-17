@@ -82,6 +82,13 @@ export interface ChatErrorEvent {
   round: number | null;
 }
 
+/** Proactive assistant message pushed by the Rust event bus (not a chat turn). */
+export interface ProactiveMessageEvent {
+  thread_id: string;
+  request_id?: string;
+  full_response: string;
+}
+
 /** Emitted when the agent turn begins (before the first LLM call). */
 export interface ChatInferenceStartEvent {
   thread_id: string;
@@ -174,6 +181,7 @@ export interface ChatEventListeners {
   onTextDelta?: (event: ChatTextDeltaEvent) => void;
   onThinkingDelta?: (event: ChatThinkingDeltaEvent) => void;
   onToolArgsDelta?: (event: ChatToolArgsDeltaEvent) => void;
+  onProactiveMessage?: (event: ProactiveMessageEvent) => void;
   onDone?: (event: ChatDoneEvent) => void;
   onError?: (event: ChatErrorEvent) => void;
 }
@@ -198,6 +206,7 @@ export function subscribeChatEvents(listeners: ChatEventListeners): () => void {
     textDelta: 'text_delta',
     thinkingDelta: 'thinking_delta',
     toolArgsDelta: 'tool_args_delta',
+    proactiveMessage: 'proactive_message',
     done: 'chat_done',
     error: 'chat_error',
   } as const;
@@ -381,6 +390,22 @@ export function subscribeChatEvents(listeners: ChatEventListeners): () => void {
     };
     socket.on(EVENTS.toolArgsDelta, cb);
     handlers.push([EVENTS.toolArgsDelta, cb]);
+  }
+
+  if (listeners.onProactiveMessage) {
+    const cb = (payload: unknown) => {
+      const e = payload as ProactiveMessageEvent;
+      chatLog(
+        '%s thread_id=%s request_id=%s chars=%d',
+        EVENTS.proactiveMessage,
+        e.thread_id,
+        e.request_id,
+        e.full_response?.length ?? 0
+      );
+      listeners.onProactiveMessage?.(e);
+    };
+    socket.on(EVENTS.proactiveMessage, cb);
+    handlers.push([EVENTS.proactiveMessage, cb]);
   }
 
   if (listeners.onDone) {

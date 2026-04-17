@@ -7,88 +7,19 @@
 //! - **OpenAI**: Cloud-based embeddings via the OpenAI API or compatible endpoints.
 //! - **Noop**: A fallback provider for keyword-only search.
 
+mod factory;
 pub mod noop;
 pub mod ollama;
 pub mod openai;
+mod provider_trait;
 pub mod store;
 
-use std::sync::Arc;
-
-use async_trait::async_trait;
-
+pub use factory::{create_embedding_provider, default_local_embedding_provider};
 pub use noop::NoopEmbedding;
 pub use ollama::{OllamaEmbedding, DEFAULT_OLLAMA_DIMENSIONS, DEFAULT_OLLAMA_MODEL};
 pub use openai::OpenAiEmbedding;
+pub use provider_trait::EmbeddingProvider;
 pub use store::{bytes_to_vec, cosine_similarity, vec_to_bytes, SearchResult, VectorStore};
-
-/// Interface for embedding providers that convert text into numerical vectors.
-#[async_trait]
-pub trait EmbeddingProvider: Send + Sync {
-    /// Returns the name of the provider (e.g., "ollama", "openai").
-    fn name(&self) -> &str;
-
-    /// Returns the number of dimensions in the generated embeddings.
-    fn dimensions(&self) -> usize;
-
-    /// Generates embeddings for a batch of strings.
-    async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>>;
-
-    /// Generates an embedding for a single string.
-    async fn embed_one(&self, text: &str) -> anyhow::Result<Vec<f32>> {
-        let mut results = self.embed(&[text]).await?;
-        results
-            .pop()
-            .ok_or_else(|| anyhow::anyhow!("Empty embedding result"))
-    }
-}
-
-// ── Factory ──────────────────────────────────────────────────
-
-/// Creates an embedding provider based on the specified name and configuration.
-///
-/// Supported provider names:
-/// - `"ollama"` → local Ollama server (default, preferred)
-/// - `"openai"` → OpenAI API
-/// - `"custom:<url>"` → OpenAI-compatible endpoint
-/// - `"none"` → no-op (keyword-only search, no embeddings)
-///
-/// Returns an error for unrecognised provider names so configuration
-/// mistakes surface immediately rather than silently degrading to
-/// keyword-only search.
-pub fn create_embedding_provider(
-    provider: &str,
-    api_key: Option<&str>,
-    model: &str,
-    dims: usize,
-) -> anyhow::Result<Box<dyn EmbeddingProvider>> {
-    match provider {
-        "ollama" => Ok(Box::new(OllamaEmbedding::new("", model, dims))),
-        "openai" => {
-            let key = api_key.unwrap_or("");
-            Ok(Box::new(OpenAiEmbedding::new(
-                "https://api.openai.com",
-                key,
-                model,
-                dims,
-            )))
-        }
-        name if name.starts_with("custom:") => {
-            let base_url = name.strip_prefix("custom:").unwrap_or("");
-            let key = api_key.unwrap_or("");
-            Ok(Box::new(OpenAiEmbedding::new(base_url, key, model, dims)))
-        }
-        "none" => Ok(Box::new(NoopEmbedding)),
-        unknown => Err(anyhow::anyhow!(
-            "unknown embedding provider: \"{unknown}\". \
-             Supported: \"ollama\", \"openai\", \"custom:<url>\", \"none\""
-        )),
-    }
-}
-
-/// Returns the default local embedding provider (Ollama-backed).
-pub fn default_local_embedding_provider() -> Arc<dyn EmbeddingProvider> {
-    Arc::new(OllamaEmbedding::default())
-}
 
 #[cfg(test)]
 mod tests {

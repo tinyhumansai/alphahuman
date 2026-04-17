@@ -9,6 +9,7 @@ import {
   type ChatSubagentSpawnedEvent,
   type ChatToolCallEvent,
   type ChatToolResultEvent,
+  type ProactiveMessageEvent,
   segmentText,
   subscribeChatEvents,
 } from '../services/chatService';
@@ -27,7 +28,12 @@ import {
 } from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
-import { addInferenceResponse, setActiveThread } from '../store/threadSlice';
+import {
+  addInferenceResponse,
+  createNewThread,
+  setActiveThread,
+  setSelectedThread,
+} from '../store/threadSlice';
 
 const logChatRuntime = debug('openhuman:chat-runtime');
 
@@ -55,6 +61,8 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const seenChatEventsRef = useRef<Map<string, number>>(new Map());
+  const proactiveThreadCreationPromiseRef = useRef<Promise<string | null> | null>(null);
+  const proactiveDispatchQueueRef = useRef<Promise<void>>(Promise.resolve());
   const toolTimelineRef = useRef(toolTimelineByThread);
   const inferenceStatusRef = useRef(inferenceStatusByThread);
   const streamingAssistantRef = useRef(streamingAssistantByThread);
@@ -102,6 +110,57 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
       cache.delete(oldest);
     }
     return true;
+  };
+
+  const proactiveMessageDigest = (input: string): string => {
+    // Small non-cryptographic digest to keep dedupe keys bounded.
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  };
+
+  const resolveVisibleThreadForProactive = async (
+    incomingThreadId: string
+  ): Promise<string | null> => {
+    if (!incomingThreadId.startsWith('proactive:')) {
+      return incomingThreadId;
+    }
+
+    const state = store.getState().thread;
+    const targetFromState =
+      state.selectedThreadId ?? state.activeThreadId ?? state.threads[0]?.id ?? null;
+    if (targetFromState) {
+      return targetFromState;
+    }
+
+    if (proactiveThreadCreationPromiseRef.current) {
+      return proactiveThreadCreationPromiseRef.current;
+    }
+
+    const createPromise: Promise<string | null> = (async () => {
+      try {
+        const newThread = await dispatch(createNewThread()).unwrap();
+        dispatch(setSelectedThread(newThread.id));
+        return newThread.id;
+      } catch (error) {
+        rtLog('proactive_thread_create_failed', {
+          err: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      } finally {
+        proactiveThreadCreationPromiseRef.current = null;
+      }
+    })();
+    proactiveThreadCreationPromiseRef.current = createPromise;
+
+    try {
+      return await createPromise;
+    } finally {
+      // no-op: cleared in createPromise.finally
+    }
   };
 
   useEffect(() => {
@@ -370,6 +429,35 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
           ];
         }
         dispatch(setToolTimelineForThread({ threadId: event.thread_id, entries }));
+      },
+      onProactiveMessage: (event: ProactiveMessageEvent) => {
+        const messageDigest = proactiveMessageDigest(event.full_response ?? '');
+        const eventKey = `proactive:${event.thread_id}:${event.request_id ?? 'none'}:${messageDigest}`;
+        if (
+          !markChatEventSeen(eventKey, { threadId: event.thread_id, requestId: event.request_id })
+        )
+          return;
+
+        proactiveDispatchQueueRef.current = proactiveDispatchQueueRef.current.then(async () => {
+          try {
+            const targetThreadId = await resolveVisibleThreadForProactive(event.thread_id);
+            if (!targetThreadId) return;
+            rtLog('proactive_message', {
+              from: event.thread_id,
+              to: targetThreadId,
+              request: event.request_id,
+            });
+            await dispatch(
+              addInferenceResponse({ content: event.full_response, threadId: targetThreadId })
+            );
+          } catch (error) {
+            rtLog('proactive_dispatch_failed', {
+              from: event.thread_id,
+              request: event.request_id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
       },
       onDone: event => {
         const eventKey = `done:${event.thread_id}:${event.request_id ?? 'none'}`;

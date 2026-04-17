@@ -404,20 +404,27 @@ fn is_daemon_mode() -> bool {
     std::env::args().any(|arg| arg == "daemon" || arg == "--daemon")
 }
 
-fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        if let Err(err) = window.show() {
-            log::error!("[tray] failed to show main window: {err}");
-        }
-        if let Err(err) = window.unminimize() {
-            log::error!("[tray] failed to unminimize main window: {err}");
-        }
-        if let Err(err) = window.set_focus() {
-            log::error!("[tray] failed to focus main window: {err}");
-        }
-    } else {
-        log::error!("[tray] main window not found");
-    }
+/// Tauri command: bring the main window to front from any webview (e.g. overlay orb click).
+#[tauri::command]
+fn activate_main_window(app: AppHandle) -> Result<(), String> {
+    log::debug!("[window] activate_main_window called from overlay");
+    show_main_window(&app)
+}
+
+fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    window
+        .show()
+        .map_err(|err| format!("failed to show main window: {err}"))?;
+    window
+        .unminimize()
+        .map_err(|err| format!("failed to unminimize main window: {err}"))?;
+    window
+        .set_focus()
+        .map_err(|err| format!("failed to focus main window: {err}"))?;
+    Ok(())
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -444,7 +451,9 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray_show_window" => {
                 log::info!("[tray] action=show_window source=menu");
-                show_main_window(app);
+                if let Err(err) = show_main_window(app) {
+                    log::error!("[tray] failed to show main window from menu: {err}");
+                }
             }
             "tray_quit" => {
                 log::info!("[tray] action=quit source=menu");
@@ -460,7 +469,9 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             } = event
             {
                 log::info!("[tray] action=show_window source=left_click");
-                show_main_window(tray.app_handle());
+                if let Err(err) = show_main_window(tray.app_handle()) {
+                    log::error!("[tray] failed to show main window from tray click: {err}");
+                }
             }
         })
         .build(app)?;
@@ -567,7 +578,8 @@ pub fn run() {
             service_status_direct,
             service_uninstall_direct,
             register_dictation_hotkey,
-            unregister_dictation_hotkey
+            unregister_dictation_hotkey,
+            activate_main_window
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -589,7 +601,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => {
                 log::info!("[window] reopen event — showing main window");
-                show_main_window(app_handle);
+                if let Err(err) = show_main_window(app_handle) {
+                    log::error!("[macos] failed to show main window on reopen: {err}");
+                }
             }
             RunEvent::Exit => {
                 if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
