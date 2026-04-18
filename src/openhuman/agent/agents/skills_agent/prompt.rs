@@ -7,7 +7,7 @@
 
 use crate::openhuman::context::prompt::{
     render_safety, render_tools, render_user_files, render_workspace, PromptContext,
-    CACHE_BOUNDARY,
+
 };
 use anyhow::Result;
 
@@ -34,8 +34,6 @@ pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
     out.push_str(safety.trim_end());
     out.push_str("\n\n");
 
-    out.push_str(CACHE_BOUNDARY);
-    out.push_str("\n\n");
 
     let workspace = render_workspace(ctx)?;
     if !workspace.trim().is_empty() {

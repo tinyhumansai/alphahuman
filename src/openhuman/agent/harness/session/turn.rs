@@ -27,7 +27,7 @@ use crate::openhuman::agent::harness;
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
 use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::context::prompt::{
-    LearnedContextData, PromptContext, PromptTool, RenderedPrompt,
+    LearnedContextData, PromptContext, PromptTool,
 };
 use crate::openhuman::context::{ReductionOutcome, ARCHIVIST_EXTRACTION_PROMPT};
 use crate::openhuman::memory::MemoryCategory;
@@ -88,32 +88,30 @@ impl Agent {
             log::info!("[agent] system prompt built — initialising conversation history");
             log::info!(
                 "[agent_loop] system prompt built chars={}",
-                rendered_prompt.text.chars().count()
+                rendered_prompt.chars().count()
             );
             // User-file injection (PROFILE.md, MEMORY.md) puts
             // potentially-sensitive content (LinkedIn scrape output,
             // archivist-curated memories) into the system prompt. Avoid
             // leaking that to debug logs — log a length + content hash
-            // instead so cache-boundary diagnostics still work. Narrow
-            // specialists (both flags off) keep the full-body log so
-            // prompt-engineering iteration on tools/safety sections
-            // stays easy.
+            // instead. Narrow specialists (both flags off) keep the
+            // full-body log so prompt-engineering iteration on
+            // tools/safety sections stays easy.
             if self.omit_profile && self.omit_memory_md {
-                log::debug!("[agent_loop] system prompt body:\n{}", rendered_prompt.text);
+                log::debug!("[agent_loop] system prompt body:\n{}", rendered_prompt);
             } else {
                 use std::hash::{Hash, Hasher};
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                rendered_prompt.text.hash(&mut hasher);
+                rendered_prompt.hash(&mut hasher);
                 log::debug!(
                     "[agent_loop] system prompt body redacted (contains PROFILE/MEMORY): chars={} hash={:016x}",
-                    rendered_prompt.text.chars().count(),
+                    rendered_prompt.chars().count(),
                     hasher.finish()
                 );
             }
-            self.system_prompt_cache_boundary = rendered_prompt.cache_boundary;
             self.history
                 .push(ConversationMessage::Chat(ChatMessage::system(
-                    rendered_prompt.text,
+                    rendered_prompt,
                 )));
         } else {
             // Deliberately do NOT rebuild the system prompt on subsequent
@@ -383,7 +381,6 @@ impl Agent {
                             } else {
                                 None
                             },
-                            system_prompt_cache_boundary: self.system_prompt_cache_boundary,
                             stream: delta_tx_opt.as_ref(),
                         },
                         &effective_model,
@@ -947,7 +944,6 @@ impl Agent {
             system_prompt: Arc::new(system_prompt),
             tool_specs: Arc::clone(&self.visible_tool_specs),
             message_prefix: Arc::new(messages),
-            cache_boundary: self.system_prompt_cache_boundary,
             fork_task_prompt,
         }
     }
@@ -1090,10 +1086,7 @@ impl Agent {
 
     /// Builds the system prompt for the current turn, including tool
     /// instructions and learned context.
-    pub(super) fn build_system_prompt(
-        &self,
-        learned: LearnedContextData,
-    ) -> Result<RenderedPrompt> {
+    pub(super) fn build_system_prompt(&self, learned: LearnedContextData) -> Result<String> {
         let tools_slice: &[Box<dyn Tool>] = self.tools.as_slice();
         let instructions = self.tool_dispatcher.prompt_instructions(tools_slice);
         // Adapt the owned Box<dyn Tool> slice into the shared PromptTool
@@ -1117,9 +1110,8 @@ impl Agent {
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,
-        // channel runtimes — shares one builder configuration while
-        // still preserving cache-boundary metadata for provider calls.
-        self.context.build_system_prompt_with_cache_metadata(&ctx)
+        // channel runtimes — shares one builder configuration.
+        self.context.build_system_prompt(&ctx)
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1144,14 +1136,9 @@ impl Agent {
                             );
                             return;
                         }
-                        // Restore the cache boundary from the transcript
-                        // metadata so the provider request carries the
-                        // same offset as the original session.
-                        self.system_prompt_cache_boundary = session.meta.cache_boundary;
                         log::info!(
-                            "[transcript] loaded {} messages for resume (cache_boundary={:?})",
-                            session.messages.len(),
-                            session.meta.cache_boundary
+                            "[transcript] loaded {} messages for resume",
+                            session.messages.len()
                         );
                         self.cached_transcript_messages = Some(session.messages);
                     }
@@ -1221,7 +1208,6 @@ impl Agent {
             } else {
                 "xml".into()
             },
-            cache_boundary: self.system_prompt_cache_boundary,
             created: now.clone(),
             updated: now,
             turn_count: self.context.stats().session_memory_current_turn as usize,
@@ -1654,21 +1640,18 @@ mod tests {
             ChatMessage::user("hello"),
             ChatMessage::assistant("done"),
         ];
-        agent.system_prompt_cache_boundary = Some(12);
         agent.persist_session_transcript(&messages, 10, 5, 3, 0.25, None);
         assert!(agent.session_transcript_path.is_some());
 
         let loaded = transcript::read_transcript(agent.session_transcript_path.as_ref().unwrap())
             .expect("transcript should be readable");
         assert_eq!(loaded.messages.len(), 3);
-        assert_eq!(loaded.meta.cache_boundary, Some(12));
         assert_eq!(loaded.meta.input_tokens, 10);
 
         let mut resumed = make_agent(None);
         resumed.workspace_dir = agent.workspace_dir.clone();
         resumed.agent_definition_name = agent.agent_definition_name.clone();
         resumed.try_load_session_transcript();
-        assert_eq!(resumed.system_prompt_cache_boundary, Some(12));
         assert_eq!(
             resumed.cached_transcript_messages.as_ref().map(|m| m.len()),
             Some(3)

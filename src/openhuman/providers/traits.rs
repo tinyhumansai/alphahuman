@@ -114,15 +114,15 @@ pub enum ProviderDelta {
 }
 
 /// Request payload for provider chat calls.
+///
+/// The system prompt is built once at session start and frozen for the
+/// rest of the session — the inference backend's automatic prefix
+/// cache covers the whole thing, so there is no explicit cache-boundary
+/// to thread through the request.
 #[derive(Debug, Clone, Copy)]
 pub struct ChatRequest<'a> {
     pub messages: &'a [ChatMessage],
     pub tools: Option<&'a [ToolSpec]>,
-    /// Byte offset in the system prompt where static (cacheable) content ends
-    /// and dynamic content begins. Providers that support prompt caching can
-    /// apply `cache_control` to the prefix before this boundary.
-    /// `None` means no cache boundary is known.
-    pub system_prompt_cache_boundary: Option<usize>,
     /// Optional sink for `ProviderDelta` events. When `Some`, providers
     /// that support streaming will ask the upstream API for SSE and
     /// forward fine-grained events here. Providers without a streaming
@@ -825,7 +825,6 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
             stream: None,
         };
 
@@ -844,7 +843,6 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: None,
-            system_prompt_cache_boundary: None,
             stream: None,
         };
 
@@ -946,7 +944,6 @@ mod tests {
                 ChatMessage::system("BASE_SYSTEM_PROMPT"),
             ],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
             stream: None,
         };
 
@@ -970,7 +967,6 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::system("BASE"), ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
             stream: None,
         };
 
@@ -994,7 +990,6 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
             stream: None,
         };
 

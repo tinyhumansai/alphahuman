@@ -576,7 +576,6 @@ impl Provider for ReliableProvider {
                     let req = ChatRequest {
                         messages: request.messages,
                         tools: request.tools,
-                        system_prompt_cache_boundary: request.system_prompt_cache_boundary,
                         stream: stream_this_attempt,
                     };
                     match provider.chat(req, current_model, temperature).await {

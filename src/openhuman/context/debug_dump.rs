@@ -33,8 +33,8 @@ use crate::openhuman::composio::tools::{
 };
 use crate::openhuman::config::Config;
 use crate::openhuman::context::prompt::{
-    extract_cache_boundary, render_subagent_system_prompt, ConnectedIntegration,
-    LearnedContextData, PromptContext, PromptTool, SubagentRenderOptions, ToolCallFormat,
+    render_subagent_system_prompt, ConnectedIntegration, LearnedContextData, PromptContext,
+    PromptTool, SubagentRenderOptions, ToolCallFormat,
 };
 use crate::openhuman::integrations::IntegrationClient;
 use crate::openhuman::memory::{self, Memory};
@@ -85,11 +85,9 @@ pub struct DumpedPrompt {
     pub model: String,
     /// Workspace directory used for identity file injection.
     pub workspace_dir: PathBuf,
-    /// The final rendered system prompt (cache-boundary marker stripped;
-    /// the offset is in `cache_boundary`).
+    /// The final rendered system prompt — frozen bytes that would be
+    /// sent verbatim on every turn of a live session.
     pub text: String,
-    /// Byte offset of the cache boundary, if the builder emitted one.
-    pub cache_boundary: Option<usize>,
     /// Tool names that made it into the rendered prompt, in order.
     pub tool_names: Vec<String>,
     /// Number of `ToolCategory::Skill` tools in the dump.
@@ -307,12 +305,9 @@ fn render_subagent_dump(
         include_memory_md: !definition.omit_memory_md,
     };
 
-    let rendered = match &definition.system_prompt {
-        PromptSource::Dynamic(build) => {
-            let text = build(&prompt_ctx)
-                .with_context(|| format!("building dynamic prompt for {}", definition.id))?;
-            extract_cache_boundary(&text)
-        }
+    let text = match &definition.system_prompt {
+        PromptSource::Dynamic(build) => build(&prompt_ctx)
+            .with_context(|| format!("building dynamic prompt for {}", definition.id))?,
         _ => {
             let archetype_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)
                 .with_context(|| format!("loading prompt for {}", definition.id))?;
@@ -323,7 +318,7 @@ fn render_subagent_dump(
                 definition.omit_profile,
                 definition.omit_memory_md,
             );
-            let raw = render_subagent_system_prompt(
+            render_subagent_system_prompt(
                 workspace_dir,
                 &model,
                 &allowed_indices,
@@ -333,8 +328,7 @@ fn render_subagent_dump(
                 options,
                 ToolCallFormat::PFormat,
                 connected_integrations,
-            );
-            extract_cache_boundary(&raw)
+            )
         }
     };
 
@@ -352,8 +346,7 @@ fn render_subagent_dump(
         mode: "subagent",
         model,
         workspace_dir: workspace_dir.to_path_buf(),
-        text: rendered.text,
-        cache_boundary: rendered.cache_boundary,
+        text,
         tool_names,
         skill_tool_count,
     })

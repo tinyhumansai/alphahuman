@@ -25,18 +25,6 @@ pub(crate) const BOOTSTRAP_MAX_CHARS: usize = 20_000;
 /// grown.
 pub(crate) const USER_FILE_MAX_CHARS: usize = 2_000;
 
-/// Internal marker string for the cache boundary. Wrap in blank lines
-/// when emitting; `extract_cache_boundary` strips the marker on the
-/// way out and exposes its byte offset via `RenderedPrompt::cache_boundary`.
-pub(crate) const CACHE_BOUNDARY_MARKER: &str = "<!-- CACHE_BOUNDARY -->";
-
-/// Cache-boundary marker. Emit this literal (wrapped in blank lines) in
-/// a prompt string at the point where static content ends and dynamic
-/// content begins. Exposed so dynamic builders in
-/// `agents/<id>/prompt.rs` can embed the marker when composing the
-/// final prompt body.
-pub const CACHE_BOUNDARY: &str = CACHE_BOUNDARY_MARKER;
-
 /// Per-namespace cap when injecting tree summarizer root summaries into
 /// the prompt. ~8 000 chars ≈ 2 000 tokens — that's the floor the user
 /// asked for ("at least 2000 tokens of user memory") for a single
@@ -199,12 +187,6 @@ pub struct PromptContext<'a> {
 pub trait PromptSection: Send + Sync {
     fn name(&self) -> &str;
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String>;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenderedPrompt {
-    pub text: String,
-    pub cache_boundary: Option<usize>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

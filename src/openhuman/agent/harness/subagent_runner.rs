@@ -32,7 +32,7 @@ use super::definition::{AgentDefinition, PromptSource, ToolScope};
 use super::fork_context::{current_fork, current_parent, ForkContext, ParentExecutionContext};
 use super::session::transcript;
 use crate::openhuman::context::prompt::{
-    extract_cache_boundary, render_subagent_system_prompt, PromptContext, PromptTool,
+    render_subagent_system_prompt, PromptContext, PromptTool,
     SubagentRenderOptions,
 };
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
@@ -533,23 +533,19 @@ async fn run_typed_mode(
         include_memory_md: !definition.omit_memory_md,
     };
 
-    let rendered_prompt = match &definition.system_prompt {
+    let system_prompt = match &definition.system_prompt {
         PromptSource::Dynamic(build) => {
-            // Function-driven builder returns the *final* prompt text,
-            // potentially containing a `CACHE_BOUNDARY` marker that
-            // `extract_cache_boundary` strips on the way out.
-            let text =
-                build(&prompt_ctx).map_err(|e| SubagentRunError::PromptLoad {
-                    path: format!("<dynamic:{}>", definition.id),
-                    source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-                })?;
-            extract_cache_boundary(&text)
+            // Function-driven builder returns the final prompt text.
+            build(&prompt_ctx).map_err(|e| SubagentRunError::PromptLoad {
+                path: format!("<dynamic:{}>", definition.id),
+                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            })?
         }
         PromptSource::Inline(_) | PromptSource::File { .. } => {
             // Legacy path for TOML-authored agents: load the raw body,
             // then wrap it with the canonical section layout.
             let archetype_prompt_body = load_prompt_source(&definition.system_prompt, &prompt_ctx)?;
-            extract_cache_boundary(&render_subagent_system_prompt(
+            render_subagent_system_prompt(
                 &parent.workspace_dir,
                 &model,
                 &allowed_indices,
@@ -559,11 +555,9 @@ async fn run_typed_mode(
                 render_options,
                 parent.tool_call_format,
                 &narrowed_integrations,
-            ))
+            )
         }
     };
-    let system_prompt = rendered_prompt.text;
-    let system_prompt_cache_boundary = rendered_prompt.cache_boundary;
 
     // ── Build the user message (with optional context prefix) ──────────
     // Merge explicit orchestrator context with the parent's auto-loaded
@@ -600,7 +594,6 @@ async fn run_typed_mode(
         &model,
         temperature,
         definition.max_iterations,
-        system_prompt_cache_boundary,
         task_id,
         &definition.id,
         handoff_cache.as_deref(),
@@ -611,7 +604,6 @@ async fn run_typed_mode(
         &parent.workspace_dir,
         &definition.id,
         &history,
-        system_prompt_cache_boundary,
         &agg_usage,
     );
 
@@ -654,7 +646,6 @@ async fn run_fork_mode(
     tracing::debug!(
         agent_id = %definition.id,
         prefix_len = fork.message_prefix.len(),
-        cache_boundary = ?fork.cache_boundary,
         "[subagent_runner:fork] replaying parent prefix"
     );
 
@@ -701,7 +692,6 @@ async fn run_fork_mode(
         &model,
         temperature,
         max_iterations,
-        fork.cache_boundary,
         task_id,
         &definition.id,
         None,
@@ -712,7 +702,6 @@ async fn run_fork_mode(
         &parent.workspace_dir,
         &definition.id,
         &history,
-        fork.cache_boundary,
         &agg_usage,
     );
 
@@ -736,7 +725,6 @@ fn persist_subagent_transcript(
     workspace_dir: &Path,
     agent_id: &str,
     history: &[ChatMessage],
-    cache_boundary: Option<usize>,
     usage: &AggregatedUsage,
 ) {
     let path = match transcript::resolve_new_transcript_path(workspace_dir, agent_id) {
@@ -755,7 +743,6 @@ fn persist_subagent_transcript(
     let meta = transcript::TranscriptMeta {
         agent_name: agent_id.to_string(),
         dispatcher: "native".into(),
-        cache_boundary,
         created: now.clone(),
         updated: now,
         turn_count: 1,
@@ -815,7 +802,6 @@ async fn run_inner_loop(
     model: &str,
     temperature: f64,
     max_iterations: usize,
-    system_prompt_cache_boundary: Option<usize>,
     task_id: &str,
     agent_id: &str,
     handoff_cache: Option<&ResultHandoffCache>,
@@ -892,7 +878,6 @@ async fn run_inner_loop(
                 ChatRequest {
                     messages: history.as_slice(),
                     tools: request_tools,
-                    system_prompt_cache_boundary,
                     stream: None,
                 },
                 model,

@@ -161,12 +161,6 @@ pub struct ForkContext {
     /// verbatim. Includes the system message at index 0.
     pub message_prefix: Arc<Vec<ChatMessage>>,
 
-    /// Optional system-prompt cache boundary the parent passed in its
-    /// own [`crate::openhuman::providers::ChatRequest`]. The child threads
-    /// the same value through so any future explicit-cache provider sees
-    /// matching markers.
-    pub cache_boundary: Option<usize>,
-
     /// The actual instruction the model issued for *this* fork — appears
     /// as the new user message appended after `message_prefix`.
     pub fork_task_prompt: String,

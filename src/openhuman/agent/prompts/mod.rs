@@ -108,9 +108,7 @@ impl SystemPromptBuilder {
     /// Used when the caller has already composed the final prompt (e.g.
     /// via a function-driven `PromptSource::Dynamic` builder that calls
     /// the `render_*` section helpers itself). The returned builder has
-    /// a single [`ArchetypePromptSection`] containing the body verbatim;
-    /// `build_with_cache_metadata` still runs `extract_cache_boundary`
-    /// on the output so embedded `CACHE_BOUNDARY` markers are honoured.
+    /// a single [`ArchetypePromptSection`] containing the body verbatim.
     pub fn from_final_body(body: String) -> Self {
         Self {
             sections: vec![Box::new(ArchetypePromptSection::new(body))],
@@ -122,50 +120,25 @@ impl SystemPromptBuilder {
         self
     }
 
+    /// Render every section in order into a single prompt string.
+    ///
+    /// The rendered bytes are intended to be **frozen for the whole
+    /// session** — callers build the system prompt once at session
+    /// start and reuse the exact bytes on every subsequent turn so the
+    /// inference backend's prefix cache hits uniformly. There is no
+    /// cache-boundary marker to emit because the entire prompt is
+    /// static from the provider's perspective.
     pub fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        Ok(self.build_with_cache_metadata(ctx)?.text)
-    }
-
-    pub fn build_with_cache_metadata(&self, ctx: &PromptContext<'_>) -> Result<RenderedPrompt> {
         let mut output = String::new();
-        let mut cache_boundary_inserted = false;
         for section in &self.sections {
             let part = section.build(ctx)?;
             if part.trim().is_empty() {
                 continue;
             }
-            // Insert cache boundary marker before the first dynamic section.
-            // Static sections (identity, tools, safety, skills) are cacheable;
-            // dynamic sections (workspace, datetime, runtime) change per request.
-            if !cache_boundary_inserted && is_dynamic_section(section.name()) {
-                output.push_str(CACHE_BOUNDARY_MARKER);
-                output.push_str("\n\n");
-                cache_boundary_inserted = true;
-            }
             output.push_str(part.trim_end());
             output.push_str("\n\n");
         }
-        Ok(extract_cache_boundary(&output))
-    }
-}
-
-pub fn extract_cache_boundary(rendered: &str) -> RenderedPrompt {
-    if let Some(marker_idx) = rendered.find(CACHE_BOUNDARY_MARKER) {
-        let mut text = rendered.to_string();
-        let end = marker_idx + CACHE_BOUNDARY_MARKER.len();
-        text.replace_range(marker_idx..end, "");
-        if text[marker_idx..].starts_with("\n\n") {
-            text.replace_range(marker_idx..marker_idx + 2, "");
-        }
-        return RenderedPrompt {
-            text,
-            cache_boundary: Some(marker_idx),
-        };
-    }
-
-    RenderedPrompt {
-        text: rendered.to_string(),
-        cache_boundary: None,
+        Ok(output)
     }
 }
 
@@ -598,13 +571,6 @@ impl PromptSection for DateTimeSection {
     }
 }
 
-/// Returns true for sections whose content changes between requests.
-/// Static sections (identity, tools, safety, skills) are placed before
-/// the cache boundary; dynamic sections (workspace, datetime, runtime) after.
-fn is_dynamic_section(name: &str) -> bool {
-    matches!(name, "workspace" | "datetime" | "runtime")
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Section helpers for function-driven prompts
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1007,14 +973,7 @@ pub fn render_subagent_system_prompt_with_format(
         out.push('\n');
     }
 
-    // 4. Insert the cache boundary before the dynamic tail. Typed
-    //    sub-agents keep the narrow/static instructions above this
-    //    marker and thread the resulting byte offset through the
-    //    provider request so repeat spawns can reuse prompt prefill.
-    out.push_str(CACHE_BOUNDARY_MARKER);
-    out.push_str("\n\n");
-
-    // 5. Workspace so the model knows where it is. Intentionally stable:
+    // 4. Workspace so the model knows where it is. Intentionally stable:
     //    no datetime, no hostname, no pid — see the KV-cache note above.
     let _ = writeln!(
         out,
@@ -1205,14 +1164,10 @@ mod tests {
             include_profile: false,
             include_memory_md: false,
         };
-        let rendered = SystemPromptBuilder::with_defaults()
-            .build_with_cache_metadata(&ctx)
-            .unwrap();
-        assert!(rendered.text.contains("## Tools"));
-        assert!(rendered.text.contains("test_tool"));
-        assert!(rendered.text.contains("instr"));
-        assert!(!rendered.text.contains(CACHE_BOUNDARY_MARKER));
-        assert!(rendered.cache_boundary.is_some());
+        let rendered = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
+        assert!(rendered.contains("## Tools"));
+        assert!(rendered.contains("test_tool"));
+        assert!(rendered.contains("instr"));
     }
 
     #[test]
@@ -1282,13 +1237,6 @@ mod tests {
         assert!(payload.chars().any(|c| c.is_ascii_digit()));
         assert!(payload.contains(" ("));
         assert!(payload.ends_with(')'));
-    }
-
-    #[test]
-    fn extract_cache_boundary_removes_marker_and_returns_offset() {
-        let rendered = extract_cache_boundary("static\n\n<!-- CACHE_BOUNDARY -->\n\ndynamic\n");
-        assert_eq!(rendered.text, "static\n\ndynamic\n");
-        assert_eq!(rendered.cache_boundary, Some("static\n\n".len()));
     }
 
     #[test]
@@ -1444,7 +1392,7 @@ mod tests {
     }
 
     #[test]
-    fn render_subagent_system_prompt_includes_cache_boundary_before_workspace() {
+    fn render_subagent_system_prompt_renders_workspace_tail() {
         let workspace = std::env::temp_dir().join(format!(
             "openhuman_prompt_subagent_{}",
             uuid::Uuid::new_v4()
@@ -1452,7 +1400,7 @@ mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
 
         let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
-        let rendered = extract_cache_boundary(&render_subagent_system_prompt(
+        let rendered = render_subagent_system_prompt(
             &workspace,
             "test-model",
             &[0],
@@ -1462,23 +1410,12 @@ mod tests {
             SubagentRenderOptions::narrow(),
             ToolCallFormat::PFormat,
             &[],
-        ));
-
-        assert!(
-            rendered.cache_boundary.is_some(),
-            "typed sub-agent prompts should expose an explicit cache boundary"
         );
-        assert!(rendered.text.contains("## Workspace"));
-        assert!(!rendered.text.contains(CACHE_BOUNDARY_MARKER));
+
+        assert!(rendered.contains("## Workspace"));
+        assert!(rendered.contains("## Runtime"));
 
         let _ = std::fs::remove_dir_all(workspace);
-    }
-
-    #[test]
-    fn extract_cache_boundary_without_marker_returns_original_text() {
-        let rendered = extract_cache_boundary("hello");
-        assert_eq!(rendered.text, "hello");
-        assert_eq!(rendered.cache_boundary, None);
     }
 
     #[test]
@@ -2179,15 +2116,6 @@ mod tests {
         assert!(prompt.contains("[... truncated at"));
 
         let _ = std::fs::remove_dir_all(workspace);
-    }
-
-    #[test]
-    fn dynamic_section_classification_matches_cache_boundary_rules() {
-        assert!(is_dynamic_section("workspace"));
-        assert!(is_dynamic_section("datetime"));
-        assert!(is_dynamic_section("runtime"));
-        assert!(!is_dynamic_section("tools"));
-        assert!(!is_dynamic_section("identity"));
     }
 
     #[test]

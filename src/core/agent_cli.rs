@@ -172,10 +172,6 @@ fn print_human(dumped: &DumpedPrompt, with_tools: bool) {
     eprintln!("workspace:      {}", dumped.workspace_dir.display());
     eprintln!("tool_count:     {}", dumped.tool_names.len());
     eprintln!("skill_tools:    {}", dumped.skill_tool_count);
-    match dumped.cache_boundary {
-        Some(offset) => eprintln!("cache_boundary: byte offset {offset}"),
-        None => eprintln!("cache_boundary: none"),
-    }
     if with_tools {
         eprintln!("tools:");
         for name in &dumped.tool_names {
@@ -216,13 +212,6 @@ fn print_json(dumped: &DumpedPrompt, with_tools: bool) -> Result<()> {
     obj.insert(
         "skill_tool_count".into(),
         serde_json::Value::Number(dumped.skill_tool_count.into()),
-    );
-    obj.insert(
-        "cache_boundary".into(),
-        match dumped.cache_boundary {
-            Some(offset) => serde_json::Value::Number(offset.into()),
-            None => serde_json::Value::Null,
-        },
     );
     obj.insert(
         "system_prompt".into(),

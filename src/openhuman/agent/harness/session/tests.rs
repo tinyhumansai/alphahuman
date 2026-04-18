@@ -63,7 +63,6 @@ struct RecordingProvider {
 struct CapturedCall {
     system_prompt: Option<String>,
     model: String,
-    cache_boundary: Option<usize>,
 }
 
 #[async_trait]
@@ -92,7 +91,6 @@ impl Provider for RecordingProvider {
         self.captures.lock().push(CapturedCall {
             system_prompt,
             model: model.to_string(),
-            cache_boundary: request.system_prompt_cache_boundary,
         });
 
         let mut guard = self.responses.lock();

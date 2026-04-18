@@ -12,7 +12,7 @@
 //!
 //! **Line 1 (meta):**
 //! ```json
-//! {"_meta":{"agent":"code_executor","dispatcher":"native","cache_boundary":1847,"created":"...","updated":"...","turn_count":3,"input_tokens":5000,"output_tokens":1200,"cached_input_tokens":3500,"charged_amount_usd":0.0045}}
+//! {"_meta":{"agent":"code_executor","dispatcher":"native","created":"...","updated":"...","turn_count":3,"input_tokens":5000,"output_tokens":1200,"cached_input_tokens":3500,"charged_amount_usd":0.0045}}
 //! ```
 //!
 //! **Message lines:**
@@ -67,7 +67,6 @@ pub struct TurnUsage {
 pub struct TranscriptMeta {
     pub agent_name: String,
     pub dispatcher: String,
-    pub cache_boundary: Option<usize>,
     pub created: String,
     pub updated: String,
     pub turn_count: usize,
@@ -101,8 +100,6 @@ struct MetaLine {
 struct MetaPayload {
     agent: String,
     dispatcher: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cache_boundary: Option<usize>,
     created: String,
     updated: String,
     turn_count: usize,
@@ -157,7 +154,6 @@ pub fn write_transcript(
         meta: MetaPayload {
             agent: meta.agent_name.clone(),
             dispatcher: meta.dispatcher.clone(),
-            cache_boundary: meta.cache_boundary,
             created: meta.created.clone(),
             updated: meta.updated.clone(),
             turn_count: meta.turn_count,
@@ -320,7 +316,6 @@ fn read_transcript_jsonl(path: &Path) -> Result<SessionTranscript> {
             meta = Some(TranscriptMeta {
                 agent_name: mp.agent,
                 dispatcher: mp.dispatcher,
-                cache_boundary: mp.cache_boundary,
                 created: mp.created,
                 updated: mp.updated,
                 turn_count: mp.turn_count,
@@ -442,9 +437,6 @@ fn render_markdown(
     let _ = writeln!(buf, "# Session transcript — {}", meta.agent_name);
     buf.push('\n');
     let _ = writeln!(buf, "- Dispatcher: {}", meta.dispatcher);
-    if let Some(boundary) = meta.cache_boundary {
-        let _ = writeln!(buf, "- Cache boundary: {}", boundary);
-    }
     let _ = writeln!(buf, "- Turns: {}", meta.turn_count);
     if meta.input_tokens > 0 || meta.output_tokens > 0 {
         let cache_pct = if meta.input_tokens > 0 {
@@ -543,7 +535,6 @@ fn parse_legacy_meta(raw: &str) -> Result<TranscriptMeta> {
     Ok(TranscriptMeta {
         agent_name: get("agent").unwrap_or_else(|| "unknown".into()),
         dispatcher: get("dispatcher").unwrap_or_else(|| "native".into()),
-        cache_boundary: get("cache_boundary").and_then(|s| s.parse().ok()),
         created: get("created").unwrap_or_default(),
         updated: get("updated").unwrap_or_default(),
         turn_count: get("turn_count").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -770,7 +761,6 @@ mod tests {
         TranscriptMeta {
             agent_name: "code_executor".into(),
             dispatcher: "native".into(),
-            cache_boundary: Some(1847),
             created: "2026-04-11T14:30:00Z".into(),
             updated: "2026-04-11T14:35:22Z".into(),
             turn_count: 3,
@@ -849,7 +839,6 @@ mod tests {
 
         assert_eq!(loaded.meta.agent_name, "code_executor");
         assert_eq!(loaded.meta.dispatcher, "native");
-        assert_eq!(loaded.meta.cache_boundary, Some(1847));
         assert_eq!(loaded.meta.created, "2026-04-11T14:30:00Z");
         assert_eq!(loaded.meta.updated, "2026-04-11T14:35:22Z");
         assert_eq!(loaded.meta.turn_count, 3);
@@ -857,19 +846,6 @@ mod tests {
         assert_eq!(loaded.meta.output_tokens, 1200);
         assert_eq!(loaded.meta.cached_input_tokens, 3500);
         assert!((loaded.meta.charged_amount_usd - 0.0045).abs() < 1e-8);
-    }
-
-    #[test]
-    fn meta_without_cache_boundary() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("no_boundary.jsonl");
-        let mut meta = sample_meta();
-        meta.cache_boundary = None;
-
-        write_transcript(&path, &[], &meta, None).unwrap();
-        let loaded = read_transcript(&path).unwrap();
-
-        assert_eq!(loaded.meta.cache_boundary, None);
     }
 
     #[test]
@@ -1069,7 +1045,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Write a legacy .md file directly (old format).
         let md_path = dir.path().join("legacy.md");
-        let legacy_content = "<!-- session_transcript\nagent: test_agent\ndispatcher: native\ncache_boundary: 100\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:01:00Z\nturn_count: 1\ninput_tokens: 10\noutput_tokens: 5\ncached_input_tokens: 3\n-->\n\n<!--MSG role=\"system\"-->\nhello\n<!--/MSG-->\n";
+        let legacy_content = "<!-- session_transcript\nagent: test_agent\ndispatcher: native\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:01:00Z\nturn_count: 1\ninput_tokens: 10\noutput_tokens: 5\ncached_input_tokens: 3\n-->\n\n<!--MSG role=\"system\"-->\nhello\n<!--/MSG-->\n";
         fs::write(&md_path, legacy_content).unwrap();
 
         // read_transcript called with a .jsonl path that doesn't exist
@@ -1077,7 +1053,6 @@ mod tests {
         let jsonl_path = dir.path().join("legacy.jsonl");
         let loaded = read_transcript(&jsonl_path).unwrap();
         assert_eq!(loaded.meta.agent_name, "test_agent");
-        assert_eq!(loaded.meta.cache_boundary, Some(100));
         assert_eq!(loaded.messages.len(), 1);
         assert_eq!(loaded.messages[0].role, "system");
         assert_eq!(loaded.messages[0].content, "hello");

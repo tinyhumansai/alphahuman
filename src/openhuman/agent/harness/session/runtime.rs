@@ -163,7 +163,6 @@ impl Agent {
     /// Clears the agent's conversation history.
     pub fn clear_history(&mut self) {
         self.history.clear();
-        self.system_prompt_cache_boundary = None;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -575,7 +574,6 @@ mod tests {
         });
         let mut agent = make_agent(provider);
         agent.history = vec![ConversationMessage::Chat(ChatMessage::system("sys"))];
-        agent.system_prompt_cache_boundary = Some(7);
         agent.skills = vec![crate::openhuman::skills::Skill {
             name: "demo".into(),
             ..Default::default()
@@ -602,7 +600,6 @@ mod tests {
 
         agent.clear_history();
         assert!(agent.history().is_empty());
-        assert!(agent.system_prompt_cache_boundary.is_none());
         assert_eq!(Agent::count_iterations(agent.history()), 1);
     }
 
