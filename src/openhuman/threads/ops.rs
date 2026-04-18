@@ -169,7 +169,7 @@ fn sanitize_generated_title(raw: &str) -> Option<String> {
     let trimmed = line
         .trim_matches(|c: char| matches!(c, '"' | '\'' | '`'))
         .trim()
-        .trim_end_matches(|c: char| matches!(c, '.' | '!' | '?' | ':' | ';'))
+        .trim_end_matches(['.', '!', '?', ':', ';'])
         .trim();
     let collapsed = collapse_whitespace(trimmed);
     if collapsed.is_empty() {

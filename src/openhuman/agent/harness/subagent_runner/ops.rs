@@ -536,7 +536,7 @@ async fn run_typed_mode(
             // Function-driven builder returns the final prompt text.
             build(&prompt_ctx).map_err(|e| SubagentRunError::PromptLoad {
                 path: format!("<dynamic:{}>", definition.id),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                source: std::io::Error::other(e.to_string()),
             })?
         }
         PromptSource::Inline(_) | PromptSource::File { .. } => {
@@ -598,7 +598,7 @@ async fn run_typed_mode(
         task_id,
         &definition.id,
         handoff_cache.as_deref(),
-        &parent,
+        parent,
     )
     .await?;
 
@@ -702,7 +702,7 @@ async fn run_fork_mode(
         task_id,
         &definition.id,
         None,
-        &parent,
+        parent,
     )
     .await?;
 

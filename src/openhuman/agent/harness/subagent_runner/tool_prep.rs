@@ -190,7 +190,7 @@ pub(crate) fn load_prompt_source(
         PromptSource::Inline(body) => Ok(body.clone()),
         PromptSource::Dynamic(build) => build(ctx).map_err(|e| SubagentRunError::PromptLoad {
             path: format!("<dynamic:{}>", ctx.agent_id),
-            source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            source: std::io::Error::other(e.to_string()),
         }),
         PromptSource::File { path } => {
             // Try the workspace's `agent/prompts/` first (so users can

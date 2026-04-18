@@ -109,6 +109,12 @@ pub fn reset_welcome_exchange_count() {
 
 pub struct CompleteOnboardingTool;
 
+impl Default for CompleteOnboardingTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CompleteOnboardingTool {
     pub fn new() -> Self {
         Self

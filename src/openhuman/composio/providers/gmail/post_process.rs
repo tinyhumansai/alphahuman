@@ -69,10 +69,7 @@ pub fn post_process(slug: &str, arguments: Option<&Value>, data: &mut Value) {
         );
         return;
     }
-    match slug {
-        "GMAIL_FETCH_EMAILS" => reshape_fetch_emails(data),
-        _ => {}
-    }
+    if slug == "GMAIL_FETCH_EMAILS" { reshape_fetch_emails(data) }
 }
 
 /// Returns true when the caller explicitly set `raw_html: true` (or the

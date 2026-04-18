@@ -252,7 +252,7 @@ impl ComposioProvider for NotionProvider {
                 if let Some(ref et) = edited_time {
                     if newest_edited_time
                         .as_ref()
-                        .map_or(true, |existing| et > existing)
+                        .is_none_or(|existing| et > existing)
                     {
                         newest_edited_time = Some(et.clone());
                     }

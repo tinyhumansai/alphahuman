@@ -55,7 +55,7 @@ fn require_xy(args: &Value) -> anyhow::Result<(i32, i32)> {
 }
 
 fn validate_coord(name: &str, value: i64) -> anyhow::Result<()> {
-    if value < 0 || value > MAX_COORD {
+    if !(0..=MAX_COORD).contains(&value) {
         anyhow::bail!("'{name}' coordinate {value} is out of range (0..{MAX_COORD})");
     }
     Ok(())

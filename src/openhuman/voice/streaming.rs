@@ -37,7 +37,7 @@ struct ClientCommand {
 }
 
 fn decode_pcm16le_frame(data: &[u8]) -> Option<Vec<i16>> {
-    if data.len() % 2 != 0 {
+    if !data.len().is_multiple_of(2) {
         return None;
     }
 

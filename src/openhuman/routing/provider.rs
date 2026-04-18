@@ -297,7 +297,7 @@ impl IntelligentRoutingProvider {
         model: &str,
         temperature: f64,
     ) -> Result<ChatResponse> {
-        let has_tools = request.tools.map_or(false, |t| !t.is_empty());
+        let has_tools = request.tools.is_some_and(|t| !t.is_empty());
         let (primary, fallback, category, local_healthy) = self.resolve(model).await;
         let started = Instant::now();
         let mut fallback_occurred = false;
