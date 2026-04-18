@@ -787,17 +787,49 @@ jobs:
       #       org.opencontainers.image.revision=${{ needs.prepare-release.outputs.sha }}
 
   # =========================================================================
+  # Phase 3c: Generate and upload latest.json for the Tauri auto-updater.
+  # Runs after every platform has uploaded its updater artifact (.sig files
+  # from createUpdaterArtifacts) so the manifest can reference all four
+  # platform entries. Production-only — staging builds don't feed the public
+  # updater endpoint.
+  # =========================================================================
+  publish-updater-manifest:
+    name: Publish updater manifest (latest.json)
+    needs: [prepare-build, create-release, build-desktop]
+    if: >-
+      needs.prepare-build.outputs.release_enabled == 'true'
+      && needs.build-desktop.result == 'success'
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-build.outputs.build_ref }}
+          fetch-depth: 1
+
+      - name: Generate and upload latest.json
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-build.outputs.tag }}
+          VERSION: ${{ needs.prepare-build.outputs.version }}
+          REPO: tinyhumansai/openhuman
+        run: bash scripts/release/publish-updater-manifest.sh
+
+  # =========================================================================
   # Phase 4: Publish the draft release (waits for ALL build phases)
   # =========================================================================
   publish-release:
     name: Publish draft release
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-build, create-release, build-desktop, build-docker]
+    needs: [prepare-build, create-release, build-desktop, build-docker, publish-updater-manifest]
     if: >-
       needs.prepare-build.outputs.release_enabled == 'true'
       && needs.build-desktop.result == 'success'
       && needs.build-docker.result == 'success'
+      && needs.publish-updater-manifest.result == 'success'
     steps:
       - name: Validate required installer assets exist
         uses: actions/github-script@v7
@@ -819,6 +851,9 @@ jobs:
               /OpenHuman_.*_amd64\.AppImage$/,
               /OpenHuman_.*_amd64\.deb$/,
               /(OpenHuman_.*_x64-setup\.exe$|OpenHuman_.*_x64.*\.msi$)/,
+              // Auto-updater manifest — without this, installed clients can't
+              // discover new releases via plugins.updater.endpoints.
+              /^latest\.json$/,
             ];
 
             const missing = requiredPatterns.filter((pattern) => !names.some((name) => pattern.test(name)));
@@ -875,13 +910,14 @@ jobs:
     name: Remove release and tag if build failed
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-build, create-release, build-desktop, build-docker]
+    needs: [prepare-build, create-release, build-desktop, build-docker, publish-updater-manifest]
     if: >-
       always()
       && needs.prepare-build.outputs.release_enabled == 'true'
       && needs.create-release.result == 'success'
       && (needs.build-desktop.result == 'failure' || needs.build-desktop.result == 'cancelled'
-          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled')
+          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled'
+          || needs.publish-updater-manifest.result == 'failure' || needs.publish-updater-manifest.result == 'cancelled')
     steps:
       - name: Delete GitHub release
         uses: actions/github-script@v7
