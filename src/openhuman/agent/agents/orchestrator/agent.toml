@@ -64,9 +64,18 @@ hint = "reasoning"
 # delegating. `spawn_subagent` is retained as an advanced fallback so
 # power users can still spawn arbitrary agent ids that are not listed
 # in `subagents` above (e.g. workspace-override custom agents).
+#
+# `composio_list_connections` is the orchestrator's only composio_*
+# tool: it exists so the agent can detect newly-authorised integrations
+# mid-session (the session-start fetch froze the Delegation Guide's
+# connected list). Authorisation, toolkit discovery, action listing,
+# and action execution all live downstream in `integrations_agent` —
+# the orchestrator never calls composio_authorize / composio_list_tools
+# / composio_execute directly.
 named = [
     "query_memory",
     "read_workspace_state",
     "ask_user_clarification",
     "spawn_subagent",
+    "composio_list_connections",
 ]

@@ -93,8 +93,11 @@ impl Tool for ComposioListConnectionsTool {
         "composio_list_connections"
     }
     fn description(&self) -> &str {
-        "List the user's active Composio OAuth connections. Each entry has \
-         {id, toolkit, status, createdAt}. Status is typically ACTIVE or CONNECTED."
+        "List the user's **currently-connected** Composio integrations. \
+         Only entries with status ACTIVE / CONNECTED are returned; pending, \
+         revoked, or failed connections are filtered out. Use this to detect \
+         newly-authorised integrations mid-session. Each entry has \
+         {id, toolkit, status, createdAt}."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {}, "additionalProperties": false })
@@ -108,9 +111,23 @@ impl Tool for ComposioListConnectionsTool {
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!("[composio] tool list_connections.execute");
         match self.client.list_connections().await {
-            Ok(resp) => Ok(ToolResult::success(
-                serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
-            )),
+            Ok(mut resp) => {
+                // Filter server-side-indistinguishable states here —
+                // callers should only ever see integrations the user
+                // can actually act on. Matches the same ACTIVE /
+                // CONNECTED allowlist used by
+                // `fetch_connected_integrations_uncached` so the tool
+                // output and the prompt's Delegation Guide agree on
+                // what counts as "connected".
+                resp.connections.retain(|c| {
+                    let status = c.status.trim();
+                    status.eq_ignore_ascii_case("ACTIVE")
+                        || status.eq_ignore_ascii_case("CONNECTED")
+                });
+                Ok(ToolResult::success(
+                    serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
+                ))
+            }
             Err(e) => Ok(ToolResult::error(format!(
                 "composio_list_connections failed: {e}"
             ))),
