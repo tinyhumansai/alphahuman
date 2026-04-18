@@ -15,7 +15,7 @@
 //! [`Agent::build_system_prompt`] on the live session, so the output is
 //! byte-identical to what the LLM sees on turn 1. Pass
 //! `--agent orchestrator` for the orchestrator prompt; otherwise pass
-//! any built-in or workspace-custom agent id (e.g. `skills_agent`,
+//! any built-in or workspace-custom agent id (e.g. `integrations_agent`,
 //! `welcome`, `code_executor`).
 
 use anyhow::{anyhow, Result};
@@ -114,7 +114,7 @@ fn parse_dump_flags(args: &[String]) -> Result<DumpFlags> {
 fn run_dump_prompt(args: &[String]) -> Result<()> {
     let flags = parse_dump_flags(args)?;
     let agent = flags.agent.clone().ok_or_else(|| {
-        anyhow!("--agent <id> is required (e.g. `orchestrator`, `skills_agent`, `welcome`)")
+        anyhow!("--agent <id> is required (e.g. `orchestrator`, `integrations_agent`, `welcome`)")
     })?;
 
     init_quiet_logging(flags.verbose);
@@ -337,7 +337,7 @@ fn print_dump_prompt_help() {
     println!();
     println!("Required:");
     println!("  --agent, -a <id>     Target agent id — any built-in or workspace-custom id");
-    println!("                       (e.g. `orchestrator`, `skills_agent`, `welcome`).");
+    println!("                       (e.g. `orchestrator`, `integrations_agent`, `welcome`).");
     println!();
     println!("Options:");
     println!("  --workspace, -w <p>  Override the workspace directory (defaults to");
@@ -349,8 +349,8 @@ fn print_dump_prompt_help() {
     println!("  -v, --verbose        Enable debug logging on stderr.");
     println!();
     println!("Examples:");
-    println!("  # Full skills_agent dump (includes Composio meta-tools when enabled).");
-    println!("  openhuman agent dump-prompt --agent skills_agent --with-tools");
+    println!("  # Full integrations_agent dump (includes Composio meta-tools when enabled).");
+    println!("  openhuman agent dump-prompt --agent integrations_agent --with-tools");
     println!();
     println!("  # Orchestrator prompt, JSON for scripting.");
     println!("  openhuman agent dump-prompt --agent orchestrator --json");

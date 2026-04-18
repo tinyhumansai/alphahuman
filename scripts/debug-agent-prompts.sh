@@ -10,7 +10,7 @@
 # to stderr. Useful workflow:
 #
 #   bash scripts/debug-agent-prompts.sh
-#   diff -u prompts.before/skills_agent.md prompts.after/skills_agent.md
+#   diff -u prompts.before/integrations_agent.md prompts.after/integrations_agent.md
 #
 # The dumper runs against the real session construction path
 # (`Agent::from_config_for_agent` → `Agent::build_system_prompt`), so the

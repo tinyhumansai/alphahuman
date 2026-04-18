@@ -75,7 +75,7 @@ impl Tool for SpawnSubagentTool {
     fn description(&self) -> &str {
         "Delegate a task to a specialised sub-agent. See the Delegation \
          Guide in the system prompt for available agent_ids and when to \
-         use each. When delegating to `skills_agent`, you MUST also pass \
+         use each. When delegating to `integrations_agent`, you MUST also pass \
          `toolkit=\"<name>\"` naming the Composio integration the \
          sub-task targets (e.g. `gmail`, `notion`); the sub-agent will \
          only see that toolkit's actions."
@@ -122,7 +122,7 @@ impl Tool for SpawnSubagentTool {
                 },
                 "toolkit": {
                     "type": "string",
-                    "description": "Composio toolkit slug to scope this spawn to — e.g. `gmail`, `notion`, `slack`. REQUIRED when `agent_id = \"skills_agent\"`. Narrows the sub-agent's visible Composio actions AND its Connected Integrations prompt section to only that toolkit's catalogue, so the sub-agent's context window only carries the platform it was asked to operate on. Must match a currently-connected integration (see the Delegation Guide)."
+                    "description": "Composio toolkit slug to scope this spawn to — e.g. `gmail`, `notion`, `slack`. REQUIRED when `agent_id = \"integrations_agent\"`. Narrows the sub-agent's visible Composio actions AND its Connected Integrations prompt section to only that toolkit's catalogue, so the sub-agent's context window only carries the platform it was asked to operate on. Must match a currently-connected integration (see the Delegation Guide)."
                 },
                 "mode": {
                     "type": "string",
@@ -206,14 +206,14 @@ impl Tool for SpawnSubagentTool {
             }
         };
 
-        // ── skills_agent toolkit gate ──────────────────────────────────
-        // skills_agent is a platform-parameterised specialist. Every
+        // ── integrations_agent toolkit gate ──────────────────────────────────
+        // integrations_agent is a platform-parameterised specialist. Every
         // spawn MUST name a CONNECTED toolkit so the sub-agent only
         // sees one integration's tool catalogue instead of all of
         // them. We split validation into three cases so the model
         // gets a precise, actionable error on every failure mode —
         // nothing reaches the LLM loop unless the spawn is valid.
-        if definition.id == "skills_agent" {
+        if definition.id == "integrations_agent" {
             let parent_ctx = current_parent();
             let allowlist: Vec<&crate::openhuman::context::prompt::ConnectedIntegration> =
                 parent_ctx
@@ -229,7 +229,7 @@ impl Tool for SpawnSubagentTool {
             match toolkit_override.as_deref() {
                 None => {
                     return Ok(ToolResult::error(format!(
-                        "spawn_subagent(skills_agent): the `toolkit` argument is required. \
+                        "spawn_subagent(integrations_agent): the `toolkit` argument is required. \
                          Pass one of the currently-connected toolkits: [{}]. \
                          See the Delegation Guide in your system prompt for which toolkit \
                          matches each task.",
@@ -244,7 +244,7 @@ impl Tool for SpawnSubagentTool {
                         None => {
                             // Toolkit isn't even in the backend allowlist.
                             return Ok(ToolResult::error(format!(
-                                "spawn_subagent(skills_agent): toolkit '{tk}' is not in \
+                                "spawn_subagent(integrations_agent): toolkit '{tk}' is not in \
                                  the backend allowlist. Valid toolkits: [{}]. Check the \
                                  Delegation Guide in your system prompt for the exact slug.",
                                 allowlist

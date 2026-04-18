@@ -44,7 +44,7 @@ use super::{ArchetypeDelegationTool, SkillDelegationTool, Tool};
 /// Each [`SubagentEntry::Skills`] wildcard expands to one
 /// [`SkillDelegationTool`] per connected Composio integration in
 /// `connected_integrations`. The synthesised tool routes to the generic
-/// `skills_agent` with `skill_filter = Some("{toolkit_slug}")` pre-set.
+/// `integrations_agent` with `skill_filter = Some("{toolkit_slug}")` pre-set.
 ///
 /// Entries that reference unknown agent ids (not in the registry) are
 /// logged at `warn` and skipped — the orchestrator still builds, just
@@ -138,7 +138,7 @@ pub fn collect_orchestrator_tools(
                         )
                     };
                     log::debug!(
-                        "[orchestrator_tools] registering skill delegation tool: {} -> skills_agent (skill_filter={})",
+                        "[orchestrator_tools] registering skill delegation tool: {} -> integrations_agent (skill_filter={})",
                         tool_name,
                         slug
                     );

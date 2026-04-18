@@ -56,7 +56,7 @@ impl Tool for SkillDelegationTool {
         }
 
         super::dispatch_subagent(
-            "skills_agent",
+            "integrations_agent",
             &self.tool_name,
             &prompt,
             Some(&self.skill_id),

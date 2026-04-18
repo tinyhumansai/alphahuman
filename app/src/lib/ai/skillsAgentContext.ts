@@ -1,4 +1,4 @@
-// Source of truth: src/openhuman/agent/agents/skills_agent/prompt.md
+// Source of truth: src/openhuman/agent/agents/integrations_agent/prompt.md
 // Keep in sync when the Rust-side prompt changes.
 export const SKILLS_AGENT_PROMPT = `# Skills Agent — Service Integration Specialist
 
