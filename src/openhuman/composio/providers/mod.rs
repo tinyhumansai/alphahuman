@@ -41,9 +41,9 @@ pub mod user_scopes;
 
 pub mod catalogs;
 pub mod github;
-pub mod post_process;
 pub mod gmail;
 pub mod notion;
+pub mod post_process;
 pub mod profile;
 pub mod registry;
 pub mod sync_state;

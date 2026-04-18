@@ -76,9 +76,29 @@ fn looks_like_html(s: &str) -> bool {
     let head = if s.len() > 4096 { &s[..4096] } else { s };
     let lower = head.to_ascii_lowercase();
     const MARKERS: &[&str] = &[
-        "<html", "<body", "<head>", "<div", "<p>", "<p ", "<br>", "<br/", "<br />", "<a ",
-        "<table", "<span", "<img ", "<ul", "<ol", "<li>", "<h1", "<h2", "<h3", "<blockquote",
-        "<style", "<meta", "<!doctype",
+        "<html",
+        "<body",
+        "<head>",
+        "<div",
+        "<p>",
+        "<p ",
+        "<br>",
+        "<br/",
+        "<br />",
+        "<a ",
+        "<table",
+        "<span",
+        "<img ",
+        "<ul",
+        "<ol",
+        "<li>",
+        "<h1",
+        "<h2",
+        "<h3",
+        "<blockquote",
+        "<style",
+        "<meta",
+        "<!doctype",
     ];
     MARKERS.iter().any(|m| lower.contains(m))
 }
