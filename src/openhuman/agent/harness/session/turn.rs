@@ -486,6 +486,21 @@ impl Agent {
                         msgs.push(ChatMessage::assistant(final_text.clone()));
                     }
 
+                    // Persist the transcript **now** — right after the
+                    // provider response lands — so a crash during hooks
+                    // / memory-extraction / the outer epilogue can't
+                    // lose the assistant's reply.
+                    if let Some(ref messages) = last_provider_messages {
+                        self.persist_session_transcript(
+                            messages,
+                            cumulative_input_tokens,
+                            cumulative_output_tokens,
+                            cumulative_cached_input_tokens,
+                            cumulative_charged_usd,
+                            last_turn_usage.as_ref(),
+                        );
+                    }
+
                     if self.auto_save {
                         let summary = truncate_with_ellipsis(&final_text, 100);
                         let _ = self
@@ -564,6 +579,26 @@ impl Agent {
                     tool_calls: persisted_tool_calls,
                 });
 
+                // Persist the transcript **right after** the provider
+                // response lands — before executing tools — so if the
+                // session crashes mid-tool-call we still have the
+                // assistant's response + tool-call intents on disk.
+                // Rebuild `last_provider_messages` from the current
+                // history so the snapshot includes whatever the
+                // assistant just emitted (plain text + tool calls).
+                last_provider_messages =
+                    Some(self.tool_dispatcher.to_provider_messages(&self.history));
+                if let Some(ref messages) = last_provider_messages {
+                    self.persist_session_transcript(
+                        messages,
+                        cumulative_input_tokens,
+                        cumulative_output_tokens,
+                        cumulative_cached_input_tokens,
+                        cumulative_charged_usd,
+                        last_turn_usage.as_ref(),
+                    );
+                }
+
                 let (results, records) = self.execute_tools(&calls, iteration).await;
                 all_tool_records.extend(records);
                 log::info!(
@@ -618,21 +653,13 @@ impl Agent {
         // the PARENT_CONTEXT task-local.
         let result = harness::with_parent_context(parent_context, turn_body).await;
 
-        // ── Session transcript persistence ────────────────────────────
-        // Persist the exact provider messages so a future session can
-        // resume with a byte-identical prefix for KV cache reuse.
-        if result.is_ok() {
-            if let Some(ref messages) = last_provider_messages {
-                self.persist_session_transcript(
-                    messages,
-                    cumulative_input_tokens,
-                    cumulative_output_tokens,
-                    cumulative_cached_input_tokens,
-                    cumulative_charged_usd,
-                    last_turn_usage.as_ref(),
-                );
-            }
-        }
+        // Session transcript persistence lives INSIDE the turn body —
+        // one write per provider response, fired right after the
+        // response lands (see the tool-call and terminal branches in
+        // `turn_body`). A crash during tool execution no longer drops
+        // the assistant's reply because it was already flushed to
+        // disk before tool dispatch started. No outer-loop save is
+        // needed here.
 
         // ── Session-memory extraction (stage 5) ───────────────────────
         //

@@ -69,7 +69,7 @@ fn render_delegation_guide(integrations: &[ConnectedIntegration]) -> String {
          to call integration actions directly from this agent.\n\n\
          Only the integrations listed below are currently authorised. \
          If the user asks about another service, tell them to connect \
-         it in **Settings → Integrations** before retrying.\n\n",
+         it in **Skills** page before retrying.\n\n",
     );
     for ci in connected {
         let _ = writeln!(
