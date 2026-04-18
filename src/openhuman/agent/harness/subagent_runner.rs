@@ -308,11 +308,50 @@ async fn run_typed_mode(
             // toolkit is in the allowlist AND has an active
             // connection, so the matching entry must be present and
             // marked connected. Defensive lookup anyway.
-            if let Some(integration) = parent
+            if let Some(cached_integration) = parent
                 .connected_integrations
                 .iter()
                 .find(|ci| ci.connected && ci.toolkit.eq_ignore_ascii_case(tk))
             {
+                // Refresh the toolkit's action catalogue at spawn time
+                // by calling `composio_list_tools` for the bound toolkit.
+                // The cached list on `parent.connected_integrations`
+                // comes from the session-start bulk fetch, which can
+                // return zero actions for some toolkits even when the
+                // per-toolkit endpoint returns a full catalogue. Falling
+                // back to the cached list preserves the previous
+                // behaviour on network failure.
+                let fresh_actions = match crate::openhuman::composio::fetch_toolkit_actions(
+                    client, tk,
+                )
+                .await
+                {
+                    Ok(actions) if !actions.is_empty() => actions,
+                    Ok(_) => {
+                        tracing::debug!(
+                            agent_id = %definition.id,
+                            toolkit = %tk,
+                            "[subagent_runner:typed] fresh list_tools returned empty; falling back to cached catalogue"
+                        );
+                        cached_integration.tools.clone()
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            agent_id = %definition.id,
+                            toolkit = %tk,
+                            error = %e,
+                            "[subagent_runner:typed] fresh list_tools failed; falling back to cached catalogue"
+                        );
+                        cached_integration.tools.clone()
+                    }
+                };
+                let integration = crate::openhuman::context::prompt::ConnectedIntegration {
+                    toolkit: cached_integration.toolkit.clone(),
+                    description: cached_integration.description.clone(),
+                    tools: fresh_actions,
+                    connected: cached_integration.connected,
+                };
+                let integration = &integration;
                 // Fuzzy-filter the toolkit's actions against the task prompt
                 // so large catalogues (e.g. github ~500 actions) are narrowed
                 // to the handful actually relevant to this delegation. The

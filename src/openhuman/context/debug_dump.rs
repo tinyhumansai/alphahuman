@@ -250,7 +250,7 @@ async fn render_integrations_agent(config: &Config, toolkit: &str) -> Result<Dum
         .with_context(|| format!("building integrations_agent session for `{toolkit}`"))?;
     agent.fetch_connected_integrations().await;
 
-    let integration = agent
+    let mut integration = agent
         .connected_integrations()
         .iter()
         .find(|ci| ci.connected && ci.toolkit.eq_ignore_ascii_case(toolkit))
@@ -272,6 +272,23 @@ async fn render_integrations_agent(config: &Config, toolkit: &str) -> Result<Dum
         .composio_client()
         .cloned()
         .ok_or_else(|| anyhow!("composio client unavailable — is the user signed in?"))?;
+
+    // Refresh the action catalogue for this toolkit at prompt-generation
+    // time so the dump reflects the **current** backend state rather
+    // than the session-start bulk fetch's snapshot (which can return an
+    // empty list for some toolkits even when the per-toolkit endpoint
+    // returns actions).
+    integration.tools = crate::openhuman::composio::fetch_toolkit_actions(
+        &composio_client,
+        &integration.toolkit,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "fetching fresh action catalogue for toolkit `{}`",
+            integration.toolkit
+        )
+    })?;
 
     // Build the tool list that subagent_runner would produce for a
     // real spawn: every non-Skill parent tool + one ComposioActionTool

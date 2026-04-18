@@ -639,6 +639,56 @@ async fn fetch_connected_integrations_uncached(
     Some(integrations)
 }
 
+/// Just-in-time fetch of every available action for a single Composio
+/// toolkit, returned in the [`ConnectedIntegrationTool`] shape the
+/// `integrations_agent` spawn path expects.
+///
+/// Unlike [`fetch_connected_integrations`] (which bulk-fetches every
+/// connected toolkit's tools once per session and caches the result),
+/// this helper is uncached and scoped to a single toolkit — meant to
+/// be called at `integrations_agent` spawn time so the sub-agent's
+/// prompt always reflects the toolkit's current action catalogue.
+///
+/// The filter `starts_with("{TOOLKIT}_")` matches
+/// `fetch_connected_integrations_uncached`'s own namespacing rule so
+/// siblings like `github` / `git` don't leak into each other's buckets.
+///
+/// Returns an empty vec when the backend has no actions for the
+/// toolkit (valid steady state for a freshly-authorised integration
+/// whose catalogue hasn't been published yet). Returns `Err` only for
+/// transport / auth failures the caller should surface to the user.
+pub async fn fetch_toolkit_actions(
+    client: &ComposioClient,
+    toolkit: &str,
+) -> anyhow::Result<Vec<ConnectedIntegrationTool>> {
+    let toolkit_slug = toolkit.trim();
+    if toolkit_slug.is_empty() {
+        anyhow::bail!("fetch_toolkit_actions: toolkit must not be empty");
+    }
+    tracing::debug!(toolkit = %toolkit_slug, "[composio] fetch_toolkit_actions");
+    let resp = client
+        .list_tools(Some(&[toolkit_slug.to_string()]))
+        .await
+        .map_err(|e| anyhow::anyhow!("list_tools failed for toolkit `{toolkit_slug}`: {e}"))?;
+    let action_prefix = format!("{}_", toolkit_slug.to_uppercase());
+    let actions: Vec<ConnectedIntegrationTool> = resp
+        .tools
+        .into_iter()
+        .filter(|t| t.function.name.starts_with(&action_prefix))
+        .map(|t| ConnectedIntegrationTool {
+            name: t.function.name,
+            description: t.function.description.unwrap_or_default(),
+            parameters: t.function.parameters,
+        })
+        .collect();
+    tracing::debug!(
+        toolkit = %toolkit_slug,
+        action_count = actions.len(),
+        "[composio] fetch_toolkit_actions: done"
+    );
+    Ok(actions)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
