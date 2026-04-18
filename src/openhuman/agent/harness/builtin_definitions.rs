@@ -63,7 +63,6 @@ pub fn fork_definition() -> AgentDefinition {
         tools: ToolScope::Wildcard,
         disallowed_tools: vec![],
         skill_filter: None,
-        category_filter: None,
         extra_tools: vec![],
         // Fork inherits the parent's max iterations from the runtime.
         max_iterations: 15,

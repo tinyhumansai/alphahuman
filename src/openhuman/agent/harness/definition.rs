@@ -21,7 +21,6 @@
 //! runtime — it is pure data so the model can be unit-tested in isolation
 //! and serialised straight from disk.
 
-use crate::openhuman::tools::ToolCategory;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -114,18 +113,12 @@ pub struct AgentDefinition {
     #[serde(default)]
     pub skill_filter: Option<String>,
 
-    /// Filter to only tools belonging to a specific high-level category.
-    #[serde(default)]
-    pub category_filter: Option<ToolCategory>,
-
-    /// Additional system tool names to include even when `category_filter`
-    /// restricts to a different category. This allows an agent that is
-    /// primarily scoped to `Skill` tools (e.g. `skills_agent`) to also
-    /// access a handful of named system tools (e.g. `file_write`,
-    /// `csv_export`) without removing the category filter entirely.
+    /// Named tools that should always be visible to this agent in
+    /// addition to its [`ToolScope`]. Historically this was a bypass
+    /// list for the now-removed `category_filter`; kept as a generic
+    /// "also include these" hook for custom definitions.
     ///
-    /// Tools listed here bypass the `category_filter` check but are still
-    /// subject to `disallowed_tools` and `ToolScope` restrictions.
+    /// Entries are still subject to [`AgentDefinition::disallowed_tools`].
     #[serde(default)]
     pub extra_tools: Vec<String>,
 
@@ -584,7 +577,6 @@ mod tests {
             tools: ToolScope::Wildcard,
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
             extra_tools: vec![],
             max_iterations: 8,
             timeout_secs: None,

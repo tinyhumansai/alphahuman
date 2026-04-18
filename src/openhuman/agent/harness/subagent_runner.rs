@@ -60,12 +60,6 @@ pub struct SubagentRunOptions {
     /// starts with `{skill}__`. Overrides `definition.skill_filter`.
     pub skill_filter_override: Option<String>,
 
-    /// Optional category override. When set, replaces
-    /// `definition.category_filter` for this single spawn. Useful when
-    /// the parent wants to reuse a generic definition but scope it to
-    /// skill or system tools for this specific call.
-    pub category_filter_override: Option<ToolCategory>,
-
     /// Optional Composio toolkit scope (e.g. `"gmail"`, `"notion"`).
     /// When set, skill-category tools are further restricted to those
     /// whose name starts with the uppercased `{toolkit}_` prefix, and
@@ -227,9 +221,6 @@ async fn run_typed_mode(
     // `render_subagent_system_prompt` below.
 
     // ── Filter tools per definition + per-spawn override ───────────────
-    let category_filter = options
-        .category_filter_override
-        .or(definition.category_filter);
     let toolkit_filter = options.toolkit_override.as_deref();
     let mut allowed_indices = filter_tool_indices(
         &parent.all_tools,
@@ -239,15 +230,16 @@ async fn run_typed_mode(
             .skill_filter_override
             .as_deref()
             .or(definition.skill_filter.as_deref()),
-        category_filter,
     );
 
-    // ── Force-include extra_tools that bypass category_filter ──────────
+    // ── Force-include extra_tools ──────────────────────────────────────
     //
-    // `extra_tools` lets an agent definition request specific system tools
-    // even when `category_filter` restricts to a different category. For
-    // example, `skills_agent` sets `category_filter = "skill"` but still
-    // needs `file_write` and `csv_export` for exporting oversized payloads.
+    // `extra_tools` is a simple "also include these" hook that bypasses
+    // [`ToolScope`] / [`AgentDefinition::skill_filter`] but still honours
+    // `disallowed_tools`. Historically this was the bypass list for the
+    // now-removed `category_filter`; it remains useful for custom
+    // definitions that want to add a couple of named tools on top of a
+    // narrow scope.
     if !definition.extra_tools.is_empty() {
         let disallow_set: std::collections::HashSet<&str> = definition
             .disallowed_tools
@@ -1687,12 +1679,8 @@ fn first_line_truncated(s: &str, max_chars: usize) -> String {
 ///
 /// Filters are applied in this order (shorter-circuit first):
 /// 1. `disallowed` — explicit deny list.
-/// 2. `category_filter` — restrict to `System` or `Skill` category.
-/// 3. `skill_filter` — restrict to tools named `{skill}__*`.
-/// 4. `scope` — `Wildcard` (everything remaining) or `Named` allowlist.
-/// Filter a parent's tool registry down to the indices a sub-agent is
-/// allowed to call, given its [`ToolScope`] + disallowed list +
-/// skill/category filters.
+/// 2. `skill_filter` — restrict to tools named `{skill}__*`.
+/// 3. `scope` — `Wildcard` (everything remaining) or `Named` allowlist.
 ///
 /// Exposed `pub(crate)` so the debug dump path in
 /// [`crate::openhuman::context::debug_dump`] shares the exact same
@@ -1703,7 +1691,6 @@ pub(crate) fn filter_tool_indices(
     scope: &ToolScope,
     disallowed: &[String],
     skill_filter: Option<&str>,
-    category_filter: Option<ToolCategory>,
 ) -> Vec<usize> {
     let disallow_set: HashSet<&str> = disallowed.iter().map(|s| s.as_str()).collect();
     let skill_prefix = skill_filter.map(|s| format!("{s}__"));
@@ -1715,11 +1702,6 @@ pub(crate) fn filter_tool_indices(
             let name = tool.name();
             if disallow_set.contains(name) {
                 return false;
-            }
-            if let Some(required) = category_filter {
-                if tool.category() != required {
-                    return false;
-                }
             }
             if let Some(prefix) = skill_prefix.as_deref() {
                 if !name.starts_with(prefix) {
@@ -1830,7 +1812,6 @@ mod tests {
             tools: ToolScope::Named(names.iter().map(|s| s.to_string()).collect()),
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
             extra_tools: vec![],
             max_iterations: 5,
             timeout_secs: None,
@@ -1878,7 +1859,7 @@ mod tests {
     fn filter_named_scope_keeps_only_named() {
         let parent: Vec<Box<dyn Tool>> = vec![stub("alpha"), stub("beta"), stub("gamma")];
         let def = make_def_named_tools(&["alpha", "gamma"]);
-        let idx = filter_tool_indices(&parent, &def.tools, &def.disallowed_tools, None, None);
+        let idx = filter_tool_indices(&parent, &def.tools, &def.disallowed_tools, None);
         let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
         assert_eq!(names, vec!["alpha", "gamma"]);
     }
@@ -1889,7 +1870,7 @@ mod tests {
         let mut def = make_def_named_tools(&[]);
         def.tools = ToolScope::Wildcard;
         def.disallowed_tools = vec!["beta".into()];
-        let idx = filter_tool_indices(&parent, &def.tools, &def.disallowed_tools, None, None);
+        let idx = filter_tool_indices(&parent, &def.tools, &def.disallowed_tools, None);
         let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
         assert_eq!(names, vec!["alpha", "gamma"]);
     }
@@ -1909,7 +1890,6 @@ mod tests {
             &def.tools,
             &def.disallowed_tools,
             Some("notion"),
-            None,
         );
         let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
         assert_eq!(names, vec!["notion__search", "notion__read"]);
@@ -1930,196 +1910,9 @@ mod tests {
             &def.tools,
             &def.disallowed_tools,
             Some("notion"),
-            None,
         );
         let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
         assert_eq!(names, vec!["notion__search"]);
-    }
-
-    /// A stub tool that claims to be a skill-category tool, so we can
-    /// exercise `filter_tool_indices` / `category_filter` without
-    /// needing the real skill-bridge runtime.
-    struct SkillStubTool {
-        name: &'static str,
-    }
-
-    #[async_trait]
-    impl Tool for SkillStubTool {
-        fn name(&self) -> &str {
-            self.name
-        }
-        fn description(&self) -> &str {
-            "skill stub"
-        }
-        fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({"type": "object"})
-        }
-        async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
-            Ok(ToolResult::success("ok"))
-        }
-        fn permission_level(&self) -> PermissionLevel {
-            PermissionLevel::Write
-        }
-        fn category(&self) -> ToolCategory {
-            ToolCategory::Skill
-        }
-    }
-
-    fn skill_stub(name: &'static str) -> Box<dyn Tool> {
-        Box::new(SkillStubTool { name })
-    }
-
-    #[test]
-    fn filter_category_skill_keeps_only_skill_tools() {
-        let parent: Vec<Box<dyn Tool>> = vec![
-            stub("file_read"),
-            stub("shell"),
-            skill_stub("notion__search"),
-            skill_stub("gmail__send"),
-        ];
-        let def = make_def_named_tools(&[]); // Named([])
-                                             // Wildcard + Skill category → only skill-category tools.
-        let mut def = def;
-        def.tools = ToolScope::Wildcard;
-        let idx = filter_tool_indices(
-            &parent,
-            &def.tools,
-            &def.disallowed_tools,
-            None,
-            Some(ToolCategory::Skill),
-        );
-        let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
-        assert_eq!(names, vec!["notion__search", "gmail__send"]);
-    }
-
-    #[test]
-    fn filter_category_system_excludes_skill_tools() {
-        let parent: Vec<Box<dyn Tool>> = vec![
-            stub("file_read"),
-            skill_stub("notion__search"),
-            stub("shell"),
-        ];
-        let mut def = make_def_named_tools(&[]);
-        def.tools = ToolScope::Wildcard;
-        let idx = filter_tool_indices(
-            &parent,
-            &def.tools,
-            &def.disallowed_tools,
-            None,
-            Some(ToolCategory::System),
-        );
-        let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
-        assert_eq!(names, vec!["file_read", "shell"]);
-    }
-
-    #[test]
-    fn filter_category_and_skill_filter_compose() {
-        // Category=Skill AND skill_filter=notion → only notion__* tools
-        // that are also Skill-category.
-        let parent: Vec<Box<dyn Tool>> = vec![
-            skill_stub("notion__search"),
-            skill_stub("notion__read"),
-            skill_stub("gmail__send"),
-            stub("file_read"),
-            // A pathological system-category tool with a "notion__"
-            // name prefix — the category filter should still exclude it.
-            stub("notion__fake"),
-        ];
-        let mut def = make_def_named_tools(&[]);
-        def.tools = ToolScope::Wildcard;
-        let idx = filter_tool_indices(
-            &parent,
-            &def.tools,
-            &def.disallowed_tools,
-            Some("notion"),
-            Some(ToolCategory::Skill),
-        );
-        let names: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
-        assert_eq!(names, vec!["notion__search", "notion__read"]);
-    }
-
-    /// End-to-end verification that a sub-agent with
-    /// `category_filter = "skill"` (like the built-in `skills_agent`) sees
-    /// the real Composio tools alongside any other `Skill`-category tools
-    /// and does **not** see `System`-category tools.
-    ///
-    /// This is the regression test for "skills subagent has access to
-    /// composio tools": if any of the composio tool impls forgets to
-    /// override `category()` and falls back to the default `System`, it
-    /// gets filtered out here and this test fails.
-    #[test]
-    fn skills_subagent_filter_admits_composio_tools() {
-        use crate::openhuman::composio::client::ComposioClient;
-        use crate::openhuman::composio::tools::{
-            ComposioAuthorizeTool, ComposioExecuteTool, ComposioListConnectionsTool,
-            ComposioListToolkitsTool, ComposioListToolsTool,
-        };
-        use crate::openhuman::integrations::IntegrationClient;
-        use std::sync::Arc;
-
-        // Build a throwaway composio client. The filter only touches
-        // `Tool::name()` and `Tool::category()`, so no HTTP calls happen.
-        let inner =
-            IntegrationClient::new("http://127.0.0.1:0".to_string(), "test-token".to_string());
-        let client = ComposioClient::new(Arc::new(inner));
-
-        // Parent registry = the five real Composio tools + a couple of
-        // plain system-category stubs. We expect exactly the composio
-        // tools to survive the skills sub-agent's category filter.
-        let parent: Vec<Box<dyn Tool>> = vec![
-            Box::new(ComposioListToolkitsTool::new(client.clone())),
-            Box::new(ComposioListConnectionsTool::new(client.clone())),
-            Box::new(ComposioAuthorizeTool::new(client.clone())),
-            Box::new(ComposioListToolsTool::new(client.clone())),
-            Box::new(ComposioExecuteTool::new(client)),
-            stub("file_read"),
-            stub("shell"),
-        ];
-
-        // Mirror the skills_agent definition: wildcard tool scope,
-        // category_filter = Skill, no skill_filter.
-        let mut def = make_def_named_tools(&[]);
-        def.tools = ToolScope::Wildcard;
-        let idx = filter_tool_indices(
-            &parent,
-            &def.tools,
-            &def.disallowed_tools,
-            None,
-            Some(ToolCategory::Skill),
-        );
-
-        let surviving: Vec<&str> = idx.iter().map(|&i| parent[i].name()).collect();
-
-        // All five composio tools must be present.
-        for expected in &[
-            "composio_list_toolkits",
-            "composio_list_connections",
-            "composio_authorize",
-            "composio_list_tools",
-            "composio_execute",
-        ] {
-            assert!(
-                surviving.contains(expected),
-                "skills sub-agent filter dropped composio tool `{}` — \
-                 did someone remove the `category()` override? \
-                 surviving = {:?}",
-                expected,
-                surviving,
-            );
-        }
-
-        // System-category tools must be filtered out.
-        assert!(!surviving.contains(&"file_read"));
-        assert!(!surviving.contains(&"shell"));
-
-        // And we should see exactly 5 survivors, no more, no less.
-        assert_eq!(
-            surviving.len(),
-            5,
-            "expected exactly 5 composio tools to pass the skills filter, \
-             got {:?}",
-            surviving,
-        );
     }
 
     #[test]
@@ -2306,7 +2099,6 @@ mod tests {
                 "summarise X",
                 SubagentRunOptions {
                     skill_filter_override: None,
-                    category_filter_override: None,
                     toolkit_override: None,
                     context: None,
                     task_id: Some("t1".into()),
@@ -2412,7 +2204,6 @@ mod tests {
                 "lookup",
                 SubagentRunOptions {
                     skill_filter_override: Some("notion".into()),
-                    category_filter_override: None,
                     toolkit_override: None,
                     context: None,
                     task_id: None,

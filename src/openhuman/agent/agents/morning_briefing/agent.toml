@@ -12,10 +12,6 @@ omit_memory_context = false
 omit_safety_preamble = true
 omit_skills_catalog = true
 
-# Skill-category tools so it can pull calendar, email, task data from
-# connected integrations (Composio: Gmail, Google Calendar, Notion, etc.).
-category_filter = "skill"
-
 [model]
 hint = "agentic"
 

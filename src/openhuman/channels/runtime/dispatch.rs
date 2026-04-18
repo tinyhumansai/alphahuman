@@ -531,7 +531,6 @@ mod scoping_tests {
             tools: scope,
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
             extra_tools: vec![],
             max_iterations: 8,
             timeout_secs: None,

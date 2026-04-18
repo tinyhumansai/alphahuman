@@ -357,7 +357,6 @@ mod tests {
             tools: ToolScope::Named(vec![]),
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
             extra_tools: vec![],
             max_iterations: 1,
             timeout_secs: None,

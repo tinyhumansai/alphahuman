@@ -64,7 +64,6 @@ pub(crate) async fn dispatch_subagent(
     // check, restricted to skill-category tools.
     let options = SubagentRunOptions {
         skill_filter_override: None,
-        category_filter_override: None,
         toolkit_override: skill_filter.map(str::to_string),
         context: None,
         task_id: Some(task_id.clone()),

@@ -296,13 +296,6 @@ fn run_list(args: &[String]) -> Result<()> {
                 "omit_skills_catalog".into(),
                 serde_json::Value::Bool(def.omit_skills_catalog),
             );
-            obj.insert(
-                "category_filter".into(),
-                match def.category_filter {
-                    Some(cat) => serde_json::Value::String(format!("{cat:?}")),
-                    None => serde_json::Value::Null,
-                },
-            );
             arr.push(serde_json::Value::Object(obj));
         }
         println!(
@@ -310,15 +303,11 @@ fn run_list(args: &[String]) -> Result<()> {
             serde_json::to_string_pretty(&serde_json::Value::Array(arr))?
         );
     } else {
-        println!("{:<20} {:<22} WHEN TO USE", "ID", "CATEGORY FILTER");
+        println!("{:<20} WHEN TO USE", "ID");
         println!("{}", "-".repeat(90));
         for def in registry.list() {
-            let cat = def
-                .category_filter
-                .map(|c| format!("{c:?}"))
-                .unwrap_or_else(|| "-".into());
-            let when = def.when_to_use.chars().take(46).collect::<String>();
-            println!("{:<20} {:<22} {}", def.id, cat, when);
+            let when = def.when_to_use.chars().take(68).collect::<String>();
+            println!("{:<20} {}", def.id, when);
         }
         println!();
         println!("{} agent(s) registered.", registry.len());

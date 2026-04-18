@@ -321,13 +321,9 @@ mod tests {
     }
 
     #[test]
-    fn skills_agent_is_wildcard_with_skill_category_filter() {
+    fn skills_agent_is_wildcard() {
         let def = find("skills_agent");
         assert!(matches!(def.tools, ToolScope::Wildcard));
-        assert_eq!(
-            def.category_filter,
-            Some(crate::openhuman::tools::ToolCategory::Skill)
-        );
         assert!(!def.omit_safety_preamble);
     }
 
@@ -339,14 +335,10 @@ mod tests {
     }
 
     #[test]
-    fn morning_briefing_is_read_only_with_skill_filter() {
+    fn morning_briefing_is_read_only() {
         let def = find("morning_briefing");
         assert_eq!(def.sandbox_mode, SandboxMode::ReadOnly);
         assert!(matches!(def.tools, ToolScope::Wildcard));
-        assert_eq!(
-            def.category_filter,
-            Some(crate::openhuman::tools::ToolCategory::Skill)
-        );
         assert!(!def.omit_memory_context);
         assert!(def.omit_identity);
         assert!(def.omit_safety_preamble);
