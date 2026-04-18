@@ -18,6 +18,7 @@ import type {
   ComposioExecuteResponse,
   ComposioToolkitsResponse,
   ComposioToolsResponse,
+  ComposioUserScopePref,
 } from './types';
 
 /**
@@ -94,6 +95,35 @@ export async function deleteConnection(connectionId: string): Promise<ComposioDe
  * charges the caller, tracks usage, and publishes a
  * `ComposioActionExecuted` event.
  */
+/**
+ * Read the per-toolkit user scope preference (read/write/admin) used
+ * to gate `composio_execute`. Returns the default
+ * `{ read: true, write: true, admin: false }` when nothing is stored.
+ */
+export async function getUserScopes(toolkit: string): Promise<ComposioUserScopePref> {
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.composio_get_user_scopes',
+    params: { toolkit },
+  });
+  return unwrapCliEnvelope<ComposioUserScopePref>(raw);
+}
+
+/**
+ * Persist a per-toolkit user scope preference. The agent will only be
+ * able to invoke composio actions whose classified scope is enabled
+ * here.
+ */
+export async function setUserScopes(
+  toolkit: string,
+  pref: ComposioUserScopePref
+): Promise<ComposioUserScopePref> {
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.composio_set_user_scopes',
+    params: { toolkit, ...pref },
+  });
+  return unwrapCliEnvelope<ComposioUserScopePref>(raw);
+}
+
 export async function execute(
   tool: string,
   args?: Record<string, unknown>
