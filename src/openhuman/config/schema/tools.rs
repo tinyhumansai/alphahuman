@@ -136,8 +136,6 @@ impl Default for BrowserConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct HttpRequestConfig {
     #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
     pub allowed_domains: Vec<String>,
     #[serde(default = "default_http_max_response_size")]
     pub max_response_size: usize,
@@ -155,8 +153,6 @@ fn default_http_timeout_secs() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WebSearchConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
     /// Search provider. Valid values: `duckduckgo` (default, free), `brave` (requires `brave_api_key`),
     /// `parallel` (requires `parallel_api_key`).
     #[serde(default = "default_web_search_provider")]
@@ -189,7 +185,6 @@ fn default_web_search_timeout_secs() -> u64 {
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             provider: default_web_search_provider(),
             brave_api_key: None,
             parallel_api_key: None,

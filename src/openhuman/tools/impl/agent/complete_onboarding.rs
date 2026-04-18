@@ -418,7 +418,7 @@ pub(crate) fn build_status_snapshot(
         "integrations": {
             "composio": composio_enabled,
             "browser": config.browser.enabled,
-            "web_search": config.web_search.enabled,
+            "web_search": true,
             "http_request": config.http_request.enabled,
             "local_ai": config.local_ai.enabled,
         },

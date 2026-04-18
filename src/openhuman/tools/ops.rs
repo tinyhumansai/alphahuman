@@ -132,25 +132,28 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    if http_config.enabled {
-        tools.push(Box::new(HttpRequestTool::new(
-            security.clone(),
-            http_config.allowed_domains.clone(),
-            http_config.max_response_size,
-            http_config.timeout_secs,
-        )));
-    }
+    // HTTP request — always registered. `http_request.allowed_domains`
+    // + `security` still gate which hosts are reachable; there is no
+    // enable flag because every session needs basic HTTP as a baseline
+    // capability.
+    tools.push(Box::new(HttpRequestTool::new(
+        security.clone(),
+        http_config.allowed_domains.clone(),
+        http_config.max_response_size,
+        http_config.timeout_secs,
+    )));
 
-    // Web search tool (enabled by default for GLM and other models)
-    if root_config.web_search.enabled {
-        tools.push(Box::new(WebSearchTool::new(
-            root_config.web_search.provider.clone(),
-            root_config.web_search.brave_api_key.clone(),
-            root_config.web_search.parallel_api_key.clone(),
-            root_config.web_search.max_results,
-            root_config.web_search.timeout_secs,
-        )));
-    }
+    // Web search — always registered. Provider / API-key / budget
+    // knobs still come from `config.web_search`, but there is no
+    // enable flag: every session needs research as a baseline
+    // capability.
+    tools.push(Box::new(WebSearchTool::new(
+        root_config.web_search.provider.clone(),
+        root_config.web_search.brave_api_key.clone(),
+        root_config.web_search.parallel_api_key.clone(),
+        root_config.web_search.max_results,
+        root_config.web_search.timeout_secs,
+    )));
 
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));

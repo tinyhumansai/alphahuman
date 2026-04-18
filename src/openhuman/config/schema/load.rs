@@ -628,11 +628,10 @@ impl Config {
             }
         }
 
-        if let Ok(enabled) = std::env::var("OPENHUMAN_WEB_SEARCH_ENABLED")
-            .or_else(|_| std::env::var("WEB_SEARCH_ENABLED"))
-        {
-            self.web_search.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
-        }
+        // `OPENHUMAN_WEB_SEARCH_ENABLED` is intentionally ignored —
+        // web search is unconditionally registered in the tool set.
+        // Only the provider / API-key / budget knobs remain
+        // environment-configurable.
 
         if let Ok(provider) = std::env::var("OPENHUMAN_WEB_SEARCH_PROVIDER")
             .or_else(|_| std::env::var("WEB_SEARCH_PROVIDER"))
@@ -1403,26 +1402,6 @@ mod tests {
         assert_eq!(cfg.runtime.reasoning_enabled, Some(false));
         unsafe {
             std::env::remove_var("OPENHUMAN_REASONING_ENABLED");
-        }
-    }
-
-    #[test]
-    fn apply_env_overrides_web_search_enabled_parses_values() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["OPENHUMAN_WEB_SEARCH_ENABLED", "WEB_SEARCH_ENABLED"]);
-        let mut cfg = Config::default();
-        unsafe {
-            std::env::set_var("OPENHUMAN_WEB_SEARCH_ENABLED", "true");
-        }
-        cfg.apply_env_overrides();
-        assert!(cfg.web_search.enabled);
-        unsafe {
-            std::env::set_var("OPENHUMAN_WEB_SEARCH_ENABLED", "0");
-        }
-        cfg.apply_env_overrides();
-        assert!(!cfg.web_search.enabled);
-        unsafe {
-            std::env::remove_var("OPENHUMAN_WEB_SEARCH_ENABLED");
         }
     }
 
