@@ -1,6 +1,7 @@
 import debug from 'debug';
 import { useEffect, useRef } from 'react';
 
+import { requestUsageRefresh } from '../hooks/usageRefresh';
 import {
   type ChatInferenceStartEvent,
   type ChatIterationStartEvent,
@@ -34,7 +35,6 @@ import {
   setActiveThread,
   setSelectedThread,
 } from '../store/threadSlice';
-import { requestUsageRefresh } from '../hooks/usageRefresh';
 import { formatTimelineEntry, promptFromArgsBuffer } from '../utils/toolTimelineFormatting';
 
 const logChatRuntime = debug('openhuman:chat-runtime');
