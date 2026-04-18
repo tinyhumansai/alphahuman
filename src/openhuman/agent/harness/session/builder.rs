@@ -48,6 +48,7 @@ impl AgentBuilder {
             event_session_id: None,
             event_channel: None,
             agent_definition_name: None,
+            session_parent_prefix: None,
             omit_profile: None,
             omit_memory_md: None,
             payload_summarizer: None,
@@ -232,6 +233,18 @@ impl AgentBuilder {
         self
     }
 
+    /// Set the parent session-key chain for a sub-agent. Passing
+    /// `Some("1713000000_orchestrator")` produces a sub-agent whose
+    /// transcript filename is prefixed with the parent's session key,
+    /// yielding a flat hierarchy on disk
+    /// (`session_raw/DDMMYYYY/{parent}__{child}.jsonl`). Nested
+    /// delegations chain further prefixes with `__`. Leave `None`
+    /// (default) for root sessions.
+    pub fn session_parent_prefix(mut self, prefix: Option<String>) -> Self {
+        self.session_parent_prefix = prefix;
+        self
+    }
+
     /// Forward the target agent definition's `omit_profile` flag so
     /// [`Agent::build_system_prompt`] can decide whether to inject
     /// `PROFILE.md`. Only opt-in agents (welcome, orchestrator, the
@@ -363,8 +376,31 @@ impl AgentBuilder {
             event_channel: self.event_channel.unwrap_or_else(|| "internal".to_string()),
             agent_definition_name: self
                 .agent_definition_name
+                .clone()
                 .unwrap_or_else(|| "main".to_string()),
             session_transcript_path: None,
+            session_key: {
+                let unix_ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let agent_id = self
+                    .agent_definition_name
+                    .as_deref()
+                    .unwrap_or("main");
+                let sanitized: String = agent_id
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                format!("{unix_ts}_{sanitized}")
+            },
+            session_parent_prefix: self.session_parent_prefix,
             cached_transcript_messages: None,
             context,
             on_progress: None,

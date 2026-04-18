@@ -65,6 +65,20 @@ pub struct Agent {
     /// Set on first write, reused for subsequent overwrites within the
     /// same session.
     pub(super) session_transcript_path: Option<PathBuf>,
+    /// Unique transcript key for this session, formatted as
+    /// `"{unix_ts}_{agent_id}"`. Generated once at agent-build time so
+    /// every transcript write in this session uses the same filename
+    /// stem. Sub-agents chain their parent's key into the transcript
+    /// directory to produce a hierarchical layout —
+    /// `session_raw/DDMMYYYY/{parent_key}/{child_key}.jsonl`.
+    pub(super) session_key: String,
+    /// Directory chain of parent session keys for a sub-agent, or
+    /// `None` for a root session. A planner spawned by the orchestrator
+    /// carries `Some("1713000000_orchestrator")`; a critic spawned by
+    /// that planner carries
+    /// `Some("1713000000_orchestrator/1713000123_planner")` so nested
+    /// delegations produce a tree on disk.
+    pub(super) session_parent_prefix: Option<String>,
     /// Messages loaded from a previous session transcript on resume.
     /// Consumed once (via `.take()`) on the first turn to provide a
     /// byte-identical prefix for KV cache reuse.
@@ -140,6 +154,11 @@ pub struct AgentBuilder {
     pub(super) event_session_id: Option<String>,
     pub(super) event_channel: Option<String>,
     pub(super) agent_definition_name: Option<String>,
+    /// Directory chain of parent session keys for a sub-agent. `None`
+    /// (default) means this is a root session — its transcript lands
+    /// flat in `session_raw/DDMMYYYY/{session_key}.jsonl`. Populated
+    /// by the sub-agent runner so nested delegations produce a tree.
+    pub(super) session_parent_prefix: Option<String>,
     /// Forwarded to [`Agent::omit_profile`] at `build()` time. Mirrors the
     /// target definition's `omit_profile` flag; `None` means "fall back
     /// to the safe default" (omit).

@@ -123,6 +123,21 @@ impl Agent {
         self.composio_client.as_ref()
     }
 
+    /// This session's transcript key — `"{unix_ts}_{agent_id}"`,
+    /// generated once at build time. Sub-agents chain this into their
+    /// own transcript filenames so the parent → child hierarchy is
+    /// visible on disk.
+    pub fn session_key(&self) -> &str {
+        &self.session_key
+    }
+
+    /// The ancestor chain of session keys for a sub-agent, joined with
+    /// `__`. `None` for a root session. Root + prefix together produce
+    /// the full transcript stem.
+    pub fn session_parent_prefix(&self) -> Option<&str> {
+        self.session_parent_prefix.as_deref()
+    }
+
     /// Replace the agent's connected integrations (e.g. from a cached
     /// fetch result when the agent was built outside the normal turn loop).
     pub fn set_connected_integrations(

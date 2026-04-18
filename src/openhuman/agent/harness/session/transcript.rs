@@ -369,6 +369,47 @@ fn read_transcript_jsonl(path: &Path) -> Result<SessionTranscript> {
 /// Creates the date directory if needed. Index = max existing + 1.
 /// Scans both the new `session_raw/` dir (for `.jsonl`) **and** the legacy
 /// `sessions/` dir (for `.md`) so indices stay unique across migration.
+/// Resolve a transcript path under `session_raw/DDMMYYYY/{stem}.jsonl`
+/// where `stem` is deterministic (no auto-indexing). Used by the new
+/// session-key flow: the session-key stem is `"{unix_ts}_{agent_id}"`
+/// for a root session, or `"{parent_chain}__{session_key}"` for a
+/// sub-agent — so nested delegations produce a single flat filename
+/// that encodes the parent → child path.
+///
+/// Creates the date directory if needed. Overwrites are intentional:
+/// the Agent persists the same transcript file across every turn of a
+/// session, and every sub-agent spawn gets a unique timestamp in its
+/// own key so collisions are effectively impossible.
+pub fn resolve_keyed_transcript_path(workspace_dir: &Path, stem: &str) -> Result<PathBuf> {
+    let raw_dir = today_raw_session_dir(workspace_dir);
+    fs::create_dir_all(&raw_dir)
+        .with_context(|| format!("create session_raw dir {}", raw_dir.display()))?;
+    let sanitized = sanitize_stem(stem);
+    Ok(raw_dir.join(format!("{sanitized}.jsonl")))
+}
+
+/// Sanitize a user-supplied transcript stem so it never escapes the
+/// `session_raw/DDMMYYYY/` directory. Allows ASCII alphanumerics plus
+/// a small punctuation set (`_`, `-`, `.`); every other byte is
+/// replaced with `_`. Empty inputs fall back to `"session"`.
+fn sanitize_stem(stem: &str) -> String {
+    let cleaned: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "session".to_string()
+    } else {
+        cleaned
+    }
+}
+
 pub fn resolve_new_transcript_path(workspace_dir: &Path, agent_name: &str) -> Result<PathBuf> {
     let raw_dir = today_raw_session_dir(workspace_dir);
     fs::create_dir_all(&raw_dir)

@@ -103,6 +103,21 @@ pub struct ParentExecutionContext {
     /// runtime uses native function-calling, and the model emits
     /// uncallable P-Format tool_call blocks.
     pub tool_call_format: crate::openhuman::context::prompt::ToolCallFormat,
+
+    /// Parent's own session-transcript key, formatted as
+    /// `"{unix_ts}_{agent_id}"`. Sub-agents chain this (plus any
+    /// ancestor prefixes on the parent) into their own transcript
+    /// filename so the hierarchy `orchestrator → planner → critic`
+    /// lands on disk as a single flat file name —
+    /// `{orch_key}__{planner_key}__{critic_key}.jsonl`.
+    pub session_key: String,
+
+    /// Parent's ancestor-chain of session keys (already joined with
+    /// `__`), or `None` when the parent is itself a root session.
+    /// A sub-agent spawned from a root parent observes
+    /// `Some(parent.session_key)`. A grand-child observes
+    /// `Some("{grandparent_key}__{parent_key}")`.
+    pub session_parent_prefix: Option<String>,
 }
 
 tokio::task_local! {

@@ -167,6 +167,11 @@ async fn dispatch_target_agent(agent_id: &str, prompt: &str) -> anyhow::Result<S
         // doesn't currently spawn anything that depends on the new
         // dispatcher-aware sub-agent renderer.
         tool_call_format: crate::openhuman::context::prompt::ToolCallFormat::PFormat,
+        // Triage inherits the parent's session-key chain so escalated
+        // sub-agents write their transcripts alongside the parent's,
+        // preserving the `{parent}__{child}.jsonl` hierarchy.
+        session_key: agent.session_key().to_string(),
+        session_parent_prefix: agent.session_parent_prefix().map(str::to_string),
     };
 
     tracing::debug!(

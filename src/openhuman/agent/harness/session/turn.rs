@@ -937,6 +937,8 @@ impl Agent {
             connected_integrations: self.connected_integrations.clone(),
             composio_client: self.composio_client.clone(),
             tool_call_format: self.tool_dispatcher.tool_call_format(),
+            session_key: self.session_key.clone(),
+            session_parent_prefix: self.session_parent_prefix.clone(),
         }
     }
 
@@ -1203,12 +1205,17 @@ impl Agent {
         charged_amount_usd: f64,
         turn_usage: Option<&transcript::TurnUsage>,
     ) {
-        // Resolve the transcript path on first write.
+        // Resolve the transcript path on first write. The stem is
+        // `{parent_prefix}__{session_key}` for sub-agents (producing a
+        // flat hierarchical filename) or just `{session_key}` for a
+        // root session. Prefix chaining is already done by the
+        // sub-agent runner when it populates `session_parent_prefix`.
         if self.session_transcript_path.is_none() {
-            match transcript::resolve_new_transcript_path(
-                &self.workspace_dir,
-                &self.agent_definition_name,
-            ) {
+            let stem = match &self.session_parent_prefix {
+                Some(prefix) => format!("{}__{}", prefix, self.session_key),
+                None => self.session_key.clone(),
+            };
+            match transcript::resolve_keyed_transcript_path(&self.workspace_dir, &stem) {
                 Ok(path) => {
                     log::info!(
                         "[transcript] new session transcript path={}",

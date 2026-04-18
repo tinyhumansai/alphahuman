@@ -652,7 +652,7 @@ async fn run_typed_mode(
     )
     .await?;
 
-    persist_subagent_transcript(&parent.workspace_dir, &definition.id, &history, &agg_usage);
+    persist_subagent_transcript(&parent.workspace_dir, &definition.id, &history, &agg_usage, &parent);
 
     Ok(SubagentRunOutcome {
         task_id: task_id.to_string(),
@@ -745,7 +745,7 @@ async fn run_fork_mode(
     )
     .await?;
 
-    persist_subagent_transcript(&parent.workspace_dir, &definition.id, &history, &agg_usage);
+    persist_subagent_transcript(&parent.workspace_dir, &definition.id, &history, &agg_usage, &parent);
 
     Ok(SubagentRunOutcome {
         task_id: task_id.to_string(),
@@ -763,13 +763,46 @@ async fn run_fork_mode(
 
 /// Best-effort: persist the sub-agent's conversation as a session transcript
 /// so it can be inspected for debugging and KV cache analysis.
+///
+/// The filename is built from the **parent's** session-key chain
+/// prepended to this sub-agent's own `{unix_ts}_{agent_id}` key —
+/// producing a flat hierarchical name like
+/// `1713000000_orchestrator__1713000123_planner.jsonl`. Nested spawns
+/// chain further prefixes with `__`.
 fn persist_subagent_transcript(
     workspace_dir: &Path,
     agent_id: &str,
     history: &[ChatMessage],
     usage: &AggregatedUsage,
+    parent: &ParentExecutionContext,
 ) {
-    let path = match transcript::resolve_new_transcript_path(workspace_dir, agent_id) {
+    // Generate a fresh session key for this sub-agent. Same format the
+    // main-agent builder uses in `session/builder.rs::build()` so the
+    // two paths agree on what a key looks like.
+    let child_key = {
+        let unix_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let sanitized: String = agent_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        format!("{unix_ts}_{sanitized}")
+    };
+    // Ancestor chain = parent_prefix (if any) + parent's own key.
+    let parent_chain = match parent.session_parent_prefix.as_deref() {
+        Some(prefix) => format!("{}__{}", prefix, parent.session_key),
+        None => parent.session_key.clone(),
+    };
+    let stem = format!("{parent_chain}__{child_key}");
+    let path = match transcript::resolve_keyed_transcript_path(workspace_dir, &stem) {
         Ok(p) => p,
         Err(err) => {
             tracing::debug!(
@@ -2105,6 +2138,8 @@ mod tests {
             connected_integrations: vec![],
             composio_client: None,
             tool_call_format: crate::openhuman::context::prompt::ToolCallFormat::PFormat,
+            session_key: "0_test".into(),
+            session_parent_prefix: None,
         }
     }
 
