@@ -253,14 +253,14 @@ jobs:
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
             artifact_suffix: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: --target x86_64-unknown-linux-gnu
-            target: x86_64-unknown-linux-gnu
-            artifact_suffix: ubuntu
-          - platform: windows-latest
-            args: --target x86_64-pc-windows-msvc
-            target: x86_64-pc-windows-msvc
-            artifact_suffix: windows
+          # - platform: ubuntu-22.04
+          #   args: --target x86_64-unknown-linux-gnu
+          #   target: x86_64-unknown-linux-gnu
+          #   artifact_suffix: ubuntu
+          # - platform: windows-latest
+          #   args: --target x86_64-pc-windows-msvc
+          #   target: x86_64-pc-windows-msvc
+          #   artifact_suffix: windows
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Keep in sync with DEFAULT_TELEGRAM_BOT_USERNAME_* in channels/controllers/ops.rs
@@ -824,7 +824,14 @@ jobs:
     name: Publish draft release
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-build, create-release, build-desktop, build-docker, publish-updater-manifest]
+    needs:
+      [
+        prepare-build,
+        create-release,
+        build-desktop,
+        build-docker,
+        publish-updater-manifest,
+      ]
     if: >-
       needs.prepare-build.outputs.release_enabled == 'true'
       && needs.build-desktop.result == 'success'
@@ -910,7 +917,14 @@ jobs:
     name: Remove release and tag if build failed
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-build, create-release, build-desktop, build-docker, publish-updater-manifest]
+    needs:
+      [
+        prepare-build,
+        create-release,
+        build-desktop,
+        build-docker,
+        publish-updater-manifest,
+      ]
     if: >-
       always()
       && needs.prepare-build.outputs.release_enabled == 'true'
