@@ -587,37 +587,51 @@ async fn fetch_connected_integrations_uncached(
     // Build one entry per allowlisted toolkit. Connected entries
     // carry their action catalogue; not-connected entries carry an
     // empty `tools` vec.
-    let mut integrations: Vec<ConnectedIntegration> = unique_toolkits
-        .iter()
-        .map(|slug| {
-            let connected = connected_slugs.contains(slug);
-            // Anchor the prefix with an underscore so slugs that share
-            // a text prefix (e.g. `git` vs `github`) don't false-match
-            // each other's actions. `GMAIL_SEND_EMAIL` matches `gmail_`,
-            // not just `gmail`, so siblings stay in their own buckets.
-            let action_prefix = format!("{}_", slug.to_uppercase());
-            let tools: Vec<ConnectedIntegrationTool> = if connected {
-                tools_by_toolkit
-                    .iter()
-                    .filter(|t| t.function.name.starts_with(&action_prefix))
-                    .map(|t| ConnectedIntegrationTool {
-                        name: t.function.name.clone(),
-                        description: t.function.description.clone().unwrap_or_default(),
-                        parameters: t.function.parameters.clone(),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+    let mut integrations: Vec<ConnectedIntegration> = Vec::with_capacity(unique_toolkits.len());
+    for slug in &unique_toolkits {
+        let connected = connected_slugs.contains(slug);
+        // Anchor the prefix with an underscore so slugs that share
+        // a text prefix (e.g. `git` vs `github`) don't false-match
+        // each other's actions. `GMAIL_SEND_EMAIL` matches `gmail_`,
+        // not just `gmail`, so siblings stay in their own buckets.
+        let action_prefix = format!("{}_", slug.to_uppercase());
+        let tools: Vec<ConnectedIntegrationTool> = if connected {
+            // Apply the same curated-whitelist + user-scope filter the
+            // meta-tool layer uses, so the integrations_agent prompt
+            // only advertises actions the agent is actually allowed to
+            // call. One pref load per toolkit (not per action).
+            let pref = super::providers::load_user_scope_or_default(slug).await;
+            let filtered: Vec<&super::types::ComposioToolSchema> = tools_by_toolkit
+                .iter()
+                .filter(|t| t.function.name.starts_with(&action_prefix))
+                .filter(|t| {
+                    super::providers::is_action_visible_with_pref(&t.function.name, &pref)
+                })
+                .collect();
+            tracing::debug!(
+                toolkit = %slug,
+                kept = filtered.len(),
+                "[composio][scopes] integrations prompt action set"
+            );
+            filtered
+                .into_iter()
+                .map(|t| ConnectedIntegrationTool {
+                    name: t.function.name.clone(),
+                    description: t.function.description.clone().unwrap_or_default(),
+                    parameters: t.function.parameters.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
-            ConnectedIntegration {
-                toolkit: slug.clone(),
-                description: toolkit_description(slug).to_string(),
-                tools,
-                connected,
-            }
-        })
-        .collect();
+        integrations.push(ConnectedIntegration {
+            toolkit: slug.clone(),
+            description: toolkit_description(slug).to_string(),
+            tools,
+            connected,
+        });
+    }
 
     integrations.sort_by(|a, b| a.toolkit.cmp(&b.toolkit));
 
@@ -671,10 +685,14 @@ pub async fn fetch_toolkit_actions(
         .await
         .map_err(|e| anyhow::anyhow!("list_tools failed for toolkit `{toolkit_slug}`: {e}"))?;
     let action_prefix = format!("{}_", toolkit_slug.to_uppercase());
+    // Apply curated whitelist + user scope so spawn-time tool
+    // discovery agrees with the bulk path and the meta-tool layer.
+    let pref = super::providers::load_user_scope_or_default(toolkit_slug).await;
     let actions: Vec<ConnectedIntegrationTool> = resp
         .tools
         .into_iter()
         .filter(|t| t.function.name.starts_with(&action_prefix))
+        .filter(|t| super::providers::is_action_visible_with_pref(&t.function.name, &pref))
         .map(|t| ConnectedIntegrationTool {
             name: t.function.name,
             description: t.function.description.unwrap_or_default(),

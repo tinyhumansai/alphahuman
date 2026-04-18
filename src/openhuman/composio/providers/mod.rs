@@ -60,6 +60,34 @@ pub mod sync_state;
 /// `GOOGLECALENDAR_CREATE_EVENT` → `"googlecalendar"`. Multi-segment
 /// prefixes like `MICROSOFT_TEAMS_*` are matched via their first
 /// segment with an extra arm.
+/// Synchronous visibility check for a Composio action slug given a
+/// pre-loaded user scope preference.
+///
+/// Returns `true` if the action should appear in the agent's tool
+/// surface — i.e. it's in the toolkit's curated whitelist (or the
+/// toolkit has no curation) **and** the user's scope pref allows its
+/// classification. Falls back to [`classify_unknown`] for un-curated
+/// toolkits.
+///
+/// Use this when the user pref has already been loaded for the
+/// toolkit (typical inside a `for slug in toolkits {...}` loop where
+/// awaiting once per toolkit is cheaper than once per action).
+pub fn is_action_visible_with_pref(slug: &str, pref: &UserScopePref) -> bool {
+    let Some(toolkit) = toolkit_from_slug(slug) else {
+        return true;
+    };
+    let catalog = get_provider(&toolkit)
+        .and_then(|p| p.curated_tools())
+        .or_else(|| catalog_for_toolkit(&toolkit));
+    match catalog {
+        Some(catalog) => match find_curated(catalog, slug) {
+            Some(curated) => pref.allows(curated.scope),
+            None => false,
+        },
+        None => pref.allows(classify_unknown(slug)),
+    }
+}
+
 pub fn catalog_for_toolkit(toolkit: &str) -> Option<&'static [CuratedTool]> {
     match toolkit.trim().to_ascii_lowercase().as_str() {
         // Native providers
