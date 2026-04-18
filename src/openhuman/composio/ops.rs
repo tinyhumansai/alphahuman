@@ -604,9 +604,7 @@ async fn fetch_connected_integrations_uncached(
             let filtered: Vec<&super::types::ComposioToolSchema> = tools_by_toolkit
                 .iter()
                 .filter(|t| t.function.name.starts_with(&action_prefix))
-                .filter(|t| {
-                    super::providers::is_action_visible_with_pref(&t.function.name, &pref)
-                })
+                .filter(|t| super::providers::is_action_visible_with_pref(&t.function.name, &pref))
                 .collect();
             tracing::debug!(
                 toolkit = %slug,
