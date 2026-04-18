@@ -88,6 +88,15 @@ impl ComposioProvider for GmailProvider {
         Some(15 * 60)
     }
 
+    fn post_process_action_result(
+        &self,
+        slug: &str,
+        arguments: Option<&serde_json::Value>,
+        data: &mut serde_json::Value,
+    ) {
+        super::post_process::post_process(slug, arguments, data);
+    }
+
     async fn fetch_user_profile(
         &self,
         ctx: &ProviderContext,

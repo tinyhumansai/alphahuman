@@ -116,6 +116,29 @@ pub trait ComposioProvider: Send + Sync {
         Ok(())
     }
 
+    /// Hook fired immediately after a Composio action executed against
+    /// this toolkit returns a **successful** response. The provider may
+    /// mutate `data` in place to reshape the upstream payload before it
+    /// is handed back to the agent / RPC caller (e.g. convert Gmail's
+    /// HTML message bodies to markdown to save context tokens).
+    ///
+    /// `slug` is the full action slug (e.g. `"GMAIL_FETCH_EMAILS"`) so
+    /// providers can dispatch per action. `arguments` is the caller's
+    /// original argument object — providers can read opt-out flags from
+    /// it (e.g. `raw_html: true` to preserve raw HTML).
+    ///
+    /// Errors from upstream are not routed here; only `successful`
+    /// responses. Default impl is a no-op so providers that have nothing
+    /// to rewrite don't need to override.
+    fn post_process_action_result(
+        &self,
+        slug: &str,
+        arguments: Option<&serde_json::Value>,
+        data: &mut serde_json::Value,
+    ) {
+        let _ = (slug, arguments, data);
+    }
+
     /// Hook fired when a Composio trigger webhook arrives for this
     /// toolkit. `payload` is the raw provider payload as forwarded by
     /// the backend. Implementations should be defensive — payload
