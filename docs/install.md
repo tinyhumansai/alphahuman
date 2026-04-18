@@ -181,6 +181,18 @@ echo "$(cat openhuman-core-${VERSION}-${TARGET}.tar.gz.sha256)  openhuman-core-$
 
 ---
 
+## Running from source
+
+The default runtime is **CEF** (bundled Chromium), which requires the **vendored CEF-aware `tauri-cli`** at `app/src-tauri/vendor/tauri-cef/crates/tauri-cli`. The stock `@tauri-apps/cli` does **not** know how to bundle the Chromium Embedded Framework into `OpenHuman.app/Contents/Frameworks/`, so a bundle produced by it panics at startup inside `cef::library_loader::LibraryLoader::new` with `No such file or directory`.
+
+All `cargo tauri` scripts in `app/package.json` (`yarn dev:app`, `yarn macos:build:*`, etc.) run [`scripts/ensure-tauri-cli.sh`](../scripts/ensure-tauri-cli.sh) first, which installs the vendored CLI into `~/.cargo/bin/cargo-tauri` on first use. If you ever overwrite it (e.g. `npm i -g @tauri-apps/cli` or `cargo install tauri-cli`), re-run:
+
+```bash
+cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli
+```
+
+---
+
 ## Release artifacts reference
 
 Each release attaches the following files:
