@@ -13,8 +13,8 @@ import {
   beginInferenceTurn,
   clearRuntimeForThread,
   setToolTimelineForThread,
+  type ToolTimelineEntry,
 } from '../store/chatRuntimeSlice';
-import type { ToolTimelineEntry } from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
 import {
