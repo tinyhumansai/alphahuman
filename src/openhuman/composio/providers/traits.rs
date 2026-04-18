@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 
+use super::tool_scope::CuratedTool;
 use super::types::{ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason};
 
 /// Native provider implementation for a specific Composio toolkit.
@@ -20,6 +21,22 @@ pub trait ComposioProvider: Send + Sync {
     /// providers like Slack send-message).
     fn sync_interval_secs(&self) -> Option<u64> {
         Some(15 * 60)
+    }
+
+    /// Curated whitelist of Composio actions this provider considers
+    /// useful for the agent, classified by [`super::tool_scope::ToolScope`].
+    ///
+    /// When `Some(&[...])`, the meta-tool layer hides every action not
+    /// in this list from `composio_list_tools` and rejects execution of
+    /// any slug not in this list (or whose scope is disabled in the
+    /// user's pref).
+    ///
+    /// Default: `None` — toolkits without a curated catalog (e.g.
+    /// integrations not yet hand-tuned) pass through all actions and
+    /// rely on the [`super::tool_scope::classify_unknown`] heuristic for
+    /// scope gating.
+    fn curated_tools(&self) -> Option<&'static [CuratedTool]> {
+        None
     }
 
     /// Fetch a normalized user profile for the current connection in

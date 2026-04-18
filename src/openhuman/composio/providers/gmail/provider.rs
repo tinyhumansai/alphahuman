@@ -25,7 +25,8 @@ use crate::openhuman::composio::providers::sync_state::{
     extract_item_id, persist_single_item, SyncState,
 };
 use crate::openhuman::composio::providers::{
-    pick_str, ComposioProvider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
+    pick_str, ComposioProvider, CuratedTool, ProviderContext, ProviderUserProfile, SyncOutcome,
+    SyncReason,
 };
 
 const ACTION_GET_PROFILE: &str = "GMAIL_GET_PROFILE";
@@ -77,6 +78,10 @@ impl Default for GmailProvider {
 impl ComposioProvider for GmailProvider {
     fn toolkit_slug(&self) -> &'static str {
         "gmail"
+    }
+
+    fn curated_tools(&self) -> Option<&'static [CuratedTool]> {
+        Some(super::tools::GMAIL_CURATED)
     }
 
     fn sync_interval_secs(&self) -> Option<u64> {

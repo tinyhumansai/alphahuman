@@ -23,7 +23,8 @@ use crate::openhuman::composio::providers::sync_state::{
     extract_item_id, persist_single_item, SyncState,
 };
 use crate::openhuman::composio::providers::{
-    pick_str, ComposioProvider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
+    pick_str, ComposioProvider, CuratedTool, ProviderContext, ProviderUserProfile, SyncOutcome,
+    SyncReason,
 };
 
 pub(crate) const ACTION_GET_ABOUT_ME: &str = "NOTION_GET_ABOUT_ME";
@@ -67,6 +68,10 @@ impl Default for NotionProvider {
 impl ComposioProvider for NotionProvider {
     fn toolkit_slug(&self) -> &'static str {
         "notion"
+    }
+
+    fn curated_tools(&self) -> Option<&'static [CuratedTool]> {
+        Some(super::tools::NOTION_CURATED)
     }
 
     fn sync_interval_secs(&self) -> Option<u64> {

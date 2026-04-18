@@ -34,8 +34,10 @@
 
 mod descriptions;
 pub(crate) mod helpers;
+pub mod tool_scope;
 mod traits;
 mod types;
+pub mod user_scopes;
 
 pub mod gmail;
 pub mod notion;
@@ -48,8 +50,10 @@ pub(crate) use helpers::pick_str;
 pub use registry::{
     all_providers, get_provider, init_default_providers, register_provider, ProviderArc,
 };
+pub use tool_scope::{classify_unknown, find_curated, toolkit_from_slug, CuratedTool, ToolScope};
 pub use traits::ComposioProvider;
 pub use types::{ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason};
+pub use user_scopes::{load_or_default as load_user_scope_or_default, UserScopePref};
 
 #[cfg(test)]
 mod tests {
