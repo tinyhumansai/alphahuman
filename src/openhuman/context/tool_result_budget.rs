@@ -18,11 +18,16 @@
 
 use std::fmt::Write as _;
 
-/// Default per-tool-result budget. Chosen to keep a single oversized
-/// result from blowing out the prompt while still leaving room for
-/// moderately chunky outputs (directory listings, small file contents,
-/// condensed HTTP bodies).
-pub const DEFAULT_TOOL_RESULT_BUDGET_BYTES: usize = 16 * 1024;
+/// Default per-tool-result budget. A value of `0` disables the budget
+/// entirely — [`apply_tool_result_budget`] treats `0` as "pass through".
+///
+/// Disabled while we rework the oversized-output path: the summarizer
+/// sub-agent is off (see `context::ContextConfig::summarizer_payload_threshold_tokens`)
+/// and the mid-payload cut was dropping legitimate tool output — most
+/// notably after the GMAIL_FETCH_EMAILS post-processor produced an
+/// otherwise clean envelope. Explicitly configure a non-zero budget
+/// in config if you want truncation back.
+pub const DEFAULT_TOOL_RESULT_BUDGET_BYTES: usize = 0;
 
 /// Number of trailing bytes reserved for the truncation marker. The
 /// effective head capacity is `budget - TRAILER_RESERVED`.

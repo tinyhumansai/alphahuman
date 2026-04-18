@@ -45,7 +45,18 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_json::{json, Map, Value};
+
+/// `html2md` is fine for normal transactional emails, but large marketing
+/// HTML can explode CPU / latency. Above this size we switch to a bounded
+/// fast-strip path that preserves readable text and link labels.
+const MAX_HTML2MD_INPUT_BYTES: usize = 24_000;
+
+static HTML_NOISE_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?is)<!--.*?-->").expect("valid html comment regex")
+});
 
 /// Entry point called from `GmailProvider::post_process_action_result`.
 ///
@@ -188,18 +199,119 @@ fn pick_header(msg: &Map<String, Value>, name: &str) -> Option<Value> {
 fn extract_markdown_body(msg: &Map<String, Value>) -> String {
     if let Some(parts) = msg.get("payload").and_then(|p| p.get("parts")) {
         if let Some(html) = find_decoded_part(parts, "text/html") {
-            let md = html2md::parse_html(&html);
-            return strip_excess_blank_lines(&md);
+            return html_email_to_markdown(&html);
         }
         if let Some(text) = find_decoded_part(parts, "text/plain") {
-            return text.trim().to_string();
+            return normalize_markdownish_text(&text);
         }
     }
     // Fallback: top-level decoded plain text (Composio convenience field).
     if let Some(text) = msg.get("messageText").and_then(|v| v.as_str()) {
-        return text.trim().to_string();
+        if looks_like_raw_html(text) {
+            tracing::debug!(
+                text_bytes = text.len(),
+                "[composio:gmail][post-process] messageText looked like html, using fast html strip"
+            );
+            return fast_html_email_to_markdown(text);
+        }
+        return normalize_markdownish_text(text);
     }
     String::new()
+}
+
+/// Convert raw HTML email into markdown-ish text that is safe and cheap for
+/// LLM consumption. Small / normal HTML uses `html2md`; oversized HTML falls
+/// back to a linear-time stripper so one pathological newsletter cannot stall
+/// the whole tool call.
+fn html_email_to_markdown(html: &str) -> String {
+    let cleaned = strip_html_noise_blocks(html);
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        return String::new();
+    }
+
+    if cleaned.len() > MAX_HTML2MD_INPUT_BYTES {
+        tracing::debug!(
+            html_bytes = cleaned.len(),
+            threshold = MAX_HTML2MD_INPUT_BYTES,
+            "[composio:gmail][post-process] large html body, using fast strip fallback"
+        );
+        return normalize_markdownish_text(&fast_html_to_text(cleaned));
+    }
+
+    let md = html2md::parse_html(cleaned);
+    let normalized = normalize_markdownish_text(&md);
+    if normalized.is_empty()
+        || looks_like_raw_html(&normalized)
+        || suspiciously_short_markdown(cleaned, &normalized)
+    {
+        tracing::debug!(
+            html_bytes = cleaned.len(),
+            "[composio:gmail][post-process] html2md output still looked like html, using fast strip fallback"
+        );
+        return normalize_markdownish_text(&fast_html_to_text(cleaned));
+    }
+    normalized
+}
+
+fn fast_html_email_to_markdown(html: &str) -> String {
+    let cleaned = strip_html_noise_blocks(html);
+    normalize_markdownish_text(&fast_html_to_text(cleaned.trim()))
+}
+
+fn strip_html_noise_blocks(html: &str) -> String {
+    let mut out = HTML_NOISE_BLOCK_RE.replace_all(html, "").into_owned();
+    for tag in ["script", "style", "head", "title", "svg", "noscript"] {
+        out = strip_tag_block_case_insensitive(&out, tag);
+    }
+    out
+}
+
+fn strip_tag_block_case_insensitive(input: &str, tag: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}>");
+    let mut out = String::with_capacity(input.len());
+    let mut cursor = 0usize;
+
+    while let Some(rel_open) = lower[cursor..].find(&open_pat) {
+        let open = cursor + rel_open;
+        out.push_str(&input[cursor..open]);
+
+        let Some(open_end_rel) = lower[open..].find('>') else {
+            cursor = open;
+            break;
+        };
+        let search_from = open + open_end_rel + 1;
+        let Some(close_rel) = lower[search_from..].find(&close_pat) else {
+            cursor = open;
+            break;
+        };
+        cursor = search_from + close_rel + close_pat.len();
+    }
+
+    out.push_str(&input[cursor..]);
+    out
+}
+
+fn looks_like_raw_html(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    [
+        "<!doctype",
+        "<html",
+        "<head",
+        "<body",
+        "<div",
+        "<table",
+        "<style",
+        "<img",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn suspiciously_short_markdown(source_html: &str, markdown: &str) -> bool {
+    source_html.len() >= 2_000 && markdown.len().saturating_mul(20) < source_html.len()
 }
 
 /// Recursively search a `parts` array for the first MIME part whose
@@ -229,6 +341,108 @@ fn find_decoded_part(parts: &Value, prefix: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Fast, allocation-bounded HTML to text conversion used as a safe fallback
+/// when `html2md` would be too expensive on very large message bodies.
+fn fast_html_to_text(html: &str) -> String {
+    let mut out = String::with_capacity(html.len().min(32_768));
+    let mut chars = html.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '<' => {
+                let mut tag = String::new();
+                let mut terminated = false;
+                for next in chars.by_ref() {
+                    if next == '>' {
+                        terminated = true;
+                        break;
+                    }
+                    if tag.len() < 128 {
+                        tag.push(next);
+                    }
+                }
+                if !terminated {
+                    break;
+                }
+                apply_html_tag_hint(&mut out, &tag);
+            }
+            '&' => {
+                let mut entity = String::new();
+                while let Some(&next) = chars.peek() {
+                    if next == ';' {
+                        chars.next();
+                        break;
+                    }
+                    if next.is_whitespace() || entity.len() >= 16 {
+                        break;
+                    }
+                    entity.push(next);
+                    chars.next();
+                }
+                out.push(decode_html_entity(&entity).unwrap_or('&'));
+            }
+            _ => out.push(ch),
+        }
+    }
+
+    out
+}
+
+fn apply_html_tag_hint(out: &mut String, raw_tag: &str) {
+    let mut tag = raw_tag.trim();
+    if tag.is_empty() || tag.starts_with('!') || tag.starts_with('?') {
+        return;
+    }
+    if let Some(stripped) = tag.strip_prefix('/') {
+        tag = stripped.trim_start();
+    }
+    let name = tag
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches('/')
+        .to_ascii_lowercase();
+
+    match name.as_str() {
+        "br" | "p" | "div" | "section" | "article" | "header" | "footer" | "table" | "tr"
+        | "blockquote" | "pre" => out.push('\n'),
+        "li" => {
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("- ");
+        }
+        "td" | "th" => out.push(' '),
+        "h1" => out.push_str("\n# "),
+        "h2" => out.push_str("\n## "),
+        "h3" => out.push_str("\n### "),
+        "h4" => out.push_str("\n#### "),
+        "h5" => out.push_str("\n##### "),
+        "h6" => out.push_str("\n###### "),
+        _ => {}
+    }
+}
+
+fn decode_html_entity(entity: &str) -> Option<char> {
+    match entity {
+        "nbsp" => Some(' '),
+        "amp" => Some('&'),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" | "#39" => Some('\''),
+        _ => {
+            if let Some(hex) = entity.strip_prefix("#x").or_else(|| entity.strip_prefix("#X")) {
+                u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+            } else if let Some(dec) = entity.strip_prefix('#') {
+                dec.parse::<u32>().ok().and_then(char::from_u32)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 /// Pull a minimal attachments descriptor from the Composio `attachmentList`
@@ -272,6 +486,76 @@ fn strip_excess_blank_lines(s: &str) -> String {
     }
     while out.ends_with('\n') {
         out.pop();
+    }
+    out
+}
+
+/// Normalize markdown/text emitted by either `html2md` or the fast HTML strip:
+/// trim invisible Unicode, collapse intra-line whitespace, and keep only short
+/// blank-line runs so the body stays compact for the model.
+fn normalize_markdownish_text(s: &str) -> String {
+    let sanitized = sanitize_llm_text(s);
+    let mut normalized = String::with_capacity(sanitized.len());
+
+    for raw_line in sanitized.lines() {
+        let mut line = String::with_capacity(raw_line.len());
+        let mut prev_space = false;
+        for ch in raw_line.chars() {
+            let mapped = match ch {
+                '\u{00a0}' => ' ',
+                c if c.is_whitespace() => ' ',
+                c => c,
+            };
+            if mapped == ' ' {
+                if !prev_space {
+                    line.push(' ');
+                }
+                prev_space = true;
+            } else {
+                line.push(mapped);
+                prev_space = false;
+            }
+        }
+        normalized.push_str(line.trim());
+        normalized.push('\n');
+    }
+
+    strip_excess_blank_lines(normalized.trim())
+}
+
+/// Strip characters that carry little or no semantic value for the model but
+/// inflate token count in email bodies: zero-width marks, soft hyphens, BOMs,
+/// directional controls, and other control chars except newline / tab.
+fn sanitize_llm_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            // Keep structural whitespace; normalize later.
+            '\n' | '\r' | '\t' => out.push(ch),
+            // Drop ASCII / Unicode control and formatting noise commonly found
+            // in HTML emails and copy-pasted content.
+            '\u{0000}'..='\u{0008}'
+            | '\u{000b}'
+            | '\u{000c}'
+            | '\u{000e}'..='\u{001f}'
+            | '\u{007f}'..='\u{009f}'
+            | '\u{00ad}'
+            | '\u{034f}'
+            | '\u{061c}'
+            | '\u{115f}'
+            | '\u{1160}'
+            | '\u{17b4}'
+            | '\u{17b5}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}'
+            | '\u{3164}'
+            | '\u{fe00}'..='\u{fe0f}'
+            | '\u{feff}'
+            | '\u{ffa0}' => {}
+            _ => out.push(ch),
+        }
     }
     out
 }
@@ -473,5 +757,77 @@ mod tests {
     fn strip_excess_blank_lines_collapses_runs() {
         let input = "a\n\n\n\nb\n\n\nc\n";
         assert_eq!(strip_excess_blank_lines(input), "a\n\nb\n\nc");
+    }
+
+    #[test]
+    fn large_html_uses_fast_strip_fallback() {
+        let html = format!(
+            "<html><head><style>.x{{color:red}}</style></head><body>{}</body></html>",
+            (0..3000)
+                .map(|i| format!("<div><h2>Card {i}</h2><p>Hello &amp; welcome&nbsp;home</p></div>"))
+                .collect::<String>()
+        );
+        let md = html_email_to_markdown(&html);
+        assert!(md.contains("## Card 0"), "heading should survive fallback: {md:?}");
+        assert!(md.contains("Hello & welcome home"));
+        assert!(!md.contains("<div>"), "html tags must be stripped: {md:?}");
+        assert!(!md.contains(".x{color:red}"), "style blocks must be removed: {md:?}");
+    }
+
+    #[test]
+    fn normalize_markdownish_text_removes_invisible_and_extra_spaces() {
+        let input = " Hello\u{200b}   world \n\n  line\u{00a0}two ";
+        assert_eq!(normalize_markdownish_text(input), "Hello world\n\nline two");
+    }
+
+    #[test]
+    fn sanitize_llm_text_strips_weird_token_wasting_chars() {
+        let input = "A\u{200b}\u{200d}\u{2060}\u{feff}\u{00ad}B\u{202e}C\tD\nE";
+        assert_eq!(sanitize_llm_text(input), "ABC\tD\nE");
+    }
+
+    #[test]
+    fn detects_raw_html_like_output() {
+        assert!(looks_like_raw_html("<html><body>hello</body></html>"));
+        assert!(!looks_like_raw_html("# Heading\n\nBody text"));
+    }
+
+    #[test]
+    fn html_in_message_text_is_converted() {
+        let mut v = json!({
+            "messages": [{
+                "messageId": "m1",
+                "threadId": "t1",
+                "subject": "s",
+                "sender": "a@x.com",
+                "to": "b@y.com",
+                "messageTimestamp": "2026-04-17",
+                "labelIds": [],
+                "messageText": "<html><body><h1>Hello</h1><p>World</p></body></html>",
+                "payload": {}
+            }]
+        });
+        post_process("GMAIL_FETCH_EMAILS", None, &mut v);
+        let md = v["messages"][0]["markdown"].as_str().unwrap();
+        assert!(md.contains("Hello"));
+        assert!(md.contains("World"));
+        assert!(!md.contains("<html>"));
+    }
+
+    #[test]
+    fn suspiciously_short_markdown_detects_large_collapse() {
+        assert!(suspiciously_short_markdown(&"x".repeat(4000), "tiny"));
+        assert!(!suspiciously_short_markdown(&"x".repeat(4000), &"y".repeat(400)));
+    }
+
+    #[test]
+    fn fast_html_strip_handles_long_tags() {
+        let long_href = format!(
+            "<a href=\"https://example.com/{}\">Click me</a><p>After link</p>",
+            "x".repeat(600)
+        );
+        let md = fast_html_email_to_markdown(&long_href);
+        assert!(md.contains("Click me"));
+        assert!(md.contains("After link"));
     }
 }
