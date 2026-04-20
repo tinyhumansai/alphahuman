@@ -536,18 +536,18 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     if (sendingTimeoutRef.current) clearTimeout(sendingTimeoutRef.current);
     sendingThreadIdRef.current = threadId;
     sendingTimeoutRef.current = setTimeout(() => {
-      console.warn('[chat] silence timeout: no inference signal for 120s');
+      console.warn('[chat] silence timeout: no inference signal for 600s');
       setSendError(
         chatSendError(
           'safety_timeout',
-          'No response from the assistant after 2 minutes. Try again or check your connection.'
+          'No response from the assistant after 10 minutes. Try again or check your connection.'
         )
       );
       dispatch(clearRuntimeForThread({ threadId }));
       dispatch(setActiveThread(null));
       sendingTimeoutRef.current = null;
       sendingThreadIdRef.current = null;
-    }, 120_000);
+    }, 600_000);
   };
 
   // Rearm the silence timer on every inference status change for the
@@ -715,7 +715,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     }
     setInputValue('');
     setSendError(null);
-    // Silence timer: fires only if 120s pass without ANY inference progress
+    // Silence timer: fires only if 600s pass without ANY inference progress
     // (tool call, tool result, iteration start, subagent event, text delta).
     // The effect below rearms this timer whenever `inferenceStatusByThread`
     // changes for `sendingThreadId`, so long-running agent turns stay alive
