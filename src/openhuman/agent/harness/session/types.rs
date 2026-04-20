@@ -52,9 +52,6 @@ pub struct Agent {
     /// Last memory context loaded for the current turn. Stored so it can
     /// be forwarded to subagents via `ParentExecutionContext`.
     pub(super) last_memory_context: Option<String>,
-    /// Explicit cache boundary for the current rendered system prompt.
-    /// `None` means the prompt is treated as entirely dynamic.
-    pub(super) system_prompt_cache_boundary: Option<usize>,
     pub(super) history: Vec<ConversationMessage>,
     pub(super) post_turn_hooks: Vec<Arc<dyn PostTurnHook>>,
     pub(super) learning_enabled: bool,
@@ -68,6 +65,20 @@ pub struct Agent {
     /// Set on first write, reused for subsequent overwrites within the
     /// same session.
     pub(super) session_transcript_path: Option<PathBuf>,
+    /// Unique transcript key for this session, formatted as
+    /// `"{unix_ts}_{agent_id}"`. Generated once at agent-build time so
+    /// every transcript write in this session uses the same filename
+    /// stem. Sub-agents chain their parent's key into the transcript
+    /// directory to produce a hierarchical layout —
+    /// `session_raw/DDMMYYYY/{parent_key}/{child_key}.jsonl`.
+    pub(super) session_key: String,
+    /// Directory chain of parent session keys for a sub-agent, or
+    /// `None` for a root session. A planner spawned by the orchestrator
+    /// carries `Some("1713000000_orchestrator")`; a critic spawned by
+    /// that planner carries
+    /// `Some("1713000000_orchestrator/1713000123_planner")` so nested
+    /// delegations produce a tree on disk.
+    pub(super) session_parent_prefix: Option<String>,
     /// Messages loaded from a previous session transcript on resume.
     /// Consumed once (via `.take()`) on the first turn to provide a
     /// byte-identical prefix for KV cache reuse.
@@ -87,10 +98,18 @@ pub struct Agent {
     /// tool-call and iteration updates to the UI.
     pub(super) on_progress: Option<tokio::sync::mpsc::Sender<AgentProgress>>,
     /// Active Composio integrations the user has connected. Populated at
-    /// agent build time; surfaced in the system prompt via
-    /// [`ConnectedIntegrationsSection`] so the orchestrator knows which
-    /// external services are available.
+    /// agent build time and threaded into each agent's `prompt.rs` so
+    /// the delegator / skill-executor voices can render their own
+    /// integration blocks.
     pub(super) connected_integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration>,
+    /// Composio client, built alongside `connected_integrations` and
+    /// shared into [`harness::ParentExecutionContext`] at turn start
+    /// so the sub-agent runner can dynamically construct per-action
+    /// [`crate::openhuman::composio::ComposioActionTool`] instances
+    /// when `integrations_agent` is spawned with a `toolkit` argument.
+    /// `None` when the user isn't signed in or the backend is
+    /// unreachable.
+    pub(super) composio_client: Option<crate::openhuman::composio::ComposioClient>,
     /// Mirrors the agent definition's `omit_profile` flag. Threaded into
     /// [`PromptContext::include_profile`] in `turn::build_system_prompt`
     /// so only user-facing agents (welcome, orchestrator, triggers)
@@ -101,6 +120,13 @@ pub struct Agent {
     /// [`PromptContext::include_memory_md`] at prompt-build time. Same
     /// session-freeze contract as `omit_profile`.
     pub(super) omit_memory_md: bool,
+    /// Optional payload-summarizer wired in at agent-build time.
+    /// Currently set only for the orchestrator session
+    /// (see [`super::builder`]). When `Some`, oversized tool results
+    /// produced by [`Agent::execute_tool_call`] are routed through the
+    /// summarizer sub-agent before they enter agent history.
+    pub(super) payload_summarizer:
+        Option<Arc<dyn crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer>>,
 }
 
 /// A builder for creating `Agent` instances with custom configuration.
@@ -128,6 +154,11 @@ pub struct AgentBuilder {
     pub(super) event_session_id: Option<String>,
     pub(super) event_channel: Option<String>,
     pub(super) agent_definition_name: Option<String>,
+    /// Directory chain of parent session keys for a sub-agent. `None`
+    /// (default) means this is a root session — its transcript lands
+    /// flat in `session_raw/DDMMYYYY/{session_key}.jsonl`. Populated
+    /// by the sub-agent runner so nested delegations produce a tree.
+    pub(super) session_parent_prefix: Option<String>,
     /// Forwarded to [`Agent::omit_profile`] at `build()` time. Mirrors the
     /// target definition's `omit_profile` flag; `None` means "fall back
     /// to the safe default" (omit).
@@ -135,6 +166,12 @@ pub struct AgentBuilder {
     /// Forwarded to [`Agent::omit_memory_md`]. Same shape as
     /// `omit_profile` — `None` falls back to the "omit" default.
     pub(super) omit_memory_md: Option<bool>,
+    /// Optional payload-summarizer threaded through to [`Agent`] at
+    /// build time. Defaults to `None`; the orchestrator branch in
+    /// [`super::builder::Agent::build_session_agent_inner`] sets this
+    /// to a `SubagentPayloadSummarizer` instance.
+    pub(super) payload_summarizer:
+        Option<Arc<dyn crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer>>,
 }
 
 impl Default for AgentBuilder {

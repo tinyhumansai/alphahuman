@@ -85,6 +85,39 @@ pub struct ParentExecutionContext {
 
     /// Active Composio integrations the parent has fetched.
     pub connected_integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration>,
+
+    /// Composio client — populated alongside `connected_integrations`
+    /// when the parent agent fetches its integration list. Used by the
+    /// sub-agent runner to dynamically construct per-action
+    /// [`ComposioActionTool`](crate::openhuman::composio::ComposioActionTool)
+    /// entries at spawn time when `integrations_agent` is scoped to a
+    /// specific toolkit. `None` when the user isn't signed in to
+    /// Composio or the backend was unreachable.
+    pub composio_client: Option<crate::openhuman::composio::ComposioClient>,
+
+    /// The parent's active tool-call format (Native / PFormat / Json).
+    /// Sub-agents render their system prompts with this format so the
+    /// `## Tool Use Protocol` section instructs the model in the
+    /// dialect the sub-agent's runtime will actually parse — without
+    /// this, sub-agents inherit a hardcoded PFormat default while the
+    /// runtime uses native function-calling, and the model emits
+    /// uncallable P-Format tool_call blocks.
+    pub tool_call_format: crate::openhuman::context::prompt::ToolCallFormat,
+
+    /// Parent's own session-transcript key, formatted as
+    /// `"{unix_ts}_{agent_id}"`. Sub-agents chain this (plus any
+    /// ancestor prefixes on the parent) into their own transcript
+    /// filename so the hierarchy `orchestrator → planner → critic`
+    /// lands on disk as a single flat file name —
+    /// `{orch_key}__{planner_key}__{critic_key}.jsonl`.
+    pub session_key: String,
+
+    /// Parent's ancestor-chain of session keys (already joined with
+    /// `__`), or `None` when the parent is itself a root session.
+    /// A sub-agent spawned from a root parent observes
+    /// `Some(parent.session_key)`. A grand-child observes
+    /// `Some("{grandparent_key}__{parent_key}")`.
+    pub session_parent_prefix: Option<String>,
 }
 
 tokio::task_local! {
@@ -142,12 +175,6 @@ pub struct ForkContext {
     /// Parent's message history prefix that the child should replay
     /// verbatim. Includes the system message at index 0.
     pub message_prefix: Arc<Vec<ChatMessage>>,
-
-    /// Optional system-prompt cache boundary the parent passed in its
-    /// own [`crate::openhuman::providers::ChatRequest`]. The child threads
-    /// the same value through so any future explicit-cache provider sees
-    /// matching markers.
-    pub cache_boundary: Option<usize>,
 
     /// The actual instruction the model issued for *this* fork — appears
     /// as the new user message appended after `message_prefix`.

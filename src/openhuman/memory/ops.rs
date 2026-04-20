@@ -6,26 +6,18 @@
 //! for formatting and filtering memory results.
 
 use crate::openhuman::config::Config;
-use crate::openhuman::memory::conversations::{
-    self, ConversationMessage, ConversationMessagePatch, ConversationThread,
-    CreateConversationThread,
-};
 use crate::openhuman::memory::store::GraphRelationRecord;
 use crate::openhuman::memory::{
-    ApiEnvelope, ApiError, ApiMeta, AppendConversationMessageRequest, ConversationMessageRecord,
-    ConversationMessagesRequest, ConversationMessagesResponse, ConversationThreadSummary,
-    ConversationThreadsListResponse, DeleteConversationThreadRequest,
-    DeleteConversationThreadResponse, DeleteDocumentRequest, DeleteDocumentResponse, EmptyRequest,
+    ApiEnvelope, ApiError, ApiMeta, DeleteDocumentRequest, DeleteDocumentResponse, EmptyRequest,
     ListDocumentsRequest, ListDocumentsResponse, ListMemoryFilesRequest, ListMemoryFilesResponse,
     ListNamespacesResponse, MemoryClient, MemoryClientRef, MemoryDocumentSummary,
     MemoryIngestionConfig, MemoryIngestionRequest, MemoryIngestionResult, MemoryInitRequest,
     MemoryInitResponse, MemoryItemKind, MemoryRecallItem, MemoryRetrievalChunk,
     MemoryRetrievalContext, MemoryRetrievalEntity, MemoryRetrievalRelation, NamespaceDocumentInput,
-    NamespaceMemoryHit, NamespaceRetrievalContext, PaginationMeta,
-    PurgeConversationThreadsResponse, QueryNamespaceRequest, QueryNamespaceResponse,
-    ReadMemoryFileRequest, ReadMemoryFileResponse, RecallContextRequest, RecallContextResponse,
-    RecallMemoriesRequest, RecallMemoriesResponse, UpdateConversationMessageRequest,
-    UpsertConversationThreadRequest, WriteMemoryFileRequest, WriteMemoryFileResponse,
+    NamespaceMemoryHit, NamespaceRetrievalContext, PaginationMeta, QueryNamespaceRequest,
+    QueryNamespaceResponse, ReadMemoryFileRequest, ReadMemoryFileResponse, RecallContextRequest,
+    RecallContextResponse, RecallMemoriesRequest, RecallMemoriesResponse, WriteMemoryFileRequest,
+    WriteMemoryFileResponse,
 };
 use crate::rpc::RpcOutcome;
 use chrono::TimeZone;
@@ -699,40 +691,6 @@ fn default_category() -> String {
     "core".to_string()
 }
 
-fn conversation_thread_to_summary(thread: ConversationThread) -> ConversationThreadSummary {
-    ConversationThreadSummary {
-        id: thread.id,
-        title: thread.title,
-        chat_id: thread.chat_id,
-        is_active: thread.is_active,
-        message_count: thread.message_count,
-        last_message_at: thread.last_message_at,
-        created_at: thread.created_at,
-    }
-}
-
-fn conversation_message_to_record(message: ConversationMessage) -> ConversationMessageRecord {
-    ConversationMessageRecord {
-        id: message.id,
-        content: message.content,
-        message_type: message.message_type,
-        extra_metadata: message.extra_metadata,
-        sender: message.sender,
-        created_at: message.created_at,
-    }
-}
-
-fn conversation_record_to_message(record: ConversationMessageRecord) -> ConversationMessage {
-    ConversationMessage {
-        id: record.id,
-        content: record.content,
-        message_type: record.message_type,
-        extra_metadata: record.extra_metadata,
-        sender: record.sender,
-        created_at: record.created_at,
-    }
-}
-
 /// Lists all namespaces in the memory system.
 pub async fn namespace_list() -> Result<RpcOutcome<Vec<String>>, String> {
     let client = active_memory_client().await?;
@@ -1005,128 +963,6 @@ pub async fn memory_delete_document(
             namespace: parsed.namespace,
             document_id: parsed.document_id,
             deleted: parsed.deleted,
-        },
-        None,
-        None,
-    ))
-}
-
-/// Lists workspace-backed conversation threads from JSONL storage.
-pub async fn memory_threads_list(
-    _request: EmptyRequest,
-) -> Result<RpcOutcome<ApiEnvelope<ConversationThreadsListResponse>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let threads = conversations::list_threads(workspace_dir)?
-        .into_iter()
-        .map(conversation_thread_to_summary)
-        .collect::<Vec<_>>();
-    let count = threads.len();
-    Ok(envelope(
-        ConversationThreadsListResponse { threads, count },
-        Some(memory_counts([("num_threads", count)])),
-        None,
-    ))
-}
-
-/// Ensures a workspace-backed conversation thread exists.
-pub async fn memory_thread_upsert(
-    request: UpsertConversationThreadRequest,
-) -> Result<RpcOutcome<ApiEnvelope<ConversationThreadSummary>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let thread = conversations::ensure_thread(
-        workspace_dir,
-        CreateConversationThread {
-            id: request.id,
-            title: request.title,
-            created_at: request.created_at,
-        },
-    )?;
-    Ok(envelope(
-        conversation_thread_to_summary(thread),
-        Some(memory_counts([("num_threads", 1)])),
-        None,
-    ))
-}
-
-/// Lists persisted messages for a workspace-backed conversation thread.
-pub async fn memory_messages_list(
-    request: ConversationMessagesRequest,
-) -> Result<RpcOutcome<ApiEnvelope<ConversationMessagesResponse>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let messages = conversations::get_messages(workspace_dir, &request.thread_id)?
-        .into_iter()
-        .map(conversation_message_to_record)
-        .collect::<Vec<_>>();
-    let count = messages.len();
-    Ok(envelope(
-        ConversationMessagesResponse { messages, count },
-        Some(memory_counts([("num_messages", count)])),
-        None,
-    ))
-}
-
-/// Appends a persisted message to a workspace-backed conversation thread.
-pub async fn memory_message_append(
-    request: AppendConversationMessageRequest,
-) -> Result<RpcOutcome<ApiEnvelope<ConversationMessageRecord>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let message = conversations::append_message(
-        workspace_dir,
-        &request.thread_id,
-        conversation_record_to_message(request.message),
-    )?;
-    Ok(envelope(
-        conversation_message_to_record(message),
-        Some(memory_counts([("num_messages", 1)])),
-        None,
-    ))
-}
-
-/// Updates persisted metadata for an existing conversation message.
-pub async fn memory_message_update(
-    request: UpdateConversationMessageRequest,
-) -> Result<RpcOutcome<ApiEnvelope<ConversationMessageRecord>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let message = conversations::update_message(
-        workspace_dir,
-        &request.thread_id,
-        &request.message_id,
-        ConversationMessagePatch {
-            extra_metadata: request.extra_metadata,
-        },
-    )?;
-    Ok(envelope(
-        conversation_message_to_record(message),
-        Some(memory_counts([("num_messages", 1)])),
-        None,
-    ))
-}
-
-/// Deletes a workspace-backed conversation thread and its JSONL message log.
-pub async fn memory_thread_delete(
-    request: DeleteConversationThreadRequest,
-) -> Result<RpcOutcome<ApiEnvelope<DeleteConversationThreadResponse>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let deleted = conversations::ConversationStore::new(workspace_dir)
-        .delete_thread(&request.thread_id, &request.deleted_at)?;
-    Ok(envelope(
-        DeleteConversationThreadResponse { deleted },
-        None,
-        None,
-    ))
-}
-
-/// Purges all workspace-backed conversation JSONL state.
-pub async fn memory_threads_purge(
-    _request: EmptyRequest,
-) -> Result<RpcOutcome<ApiEnvelope<PurgeConversationThreadsResponse>>, String> {
-    let workspace_dir = current_workspace_dir().await?;
-    let stats = conversations::purge_threads(workspace_dir)?;
-    Ok(envelope(
-        PurgeConversationThreadsResponse {
-            messages_deleted: stats.message_count,
-            agent_threads_deleted: stats.thread_count,
-            agent_messages_deleted: stats.message_count,
         },
         None,
         None,
@@ -1462,5 +1298,184 @@ mod tests {
             message.contains("Alice (PERSON) -[OWNS]-> Atlas (PROJECT)"),
             "expected entity types in relation text, got: {message}"
         );
+    }
+
+    // ── Pure-helper coverage ───────────────────────────────────────
+
+    use super::{
+        chunk_metadata, default_category, default_priority, default_source_type, error_envelope,
+        extract_entity_type, maybe_retrieval_context, memory_counts, memory_kind_label,
+        memory_request_id, relation_identity, relation_metadata, timestamp_to_rfc3339,
+        validate_memory_relative_path,
+    };
+    use crate::openhuman::memory::{ApiEnvelope, MemoryRetrievalContext};
+    use crate::rpc::RpcOutcome;
+
+    #[test]
+    fn memory_request_id_is_nonempty_and_unique() {
+        let a = memory_request_id();
+        let b = memory_request_id();
+        assert!(!a.is_empty());
+        assert!(!b.is_empty());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn memory_counts_builds_btreemap_from_entries() {
+        let m = memory_counts([("documents", 3), ("kv", 1)]);
+        assert_eq!(m.get("documents"), Some(&3));
+        assert_eq!(m.get("kv"), Some(&1));
+        assert_eq!(m.len(), 2);
+    }
+
+    #[test]
+    fn memory_counts_is_empty_for_empty_input() {
+        let m: std::collections::BTreeMap<String, usize> = memory_counts(std::iter::empty());
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn timestamp_to_rfc3339_valid_seconds_and_fractional() {
+        let s = timestamp_to_rfc3339(1_700_000_000.0).unwrap();
+        assert!(s.contains("2023"));
+        // Fractional seconds should preserve nanoseconds within range.
+        let s = timestamp_to_rfc3339(1_700_000_000.5).unwrap();
+        assert!(s.contains("2023"));
+    }
+
+    #[test]
+    fn timestamp_to_rfc3339_rejects_non_finite_and_negative() {
+        assert!(timestamp_to_rfc3339(f64::NAN).is_none());
+        assert!(timestamp_to_rfc3339(f64::INFINITY).is_none());
+        assert!(timestamp_to_rfc3339(-1.0).is_none());
+    }
+
+    #[test]
+    fn memory_kind_label_maps_each_variant() {
+        assert_eq!(memory_kind_label(&MemoryItemKind::Document), "document");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Kv), "kv");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Episodic), "episodic");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Event), "event");
+    }
+
+    fn relation_fixture(namespace: Option<&str>) -> GraphRelationRecord {
+        GraphRelationRecord {
+            namespace: namespace.map(str::to_string),
+            subject: "Alice".into(),
+            predicate: "OWNS".into(),
+            object: "Atlas".into(),
+            attrs: json!({"entity_types":{"subject":"PERSON","object":"PROJECT"}}),
+            updated_at: 1_700_000_000.0,
+            evidence_count: 2,
+            order_index: Some(1),
+            document_ids: vec!["doc-1".into()],
+            chunk_ids: vec!["doc-1#c1".into()],
+        }
+    }
+
+    #[test]
+    fn relation_identity_uses_global_for_missing_namespace() {
+        let rel = relation_fixture(None);
+        assert_eq!(relation_identity(&rel), "global|Alice|OWNS|Atlas");
+        let rel = relation_fixture(Some("team"));
+        assert_eq!(relation_identity(&rel), "team|Alice|OWNS|Atlas");
+    }
+
+    #[test]
+    fn relation_metadata_includes_expected_keys() {
+        let rel = relation_fixture(Some("team"));
+        let m = relation_metadata(&rel);
+        assert_eq!(m["namespace"], "team");
+        assert_eq!(m["order_index"], 1);
+        assert!(m["document_ids"].is_array());
+        assert!(m["updated_at"].is_string());
+    }
+
+    #[test]
+    fn chunk_metadata_exposes_score_breakdown() {
+        let m = chunk_metadata(&sample_hit());
+        assert_eq!(m["kind"], "document");
+        assert_eq!(m["namespace"], "team");
+        assert!(m["score_breakdown"]["final_score"].is_number());
+    }
+
+    #[test]
+    fn extract_entity_type_returns_nonempty_or_none() {
+        let attrs = json!({"entity_types":{"subject":"PERSON","object":""}});
+        assert_eq!(
+            extract_entity_type(&attrs, "subject"),
+            Some("PERSON".into())
+        );
+        // Empty string → None.
+        assert_eq!(extract_entity_type(&attrs, "object"), None);
+        // Missing role → None.
+        assert_eq!(extract_entity_type(&attrs, "missing"), None);
+        // Empty attrs → None.
+        assert_eq!(extract_entity_type(&json!({}), "subject"), None);
+    }
+
+    #[test]
+    fn format_llm_context_message_returns_none_for_empty_hits() {
+        assert!(format_llm_context_message(None, &[]).is_none());
+        assert!(format_llm_context_message(Some("query"), &[]).is_none());
+    }
+
+    #[test]
+    fn filter_hits_by_document_ids_passes_through_when_filter_is_none() {
+        let hits = vec![sample_hit()];
+        let filtered = filter_hits_by_document_ids(hits.clone(), None);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn filter_hits_by_document_ids_retains_matching_ids() {
+        let hits = vec![sample_hit()];
+        let filtered = filter_hits_by_document_ids(hits, Some(&["doc-1".to_string()]));
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn maybe_retrieval_context_respects_include_flag() {
+        let empty = MemoryRetrievalContext {
+            entities: vec![],
+            relations: vec![],
+            chunks: vec![],
+        };
+        // include=false → always None
+        assert!(maybe_retrieval_context(false, empty.clone()).is_none());
+        // include=true but context empty → None
+        assert!(maybe_retrieval_context(true, empty).is_none());
+        // include=true + non-empty context → Some
+        let ctx = build_retrieval_context(&[sample_hit()]);
+        assert!(maybe_retrieval_context(true, ctx).is_some());
+    }
+
+    #[test]
+    fn default_constants_are_stable() {
+        assert!(!default_source_type().is_empty());
+        assert!(!default_priority().is_empty());
+        assert!(!default_category().is_empty());
+    }
+
+    #[test]
+    fn validate_memory_relative_path_rejects_empty_absolute_and_traversal() {
+        assert!(validate_memory_relative_path("").is_err());
+        assert!(validate_memory_relative_path("/etc/passwd").is_err());
+        assert!(validate_memory_relative_path("../secrets").is_err());
+        assert!(validate_memory_relative_path("ok/subdir/file.md").is_ok());
+        assert!(validate_memory_relative_path("simple.txt").is_ok());
+    }
+
+    #[test]
+    fn error_envelope_produces_api_error_with_code_and_message() {
+        let envelope: RpcOutcome<ApiEnvelope<serde_json::Value>> =
+            error_envelope::<serde_json::Value>("NOT_FOUND", "missing".into());
+        let api = &envelope.value;
+        assert!(api.data.is_none());
+        let err = api.error.as_ref().expect("error set");
+        assert_eq!(err.code, "NOT_FOUND");
+        assert_eq!(err.message, "missing");
+        // Meta must carry a request id.
+        assert!(!api.meta.request_id.is_empty());
     }
 }

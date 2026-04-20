@@ -15,11 +15,9 @@ use crate::openhuman::memory::rpc::{
     QueryNamespaceParams, RecallNamespaceParams,
 };
 use crate::openhuman::memory::{
-    AppendConversationMessageRequest, ConversationMessagesRequest, DeleteConversationThreadRequest,
     DeleteDocumentRequest, EmptyRequest, ListDocumentsRequest, ListMemoryFilesRequest,
     MemoryInitRequest, QueryNamespaceRequest, ReadMemoryFileRequest, RecallContextRequest,
-    RecallMemoriesRequest, UpdateConversationMessageRequest, UpsertConversationThreadRequest,
-    WriteMemoryFileRequest,
+    RecallMemoriesRequest, WriteMemoryFileRequest,
 };
 use crate::rpc::RpcOutcome;
 
@@ -40,13 +38,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("list_files"),
         schemas("read_file"),
         schemas("write_file"),
-        schemas("threads_list"),
-        schemas("thread_upsert"),
-        schemas("messages_list"),
-        schemas("message_append"),
-        schemas("message_update"),
-        schemas("thread_delete"),
-        schemas("threads_purge"),
         schemas("namespace_list"),
         schemas("doc_put"),
         schemas("doc_ingest"),
@@ -106,34 +97,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("write_file"),
             handler: handle_write_file,
-        },
-        RegisteredController {
-            schema: schemas("threads_list"),
-            handler: handle_threads_list,
-        },
-        RegisteredController {
-            schema: schemas("thread_upsert"),
-            handler: handle_thread_upsert,
-        },
-        RegisteredController {
-            schema: schemas("messages_list"),
-            handler: handle_messages_list,
-        },
-        RegisteredController {
-            schema: schemas("message_append"),
-            handler: handle_message_append,
-        },
-        RegisteredController {
-            schema: schemas("message_update"),
-            handler: handle_message_update,
-        },
-        RegisteredController {
-            schema: schemas("thread_delete"),
-            handler: handle_thread_delete,
-        },
-        RegisteredController {
-            schema: schemas("threads_purge"),
-            handler: handle_threads_purge,
         },
         RegisteredController {
             schema: schemas("namespace_list"),
@@ -471,160 +434,6 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 required: true,
             }],
         },
-        "threads_list" => ControllerSchema {
-            namespace: "memory",
-            function: "threads_list",
-            description: "List workspace-backed conversation threads stored as JSONL files.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with thread summaries and count.",
-                required: true,
-            }],
-        },
-        "thread_upsert" => ControllerSchema {
-            namespace: "memory",
-            function: "thread_upsert",
-            description: "Create or refresh a workspace-backed conversation thread entry.",
-            inputs: vec![
-                FieldSchema {
-                    name: "id",
-                    ty: TypeSchema::String,
-                    comment: "Stable thread identifier.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "title",
-                    ty: TypeSchema::String,
-                    comment: "Human-readable thread title.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "created_at",
-                    ty: TypeSchema::String,
-                    comment: "RFC3339 timestamp for first thread creation.",
-                    required: true,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with the resulting thread summary.",
-                required: true,
-            }],
-        },
-        "messages_list" => ControllerSchema {
-            namespace: "memory",
-            function: "messages_list",
-            description: "List persisted messages for a workspace-backed conversation thread.",
-            inputs: vec![FieldSchema {
-                name: "thread_id",
-                ty: TypeSchema::String,
-                comment: "Thread identifier.",
-                required: true,
-            }],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with messages and count.",
-                required: true,
-            }],
-        },
-        "message_append" => ControllerSchema {
-            namespace: "memory",
-            function: "message_append",
-            description: "Append a persisted message record to a workspace-backed conversation thread.",
-            inputs: vec![
-                FieldSchema {
-                    name: "thread_id",
-                    ty: TypeSchema::String,
-                    comment: "Thread identifier.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "message",
-                    ty: TypeSchema::Json,
-                    comment: "Message payload to append.",
-                    required: true,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with the appended message payload.",
-                required: true,
-            }],
-        },
-        "message_update" => ControllerSchema {
-            namespace: "memory",
-            function: "message_update",
-            description: "Patch persisted metadata for an existing conversation message.",
-            inputs: vec![
-                FieldSchema {
-                    name: "thread_id",
-                    ty: TypeSchema::String,
-                    comment: "Thread identifier.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "message_id",
-                    ty: TypeSchema::String,
-                    comment: "Message identifier.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "extra_metadata",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Json)),
-                    comment: "Replacement message metadata object.",
-                    required: false,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with the updated message payload.",
-                required: true,
-            }],
-        },
-        "thread_delete" => ControllerSchema {
-            namespace: "memory",
-            function: "thread_delete",
-            description: "Delete a workspace-backed conversation thread and its message log.",
-            inputs: vec![
-                FieldSchema {
-                    name: "thread_id",
-                    ty: TypeSchema::String,
-                    comment: "Thread identifier.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "deleted_at",
-                    ty: TypeSchema::String,
-                    comment: "RFC3339 deletion timestamp.",
-                    required: true,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with deletion status.",
-                required: true,
-            }],
-        },
-        "threads_purge" => ControllerSchema {
-            namespace: "memory",
-            function: "threads_purge",
-            description: "Remove all workspace-backed conversation JSONL files.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Envelope with deleted thread/message counts.",
-                required: true,
-            }],
-        },
-
         // ----- unified memory API methods -----
         "namespace_list" => ControllerSchema {
             namespace: "memory",
@@ -1202,49 +1011,6 @@ fn handle_write_file(params: Map<String, Value>) -> ControllerFuture {
     })
 }
 
-fn handle_threads_list(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move { to_json(rpc::memory_threads_list(EmptyRequest {}).await?) })
-}
-
-fn handle_thread_upsert(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let payload = parse_params::<UpsertConversationThreadRequest>(params)?;
-        to_json(rpc::memory_thread_upsert(payload).await?)
-    })
-}
-
-fn handle_messages_list(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let payload = parse_params::<ConversationMessagesRequest>(params)?;
-        to_json(rpc::memory_messages_list(payload).await?)
-    })
-}
-
-fn handle_message_append(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let payload = parse_params::<AppendConversationMessageRequest>(params)?;
-        to_json(rpc::memory_message_append(payload).await?)
-    })
-}
-
-fn handle_message_update(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let payload = parse_params::<UpdateConversationMessageRequest>(params)?;
-        to_json(rpc::memory_message_update(payload).await?)
-    })
-}
-
-fn handle_thread_delete(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let payload = parse_params::<DeleteConversationThreadRequest>(params)?;
-        to_json(rpc::memory_thread_delete(payload).await?)
-    })
-}
-
-fn handle_threads_purge(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move { to_json(rpc::memory_threads_purge(EmptyRequest {}).await?) })
-}
-
 fn handle_namespace_list(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move { to_json(rpc::namespace_list().await?) })
 }
@@ -1356,4 +1122,118 @@ fn parse_params<T: DeserializeOwned>(params: Map<String, Value>) -> Result<T, St
 
 fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String> {
     outcome.into_cli_compatible_json()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const ALL_FUNCTIONS: &[&str] = &[
+        "init",
+        "list_documents",
+        "list_namespaces",
+        "delete_document",
+        "query_namespace",
+        "recall_context",
+        "recall_memories",
+        "list_files",
+        "read_file",
+        "write_file",
+        "namespace_list",
+        "doc_put",
+        "doc_ingest",
+        "doc_list",
+        "doc_delete",
+        "context_query",
+        "context_recall",
+        "kv_set",
+        "kv_get",
+        "kv_delete",
+        "kv_list_namespace",
+        "graph_upsert",
+        "graph_query",
+        "clear_namespace",
+    ];
+
+    #[test]
+    fn all_controller_schemas_has_entry_per_supported_function() {
+        let names: Vec<_> = all_controller_schemas()
+            .into_iter()
+            .map(|s| s.function)
+            .collect();
+        assert_eq!(names.len(), ALL_FUNCTIONS.len());
+        for expected in ALL_FUNCTIONS {
+            assert!(names.contains(expected), "missing schema for {expected}");
+        }
+    }
+
+    #[test]
+    fn all_registered_controllers_has_handler_per_schema() {
+        let controllers = all_registered_controllers();
+        assert_eq!(controllers.len(), ALL_FUNCTIONS.len());
+        let names: Vec<_> = controllers.iter().map(|c| c.schema.function).collect();
+        for expected in ALL_FUNCTIONS {
+            assert!(names.contains(expected), "missing handler for {expected}");
+        }
+    }
+
+    #[test]
+    fn every_schema_uses_memory_namespace() {
+        for s in all_controller_schemas() {
+            assert_eq!(
+                s.namespace, "memory",
+                "schema {} must use the memory namespace",
+                s.function
+            );
+        }
+    }
+
+    #[test]
+    fn every_schema_has_a_non_empty_description() {
+        for s in all_controller_schemas() {
+            assert!(
+                !s.description.is_empty(),
+                "schema {} has empty description",
+                s.function
+            );
+        }
+    }
+
+    #[test]
+    fn schemas_unknown_function_returns_unknown_placeholder() {
+        let s = schemas("not-a-real-function");
+        assert_eq!(s.namespace, "memory");
+        assert_eq!(s.function, "unknown");
+    }
+
+    // ── parse_params helper ──────────────────────────────────────
+
+    #[test]
+    fn parse_params_deserializes_simple_struct() {
+        #[derive(serde::Deserialize, Debug)]
+        struct Simple {
+            name: String,
+            count: u32,
+        }
+        let mut m = Map::new();
+        m.insert("name".into(), json!("hi"));
+        m.insert("count".into(), json!(7));
+        let out: Simple = parse_params(m).unwrap();
+        assert_eq!(out.name, "hi");
+        assert_eq!(out.count, 7);
+    }
+
+    #[test]
+    fn parse_params_surfaces_deserialization_errors_with_context() {
+        #[derive(serde::Deserialize, Debug)]
+        struct Strict {
+            #[allow(dead_code)]
+            count: u32,
+        }
+        let mut m = Map::new();
+        m.insert("count".into(), json!("not-a-number"));
+        let err = parse_params::<Strict>(m).unwrap_err();
+        assert!(err.contains("invalid params"));
+    }
 }

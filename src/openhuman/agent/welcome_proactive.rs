@@ -7,15 +7,29 @@
 //! 1. [`crate::openhuman::config::ops::set_onboarding_completed`]
 //!    detects a false→true transition and calls [`spawn_proactive_welcome`].
 //! 2. That function spawns a detached Tokio task that:
-//!    - Pre-builds the JSON snapshot (config + user profile + onboarding
-//!      tasks + composio connections) in Rust — no LLM round-trip needed.
+//!    - Publishes **Template 1** immediately (t ≈ 0 ms): a time-of-day
+//!      greeting that names any channels the user already has connected.
+//!      This appears in the chat bubble within milliseconds of the
+//!      wizard closing.
+//!    - Simultaneously starts welcome-agent LLM inference (see below).
+//!    - After 4 seconds publishes **Template 2**: "Getting everything
+//!      ready for you…" — a loading indicator while inference continues.
+//!    - When inference finishes publishes the full personalised welcome.
+//!
+//! ### Welcome agent inference (parallel path)
+//!
+//!    - Builds the same JSON status snapshot that
+//!      `complete_onboarding` `check_status` would return (`pending`,
+//!      `ready_to_complete: false` until the user has conversed or
+//!      connected Composio).
 //!    - Loads the `welcome` agent via
 //!      [`crate::openhuman::agent::Agent::from_config_for_agent`] so
 //!      the agent runs with its own `prompt.md`, tool allowlist, and
-//!      model hint (`agentic-v1`).
-//!    - Calls [`crate::openhuman::agent::Agent::run_single`] with the
-//!      pre-built context, skipping iteration 1 (tool calls). The agent
-//!      goes straight to writing the personalised welcome message.
+//!      model hint.
+//!    - Calls [`crate::openhuman::agent::Agent::run_single`] with a
+//!      prompt that embeds the snapshot, skips the tool-call iteration,
+//!      and instructs the agent not to repeat the greeting (templates
+//!      already delivered that).
 //!    - On success, publishes
 //!      [`DomainEvent::ProactiveMessageRequested`] so the existing
 //!      [`crate::openhuman::channels::proactive::ProactiveMessageSubscriber`]
@@ -62,126 +76,122 @@ pub fn spawn_proactive_welcome(config: Config) {
     });
 }
 
-/// Internal: pre-build context, run the welcome agent, publish the
-/// result. Split out from the spawn so it can be unit-tested with
-/// an injected Config + mocked provider.
+// ---------------------------------------------------------------------------
+// Template helpers
+// ---------------------------------------------------------------------------
+
+/// Returns a time-of-day greeting string based on the current UTC hour.
+///
+/// Uses the machine local clock so greetings better match user
+/// expectations in desktop-first usage. Defaults to "Good afternoon"
+/// if the system clock is unavailable.
+fn time_of_day_greeting() -> &'static str {
+    let hour = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|_| {
+            chrono::Local::now()
+                .format("%H")
+                .to_string()
+                .parse::<u8>()
+                .ok()
+        })
+        .unwrap_or(14); // default to afternoon on clock error
+    match hour {
+        5..=11 => "Good morning",
+        12..=16 => "Good afternoon",
+        17..=20 => "Good evening",
+        _ => "Hey there",
+    }
+}
+
+/// Build Template 1 — an immediate personalised greeting that names any
+/// channels the user already has connected.
+///
+/// Shown instantly (t ≈ 0 ms) while LLM inference runs in parallel.
+/// Receives the JSON status snapshot so it can reference real setup data
+/// without a second config read.
+fn build_template_greeting(snapshot: &serde_json::Value) -> String {
+    let greeting = time_of_day_greeting();
+
+    let channels: Vec<&str> = snapshot
+        .get("channels_connected")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+
+    if channels.is_empty() {
+        return format!("{greeting}! Getting your workspace ready.");
+    }
+
+    let channel_list = if channels.len() == 1 {
+        channels[0].to_string()
+    } else if channels.len() == 2 {
+        format!("{} and {}", channels[0], channels[1])
+    } else {
+        // 3+ channels: "a, b, and c"
+        let (last, rest) = channels
+            .split_last()
+            .expect("len >= 3 guaranteed by else branch");
+        format!("{}, and {last}", rest.join(", "))
+    };
+
+    format!(
+        "{greeting}! I can see you've got {channel_list} connected \
+         — pulling your full setup together now."
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Core proactive flow
+// ---------------------------------------------------------------------------
+
+/// Internal: build the snapshot, fire templates, run the welcome agent in
+/// parallel with the template delays, and publish all three messages in
+/// order.
+///
+/// Split out from the spawn so it can be unit-tested with an injected
+/// Config.
 async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     tracing::info!(
-        "[welcome::proactive] starting proactive welcome (chat_onboarding_completed={}, ui_onboarding_completed={})",
+        "[welcome::proactive] starting proactive welcome \
+         (chat_onboarding_completed={}, ui_onboarding_completed={})",
         config.chat_onboarding_completed,
         config.onboarding_completed
     );
 
-    // Brief delay so the frontend Socket.IO client has time to
-    // connect and join the "system" room after the onboarding overlay
-    // closes. Without this, the message can arrive before anyone is
-    // listening.
-    // Wait for frontend to mount Conversations page and subscribe to
-    // socket events. The onboarding overlay closing + page navigation +
-    // socket connection + event subscription takes ~3-4s.
-    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-
-    // ── Pre-build context in Rust (no LLM round-trip) ────────────
-    //
-    // Gather the same data the agent would get from calling
-    // check_status + composio_list_connections, but directly in Rust.
-    // This saves one full LLM iteration (~30-50s).
-
-    let mut snapshot = build_status_snapshot(&config, "flipped");
-
-    // Enrich with user profile + onboarding tasks (best-effort)
-    if let serde_json::Value::Object(ref mut map) = snapshot {
-        // Onboarding tasks — sync local file read
-        match crate::openhuman::app_state::ops::load_stored_app_state(&config) {
-            Ok(local_state) => {
-                if let Some(tasks) = local_state.onboarding_tasks {
-                    map.insert(
-                        "onboarding_tasks".to_string(),
-                        serde_json::to_value(&tasks).unwrap_or_default(),
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!("[welcome::proactive] failed to load app state: {e}");
-            }
-        }
-
-        // User profile — async HTTP, 5s timeout
-        match crate::api::jwt::get_session_token(&config) {
-            Ok(Some(token)) if !token.is_empty() => {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    crate::openhuman::app_state::ops::fetch_current_user(&config, &token),
-                )
-                .await
-                {
-                    Ok(Ok(Some(user))) => {
-                        map.insert("user_profile".to_string(), user);
-                    }
-                    _ => {
-                        tracing::debug!("[welcome::proactive] user profile unavailable; omitting");
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        // Composio connections — async HTTP, 5s timeout
-        if let Some(client) = crate::openhuman::composio::client::build_composio_client(&config) {
-            match tokio::time::timeout(std::time::Duration::from_secs(5), client.list_connections())
-                .await
-            {
-                Ok(Ok(connections)) => {
-                    map.insert(
-                        "composio_connections".to_string(),
-                        serde_json::to_value(&connections).unwrap_or_default(),
-                    );
-                }
-                _ => {
-                    tracing::debug!(
-                        "[welcome::proactive] composio connections unavailable; omitting"
-                    );
-                }
-            }
-        }
-    }
-
+    // `chat_onboarding_completed` is still `false` at this point —
+    // `set_onboarding_completed` no longer pre-flips it (see
+    // `config/ops.rs`). The flag is only flipped when the welcome
+    // agent calls `complete_onboarding(action="complete")` after
+    // meeting the engagement criteria. We pass `"pending"` as the
+    // status, `0` as the initial exchange count, and `false` for
+    // `ready_to_complete` because this proactive invocation is the
+    // opening greeting — no exchanges have happened yet.
+    let snapshot = build_status_snapshot(
+        &config,
+        "pending",
+        0,
+        false,
+        "fewer_than_min_exchanges_and_no_skills_connected",
+    );
     let snapshot_json = serde_json::to_string_pretty(&snapshot)
         .map_err(|e| anyhow::anyhow!("serialize status snapshot: {e}"))?;
-
     tracing::debug!(
         snapshot_chars = snapshot_json.len(),
-        "[welcome::proactive] pre-built context snapshot"
+        "[welcome::proactive] built status snapshot"
     );
 
-    // ── Instant draft message (no LLM, appears in ~1-2s) ─────────
-    //
-    // Publish a short template greeting immediately so the user sees
-    // something in the chat while the LLM generates the full welcome.
-    let first_name = snapshot
-        .get("user_profile")
-        .and_then(|u| u.get("firstName"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("there");
-
-    let draft = format!(
-        "Hey {}! Welcome to OpenHuman — give me a sec while I look around your setup...",
-        first_name
-    );
-
+    // --- Template 1: immediate greeting (t ≈ 0 ms) --------------------
+    let template_greeting = build_template_greeting(&snapshot);
+    tracing::debug!("[welcome::proactive] publishing template 1 (immediate greeting)");
     publish_global(DomainEvent::ProactiveMessageRequested {
         source: PROACTIVE_WELCOME_SOURCE.to_string(),
-        message: draft,
+        message: template_greeting,
         job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
     });
 
-    tracing::info!(
-        "[welcome::proactive] instant draft published for user '{}'",
-        first_name
-    );
-
-    // ── Run the welcome agent (single LLM call) ─────────────────
-
+    // --- Build agent and prompt ----------------------------------------
     let mut agent = Agent::from_config_for_agent(&config, "welcome").map_err(|e| {
         anyhow::anyhow!("build welcome agent: {e} — ensure AgentDefinitionRegistry is initialised")
     })?;
@@ -190,57 +200,146 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         "proactive",
     );
 
-    // Pre-deliver all context so the agent skips iteration 1 (tool
-    // calls) and goes straight to writing the welcome message. This
-    // saves one full LLM round-trip. The agent still has tools
-    // available for Gmail OAuth (composio_authorize) if needed in
-    // subsequent iterations.
+    // The reactive welcome prompt asks for visible prose plus
+    // `complete_onboarding(check_status)` on the first iteration. Here we
+    // pre-inject the snapshot so the model can write the long welcome
+    // without a tool round-trip. If it calls `check_status` anyway, the
+    // result is consistent: pending, not ready to complete.
+    //
+    // We also tell the agent that two greeting template messages have
+    // already been shown so it does not open with a redundant "Good
+    // morning / Hey there" — the personalised setup summary should
+    // start immediately.
     let prompt = format!(
         "[PROACTIVE INVOCATION — the user just finished the desktop onboarding wizard; \
          this is not a reply to anything they typed, it is your opening message.]\n\n\
-         Skip iteration 1. The context that `complete_onboarding(check_status)` and \
-         `composio_list_connections` would have returned is already provided below. \
-         Jump straight to iteration 2 and write the personalised welcome message \
-         per your system prompt guidelines.\n\n\
-         Status snapshot (treat exactly as if it were the tool return values):\n\
+         [TEMPLATE MESSAGES ALREADY DELIVERED — two short placeholder messages have \
+         already appeared in the chat before your response arrives:\n\
+         1. A time-of-day greeting naming the user's connected channels (shown immediately).\n\
+         2. \"Getting everything ready for you...\" (shown ~4 seconds later).\n\
+         Do NOT open with any greeting (\"Good morning\", \"Hey there\", \"Hi!\", etc.). \
+         Jump straight into the personalised welcome content about their specific setup.]\n\n\
+         Do NOT call `complete_onboarding` or any other tool in this run. The \
+         status snapshot that `complete_onboarding({{\"action\":\"check_status\"}})` \
+         would have returned is already provided below — `onboarding_status` is \
+         `\"pending\"` and `ready_to_complete` is `false` because no user messages \
+         have been exchanged yet. Write the personalised welcome message per your \
+         system prompt. Do NOT call `complete_onboarding` with `complete` — the user \
+         has not yet had a real conversation.\n\n\
+         Output format is STRICT JSON only:\n\
+         {{\"messages\":[\"<message 1>\",\"<message 2>\",\"<message 3>\"]}}\n\
+         - Return 2-4 assistant messages.\n\
+         - Each message should be short and conversational (1-3 sentences).\n\
+         - Do not include markdown code fences or any text outside the JSON object.\n\n\
+         Status snapshot (treat exactly as if it were the tool return value):\n\
          ```json\n{snapshot_json}\n```\n\n\
-         Write your welcome message now."
+         Write your welcome messages now."
     );
-
     tracing::debug!(
         prompt_chars = prompt.len(),
-        "[welcome::proactive] invoking welcome agent run_single"
+        "[welcome::proactive] invoking welcome agent run_single (parallel with template delay)"
     );
 
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(180),
-        agent.run_single(&prompt),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("welcome agent timed out after 180s"))?
-    .map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
+    // --- Run LLM and 4 s template delay concurrently ------------------
+    //
+    // Template 2 fires after 4 seconds regardless of LLM speed, giving
+    // the user visible feedback during inference. The LLM response is
+    // published only after inference completes (which is typically
+    // 10–30 s for a 200-350 word welcome).
+    //
+    // `tokio::join!` drives both futures on the current task, so no
+    // additional Send bounds are needed on `Agent`.
+    let (llm_result, ()) = tokio::join!(agent.run_single(&prompt), async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
+        tracing::debug!("[welcome::proactive] publishing template 2 (loading indicator)");
+        publish_global(DomainEvent::ProactiveMessageRequested {
+            source: PROACTIVE_WELCOME_SOURCE.to_string(),
+            message: "Getting everything ready for you...".to_string(),
+            job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
+        });
+    });
+
+    let response =
+        llm_result.map_err(|e| anyhow::anyhow!("welcome agent run_single failed: {e}"))?;
 
     let trimmed = response.trim();
+    // Tolerate common fenced JSON wrappers from the model:
+    // ```json
+    // { ... }
+    // ```
+    let trimmed = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(str::trim_start)
+        .and_then(|s| s.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
     if trimmed.is_empty() {
         anyhow::bail!("welcome agent returned empty response");
     }
 
+    #[derive(serde::Deserialize)]
+    struct ProactiveMessagesPayload {
+        messages: Vec<String>,
+    }
+
+    // Preferred path: strict JSON payload from the model.
+    // Fallback path: split freeform prose into paragraph-ish chunks so users
+    // still receive multiple chat bubbles even if the provider drifts format.
+    let messages: Vec<String> = match serde_json::from_str::<ProactiveMessagesPayload>(trimmed) {
+        Ok(payload) => payload
+            .messages
+            .into_iter()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .collect(),
+        Err(parse_err) => {
+            tracing::warn!(
+                error = %parse_err,
+                "[welcome::proactive] response was not valid JSON payload; falling back to paragraph splitting"
+            );
+            trimmed
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        }
+    };
+
+    if messages.is_empty() {
+        anyhow::bail!("welcome agent returned no publishable messages");
+    }
+
     tracing::info!(
+        message_count = messages.len(),
         response_chars = trimmed.chars().count(),
-        "[welcome::proactive] welcome agent produced message — publishing ProactiveMessageRequested"
+        "[welcome::proactive] welcome agent produced multi-message payload — publishing ProactiveMessageRequested"
     );
 
-    publish_global(DomainEvent::ProactiveMessageRequested {
-        source: PROACTIVE_WELCOME_SOURCE.to_string(),
-        message: trimmed.to_string(),
-        job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
-    });
+    // --- Publish LLM responses (messages 3+) --------------------------
+    for (idx, message) in messages.iter().enumerate() {
+        if idx > 0 {
+            // Slight pacing so bubbles appear progressively instead of as a wall.
+            let pace_ms = (message.chars().count() as u64).clamp(600, 1200);
+            tokio::time::sleep(tokio::time::Duration::from_millis(pace_ms)).await;
+        }
+        publish_global(DomainEvent::ProactiveMessageRequested {
+            source: PROACTIVE_WELCOME_SOURCE.to_string(),
+            message: message.clone(),
+            job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
+        });
+    }
 
+    // Post-publish confirmation so the log clearly marks end-to-end
+    // success (publish_global is fire-and-forget; without this line,
+    // "reached the end cleanly" is ambiguous from the log alone).
     tracing::debug!(
         source = PROACTIVE_WELCOME_SOURCE,
         job_name = PROACTIVE_WELCOME_JOB_NAME,
-        response_chars = trimmed.chars().count(),
-        "[welcome::proactive] proactive welcome flow complete"
+        published_llm_messages = messages.len(),
+        "[welcome::proactive] proactive welcome flow complete \
+         (template messages + multi-part llm response published)"
     );
 
     Ok(())
@@ -256,5 +355,86 @@ mod tests {
         // silent rename would break downstream grep-based traces.
         assert_eq!(PROACTIVE_WELCOME_SOURCE, "onboarding_completed");
         assert_eq!(PROACTIVE_WELCOME_JOB_NAME, "welcome");
+    }
+
+    #[test]
+    fn template_greeting_no_channels() {
+        let snapshot = serde_json::json!({ "channels_connected": [] });
+        let msg = build_template_greeting(&snapshot);
+        assert!(
+            msg.contains("workspace"),
+            "expected workspace mention: {msg}"
+        );
+        // No channel list when there are none
+        assert!(
+            !msg.contains("connected —"),
+            "unexpected channel suffix: {msg}"
+        );
+    }
+
+    #[test]
+    fn template_greeting_one_channel() {
+        let snapshot = serde_json::json!({ "channels_connected": ["telegram"] });
+        let msg = build_template_greeting(&snapshot);
+        assert!(msg.contains("telegram"), "expected channel name: {msg}");
+        assert!(msg.contains("connected"), "expected 'connected': {msg}");
+    }
+
+    #[test]
+    fn template_greeting_two_channels() {
+        let snapshot = serde_json::json!({ "channels_connected": ["telegram", "discord"] });
+        let msg = build_template_greeting(&snapshot);
+        assert!(msg.contains("telegram"), "expected telegram: {msg}");
+        assert!(msg.contains("discord"), "expected discord: {msg}");
+        assert!(msg.contains(" and "), "expected 'and' join: {msg}");
+        // Should not have serial comma for exactly two items
+        assert!(
+            !msg.contains(", and"),
+            "unexpected serial comma for two items: {msg}"
+        );
+    }
+
+    #[test]
+    fn template_greeting_three_channels() {
+        let snapshot = serde_json::json!({
+            "channels_connected": ["telegram", "discord", "slack"]
+        });
+        let msg = build_template_greeting(&snapshot);
+        assert!(msg.contains("telegram"), "{msg}");
+        assert!(msg.contains("discord"), "{msg}");
+        assert!(msg.contains("slack"), "{msg}");
+        // Oxford comma for 3+ items
+        assert!(
+            msg.contains(", and "),
+            "expected Oxford comma for 3 items: {msg}"
+        );
+    }
+
+    #[test]
+    fn template_greeting_missing_channels_key() {
+        // Snapshot without the key should not panic and should return a
+        // non-empty fallback greeting.
+        let snapshot = serde_json::json!({});
+        let msg = build_template_greeting(&snapshot);
+        assert!(!msg.is_empty(), "expected non-empty fallback message");
+        assert!(
+            msg.contains("workspace"),
+            "expected workspace fallback: {msg}"
+        );
+    }
+
+    #[test]
+    fn time_of_day_greeting_returns_known_string() {
+        let greeting = time_of_day_greeting();
+        let valid = [
+            "Good morning",
+            "Good afternoon",
+            "Good evening",
+            "Hey there",
+        ];
+        assert!(
+            valid.contains(&greeting),
+            "unexpected greeting string: {greeting}"
+        );
     }
 }

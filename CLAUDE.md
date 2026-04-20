@@ -483,6 +483,7 @@ Follow this order so behavior is **specified**, **proven in Rust**, **proven ove
 
 ## Platform notes
 
+- **Vendored CEF-aware `tauri-cli` (required)**: The default runtime is **CEF**, and only the **vendored** `tauri-cli` at `app/src-tauri/vendor/tauri-cef/crates/tauri-cli` knows how to bundle the Chromium Embedded Framework into the app's `Contents/Frameworks/`. The stock `@tauri-apps/cli` / upstream `cargo-tauri` produces a bundle **without** `Frameworks/` and the app panics at startup inside `cef::library_loader::LibraryLoader::new` with `No such file or directory`. `yarn dev:app` (and every other `cargo tauri` script in `app/package.json`) now calls **`yarn tauri:ensure`** which runs [`scripts/ensure-tauri-cli.sh`](scripts/ensure-tauri-cli.sh) to install the vendored CLI into `~/.cargo/bin/cargo-tauri` on first use. If you ever install a different `tauri-cli` over it (e.g. `npm i -g @tauri-apps/cli`) you'll need to re-run the ensure script / `cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli`.
 - **macOS deep links**: Often require a built **`.app`** bundle; not only `tauri dev`. See [`docs/telegram-login-desktop.md`](docs/telegram-login-desktop.md) if applicable.
 - **`window.__TAURI__`**: Not assumed at module load; guard Tauri usage accordingly.
 - **Core sidecar**: Must be staged/built so `core_rpc` can reach the `openhuman` binary (see `scripts/stage-core-sidecar.mjs`).

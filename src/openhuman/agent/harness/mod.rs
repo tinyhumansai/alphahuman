@@ -31,10 +31,12 @@ mod instructions;
 pub mod interrupt;
 pub(crate) mod memory_context;
 mod parse;
+pub(crate) mod payload_summarizer;
 pub(crate) mod self_healing;
 pub mod session;
 pub(crate) mod session_queue;
 pub mod subagent_runner;
+pub(crate) mod tool_filter;
 mod tool_loop;
 
 pub use definition::{
@@ -48,7 +50,7 @@ pub use fork_context::{
 pub use interrupt::{check_interrupt, InterruptFence, InterruptedError};
 pub use subagent_runner::{run_subagent, SubagentRunError, SubagentRunOptions};
 
-pub(crate) use instructions::{build_tool_instructions, build_tool_instructions_filtered};
+pub(crate) use instructions::build_tool_instructions_filtered;
 pub(crate) use parse::parse_tool_calls;
 pub(crate) use tool_loop::run_tool_call_loop;
 

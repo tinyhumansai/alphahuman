@@ -156,6 +156,94 @@ fn log_worker_join_result(result: Result<(), tokio::task::JoinError>) {
     }
 }
 
+/// Build a `[CONNECTION_STATE]...[/CONNECTION_STATE]` block listing the
+/// current Composio connection status for each connected or available
+/// integration.
+///
+/// Fetches integration state at call time so the agent always sees the
+/// up-to-date status for the user's current turn (including connections
+/// that completed mid-conversation via OAuth in a browser). The fetch is
+/// wrapped in a short timeout so Composio API latency never blocks the
+/// channel turn.
+///
+/// Returns an empty string on any failure (API down, not authenticated,
+/// timeout) so the caller can safely append it without branching.
+async fn build_connection_state_block() -> String {
+    // 3-second ceiling — connection state is best-effort context. If the
+    // Composio API is slow, skip the block rather than delaying the turn.
+    const COMPOSIO_FETCH_TIMEOUT_SECS: u64 = 3;
+
+    let config = match tokio::time::timeout(
+        Duration::from_secs(COMPOSIO_FETCH_TIMEOUT_SECS),
+        Config::load_or_init(),
+    )
+    .await
+    {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            tracing::debug!(
+                error = %e,
+                "[dispatch::connection_state] config load failed — skipping block"
+            );
+            return String::new();
+        }
+        Err(_) => {
+            tracing::debug!("[dispatch::connection_state] config load timed out — skipping block");
+            return String::new();
+        }
+    };
+
+    let integrations = match tokio::time::timeout(
+        Duration::from_secs(COMPOSIO_FETCH_TIMEOUT_SECS),
+        fetch_connected_integrations(&config),
+    )
+    .await
+    {
+        Ok(list) => list,
+        Err(_) => {
+            tracing::debug!(
+                "[dispatch::connection_state] Composio fetch timed out — skipping block"
+            );
+            return String::new();
+        }
+    };
+
+    if integrations.is_empty() {
+        tracing::debug!("[dispatch::connection_state] no integrations returned — skipping block");
+        return String::new();
+    }
+
+    let mut lines = Vec::with_capacity(integrations.len());
+    for integration in &integrations {
+        let status = if integration.connected {
+            // Include account identifier if available (first tool name often encodes it,
+            // but the toolkit slug is the clearest label available here).
+            format!("connected (toolkit: {})", integration.toolkit)
+        } else {
+            "not connected".to_string()
+        };
+        // Capitalize the toolkit name for readability (e.g. "gmail" → "Gmail").
+        let display_name = {
+            let mut chars = integration.toolkit.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        };
+        lines.push(format!("{display_name}: {status}"));
+    }
+
+    tracing::debug!(
+        integration_count = integrations.len(),
+        "[dispatch::connection_state] built connection state block for welcome agent"
+    );
+
+    format!(
+        "\n\n[CONNECTION_STATE]\n{}\n[/CONNECTION_STATE]",
+        lines.join("\n")
+    )
+}
+
 fn spawn_scoped_typing_task(
     channel: Arc<dyn Channel>,
     recipient: String,
@@ -267,6 +355,11 @@ async fn resolve_target_agent(channel: &str) -> AgentScoping {
     let target_id = if config.chat_onboarding_completed {
         "orchestrator"
     } else {
+        // Increment the process-global exchange counter every time a user
+        // message is routed to the welcome agent. The `complete_onboarding`
+        // tool reads this counter to decide whether `ready_to_complete` is
+        // `true` and to enforce the minimum-engagement guard in `complete`.
+        crate::openhuman::tools::implementations::agent::complete_onboarding::increment_welcome_exchange_count();
         "welcome"
     };
 
@@ -438,7 +531,7 @@ mod scoping_tests {
             tools: scope,
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
+            extra_tools: vec![],
             max_iterations: 8,
             timeout_secs: None,
             sandbox_mode: SandboxMode::None,
@@ -452,7 +545,7 @@ mod scoping_tests {
 
     /// `ToolScope::Wildcard` must yield `None` — the prompt builder
     /// treats `None` as "no filter, every tool visible", which is the
-    /// correct behaviour for agents like `skills_agent` that want the
+    /// correct behaviour for agents like `integrations_agent` that want the
     /// full skill-category catalogue. Even when extras are present, a
     /// wildcard agent should not start filtering.
     #[test]
@@ -777,6 +870,25 @@ pub(crate) async fn process_channel_message(
     // `resolve_target_agent` — see the `[dispatch::routing]` traces.
     let scoping = resolve_target_agent(&msg.channel).await;
 
+    // When routing to the welcome agent, inject up-to-date Composio connection
+    // state into the last user message so the agent always knows which
+    // integrations are live without burning a tool call to check. The block is
+    // appended — not prepended — so it does not interfere with memory context
+    // that was already prepended to `enriched_message`. Scoped strictly to the
+    // welcome agent: orchestrator turns are not annotated.
+    if scoping.target_agent_id.as_deref() == Some("welcome") {
+        let conn_block = build_connection_state_block().await;
+        if !conn_block.is_empty() {
+            if let Some(last_user_msg) = history.iter_mut().rev().find(|m| m.role == "user") {
+                last_user_msg.content.push_str(&conn_block);
+                tracing::debug!(
+                    block_chars = conn_block.len(),
+                    "[dispatch::connection_state] appended CONNECTION_STATE block to welcome-agent turn"
+                );
+            }
+        }
+    }
+
     let turn_request = AgentTurnRequest {
         provider: Arc::clone(&active_provider),
         history: std::mem::take(&mut history),
@@ -1034,5 +1146,120 @@ pub(crate) async fn run_message_dispatch_loop(
 
     while let Some(result) = workers.join_next().await {
         log_worker_join_result(result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contains_any_hits_at_least_one_word() {
+        assert!(contains_any("hello world", &["world"]));
+        assert!(contains_any("hello world", &["not there", "world"]));
+    }
+
+    #[test]
+    fn contains_any_returns_false_when_none_match() {
+        assert!(!contains_any("hello world", &["nope"]));
+        assert!(!contains_any("hello world", &[]));
+    }
+
+    #[test]
+    fn starts_with_any_detects_leading_prefix() {
+        assert!(starts_with_any("hello world", &["hello"]));
+        assert!(starts_with_any("hey you", &["yo", "hey"]));
+    }
+
+    #[test]
+    fn starts_with_any_returns_false_when_none_match() {
+        assert!(!starts_with_any("bonjour", &["hello", "hey"]));
+        assert!(!starts_with_any("x", &[]));
+    }
+
+    // ── select_acknowledgment_reaction ────────────────────────────
+
+    fn is_in(emoji: &str, options: &[&str]) -> bool {
+        options.contains(&emoji)
+    }
+
+    #[test]
+    fn ack_reaction_gratitude_category() {
+        for msg in ["thanks a lot", "Thank you", "THX friend", "I appreciate it"] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["❤️", "🙏"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_celebration_category() {
+        for msg in ["amazing job", "this is awesome", "incredible!!"] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["🔥", "🎉"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_crypto_category() {
+        for msg in ["BTC price today", "ETH pump", "gm on the defi timeline"] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["💯", "⚡"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_technical_category() {
+        for msg in ["deploy the api", "debug this code", "rust question"] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["👨‍💻", "🤓"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_greeting_category() {
+        for msg in ["hi there", "hello", "hey friend", "yo"] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["🤗", "😁"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_question_category() {
+        for msg in [
+            "what is this?",
+            "how does it work",
+            "can you help",
+            "is this correct",
+        ] {
+            let r = select_acknowledgment_reaction(msg);
+            assert!(is_in(r, &["🤔", "✍️"]), "`{msg}` → {r}");
+        }
+    }
+
+    #[test]
+    fn ack_reaction_default_category() {
+        let r = select_acknowledgment_reaction("the task is running");
+        assert!(is_in(r, &["👀", "✍️"]));
+    }
+
+    #[test]
+    fn ack_reaction_is_deterministic() {
+        let a = select_acknowledgment_reaction("thanks");
+        let b = select_acknowledgment_reaction("thanks");
+        assert_eq!(a, b, "same input should always yield same reaction");
+    }
+
+    #[test]
+    fn ack_reaction_handles_empty_input_without_panic() {
+        // `content.chars().next()` is None on empty input — must not panic.
+        let r = select_acknowledgment_reaction("");
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn ack_reaction_handles_single_char() {
+        let r = select_acknowledgment_reaction("?");
+        // Single "?" falls into question category (contains '?').
+        assert!(is_in(r, &["🤔", "✍️"]));
     }
 }

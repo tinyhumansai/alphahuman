@@ -63,7 +63,7 @@ pub fn fork_definition() -> AgentDefinition {
         tools: ToolScope::Wildcard,
         disallowed_tools: vec![],
         skill_filter: None,
-        category_filter: None,
+        extra_tools: vec![],
         // Fork inherits the parent's max iterations from the runtime.
         max_iterations: 15,
         timeout_secs: None,
@@ -125,11 +125,12 @@ mod tests {
             "orchestrator",
             "planner",
             "code_executor",
-            "skills_agent",
+            "integrations_agent",
             "tool_maker",
             "researcher",
             "critic",
             "archivist",
+            "summarizer",
             "fork",
         ] {
             assert!(ids.contains(&expected.to_string()), "missing {expected}");

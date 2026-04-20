@@ -17,6 +17,77 @@ use crate::openhuman::config::{
     default_root_openhuman_dir, user_openhuman_dir, write_active_user_id,
 };
 
+/// Start all login-gated background services (local AI, voice, screen
+/// intelligence, autocomplete).  Called both from the initial boot path
+/// (when an existing session is detected) and from `store_session()` on
+/// fresh login.
+pub async fn start_login_gated_services(config: &Config) {
+    // 1. Local AI (Ollama, whisper, embeddings)
+    if config.local_ai.enabled {
+        let service = crate::openhuman::local_ai::global(config);
+        service.bootstrap(config).await;
+        log::info!("[services] local AI bootstrapped after login");
+    }
+
+    // 2. Voice server (records + transcribes via hotkey)
+    crate::openhuman::voice::server::start_if_enabled(config).await;
+
+    // 3. Dictation hotkey listener (only when voice server is NOT auto-started,
+    //    since the voice server owns the single rdev listener on macOS)
+    if !config.voice_server.auto_start {
+        crate::openhuman::voice::dictation_listener::start_if_enabled(config).await;
+    }
+
+    // 4. Screen intelligence (capture + vision analysis)
+    crate::openhuman::screen_intelligence::server::start_if_enabled(config).await;
+
+    // 5. Autocomplete (text suggestions + Swift overlay helper)
+    crate::openhuman::autocomplete::start_if_enabled(config).await;
+
+    log::info!("[services] all login-gated services started");
+}
+
+/// Stop all login-gated background services.  Called from `clear_session()`
+/// on logout so orphan processes don't consume resources.
+pub async fn stop_login_gated_services(config: &Config) {
+    // 1. Autocomplete — stop engine + Swift overlay helper.
+    {
+        let engine = crate::openhuman::autocomplete::global_engine();
+        let status = engine.status().await;
+        if status.running {
+            engine.stop(None).await;
+            log::info!("[services] autocomplete engine stopped on logout");
+        }
+    }
+
+    // 2. Voice server
+    if let Some(server) = crate::openhuman::voice::server::try_global_server() {
+        server.stop().await;
+        log::info!("[services] voice server stopped on logout");
+    }
+
+    // 3. Screen intelligence server
+    if let Some(server) = crate::openhuman::screen_intelligence::server::try_global_server() {
+        server.stop().await;
+        log::info!("[services] screen intelligence server stopped on logout");
+    }
+
+    // 4. Local AI — reset state to idle. We don't kill the Ollama process
+    //    (it may be serving other clients or mid-download), but we clear
+    //    the internal state so it re-bootstraps on next login.
+    if config.local_ai.enabled {
+        let service = crate::openhuman::local_ai::global(config);
+        service.reset_to_idle(config);
+        log::info!("[services] local AI reset to idle on logout");
+    }
+
+    // 5. Dictation listener — abort the hotkey forwarder task so it doesn't
+    //    accumulate duplicate rdev listeners across logout → login cycles.
+    crate::openhuman::voice::dictation_listener::stop();
+
+    log::info!("[services] all login-gated services stopped");
+}
+
 fn secret_store_for_config(config: &Config) -> SecretStore {
     let data_dir = config
         .config_path
@@ -148,6 +219,12 @@ pub async fn store_session(
         logs.push("subconscious engine bootstrapped".to_string());
     }
 
+    // Start all login-gated services (voice, autocomplete, screen
+    // intelligence, local AI). Uses the effective config so services see
+    // the user-scoped workspace directory.
+    start_login_gated_services(&effective_config).await;
+    logs.push("login-gated services started".to_string());
+
     Ok(RpcOutcome::new(summarize_auth_profile(&profile), logs))
 }
 
@@ -164,6 +241,11 @@ pub async fn clear_session(config: &Config) -> Result<RpcOutcome<serde_json::Val
             tracing::warn!(error = %e, "failed to clear active_user.toml on logout");
         }
     }
+
+    // Stop all login-gated services (voice, autocomplete, screen
+    // intelligence, local AI) so they don't run as orphan processes after
+    // logout, consuming RAM/CPU with no user context to operate against.
+    stop_login_gated_services(config).await;
 
     // Tear down the subconscious engine + heartbeat loop. Without this the
     // cached engine would keep pointing at the previous user's workspace_dir
@@ -442,4 +524,387 @@ pub async fn oauth_revoke_integration(
         serde_json::json!({ "revoked": true, "integrationId": integration_id }),
         "integration revoked",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    fn test_config(tmp: &TempDir) -> Config {
+        Config {
+            workspace_dir: tmp.path().join("workspace"),
+            config_path: tmp.path().join("config.toml"),
+            ..Config::default()
+        }
+    }
+
+    // ── secret_store_for_config ────────────────────────────────────
+
+    #[test]
+    fn secret_store_for_config_scopes_to_config_parent() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        // Build the store — must not panic and must operate under tmp path.
+        let _store = secret_store_for_config(&config);
+    }
+
+    // ── encrypt_secret / decrypt_secret ───────────────────────────
+
+    #[tokio::test]
+    async fn encrypt_then_decrypt_round_trips_locally() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let plaintext = "top-secret-value";
+        let enc = encrypt_secret(&config, plaintext).await.unwrap();
+        assert_ne!(enc.value, plaintext);
+        let dec = decrypt_secret(&config, &enc.value).await.unwrap();
+        assert_eq!(dec.value, plaintext);
+    }
+
+    #[tokio::test]
+    async fn decrypt_secret_round_trips_noise_through_migrate_path() {
+        // `decrypt` accepts legacy plaintext values (migration path) rather
+        // than erroring — validate that behaviour by round-tripping a
+        // non-ciphertext input. The assertion only checks that we get a
+        // deterministic `Ok`, not what the value is.
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let res = decrypt_secret(&config, "not-a-real-ciphertext").await;
+        assert!(
+            res.is_ok(),
+            "decrypt should accept non-ciphertext via migrate path, got {res:?}"
+        );
+    }
+
+    // ── store_session (input validation) ──────────────────────────
+
+    #[tokio::test]
+    async fn store_session_rejects_empty_or_whitespace_token() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = store_session(&config, "", None, None).await.unwrap_err();
+        assert!(err.contains("token is required"));
+        let err = store_session(&config, "   ", None, None).await.unwrap_err();
+        assert!(err.contains("token is required"));
+    }
+
+    // ── clear_session ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn clear_session_on_empty_store_reports_removed_false() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let result = clear_session(&config).await.unwrap();
+        assert_eq!(result.value["removed"], false);
+    }
+
+    // ── auth_get_state / auth_get_session_token_json ──────────────
+
+    #[tokio::test]
+    async fn auth_get_state_reflects_empty_store() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let state = auth_get_state(&config).await.unwrap();
+        assert!(!state.value.is_authenticated);
+        assert!(state.value.profile_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn auth_get_session_token_json_returns_null_when_empty() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let out = auth_get_session_token_json(&config).await.unwrap();
+        assert!(out.value["token"].is_null());
+    }
+
+    // ── consume_login_token (input validation) ────────────────────
+
+    #[tokio::test]
+    async fn consume_login_token_rejects_empty() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = consume_login_token(&config, "  ").await.unwrap_err();
+        assert!(err.contains("loginToken is required"));
+    }
+
+    // ── auth_create_channel_link_token (validation) ───────────────
+
+    #[tokio::test]
+    async fn auth_create_channel_link_token_rejects_empty_channel() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = auth_create_channel_link_token(&config, "   ")
+            .await
+            .unwrap_err();
+        assert!(err.contains("channel is required"));
+    }
+
+    #[tokio::test]
+    async fn auth_create_channel_link_token_rejects_unsupported_channel() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = auth_create_channel_link_token(&config, "Slack")
+            .await
+            .unwrap_err();
+        assert!(err.contains("unsupported channel"));
+    }
+
+    // ── store_provider_credentials (validation + store path) ──────
+
+    #[tokio::test]
+    async fn store_provider_credentials_rejects_empty_provider() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = store_provider_credentials(&config, "  ", None, None, None, None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("provider is required"));
+    }
+
+    #[tokio::test]
+    async fn store_provider_credentials_rejects_when_no_credentials_supplied() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = store_provider_credentials(&config, "openai", None, None, None, None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("at least one credential"));
+    }
+
+    #[tokio::test]
+    async fn store_provider_credentials_stores_token_and_persists_to_disk() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let result = store_provider_credentials(
+            &config,
+            "openai",
+            Some("default"),
+            Some("sk-test".into()),
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.value.provider, "openai");
+        assert_eq!(result.value.profile_name, "default");
+        assert!(result.value.has_token);
+
+        let listed = list_provider_credentials(&config, None).await.unwrap();
+        assert_eq!(listed.value.len(), 1);
+        assert_eq!(listed.value[0].provider, "openai");
+    }
+
+    #[tokio::test]
+    async fn store_provider_credentials_extracts_token_from_fields() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let result = store_provider_credentials(
+            &config,
+            "openai",
+            None,
+            None,
+            Some(json!({ "token": "from-fields", "extra": "value" })),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(result.value.has_token);
+    }
+
+    #[tokio::test]
+    async fn store_provider_credentials_accepts_fields_only_without_token() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        // Non-empty fields but no token — should succeed as "credential via fields".
+        let result = store_provider_credentials(
+            &config,
+            "custom",
+            None,
+            None,
+            Some(json!({ "api_url": "https://custom.example" })),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.value.provider, "custom");
+    }
+
+    // ── remove_provider_credentials ────────────────────────────────
+
+    #[tokio::test]
+    async fn remove_provider_credentials_reports_false_when_missing() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let result = remove_provider_credentials(&config, "nope", None)
+            .await
+            .unwrap();
+        assert_eq!(result.value["removed"], false);
+    }
+
+    #[tokio::test]
+    async fn remove_provider_credentials_reports_true_after_store() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        store_provider_credentials(&config, "openai", None, Some("sk".into()), None, Some(true))
+            .await
+            .unwrap();
+        let result = remove_provider_credentials(&config, "openai", None)
+            .await
+            .unwrap();
+        assert_eq!(result.value["removed"], true);
+    }
+
+    // ── list_provider_credentials ─────────────────────────────────
+
+    #[tokio::test]
+    async fn list_provider_credentials_is_empty_for_fresh_store() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let result = list_provider_credentials(&config, None).await.unwrap();
+        assert!(result.value.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_provider_credentials_filters_by_provider_and_excludes_app_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        // Seed openai + anthropic + an app-session entry.
+        store_provider_credentials(&config, "openai", None, Some("sk".into()), None, Some(true))
+            .await
+            .unwrap();
+        store_provider_credentials(
+            &config,
+            "anthropic",
+            None,
+            Some("sk-ant".into()),
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+        let auth = AuthService::from_config(&config);
+        auth.store_provider_token(
+            APP_SESSION_PROVIDER,
+            DEFAULT_AUTH_PROFILE_NAME,
+            "jwt-token",
+            std::collections::HashMap::new(),
+            true,
+        )
+        .unwrap();
+
+        let all = list_provider_credentials(&config, None).await.unwrap();
+        let providers: Vec<&str> = all.value.iter().map(|p| p.provider.as_str()).collect();
+        assert!(providers.contains(&"openai"));
+        assert!(providers.contains(&"anthropic"));
+        // app-session profile must be excluded from the listing.
+        assert!(!providers.contains(&APP_SESSION_PROVIDER));
+
+        let filtered = list_provider_credentials(&config, Some("openai".into()))
+            .await
+            .unwrap();
+        assert_eq!(filtered.value.len(), 1);
+        assert_eq!(filtered.value[0].provider, "openai");
+    }
+
+    #[tokio::test]
+    async fn list_provider_credentials_sorts_by_provider_then_profile_name() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        store_provider_credentials(
+            &config,
+            "zeta",
+            Some("one"),
+            Some("t".into()),
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+        store_provider_credentials(
+            &config,
+            "alpha",
+            Some("b"),
+            Some("t".into()),
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+        store_provider_credentials(
+            &config,
+            "alpha",
+            Some("a"),
+            Some("t".into()),
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+
+        let all = list_provider_credentials(&config, None).await.unwrap();
+        assert_eq!(all.value.len(), 3);
+        assert_eq!(all.value[0].provider, "alpha");
+        assert_eq!(all.value[0].profile_name, "a");
+        assert_eq!(all.value[1].provider, "alpha");
+        assert_eq!(all.value[1].profile_name, "b");
+        assert_eq!(all.value[2].provider, "zeta");
+    }
+
+    // ── oauth_* (validation paths that don't require network) ─────
+
+    #[tokio::test]
+    async fn oauth_connect_errors_without_session_token() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = oauth_connect(&config, "notion", None, None, None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
+
+    #[tokio::test]
+    async fn oauth_list_integrations_errors_without_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = oauth_list_integrations(&config).await.unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
+
+    #[tokio::test]
+    async fn oauth_fetch_integration_tokens_errors_without_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = oauth_fetch_integration_tokens(&config, "int-1", "enc-key")
+            .await
+            .unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
+
+    #[tokio::test]
+    async fn oauth_fetch_client_key_errors_without_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = oauth_fetch_client_key(&config, "int-1").await.unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
+
+    #[tokio::test]
+    async fn oauth_revoke_integration_errors_without_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = oauth_revoke_integration(&config, "int-1")
+            .await
+            .unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
+
+    #[tokio::test]
+    async fn auth_get_me_errors_without_session() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let err = auth_get_me(&config).await.unwrap_err();
+        assert!(err.contains("session JWT required"));
+    }
 }

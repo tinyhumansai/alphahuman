@@ -45,6 +45,8 @@ const OVERLAY_IDLE_MARGIN = 10;
 const OVERLAY_ACTIVE_MARGIN = 20;
 const OVERLAY_IDLE_OPACITY = 0.6;
 
+const OVERLAY_POSITION_KEY = 'overlay-position';
+
 /** Default auto-dismiss for an attention bubble when no ttl is supplied. */
 const DEFAULT_ATTENTION_TTL_MS = 6000;
 /** Grace period after STT `released` before returning to idle, giving the
@@ -191,6 +193,18 @@ export default function OverlayApp() {
     setMode('idle');
     setBubble(null);
   }, [clearDismissTimer]);
+
+  /** Click handler for the orb: idle → bring main window to front; active → dismiss bubble. */
+  const handleOrbClick = useCallback(() => {
+    if (mode === 'idle') {
+      console.debug('[overlay] orb clicked while idle — activating main window');
+      invoke('activate_main_window').catch(err => {
+        console.error('[overlay] failed to activate main window:', err);
+      });
+    } else {
+      goIdle();
+    }
+  }, [mode, goIdle]);
 
   // ── Dictation: pressed / released ──────────────────────────────────────
   const handleDictationToggle = useCallback(
@@ -398,6 +412,111 @@ export default function OverlayApp() {
 
   // ── Window framing: resize / reposition on mode change ────────────────
   const status: 'idle' | 'active' = mode === 'idle' ? 'idle' : 'active';
+  const userDraggedRef = useRef(false);
+
+  /** Save the current window position to localStorage after a drag. */
+  const persistPosition = useCallback(async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      const pos = await appWindow.outerPosition();
+      localStorage.setItem(OVERLAY_POSITION_KEY, JSON.stringify({ x: pos.x, y: pos.y }));
+      userDraggedRef.current = true;
+    } catch {
+      // position read failed — ignore
+    }
+  }, []);
+
+  /** Reset saved position so the overlay snaps back to the default corner. */
+  const resetPosition = useCallback(() => {
+    localStorage.removeItem(OVERLAY_POSITION_KEY);
+    userDraggedRef.current = false;
+  }, []);
+
+  // NSPanel (non-activating overlay) doesn't deliver synthesized `click`
+  // events to the webview, and calling `startDragging()` eagerly on
+  // mouse-down blocks `mouseup` from firing. We instead arm the drag only
+  // after the pointer moves past a small threshold, so a pure click fires
+  // `mouseup` normally and we can activate the main window there.
+  const pressRef = useRef<{ x: number; y: number; dragStarted: boolean } | null>(null);
+  const CLICK_SLOP_PX = 4;
+  /** Pending single-click, deferred so a follow-up double-click can cancel it. */
+  const clickTimerRef = useRef<number | null>(null);
+  const CLICK_DOUBLE_CLICK_DELAY_MS = 250;
+
+  /** Record mouse-down position; defer drag until the pointer actually moves. */
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    pressRef.current = { x: e.screenX, y: e.screenY, dragStarted: false };
+  }, []);
+
+  /** If pointer moves past the slop, escalate into a native window drag. */
+  const handleMouseMove = useCallback(
+    async (e: React.MouseEvent) => {
+      const press = pressRef.current;
+      if (!press) return;
+      // If the primary button is no longer held, a prior mouseup was missed
+      // (window-drag steals it, focus change, etc). Drop the stale press so
+      // we don't spuriously start a drag on a hover.
+      if ((e.buttons & 1) === 0) {
+        pressRef.current = null;
+        return;
+      }
+      if (press.dragStarted) return;
+      const dx = Math.abs(e.screenX - press.x);
+      const dy = Math.abs(e.screenY - press.y);
+      if (dx <= CLICK_SLOP_PX && dy <= CLICK_SLOP_PX) return;
+      press.dragStarted = true;
+      try {
+        const appWindow = getCurrentWindow();
+        await appWindow.startDragging();
+        void persistPosition();
+      } catch {
+        // startDragging can fail if not supported — fall through silently
+      }
+    },
+    [persistPosition]
+  );
+
+  /**
+   * On mouse-up, treat as a click if no drag was initiated. Emulates
+   * `onClick` for the non-activating panel. The click is deferred briefly
+   * so a follow-up `dblclick` (used to reset position) can cancel it.
+   */
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent) => {
+      const press = pressRef.current;
+      pressRef.current = null;
+      if (e.button !== 0 || !press) return;
+      if (press.dragStarted) return;
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+      clickTimerRef.current = window.setTimeout(() => {
+        clickTimerRef.current = null;
+        console.debug('[overlay] orb mouseup → click');
+        handleOrbClick();
+      }, CLICK_DOUBLE_CLICK_DELAY_MS);
+    },
+    [handleOrbClick]
+  );
+
+  /** Double-click resets position — cancel any pending single-click first. */
+  const handleDoubleClick = useCallback(() => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    resetPosition();
+  }, [resetPosition]);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
@@ -408,24 +527,55 @@ export default function OverlayApp() {
     const size = new LogicalSize(width, height);
 
     const updateWindowFrame = async () => {
+      // Remove all size constraints first, then set the new size, then
+      // re-apply constraints. This avoids the ordering problem where the
+      // old min/max clamps the new size.
+      try {
+        await appWindow.setMinSize(null);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await appWindow.setMaxSize(null);
+      } catch {
+        /* ignore */
+      }
       try {
         await appWindow.setSize(size);
       } catch (error) {
         console.warn('[overlay] failed to resize overlay window', error);
       }
-
+      console.debug(`[overlay] resized to ${width}x${height} (active=${isActive})`);
+      // Lock to exact size so the user can't accidentally resize
       try {
         await appWindow.setMinSize(size);
-      } catch (error) {
-        console.warn('[overlay] failed to set overlay min size', error);
+      } catch {
+        /* ignore */
       }
-
       try {
         await appWindow.setMaxSize(size);
-      } catch (error) {
-        console.warn('[overlay] failed to set overlay max size', error);
+      } catch {
+        /* ignore */
       }
 
+      // Restore saved position from a previous drag
+      const saved = localStorage.getItem(OVERLAY_POSITION_KEY);
+      if (saved) {
+        try {
+          const { x, y } = JSON.parse(saved) as { x: number; y: number };
+          await appWindow.setPosition(new LogicalPosition(x, y));
+          userDraggedRef.current = true;
+          return;
+        } catch {
+          localStorage.removeItem(OVERLAY_POSITION_KEY);
+        }
+      }
+
+      if (userDraggedRef.current) {
+        return;
+      }
+
+      // Default: pin to bottom-right corner
       try {
         const monitor = await currentMonitor();
         if (!monitor) {
@@ -446,7 +596,6 @@ export default function OverlayApp() {
 
   // ── Render ────────────────────────────────────────────────────────────
   const bubbles = useMemo<OverlayBubble[]>(() => (bubble ? [bubble] : []), [bubble]);
-
   const orbClassName = useMemo(() => {
     if (status === 'active') {
       return 'border-blue-950 bg-blue-700';
@@ -464,10 +613,9 @@ export default function OverlayApp() {
       <div
         className={`relative flex select-none flex-col items-end ${status === 'active' ? 'gap-3' : 'gap-0'}`}>
         <div
-          className={`flex flex-col items-end gap-2 transition-all duration-200 ${status === 'active' ? 'max-w-[184px] opacity-100' : 'max-w-0 opacity-0'}`}>
+          className={`flex flex-col items-end gap-2 overflow-hidden transition-all duration-200 ${status === 'active' ? 'max-w-[184px] opacity-100' : 'max-w-0 opacity-0'}`}>
           {bubbles.map(b => (
             <div key={b.id} className="animate-[overlay-bubble-in_220ms_ease-out]">
-              {/* key on the chip itself remounts the typewriter for each new bubble */}
               <OverlayBubbleChip key={b.id} bubble={b} />
             </div>
           ))}
@@ -483,16 +631,19 @@ export default function OverlayApp() {
                   ? 'Attention message'
                   : 'OpenHuman overlay'
             }
-            onClick={goIdle}
+            onMouseDown={handleDragStart}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onDoubleClick={handleDoubleClick}
             onMouseEnter={() => {
               setIsHovered(true);
             }}
             onMouseLeave={() => {
               setIsHovered(false);
             }}
-            className={`group relative flex cursor-pointer items-center justify-center overflow-hidden rounded-full border transition-all duration-200 ${orbClassName} ${orbSizeClassName}`}
+            className={`group relative flex cursor-grab items-center justify-center overflow-hidden rounded-full border transition-all duration-200 active:cursor-grabbing ${orbClassName} ${orbSizeClassName}`}
             style={orbStyle}
-            title="Click to dismiss">
+            title="Drag to move · Double-click to reset position">
             <div
               className={`pointer-events-none opacity-95 transition-transform duration-300 group-hover:scale-105 ${orbCanvasClassName}`}>
               <RotatingTetrahedronCanvas inverted={tetrahedronInverted} />

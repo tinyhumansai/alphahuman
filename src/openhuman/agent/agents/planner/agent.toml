@@ -14,4 +14,8 @@ omit_skills_catalog = true
 hint = "reasoning"
 
 [tools]
-named = ["file_read", "memory_recall", "memory_store", "memory_forget", "web_search_tool"]
+# Read + research only. The planner produces plans — it never mutates
+# the workspace, memory, or state. Any writes the plan requires get
+# executed by downstream agents (code_executor, archivist, …) at the
+# orchestrator's direction.
+named = ["file_read", "memory_recall", "web_search_tool"]

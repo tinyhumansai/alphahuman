@@ -75,6 +75,7 @@ pub fn all_tools_with_runtime(
         Box::new(ShellTool::new(security.clone(), runtime)),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
+        Box::new(CsvExportTool::new(security.clone())),
         // Sub-agent dispatch — lets the parent agent delegate focused
         // sub-tasks (research, code execution, API specialists, …) by
         // calling `spawn_subagent { agent_id, prompt, … }`. The runner
@@ -83,6 +84,7 @@ pub fn all_tools_with_runtime(
         // `agent::harness::subagent_runner` for the dispatch path.
         Box::new(SpawnSubagentTool::new()),
         Box::new(CompleteOnboardingTool::new()),
+        Box::new(CurrentTimeTool::new()),
         Box::new(CronAddTool::new(config.clone(), security.clone())),
         Box::new(CronListTool::new(config.clone())),
         Box::new(CronRemoveTool::new(config.clone())),
@@ -131,25 +133,28 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    if http_config.enabled {
-        tools.push(Box::new(HttpRequestTool::new(
-            security.clone(),
-            http_config.allowed_domains.clone(),
-            http_config.max_response_size,
-            http_config.timeout_secs,
-        )));
-    }
+    // HTTP request — always registered. `http_request.allowed_domains`
+    // + `security` still gate which hosts are reachable; there is no
+    // enable flag because every session needs basic HTTP as a baseline
+    // capability.
+    tools.push(Box::new(HttpRequestTool::new(
+        security.clone(),
+        http_config.allowed_domains.clone(),
+        http_config.max_response_size,
+        http_config.timeout_secs,
+    )));
 
-    // Web search tool (enabled by default for GLM and other models)
-    if root_config.web_search.enabled {
-        tools.push(Box::new(WebSearchTool::new(
-            root_config.web_search.provider.clone(),
-            root_config.web_search.brave_api_key.clone(),
-            root_config.web_search.parallel_api_key.clone(),
-            root_config.web_search.max_results,
-            root_config.web_search.timeout_secs,
-        )));
-    }
+    // Web search — always registered. Provider / API-key / budget
+    // knobs still come from `config.web_search`, but there is no
+    // enable flag: every session needs research as a baseline
+    // capability.
+    tools.push(Box::new(WebSearchTool::new(
+        root_config.web_search.provider.clone(),
+        root_config.web_search.brave_api_key.clone(),
+        root_config.web_search.parallel_api_key.clone(),
+        root_config.web_search.max_results,
+        root_config.web_search.timeout_secs,
+    )));
 
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
@@ -387,6 +392,41 @@ mod tests {
         assert!(
             names.contains(&"complete_onboarding"),
             "complete_onboarding must be registered in the default tool list; got: {names:?}"
+        );
+    }
+
+    #[test]
+    fn all_tools_includes_current_time() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::openhuman::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::openhuman::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(
+            names.contains(&"current_time"),
+            "current_time must be registered in the default tool list; got: {names:?}"
         );
     }
 

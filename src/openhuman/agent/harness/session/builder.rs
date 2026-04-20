@@ -10,6 +10,9 @@ use super::types::{Agent, AgentBuilder};
 use crate::openhuman::agent::dispatcher::{
     NativeToolDispatcher, PFormatToolDispatcher, ToolDispatcher, XmlToolDispatcher,
 };
+use crate::openhuman::agent::harness::definition::{
+    AgentDefinitionRegistry, PromptSource, ToolScope,
+};
 use crate::openhuman::agent::host_runtime;
 use crate::openhuman::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::openhuman::config::{Config, ContextConfig};
@@ -45,8 +48,10 @@ impl AgentBuilder {
             event_session_id: None,
             event_channel: None,
             agent_definition_name: None,
+            session_parent_prefix: None,
             omit_profile: None,
             omit_memory_md: None,
+            payload_summarizer: None,
         }
     }
 
@@ -186,11 +191,57 @@ impl AgentBuilder {
         self
     }
 
-    /// Sets the human-readable agent definition name used as the
-    /// `{agent}` prefix in session transcript filenames
-    /// (`sessions/DDMMYYYY/{agent}_{index}.md`).
+    /// Sets the agent definition id this session is running
+    /// (`welcome`, `orchestrator`, `integrations_agent`, …).
+    ///
+    /// This value is stamped onto the built [`Agent`] and surfaces in
+    /// the following places:
+    ///
+    /// * **Transcript filename on disk** — `transcript::write_transcript`
+    ///   and `transcript::find_latest_transcript` use it as the
+    ///   `{agent}` prefix in `sessions/DDMMYYYY/{agent}_{index}.md`.
+    ///   Both the write path and the resume-lookup path read the same
+    ///   field on `self`, so a session is always self-consistent; the
+    ///   user-visible signal is which filename the transcript lands
+    ///   under. Leaving it at the legacy `"main"` fallback silently
+    ///   misfiles every non-orchestrator session under `main_*.md`.
+    /// * **Transcript metadata header** — `transcript::write_transcript`
+    ///   stamps it into the `<!-- session_transcript\nagent: {name}\n… -->`
+    ///   block at the top of every `.md` file. This is the ground-truth
+    ///   signal for "which agent definition ran this session" when
+    ///   inspecting transcripts after the fact.
+    /// * **[`PromptContext::agent_id`]** at prompt-build time (see
+    ///   `turn.rs`). Today only one prompt section reads this field —
+    ///   the `Connected Integrations` branch in `context/prompt.rs`
+    ///   that special-cases `integrations_agent` vs every other agent — so
+    ///   the current user-visible impact of a wrong id is limited to
+    ///   the two bullets above. The stamped `prompt_builder` injected
+    ///   by [`Agent::from_config_for_agent`] is what actually drives
+    ///   prompt flavour per archetype, independent of this field. That
+    ///   said, any future prompt section that branches on a
+    ///   non-`integrations_agent` id (e.g. welcome-specific banner, planner-
+    ///   specific rubric) would silently never fire if the field were
+    ///   left at `"main"`, so keeping it correctly stamped closes a
+    ///   latent foot-gun for code that hasn't been written yet.
+    ///
+    /// Callers building via [`Agent::from_config_for_agent`] get this
+    /// wired automatically inside `build_session_agent_inner`; direct
+    /// builder users (tests, CLI) must set it explicitly if they care
+    /// about any of the surfaces above.
     pub fn agent_definition_name(mut self, name: impl Into<String>) -> Self {
         self.agent_definition_name = Some(name.into());
+        self
+    }
+
+    /// Set the parent session-key chain for a sub-agent. Passing
+    /// `Some("1713000000_orchestrator")` produces a sub-agent whose
+    /// transcript filename is prefixed with the parent's session key,
+    /// yielding a flat hierarchy on disk
+    /// (`session_raw/DDMMYYYY/{parent}__{child}.jsonl`). Nested
+    /// delegations chain further prefixes with `__`. Leave `None`
+    /// (default) for root sessions.
+    pub fn session_parent_prefix(mut self, prefix: Option<String>) -> Self {
+        self.session_parent_prefix = prefix;
         self
     }
 
@@ -208,6 +259,23 @@ impl AgentBuilder {
     /// `MEMORY.md`. Same opt-in set as `omit_profile`.
     pub fn omit_memory_md(mut self, omit: bool) -> Self {
         self.omit_memory_md = Some(omit);
+        self
+    }
+
+    /// Wire an oversized-tool-result summarizer into the agent. When
+    /// set, [`Agent::execute_tool_call`] calls
+    /// [`crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer::maybe_summarize`]
+    /// on every successful tool output and replaces the raw payload
+    /// with the compressed summary on success. Currently set only for
+    /// the orchestrator session by
+    /// [`Agent::build_session_agent_inner`].
+    pub fn payload_summarizer(
+        mut self,
+        summarizer: Arc<
+            dyn crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer,
+        >,
+    ) -> Self {
+        self.payload_summarizer = Some(summarizer);
         self
     }
 
@@ -299,7 +367,6 @@ impl AgentBuilder {
             skills: self.skills.unwrap_or_default(),
             auto_save: self.auto_save.unwrap_or(false),
             last_memory_context: None,
-            system_prompt_cache_boundary: None,
             history: Vec::new(),
             post_turn_hooks: self.post_turn_hooks,
             learning_enabled: self.learning_enabled,
@@ -309,17 +376,39 @@ impl AgentBuilder {
             event_channel: self.event_channel.unwrap_or_else(|| "internal".to_string()),
             agent_definition_name: self
                 .agent_definition_name
+                .clone()
                 .unwrap_or_else(|| "main".to_string()),
             session_transcript_path: None,
+            session_key: {
+                let unix_ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let agent_id = self.agent_definition_name.as_deref().unwrap_or("main");
+                let sanitized: String = agent_id
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                format!("{unix_ts}_{sanitized}")
+            },
+            session_parent_prefix: self.session_parent_prefix,
             cached_transcript_messages: None,
             context,
             on_progress: None,
             connected_integrations: Vec::new(),
+            composio_client: None,
             // Default to `true` (omit) so legacy / custom agents built
             // without a definition stay lean. Opt-in agents thread their
             // `omit_profile = false` through the builder.
             omit_profile: self.omit_profile.unwrap_or(true),
             omit_memory_md: self.omit_memory_md.unwrap_or(true),
+            payload_summarizer: self.payload_summarizer,
         })
     }
 }
@@ -373,8 +462,6 @@ impl Agent {
     /// The welcome agent uses this entry point when routed from the
     /// Tauri web channel (see `channels::providers::web::build_session_agent`).
     pub fn from_config_for_agent(config: &Config, agent_id: &str) -> Result<Self> {
-        use crate::openhuman::agent::harness::definition::{AgentDefinitionRegistry, ToolScope};
-
         // Look up the target definition up front so we can fail fast
         // with a clear error instead of building half an agent and then
         // discovering the id is unknown. The registry is a singleton
@@ -457,7 +544,6 @@ impl Agent {
         agent_id: &str,
         target_def: Option<&crate::openhuman::agent::harness::definition::AgentDefinition>,
     ) -> Result<Self> {
-        use crate::openhuman::agent::harness::definition::{PromptSource, ToolScope};
         let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
             Arc::from(host_runtime::create_runtime(&config.runtime)?);
         let security = Arc::new(SecurityPolicy::from_config(
@@ -499,6 +585,17 @@ impl Agent {
             config,
         );
 
+        // `complete_onboarding` is the terminal step of the welcome
+        // flow and must never be callable from any other session.
+        // Stripping it here (before prompt + delegation assembly) keeps
+        // it out of both the LLM's function-calling schema and the
+        // rendered `## Tools` section.
+        if agent_id != "welcome" {
+            tools.retain(|t| {
+                !crate::openhuman::agent::harness::subagent_runner::is_welcome_only_tool(t.name())
+            });
+        }
+
         let model_name = config
             .default_model
             .as_deref()
@@ -512,12 +609,10 @@ impl Agent {
             reasoning_enabled: config.runtime.reasoning_enabled,
         };
 
-        let provider: Box<dyn Provider> = providers::create_routed_provider_with_options(
+        let provider: Box<dyn Provider> = providers::create_intelligent_routing_provider(
             config.api_key.as_deref(),
             config.api_url.as_deref(),
-            &config.reliability,
-            &config.model_routes,
-            &model_name,
+            config,
             &provider_runtime_options,
         )?;
 
@@ -549,46 +644,55 @@ impl Agent {
         // prompt stays byte-identical to the legacy CLI/REPL behaviour
         // except for the tool-scope tightening we already landed in
         // earlier commits.
+        // Every agent with a resolved definition (built-in or workspace
+        // override) goes through the per-agent pipeline — the legacy
+        // `with_defaults()` branch only fires when the registry is
+        // unavailable (pre-startup, tests). `PromptSource::Dynamic`
+        // agents install a [`DynamicPromptSection`] that re-runs the
+        // builder against the live [`PromptContext`] at
+        // `build_system_prompt` time, so `connected_integrations`
+        // fetched asynchronously on session start land in the prompt.
+        // `Inline`/`File` sources still resolve to just the archetype
+        // body and get wrapped by [`SystemPromptBuilder::for_subagent`].
         let mut prompt_builder = match target_def {
-            Some(def) if agent_id != "orchestrator" => {
-                // Resolve the prompt body. For built-in agents,
-                // `system_prompt` is `PromptSource::Inline(...)` populated
-                // at crate-build time from the sibling `prompt.md` via
-                // `include_str!` in `agents/mod.rs`. File-based prompts
-                // (custom workspace overrides) read from disk.
-                let body = match &def.system_prompt {
-                    PromptSource::Inline(text) => text.clone(),
-                    PromptSource::File { path } => {
-                        let workspace_path = config
-                            .workspace_dir
-                            .join("agent")
-                            .join("prompts")
-                            .join(path);
-                        if workspace_path.is_file() {
-                            std::fs::read_to_string(&workspace_path).unwrap_or_else(|e| {
-                                log::warn!(
-                                    "[agent::builder] failed to read prompt {}: {e} — using empty body",
-                                    workspace_path.display()
-                                );
-                                String::new()
-                            })
-                        } else {
-                            log::warn!(
-                                "[agent::builder] prompt file {} not found — using empty body",
-                                path
-                            );
-                            String::new()
-                        }
-                    }
-                };
-                SystemPromptBuilder::for_subagent(
-                    body,
+            Some(def) => match &def.system_prompt {
+                PromptSource::Dynamic(build) => SystemPromptBuilder::from_dynamic(*build),
+                PromptSource::Inline(text) => SystemPromptBuilder::for_subagent(
+                    text.clone(),
                     def.omit_identity,
                     def.omit_safety_preamble,
                     def.omit_skills_catalog,
-                )
-            }
-            _ => SystemPromptBuilder::with_defaults(),
+                ),
+                PromptSource::File { path } => {
+                    let workspace_path = config
+                        .workspace_dir
+                        .join("agent")
+                        .join("prompts")
+                        .join(path);
+                    let body_text = if workspace_path.is_file() {
+                        std::fs::read_to_string(&workspace_path).unwrap_or_else(|e| {
+                            log::warn!(
+                                "[agent::builder] failed to read prompt {}: {e} — using empty body",
+                                workspace_path.display()
+                            );
+                            String::new()
+                        })
+                    } else {
+                        log::warn!(
+                            "[agent::builder] prompt file {} not found — using empty body",
+                            path
+                        );
+                        String::new()
+                    };
+                    SystemPromptBuilder::for_subagent(
+                        body_text,
+                        def.omit_identity,
+                        def.omit_safety_preamble,
+                        def.omit_skills_catalog,
+                    )
+                }
+            },
+            None => SystemPromptBuilder::with_defaults(),
         };
         if config.learning.enabled {
             prompt_builder = prompt_builder
@@ -769,9 +873,42 @@ impl Agent {
             // `agent.tool_dispatcher` config to `"xml"` to revert.
             _ => Box::new(PFormatToolDispatcher::new(pformat_registry.clone())),
         };
+
+        // Provider-side grammar decoders (e.g. Fireworks) compile every
+        // tool JSON schema into a grammar and index its rules with a
+        // uint16_t — max 65 535 rules. Large Composio toolkits (Notion,
+        // Salesforce, Gmail) produce per-action schemas dense enough
+        // that even 16–25 of them blow past that ceiling, regardless of
+        // how aggressively the fuzzy filter in `tool_filter.rs` narrows
+        // the list. When that happens the provider rejects the request
+        // with a 400 before any generation starts, so integrations_agent can
+        // never actually invoke the toolkit.
+        //
+        // Workaround: if we're building integrations_agent and the selected
+        // dispatcher would ship `tools: [...]` in the API payload
+        // (`should_send_tool_specs() == true`, i.e. native mode), swap
+        // to XML mode. XmlToolDispatcher puts the tool catalogue inside
+        // the system prompt as prose instead — the provider never
+        // compiles a grammar for it, so the rule-count ceiling stops
+        // mattering. Downside: slightly looser tool-call formatting
+        // than native; the existing `parse_tool_calls` recovers from
+        // stray formatting and the loop retries on malformed output.
+        let tool_dispatcher: Box<dyn ToolDispatcher> =
+            if agent_id == "integrations_agent" && tool_dispatcher.should_send_tool_specs() {
+                log::info!(
+                    "[agent::builder] integrations_agent: overriding native tool dispatcher with \
+                     XmlToolDispatcher (native mode hits provider grammar-rule limits on \
+                     large Composio toolkits)"
+                );
+                Box::new(XmlToolDispatcher)
+            } else {
+                tool_dispatcher
+            };
+
         log::debug!(
-            "[agent] tool dispatcher selected: choice={dispatcher_choice} \
-             default_text_format=pformat pformat_registry_entries={}",
+            "[agent] tool dispatcher selected: choice={dispatcher_choice} agent_id={agent_id} \
+             sends_tool_specs={} default_text_format=pformat pformat_registry_entries={}",
+            tool_dispatcher.should_send_tool_specs(),
             pformat_registry.len()
         );
 
@@ -790,16 +927,88 @@ impl Agent {
         let effective_omit_profile = target_def.map(|def| def.omit_profile).unwrap_or(true);
         let effective_omit_memory_md = target_def.map(|def| def.omit_memory_md).unwrap_or(true);
 
-        // `agent_id` is not stamped onto the returned Agent here — the
-        // `event_channel` field on `Agent` is for transport identity
-        // (which channel the session belongs to: "web_channel", "cli",
-        // etc.), not the agent-definition id. Callers that want to
-        // record which definition they asked for should log it at
-        // call-site. The `[agent::builder]` info trace at the top of
-        // `from_config_for_agent` already captures this.
-        let _ = agent_id; // silence unused-warning if all code paths above move
+        // Stamp the resolved agent definition id onto the Agent via the
+        // builder. Without this call, `agent_definition_name` falls
+        // back to the legacy `"main"` default (see `AgentBuilder::build`)
+        // for every non-orchestrator caller. In the current codebase
+        // that is benign for the orchestrator (which is already aliased
+        // as `"main"` everywhere downstream) but causes two concrete
+        // bugs for the welcome agent, which is the only other id that
+        // reaches this function in practice:
+        //
+        //   1. Its session transcripts are misfiled on disk under
+        //      `sessions/DDMMYYYY/main_*.md` instead of `welcome_*.md`.
+        //   2. The `agent:` line inside each transcript's metadata
+        //      header stamps `agent: main` instead of `agent: welcome`.
+        //
+        // Skills_agent and every other typed sub-agent are unaffected
+        // because they never build via `from_config_for_agent` — they
+        // are spawned through `subagent_runner` which constructs its
+        // prompt and history directly.
+        //
+        // See the docstring on `AgentBuilder::agent_definition_name`
+        // for the full list of surfaces and the latent prompt-section
+        // foot-gun this call also closes.
+        log::debug!(
+            "[agent::builder] stamping agent_definition_name={} onto session agent",
+            agent_id
+        );
 
-        Agent::builder()
+        // ── Orchestrator-only: wire the payload summarizer ──────────
+        //
+        // Issue #574 — when a tool returns a huge payload (Composio
+        // dump, long file read, web scrape), it should be compressed
+        // by a dedicated `summarizer` sub-agent before entering the
+        // orchestrator's history. We resolve the summarizer agent
+        // definition from the global registry and construct a
+        // `SubagentPayloadSummarizer` parameterized from the
+        // [`ContextConfig`] thresholds. Every other agent id gets
+        // `None` and their tool results stay untouched (the summarizer
+        // itself MUST be `None` to avoid recursive self-summarization).
+        let payload_summarizer: Option<
+            std::sync::Arc<
+                dyn crate::openhuman::agent::harness::payload_summarizer::PayloadSummarizer,
+            >,
+        > = if agent_id == "orchestrator" && config.context.summarizer_payload_threshold_tokens > 0
+        {
+            match crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global() {
+                Some(reg) => match reg.get("summarizer") {
+                    Some(summarizer_def) => {
+                        log::info!(
+                            "[agent::builder] wiring payload_summarizer for orchestrator: \
+                             threshold_tokens={} max_tokens={}",
+                            config.context.summarizer_payload_threshold_tokens,
+                            config.context.summarizer_max_payload_tokens
+                        );
+                        Some(std::sync::Arc::new(
+                            crate::openhuman::agent::harness::payload_summarizer::SubagentPayloadSummarizer::new(
+                                summarizer_def.clone(),
+                                config.context.summarizer_payload_threshold_tokens,
+                                config.context.summarizer_max_payload_tokens,
+                            ),
+                        ))
+                    }
+                    None => {
+                        log::warn!(
+                            "[agent::builder] orchestrator requested payload_summarizer but \
+                             `summarizer` definition is not in the registry — proceeding without it"
+                        );
+                        None
+                    }
+                },
+                None => {
+                    log::warn!(
+                        "[agent::builder] orchestrator requested payload_summarizer but \
+                         AgentDefinitionRegistry is not initialised — proceeding without it"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let mut builder = Agent::builder()
             .provider(provider)
             .tools(tools)
             .visible_tool_names(visible)
@@ -819,8 +1028,12 @@ impl Agent {
             .auto_save(config.memory.auto_save)
             .post_turn_hooks(post_turn_hooks)
             .learning_enabled(config.learning.enabled)
+            .agent_definition_name(agent_id.to_string())
             .omit_profile(effective_omit_profile)
-            .omit_memory_md(effective_omit_memory_md)
-            .build()
+            .omit_memory_md(effective_omit_memory_md);
+        if let Some(ps) = payload_summarizer {
+            builder = builder.payload_summarizer(ps);
+        }
+        builder.build()
     }
 }

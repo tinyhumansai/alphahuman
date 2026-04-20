@@ -509,7 +509,7 @@ async fn search_gmail_for_linkedin(config: &Config) -> anyhow::Result<Option<Str
                 let is_html = part
                     .get("mimeType")
                     .and_then(|v| v.as_str())
-                    .map_or(false, |m| m.contains("html"));
+                    .is_some_and(|m| m.contains("html"));
                 if !is_html {
                     continue;
                 }

@@ -16,8 +16,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { authorize, deleteConnection, listConnections } from '../../lib/composio/composioApi';
-import { type ComposioConnection, deriveComposioState } from '../../lib/composio/types';
+import {
+  authorize,
+  deleteConnection,
+  getUserScopes,
+  listConnections,
+  setUserScopes,
+} from '../../lib/composio/composioApi';
+import {
+  type ComposioConnection,
+  type ComposioUserScopePref,
+  deriveComposioState,
+} from '../../lib/composio/types';
 import { openUrl } from '../../utils/openUrl';
 import type { ComposioToolkitMeta } from './toolkitMeta';
 
@@ -57,6 +67,16 @@ export default function ComposioConnectModal({
   const [activeConnection, setActiveConnection] = useState<ComposioConnection | undefined>(
     connection
   );
+
+  // ── Scope preferences (read/write/admin) ────────────────────────
+  // The pref gates which curated Composio actions the agent may call.
+  // We load it lazily once the toolkit is connected, so the toggles in
+  // the success view always reflect what the core actually has stored.
+  const [scopes, setScopes] = useState<ComposioUserScopePref | null>(null);
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  // Per-key in-flight flag so spamming a single toggle disables only
+  // that row while the RPC round-trips.
+  const [savingScope, setSavingScope] = useState<keyof ComposioUserScopePref | null>(null);
 
   // Escape to close
   useEffect(() => {
@@ -174,6 +194,78 @@ export default function ComposioConnectModal({
       setError(`Authorization failed: ${msg}`);
     }
   }, [startPolling, toolkit.slug]);
+
+  // Fetch the stored scope pref whenever the modal lands in the
+  // 'connected' phase. Re-fetching each time we transition (rather
+  // than once on mount) keeps the toggles correct after a fresh OAuth
+  // handoff completes inside this modal.
+  useEffect(() => {
+    if (phase !== 'connected') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pref = await getUserScopes(toolkit.slug);
+        if (!cancelled) setScopes(pref);
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setScopeError(`Couldn't load scope preferences: ${msg}`);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, toolkit.slug]);
+
+  const handleToggleScope = useCallback(
+    async (key: keyof ComposioUserScopePref) => {
+      if (!scopes || savingScope) {
+        console.debug(
+          '[composio][scopes] toggle ignored toolkit=%s key=%s reason=%s',
+          toolkit.slug,
+          key,
+          !scopes ? 'pref-not-loaded' : 'another-save-in-flight'
+        );
+        return;
+      }
+      const optimistic: ComposioUserScopePref = { ...scopes, [key]: !scopes[key] };
+      console.debug(
+        '[composio][scopes] toggle toolkit=%s key=%s old=%s new=%s',
+        toolkit.slug,
+        key,
+        scopes[key],
+        optimistic[key]
+      );
+      setScopes(optimistic);
+      setSavingScope(key);
+      setScopeError(null);
+      try {
+        const persisted = await setUserScopes(toolkit.slug, optimistic);
+        console.debug(
+          '[composio][scopes] toggle persisted toolkit=%s key=%s pref=%o',
+          toolkit.slug,
+          key,
+          persisted
+        );
+        setScopes(persisted);
+      } catch (err) {
+        // Roll back on failure so the toggle reflects reality.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          '[composio][scopes] toggle failed toolkit=%s key=%s error=%o',
+          toolkit.slug,
+          key,
+          err
+        );
+        setScopes(scopes);
+        setScopeError(`Couldn't save ${key} scope: ${msg}`);
+      } finally {
+        setSavingScope(null);
+      }
+    },
+    [savingScope, scopes, toolkit.slug]
+  );
 
   const handleDisconnect = useCallback(async () => {
     if (!activeConnection) return;
@@ -299,6 +391,12 @@ export default function ComposioConnectModal({
                   id: {activeConnection.id}
                 </p>
               )}
+              <ScopeToggles
+                scopes={scopes}
+                savingScope={savingScope}
+                onToggle={handleToggleScope}
+                error={scopeError}
+              />
               <button
                 type="button"
                 onClick={() => void handleDisconnect()}
@@ -332,4 +430,81 @@ export default function ComposioConnectModal({
   );
 
   return createPortal(modalContent, document.body);
+}
+
+// ── Scope toggles ───────────────────────────────────────────────────
+
+const SCOPE_ROWS: Array<{ key: keyof ComposioUserScopePref; label: string; hint: string }> = [
+  {
+    key: 'read',
+    label: 'Read',
+    hint: 'Allow listing, fetching, searching (e.g. read emails / pages).',
+  },
+  {
+    key: 'write',
+    label: 'Write',
+    hint: 'Allow sending, creating, updating (e.g. send emails, create pages).',
+  },
+  {
+    key: 'admin',
+    label: 'Admin',
+    hint: 'Allow destructive or permission-changing actions (delete, share, etc.).',
+  },
+];
+
+interface ScopeTogglesProps {
+  scopes: ComposioUserScopePref | null;
+  savingScope: keyof ComposioUserScopePref | null;
+  onToggle: (key: keyof ComposioUserScopePref) => void;
+  error: string | null;
+}
+
+function ScopeToggles({ scopes, savingScope, onToggle, error }: ScopeTogglesProps) {
+  // Render skeleton placeholders while we wait on the initial load so
+  // the modal layout doesn't jump when the pref arrives.
+  const loading = scopes === null;
+
+  return (
+    <div className="border-t border-stone-100 pt-3 mt-1 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold text-stone-700 uppercase tracking-wide">
+          Agent permissions
+        </h3>
+        <p className="text-[10px] text-stone-400">Read+Write enabled by default</p>
+      </div>
+      <ul className="space-y-1.5">
+        {SCOPE_ROWS.map(row => {
+          const enabled = scopes?.[row.key] ?? false;
+          const isSaving = savingScope === row.key;
+          return (
+            <li
+              key={row.key}
+              className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-stone-50">
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-stone-900">{row.label}</span>
+                <p className="text-[11px] text-stone-400 leading-snug">{row.hint}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled}
+                aria-label={`${enabled ? 'Disable' : 'Enable'} ${row.label} scope`}
+                disabled={loading || savingScope !== null}
+                onClick={() => onToggle(row.key)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  enabled ? 'bg-primary-500' : 'bg-stone-300'
+                }`}>
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                    enabled ? 'translate-x-5' : 'translate-x-0.5'
+                  } ${isSaving ? 'animate-pulse' : ''}`}
+                />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {error && <p className="text-[11px] text-coral-600">{error}</p>}
+    </div>
+  );
 }

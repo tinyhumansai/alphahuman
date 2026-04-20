@@ -127,6 +127,10 @@ fn stub_parent_context() -> ParentExecutionContext {
         session_id: "test-session".into(),
         channel: "test-channel".into(),
         connected_integrations: vec![],
+        composio_client: None,
+        tool_call_format: openhuman_core::openhuman::context::prompt::ToolCallFormat::PFormat,
+        session_key: "test-session".into(),
+        session_parent_prefix: None,
     }
 }
 
@@ -190,7 +194,6 @@ async fn fork_and_parent_contexts_are_visible_only_within_scope() {
         system_prompt: Arc::new("hello".into()),
         tool_specs: Arc::new(vec![]),
         message_prefix: Arc::new(vec![ChatMessage::system("hello")]),
-        cache_boundary: Some(5),
         fork_task_prompt: "do thing".into(),
     };
 
@@ -198,7 +201,6 @@ async fn fork_and_parent_contexts_are_visible_only_within_scope() {
         let inner = current_fork().expect("fork context should be visible");
         assert_eq!(*inner.system_prompt, "hello");
         assert_eq!(inner.fork_task_prompt, "do thing");
-        assert_eq!(inner.cache_boundary, Some(5));
         assert_eq!(inner.message_prefix.len(), 1);
     })
     .await;

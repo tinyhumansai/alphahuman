@@ -29,6 +29,12 @@ pub mod memory_loader;
 pub mod multimodal;
 pub mod pformat;
 pub mod progress;
+/// Prompt plumbing — types, section builders, and
+/// [`SystemPromptBuilder`](prompts::SystemPromptBuilder). Moved from
+/// `openhuman::context::prompt` so prompt rendering lives next to the
+/// agents that consume it. `openhuman::context::prompt` is retained as
+/// a thin re-export shim for now.
+pub mod prompts;
 mod schemas;
 pub mod triage;
 pub mod welcome_proactive;

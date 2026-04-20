@@ -8,12 +8,18 @@
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
+use std::sync::Mutex;
 use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::voice::hotkey::{self, ActivationMode, HotkeyEvent};
 
 const LOG_PREFIX: &str = "[dictation_listener]";
+
+// ── Listener task handle (for stop support) ─────────────────────────
+
+static LISTENER_HANDLE: Lazy<Mutex<Option<JoinHandle<()>>>> = Lazy::new(|| Mutex::new(None));
 
 // ── Broadcast channel for dictation events ────────────────────────────
 
@@ -135,7 +141,7 @@ pub async fn start_if_enabled(config: &Config) {
     log::info!("{LOG_PREFIX} dictation hotkey active: {normalized}");
 
     // Forward hotkey events to the broadcast channel.
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         // Keep the listener handle alive for the lifetime of this task.
         let _handle = listener_handle;
 
@@ -156,6 +162,25 @@ pub async fn start_if_enabled(config: &Config) {
 
         log::warn!("{LOG_PREFIX} hotkey event channel closed, listener stopping");
     });
+
+    // Store handle so `stop()` can abort it on logout.
+    if let Ok(mut guard) = LISTENER_HANDLE.lock() {
+        *guard = Some(task);
+    }
+}
+
+/// Stop the dictation hotkey listener if running.
+///
+/// Aborts the spawned forwarder task and drops the `rdev` listener handle,
+/// preventing duplicate hotkey listeners from accumulating across
+/// logout → login cycles.
+pub fn stop() {
+    if let Ok(mut guard) = LISTENER_HANDLE.lock() {
+        if let Some(handle) = guard.take() {
+            handle.abort();
+            log::info!("{LOG_PREFIX} dictation listener stopped");
+        }
+    }
 }
 
 /// Normalize a Tauri-style hotkey string to rdev-compatible format.
@@ -256,5 +281,53 @@ mod tests {
         assert_eq!(json["type"], "released");
         assert_eq!(json["hotkey"], "fn");
         assert_eq!(json["activation_mode"], "push");
+    }
+
+    #[tokio::test]
+    async fn start_if_enabled_returns_early_when_config_disabled() {
+        // Fast path — `enabled=false` → the fn returns without spawning.
+        let mut config = Config::default();
+        config.dictation.enabled = false;
+        start_if_enabled(&config).await;
+        // No panic = pass. The absence of a spawned hotkey task is what
+        // we're verifying; hard to assert directly without internals.
+    }
+
+    #[tokio::test]
+    async fn start_if_enabled_returns_early_when_hotkey_empty() {
+        let mut config = Config::default();
+        config.dictation.enabled = true;
+        config.dictation.hotkey = String::new();
+        start_if_enabled(&config).await;
+    }
+
+    #[tokio::test]
+    async fn start_if_enabled_returns_early_when_hotkey_unparseable() {
+        let mut config = Config::default();
+        config.dictation.enabled = true;
+        config.dictation.hotkey = "not a real hotkey".into();
+        start_if_enabled(&config).await;
+    }
+
+    #[test]
+    fn normalize_maps_shift_and_alt_verbatim() {
+        let result = normalize_hotkey_for_rdev("Shift+Alt+D");
+        assert_eq!(result, "shift+alt+d");
+    }
+
+    #[test]
+    fn normalize_handles_lowercase_input() {
+        assert_eq!(normalize_hotkey_for_rdev("cmd+d"), "cmd+d");
+    }
+
+    #[test]
+    fn normalize_preserves_function_keys() {
+        assert_eq!(normalize_hotkey_for_rdev("F12"), "f12");
+    }
+
+    #[test]
+    fn normalize_trims_whitespace_between_segments() {
+        let result = normalize_hotkey_for_rdev("  cmd  + shift  +  d  ");
+        assert_eq!(result, "cmd+shift+d");
     }
 }

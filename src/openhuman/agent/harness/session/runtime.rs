@@ -33,6 +33,20 @@ impl Agent {
         &self.event_channel
     }
 
+    /// The agent definition id this session is running
+    /// (`"welcome"`, `"orchestrator"`, `"integrations_agent"`, …).
+    ///
+    /// Exposed so callers that build sessions via
+    /// [`Agent::from_config_for_agent`] can stamp the resolved id onto
+    /// correlation logs and progress events without reaching for the
+    /// source `Config`. See [`AgentBuilder::agent_definition_name`]
+    /// for the full list of downstream surfaces (transcript filename,
+    /// transcript metadata header, and `PromptContext::agent_id`) that
+    /// read this field.
+    pub fn agent_definition_name(&self) -> &str {
+        &self.agent_definition_name
+    }
+
     /// Returns a new `AgentBuilder`.
     pub fn builder() -> AgentBuilder {
         AgentBuilder::new()
@@ -102,6 +116,28 @@ impl Agent {
         &self.connected_integrations
     }
 
+    /// The Composio client cached on the session, if any. Populated by
+    /// [`Agent::fetch_connected_integrations`]; remains `None` when the
+    /// user is not signed in.
+    pub fn composio_client(&self) -> Option<&crate::openhuman::composio::ComposioClient> {
+        self.composio_client.as_ref()
+    }
+
+    /// This session's transcript key — `"{unix_ts}_{agent_id}"`,
+    /// generated once at build time. Sub-agents chain this into their
+    /// own transcript filenames so the parent → child hierarchy is
+    /// visible on disk.
+    pub fn session_key(&self) -> &str {
+        &self.session_key
+    }
+
+    /// The ancestor chain of session keys for a sub-agent, joined with
+    /// `__`. `None` for a root session. Root + prefix together produce
+    /// the full transcript stem.
+    pub fn session_parent_prefix(&self) -> Option<&str> {
+        self.session_parent_prefix.as_deref()
+    }
+
     /// Replace the agent's connected integrations (e.g. from a cached
     /// fetch result when the agent was built outside the normal turn loop).
     pub fn set_connected_integrations(
@@ -126,6 +162,14 @@ impl Agent {
         self.event_channel = channel.into();
     }
 
+    /// Override the agent definition name used for session transcript
+    /// file paths. Callers (e.g. the web channel) use this to scope
+    /// transcripts per thread so each conversation thread gets its own
+    /// transcript namespace instead of sharing one by agent type.
+    pub fn set_agent_definition_name(&mut self, name: impl Into<String>) {
+        self.agent_definition_name = name.into();
+    }
+
     /// Attach a progress event sender for real-time turn updates.
     ///
     /// When set, the turn loop emits [`AgentProgress`] events so
@@ -141,7 +185,6 @@ impl Agent {
     /// Clears the agent's conversation history.
     pub fn clear_history(&mut self) {
         self.history.clear();
-        self.system_prompt_cache_boundary = None;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -553,7 +596,6 @@ mod tests {
         });
         let mut agent = make_agent(provider);
         agent.history = vec![ConversationMessage::Chat(ChatMessage::system("sys"))];
-        agent.system_prompt_cache_boundary = Some(7);
         agent.skills = vec![crate::openhuman::skills::Skill {
             name: "demo".into(),
             ..Default::default()
@@ -580,7 +622,6 @@ mod tests {
 
         agent.clear_history();
         assert!(agent.history().is_empty());
-        assert!(agent.system_prompt_cache_boundary.is_none());
         assert_eq!(Agent::count_iterations(agent.history()), 1);
     }
 

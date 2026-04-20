@@ -56,6 +56,16 @@ export interface ComposioExecuteResponse {
   costUsd: number;
 }
 
+/**
+ * Per-toolkit scope preference stored in the core's KV. Default is
+ * `{ read: true, write: true, admin: false }`.
+ */
+export interface ComposioUserScopePref {
+  read: boolean;
+  write: boolean;
+  admin: boolean;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────
 
 /**

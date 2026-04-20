@@ -308,14 +308,54 @@ pub async fn run_triage_with_resolved(
     })
 }
 
-/// Pull the inline prompt body out of the definition. Built-ins always
-/// use [`PromptSource::Inline`] — the `BUILTINS` loader in
-/// `agent/agents/mod.rs` injects the rendered `prompt.md` at startup.
-/// Returning an option here (rather than panicking) lets the caller
-/// surface a clean error to downstream logging.
+/// Pull the prompt body out of the definition.
+///
+/// Built-ins use [`PromptSource::Dynamic`] (function-driven) and
+/// custom TOML definitions may use `Inline`. Only `Inline` and
+/// `Dynamic` are handled here — `File`-backed sources fall into the
+/// wildcard arm and return `None`. For `Dynamic`, the builder is
+/// invoked with a minimal
+/// [`crate::openhuman::agent::harness::definition::PromptContext`]
+/// since the triage classifier does not need tool lists or memory
+/// context. Returning an option here (rather than panicking) lets the
+/// caller surface a clean error to downstream logging.
 fn extract_inline_prompt(def: &AgentDefinition) -> Option<String> {
     match &def.system_prompt {
         PromptSource::Inline(body) if !body.is_empty() => Some(body.clone()),
+        PromptSource::Dynamic(build) => {
+            use crate::openhuman::context::prompt::{
+                ConnectedIntegration, LearnedContextData, PromptContext, PromptTool, ToolCallFormat,
+            };
+            let empty_tools: Vec<PromptTool<'_>> = Vec::new();
+            let empty_integrations: Vec<ConnectedIntegration> = Vec::new();
+            let empty_visible: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let ctx = PromptContext {
+                workspace_dir: std::path::Path::new("."),
+                model_name: "",
+                agent_id: &def.id,
+                tools: &empty_tools,
+                skills: &[],
+                dispatcher_instructions: "",
+                learned: LearnedContextData::default(),
+                visible_tool_names: &empty_visible,
+                tool_call_format: ToolCallFormat::PFormat,
+                connected_integrations: &empty_integrations,
+                include_profile: false,
+                include_memory_md: false,
+            };
+            match build(&ctx) {
+                Ok(body) if !body.is_empty() => Some(body),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::warn!(
+                        agent_id = %def.id,
+                        error = %e,
+                        "[triage::evaluator] dynamic prompt builder failed"
+                    );
+                    None
+                }
+            }
+        }
         _ => None,
     }
 }
@@ -418,7 +458,7 @@ mod tests {
             .find(|b| b.id == TRIGGER_TRIAGE_AGENT_ID)
             .expect("trigger_triage built-in must be registered");
         let mut def: AgentDefinition = toml::from_str(builtin.toml).expect("TOML must parse");
-        def.system_prompt = PromptSource::Inline(builtin.prompt.to_string());
+        def.system_prompt = PromptSource::Dynamic(builtin.prompt_fn);
         let body = extract_inline_prompt(&def).expect("body should be present");
         assert!(
             body.to_lowercase().contains("trigger"),

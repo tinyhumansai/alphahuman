@@ -26,7 +26,7 @@ omit_memory_md = false
 #     LLM-visible tool description.
 #
 #   * `{ skills = "*" }` → one `SkillDelegationTool` per connected
-#     Composio toolkit, all routing to the generic `skills_agent` with
+#     Composio toolkit, all routing to the generic `integrations_agent` with
 #     the toolkit slug pre-filled as `skill_filter`.
 #
 # The orchestrator LLM sees these as first-class entries in its
@@ -41,8 +41,16 @@ subagents = [
     "researcher",
     "planner",
     "code_executor",
+    "tools_agent",
     "critic",
     "archivist",
+    # NOTE: `summarizer` used to be listed here for the runtime-only
+    # oversized-tool-result hook. That path is currently disabled
+    # (`context.summarizer_payload_threshold_tokens = 0`) after recursive
+    # dispatch was observed. The agent definition is still registered via
+    # `agents::loader` so the payload_summarizer machinery can resolve it
+    # if the threshold is ever raised back above zero — it just isn't
+    # exposed to the orchestrator's subagent inventory right now.
     { skills = "*" },
 ]
 
@@ -54,9 +62,31 @@ hint = "reasoning"
 # delegating. `spawn_subagent` is retained as an advanced fallback so
 # power users can still spawn arbitrary agent ids that are not listed
 # in `subagents` above (e.g. workspace-override custom agents).
+#
+# `composio_list_connections` is the orchestrator's only composio_*
+# tool: it exists so the agent can detect newly-authorised integrations
+# mid-session (the session-start fetch froze the Delegation Guide's
+# connected list). Authorisation, toolkit discovery, action listing,
+# and action execution all live downstream in `integrations_agent` —
+# the orchestrator never calls composio_authorize / composio_list_tools
+# / composio_execute directly.
 named = [
     "query_memory",
+    "memory_store",
+    "memory_forget",
     "read_workspace_state",
     "ask_user_clarification",
     "spawn_subagent",
+    "composio_list_connections",
+    # Time + scheduling — lets the orchestrator answer "what time is it",
+    # "remind me in 10 minutes", "every morning at 8" directly rather than
+    # delegating or telling the user it can't. `current_time` grounds
+    # relative-time parsing; `cron_add` / `cron_list` / `cron_remove`
+    # manage recurring + one-shot agent/shell jobs; `schedule` is the
+    # simpler shell-only alias for one-shot reminders.
+    "current_time",
+    "cron_add",
+    "cron_list",
+    "cron_remove",
+    "schedule",
 ]

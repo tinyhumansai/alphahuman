@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
@@ -16,6 +17,16 @@ const LOG_PREFIX: &str = "[memory:conversations]";
 const THREADS_FILENAME: &str = "threads.jsonl";
 const THREAD_MESSAGES_DIR: &str = "threads";
 static CONVERSATION_STORE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+fn redact_title_for_log(title: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    title.hash(&mut hasher);
+    format!(
+        "<redacted len={} hash={:016x}>",
+        title.chars().count(),
+        hasher.finish()
+    )
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ConversationPurgeStats {
@@ -109,6 +120,37 @@ impl ConversationStore {
             path.display()
         );
         Ok(message)
+    }
+
+    pub fn update_thread_title(
+        &self,
+        thread_id: &str,
+        title: &str,
+        updated_at: &str,
+    ) -> Result<ConversationThread, String> {
+        let _guard = CONVERSATION_STORE_LOCK.lock();
+        let index = self.thread_index_unlocked()?;
+        let entry = index
+            .get(thread_id)
+            .ok_or_else(|| format!("thread {} does not exist", thread_id))?;
+        let threads_path = self.ensure_root()?.join(THREADS_FILENAME);
+        append_jsonl(
+            &threads_path,
+            &ThreadLogEntry::Upsert {
+                thread_id: thread_id.to_string(),
+                title: title.to_string(),
+                created_at: entry.created_at.clone(),
+                updated_at: updated_at.to_string(),
+            },
+        )?;
+        debug!(
+            "{LOG_PREFIX} updated thread title id={} title={} path={}",
+            thread_id,
+            redact_title_for_log(title),
+            threads_path.display()
+        );
+        self.thread_summary_unlocked(thread_id)?
+            .ok_or_else(|| format!("thread {} missing after title update", thread_id))
     }
 
     pub fn update_message(
@@ -415,6 +457,15 @@ pub fn append_message(
     ConversationStore::new(workspace_dir).append_message(thread_id, message)
 }
 
+pub fn update_thread_title(
+    workspace_dir: PathBuf,
+    thread_id: &str,
+    title: &str,
+    updated_at: &str,
+) -> Result<ConversationThread, String> {
+    ConversationStore::new(workspace_dir).update_thread_title(thread_id, title, updated_at)
+}
+
 pub fn update_message(
     workspace_dir: PathBuf,
     thread_id: &str,
@@ -553,5 +604,170 @@ mod tests {
         assert_eq!(stats.thread_count, 1);
         assert_eq!(stats.message_count, 1);
         assert!(store.list_threads().expect("list threads").is_empty());
+    }
+
+    #[test]
+    fn ensure_thread_is_idempotent() {
+        let (_temp, store) = make_store();
+        let req = CreateConversationThread {
+            id: "t1".to_string(),
+            title: "Thread".to_string(),
+            created_at: "2026-04-10T12:00:00Z".to_string(),
+        };
+        store.ensure_thread(req.clone()).unwrap();
+        store.ensure_thread(req).unwrap();
+        let threads = store.list_threads().unwrap();
+        assert_eq!(threads.len(), 1);
+    }
+
+    #[test]
+    fn delete_thread_removes_thread_and_messages() {
+        let (_temp, store) = make_store();
+        store
+            .ensure_thread(CreateConversationThread {
+                id: "t1".to_string(),
+                title: "Thread".to_string(),
+                created_at: "2026-04-10T12:00:00Z".to_string(),
+            })
+            .unwrap();
+        store
+            .append_message(
+                "t1",
+                ConversationMessage {
+                    id: "m1".to_string(),
+                    content: "msg".to_string(),
+                    message_type: "text".to_string(),
+                    extra_metadata: json!({}),
+                    sender: "user".to_string(),
+                    created_at: "2026-04-10T12:01:00Z".to_string(),
+                },
+            )
+            .unwrap();
+        store.delete_thread("t1", "2026-04-10T12:02:00Z").unwrap();
+        let threads = store.list_threads().unwrap();
+        assert!(threads.is_empty());
+    }
+
+    #[test]
+    fn delete_nonexistent_thread_is_ok() {
+        let (_temp, store) = make_store();
+        // Should not error
+        store
+            .delete_thread("nonexistent", "2026-04-10T12:00:00Z")
+            .unwrap();
+    }
+
+    #[test]
+    fn get_messages_empty_thread() {
+        let (_temp, store) = make_store();
+        store
+            .ensure_thread(CreateConversationThread {
+                id: "t1".to_string(),
+                title: "Empty".to_string(),
+                created_at: "2026-04-10T12:00:00Z".to_string(),
+            })
+            .unwrap();
+        let messages = store.get_messages("t1").unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn get_messages_nonexistent_thread() {
+        let (_temp, store) = make_store();
+        let messages = store.get_messages("nonexistent").unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn multiple_threads_and_messages() {
+        let (_temp, store) = make_store();
+        for i in 0..3 {
+            store
+                .ensure_thread(CreateConversationThread {
+                    id: format!("t{i}"),
+                    title: format!("Thread {i}"),
+                    created_at: format!("2026-04-10T12:0{i}:00Z"),
+                })
+                .unwrap();
+            store
+                .append_message(
+                    &format!("t{i}"),
+                    ConversationMessage {
+                        id: format!("m{i}"),
+                        content: format!("msg {i}"),
+                        message_type: "text".to_string(),
+                        extra_metadata: json!({}),
+                        sender: "user".to_string(),
+                        created_at: format!("2026-04-10T12:0{i}:30Z"),
+                    },
+                )
+                .unwrap();
+        }
+        let threads = store.list_threads().unwrap();
+        assert_eq!(threads.len(), 3);
+    }
+
+    #[test]
+    fn purge_on_empty_store() {
+        let (_temp, store) = make_store();
+        let stats = store.purge_threads().unwrap();
+        assert_eq!(stats.thread_count, 0);
+        assert_eq!(stats.message_count, 0);
+    }
+
+    #[test]
+    fn update_message_nonexistent_returns_error() {
+        let (_temp, store) = make_store();
+        store
+            .ensure_thread(CreateConversationThread {
+                id: "t1".to_string(),
+                title: "Thread".to_string(),
+                created_at: "2026-04-10T12:00:00Z".to_string(),
+            })
+            .unwrap();
+        let result = store.update_message(
+            "t1",
+            "nonexistent",
+            ConversationMessagePatch {
+                extra_metadata: Some(json!({})),
+            },
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_thread_title_persists_latest_title() {
+        let (_temp, store) = make_store();
+        store
+            .ensure_thread(CreateConversationThread {
+                id: "t1".to_string(),
+                title: "Chat Apr 10 12:00 PM".to_string(),
+                created_at: "2026-04-10T12:00:00Z".to_string(),
+            })
+            .unwrap();
+
+        let updated = store
+            .update_thread_title("t1", "Invoice follow-up", "2026-04-10T12:03:00Z")
+            .unwrap();
+
+        assert_eq!(updated.title, "Invoice follow-up");
+        let threads = store.list_threads().unwrap();
+        assert_eq!(threads[0].title, "Invoice follow-up");
+        assert_eq!(threads[0].created_at, "2026-04-10T12:00:00Z");
+    }
+
+    #[test]
+    fn conversation_store_new() {
+        let tmp = TempDir::new().unwrap();
+        let store = ConversationStore::new(tmp.path().to_path_buf());
+        let threads = store.list_threads().unwrap();
+        assert!(threads.is_empty());
+    }
+
+    #[test]
+    fn conversation_purge_stats_default() {
+        let stats = ConversationPurgeStats::default();
+        assert_eq!(stats.thread_count, 0);
+        assert_eq!(stats.message_count, 0);
     }
 }

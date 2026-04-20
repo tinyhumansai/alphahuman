@@ -11,7 +11,7 @@ describe('threadApi', () => {
     mockCallCoreRpc.mockReset();
   });
 
-  it('loads threads from the memory RPC store', async () => {
+  it('loads threads from the threads RPC store', async () => {
     mockCallCoreRpc.mockResolvedValueOnce({
       data: {
         threads: [
@@ -32,12 +32,12 @@ describe('threadApi', () => {
     const { threadApi } = await import('./threadApi');
     const result = await threadApi.getThreads();
 
-    expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.memory_threads_list' });
+    expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.threads_list' });
     expect(result.count).toBe(1);
     expect(result.threads[0].id).toBe('default-thread');
   });
 
-  it('appends a message via memory RPC', async () => {
+  it('appends a message via threads RPC', async () => {
     const message = {
       id: 'm1',
       content: 'hello',
@@ -52,9 +52,37 @@ describe('threadApi', () => {
     const result = await threadApi.appendMessage('default-thread', message);
 
     expect(mockCallCoreRpc).toHaveBeenCalledWith({
-      method: 'openhuman.memory_message_append',
+      method: 'openhuman.threads_message_append',
       params: { thread_id: 'default-thread', message },
     });
     expect(result).toEqual(message);
+  });
+
+  it('generates a thread title via threads RPC', async () => {
+    const thread = {
+      id: 'default-thread',
+      title: 'Invoice follow-up',
+      chatId: null,
+      isActive: true,
+      messageCount: 2,
+      lastMessageAt: '2026-04-10T12:01:00Z',
+      createdAt: '2026-04-10T12:00:00Z',
+    };
+    mockCallCoreRpc.mockResolvedValueOnce({ data: thread });
+
+    const { threadApi } = await import('./threadApi');
+    const result = await threadApi.generateTitleIfNeeded(
+      'default-thread',
+      'I can draft the invoice follow-up note for you.'
+    );
+
+    expect(mockCallCoreRpc).toHaveBeenCalledWith({
+      method: 'openhuman.threads_generate_title',
+      params: {
+        thread_id: 'default-thread',
+        assistant_message: 'I can draft the invoice follow-up note for you.',
+      },
+    });
+    expect(result).toEqual(thread);
   });
 });

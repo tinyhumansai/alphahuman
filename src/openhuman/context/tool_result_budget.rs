@@ -18,10 +18,13 @@
 
 use std::fmt::Write as _;
 
-/// Default per-tool-result budget. Chosen to keep a single oversized
-/// result from blowing out the prompt while still leaving room for
-/// moderately chunky outputs (directory listings, small file contents,
-/// condensed HTTP bodies).
+/// Default per-tool-result budget. Large raw tool payloads are trimmed
+/// inline before they enter history so parent-session tool output
+/// cannot grow without bound. This remains compatible with the payload
+/// summarizer: when summarization is enabled it can still replace very
+/// large payloads earlier in the pipeline, and when it is disabled
+/// (`summarizer_payload_threshold_tokens = 0`) this budget is the
+/// default safeguard.
 pub const DEFAULT_TOOL_RESULT_BUDGET_BYTES: usize = 16 * 1024;
 
 /// Number of trailing bytes reserved for the truncation marker. The

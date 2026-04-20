@@ -86,10 +86,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
         secrets_encrypt: config.secrets.encrypt,
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_intelligent_routing_provider(
         config.api_key.as_deref(),
         config.api_url.as_deref(),
-        &config.reliability,
+        &config,
         &provider_runtime_options,
     )?);
 
@@ -178,7 +178,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         ));
     }
     // Composio tool descriptions are intentionally excluded from the main
-    // agent prompt — those tools are only available to the skills_agent
+    // agent prompt — those tools are only available to the integrations_agent
     // subagent via category_filter = "skill".
     tool_descs.push((
         "schedule",
@@ -215,7 +215,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         None,
     );
     // Filter out Skill-category tools (e.g. Composio, Apify) from the
-    // main agent prompt — those are only available to the skills_agent
+    // main agent prompt — those are only available to the integrations_agent
     // subagent via category_filter = "skill".
     let non_skill_tools: Vec<&Box<dyn crate::openhuman::tools::Tool>> = tools_registry
         .iter()

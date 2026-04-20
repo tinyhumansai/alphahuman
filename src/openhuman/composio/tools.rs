@@ -27,6 +27,106 @@ use serde_json::{json, Value};
 use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolCategory, ToolResult};
 
 use super::client::ComposioClient;
+use super::providers::{
+    catalog_for_toolkit, classify_unknown, find_curated, get_provider, load_user_scope_or_default,
+    toolkit_from_slug, ToolScope, UserScopePref,
+};
+
+/// Decision returned by [`evaluate_tool_visibility`].
+enum ToolDecision {
+    /// Action is curated for this toolkit and user scope allows it.
+    Allow,
+    /// Action exists in the curated list but the user's scope blocks
+    /// it. `scope` is the curated classification.
+    BlockedByScope { scope: ToolScope },
+    /// Action is not in the toolkit's curated whitelist (and the
+    /// toolkit has one). Hidden / rejected.
+    NotCurated,
+    /// Toolkit has no curated catalog — pass through, but still gate by
+    /// the user scope using the [`classify_unknown`] heuristic.
+    PassthroughCheckScope { scope: ToolScope },
+}
+
+/// Decide whether a Composio action slug should be visible / executable
+/// for the current user, given the registered provider's curated list
+/// (if any) and the user's stored scope preference.
+async fn evaluate_tool_visibility(slug: &str) -> ToolDecision {
+    let Some(toolkit) = toolkit_from_slug(slug) else {
+        // Unparseable slug — let the backend return its own error.
+        return ToolDecision::Allow;
+    };
+    let pref = load_user_scope_or_default(&toolkit).await;
+    // Prefer a registered provider's curated list; fall back to the
+    // static toolkit→catalog map so toolkits without a native provider
+    // (e.g. github) still get whitelist enforcement.
+    let catalog = get_provider(&toolkit)
+        .and_then(|p| p.curated_tools())
+        .or_else(|| catalog_for_toolkit(&toolkit));
+    match catalog {
+        Some(catalog) => match find_curated(catalog, slug) {
+            Some(curated) if pref.allows(curated.scope) => ToolDecision::Allow,
+            Some(curated) => ToolDecision::BlockedByScope {
+                scope: curated.scope,
+            },
+            None => ToolDecision::NotCurated,
+        },
+        None => {
+            let scope = classify_unknown(slug);
+            if pref.allows(scope) {
+                ToolDecision::PassthroughCheckScope { scope }
+            } else {
+                ToolDecision::BlockedByScope { scope }
+            }
+        }
+    }
+}
+
+/// Filter a freshly-fetched [`super::types::ComposioToolsResponse`] in
+/// place: drop tools that aren't curated for their toolkit and tools
+/// whose scope is disabled in the user's pref.
+async fn filter_list_tools_response(resp: &mut super::types::ComposioToolsResponse) {
+    let before = resp.tools.len();
+    // Compute keep/drop decisions sequentially (the await means we
+    // can't fold this into a single sync `retain` closure). Then zip
+    // each tool with its decision and collect the survivors — clearer
+    // than juggling a parallel index alongside `Vec::retain`.
+    let mut keep: Vec<bool> = Vec::with_capacity(before);
+    for t in &resp.tools {
+        let decision = evaluate_tool_visibility(&t.function.name).await;
+        keep.push(matches!(
+            decision,
+            ToolDecision::Allow | ToolDecision::PassthroughCheckScope { .. }
+        ));
+    }
+    let drained: Vec<_> = resp.tools.drain(..).collect();
+    resp.tools = drained
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(tool, keep_it)| if keep_it { Some(tool) } else { None })
+        .collect();
+    let after = resp.tools.len();
+    if after != before {
+        tracing::debug!(
+            before,
+            after,
+            dropped = before - after,
+            "[composio][scopes] composio_list_tools filtered"
+        );
+    }
+}
+
+/// Format a user-facing error message for a scope-blocked execution.
+fn scope_error_message(slug: &str, scope: ToolScope, pref: UserScopePref) -> String {
+    format!(
+        "composio_execute: action `{slug}` is classified `{}` and is disabled in your \
+         current scope preferences (read={}, write={}, admin={}). Update the toolkit's \
+         scope preference (composio_set_user_scopes) to enable this category.",
+        scope.as_str(),
+        pref.read,
+        pref.write,
+        pref.admin,
+    )
+}
 
 // ── composio_list_toolkits ──────────────────────────────────────────
 
@@ -93,8 +193,11 @@ impl Tool for ComposioListConnectionsTool {
         "composio_list_connections"
     }
     fn description(&self) -> &str {
-        "List the user's active Composio OAuth connections. Each entry has \
-         {id, toolkit, status, createdAt}. Status is typically ACTIVE or CONNECTED."
+        "List the user's **currently-connected** Composio integrations. \
+         Only entries with status ACTIVE / CONNECTED are returned; pending, \
+         revoked, or failed connections are filtered out. Use this to detect \
+         newly-authorised integrations mid-session. Each entry has \
+         {id, toolkit, status, createdAt}."
     }
     fn parameters_schema(&self) -> Value {
         json!({ "type": "object", "properties": {}, "additionalProperties": false })
@@ -108,9 +211,23 @@ impl Tool for ComposioListConnectionsTool {
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!("[composio] tool list_connections.execute");
         match self.client.list_connections().await {
-            Ok(resp) => Ok(ToolResult::success(
-                serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
-            )),
+            Ok(mut resp) => {
+                // Filter server-side-indistinguishable states here —
+                // callers should only ever see integrations the user
+                // can actually act on. Matches the same ACTIVE /
+                // CONNECTED allowlist used by
+                // `fetch_connected_integrations_uncached` so the tool
+                // output and the prompt's Delegation Guide agree on
+                // what counts as "connected".
+                resp.connections.retain(|c| {
+                    let status = c.status.trim();
+                    status.eq_ignore_ascii_case("ACTIVE")
+                        || status.eq_ignore_ascii_case("CONNECTED")
+                });
+                Ok(ToolResult::success(
+                    serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
+                ))
+            }
             Err(e) => Ok(ToolResult::error(format!(
                 "composio_list_connections failed: {e}"
             ))),
@@ -241,9 +358,12 @@ impl Tool for ComposioListToolsTool {
         });
         tracing::debug!(?toolkits, "[composio] tool list_tools.execute");
         match self.client.list_tools(toolkits.as_deref()).await {
-            Ok(resp) => Ok(ToolResult::success(
-                serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
-            )),
+            Ok(mut resp) => {
+                filter_list_tools_response(&mut resp).await;
+                Ok(ToolResult::success(
+                    serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
+                ))
+            }
             Err(e) => Ok(ToolResult::error(format!(
                 "composio_list_tools failed: {e}"
             ))),
@@ -313,11 +433,41 @@ impl Tool for ComposioExecuteTool {
         }
         let arguments = args.get("arguments").cloned();
         tracing::debug!(tool = %tool, "[composio] tool execute.execute");
+
+        // Enforce per-user scope preferences before delegating to backend.
+        match evaluate_tool_visibility(&tool).await {
+            ToolDecision::Allow | ToolDecision::PassthroughCheckScope { .. } => {}
+            ToolDecision::BlockedByScope { scope } => {
+                let toolkit = toolkit_from_slug(&tool).unwrap_or_default();
+                let pref = load_user_scope_or_default(&toolkit).await;
+                let msg = scope_error_message(&tool, scope, pref);
+                tracing::info!(
+                    tool = %tool,
+                    toolkit = %toolkit,
+                    scope = scope.as_str(),
+                    "[composio][scopes] execute blocked by user scope pref"
+                );
+                return Ok(ToolResult::error(msg));
+            }
+            ToolDecision::NotCurated => {
+                let toolkit = toolkit_from_slug(&tool).unwrap_or_default();
+                tracing::info!(
+                    tool = %tool,
+                    toolkit = %toolkit,
+                    "[composio][scopes] execute blocked: action not in curated whitelist"
+                );
+                return Ok(ToolResult::error(format!(
+                    "composio_execute: action `{tool}` is not in the curated whitelist for \
+                     toolkit `{toolkit}`. Use composio_list_tools to see available actions."
+                )));
+            }
+        }
+
         let started = std::time::Instant::now();
         let res = self.client.execute_tool(&tool, arguments.clone()).await;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         match res {
-            Ok(resp) => {
+            Ok(mut resp) => {
                 crate::core::event_bus::publish_global(
                     crate::core::event_bus::DomainEvent::ComposioActionExecuted {
                         tool: tool.clone(),
@@ -327,6 +477,27 @@ impl Tool for ComposioExecuteTool {
                         elapsed_ms,
                     },
                 );
+                // Per-toolkit post-processing of the upstream payload
+                // (e.g. gmail HTML → markdown). Only run on successful
+                // responses; errors are passed through verbatim.
+                if resp.successful {
+                    super::providers::init_default_providers();
+                    if let Some(toolkit) = toolkit_from_slug(&tool) {
+                        if let Some(provider) = get_provider(&toolkit) {
+                            tracing::trace!(
+                                toolkit = toolkit.as_str(),
+                                tool = tool.as_str(),
+                                has_args = arguments.is_some(),
+                                "[composio_execute] post-processing action result"
+                            );
+                            provider.post_process_action_result(
+                                &tool,
+                                arguments.as_ref(),
+                                &mut resp.data,
+                            );
+                        }
+                    }
+                }
                 Ok(ToolResult::success(
                     serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
                 ))
@@ -421,5 +592,141 @@ mod tests {
         assert!(names.contains(&"composio_authorize"));
         assert!(names.contains(&"composio_list_tools"));
         assert!(names.contains(&"composio_execute"));
+    }
+
+    // ── Per-tool metadata ──────────────────────────────────────────
+
+    #[test]
+    fn list_toolkits_tool_metadata_is_stable() {
+        let t = ComposioListToolkitsTool::new(fake_composio_client());
+        assert_eq!(t.name(), "composio_list_toolkits");
+        assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
+        assert!(!t.description().is_empty());
+        let s = t.parameters_schema();
+        assert_eq!(s["type"], "object");
+        // No required inputs.
+        assert!(s
+            .get("required")
+            .and_then(|r| r.as_array())
+            .map_or(true, |a| a.is_empty()));
+    }
+
+    #[test]
+    fn list_connections_tool_metadata_is_stable() {
+        let t = ComposioListConnectionsTool::new(fake_composio_client());
+        assert_eq!(t.name(), "composio_list_connections");
+        assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
+    }
+
+    #[test]
+    fn authorize_tool_requires_toolkit_argument() {
+        let t = ComposioAuthorizeTool::new(fake_composio_client());
+        assert_eq!(t.permission_level(), PermissionLevel::Write);
+        let s = t.parameters_schema();
+        let required: Vec<&str> = s["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(required, vec!["toolkit"]);
+    }
+
+    #[tokio::test]
+    async fn authorize_tool_execute_rejects_missing_toolkit() {
+        let t = ComposioAuthorizeTool::new(fake_composio_client());
+        let result = t
+            .execute(serde_json::json!({}))
+            .await
+            .expect("execute must not bubble up anyhow error");
+        // Empty toolkit → ToolResult::error.
+        assert!(result.is_error);
+        let txt = result
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                crate::openhuman::tools::traits::ToolContent::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(txt.contains("'toolkit' is required"));
+    }
+
+    #[tokio::test]
+    async fn authorize_tool_execute_rejects_whitespace_toolkit() {
+        let t = ComposioAuthorizeTool::new(fake_composio_client());
+        let result = t
+            .execute(serde_json::json!({ "toolkit": "   " }))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn list_tools_tool_metadata_accepts_optional_toolkits_filter() {
+        let t = ComposioListToolsTool::new(fake_composio_client());
+        let s = t.parameters_schema();
+        // toolkits is optional (not in required[])
+        let required = s
+            .get("required")
+            .and_then(|r| r.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(required.is_empty(), "list_tools should not require inputs");
+        assert!(s["properties"]["toolkits"].is_object());
+    }
+
+    #[test]
+    fn execute_tool_requires_tool_argument() {
+        let t = ComposioExecuteTool::new(fake_composio_client());
+        assert_eq!(t.permission_level(), PermissionLevel::Write);
+        let s = t.parameters_schema();
+        let required: Vec<&str> = s["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(required, vec!["tool"]);
+    }
+
+    #[tokio::test]
+    async fn execute_tool_execute_rejects_missing_tool() {
+        let t = ComposioExecuteTool::new(fake_composio_client());
+        let result = t.execute(serde_json::json!({})).await.unwrap();
+        assert!(result.is_error);
+        let txt = result
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                crate::openhuman::tools::traits::ToolContent::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(txt.contains("'tool' is required"));
+    }
+
+    // ── all_composio_agent_tools ──────────────────────────────────
+
+    #[test]
+    fn all_composio_agent_tools_returns_empty_without_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = crate::openhuman::config::Config::default();
+        config.config_path = tmp.path().join("config.toml");
+        config.api_key = None;
+        let tools = all_composio_agent_tools(&config);
+        assert!(tools.is_empty());
+    }
+
+    #[test]
+    fn all_composio_agent_tools_registers_five_when_session_available() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = crate::openhuman::config::Config::default();
+        config.config_path = tmp.path().join("config.toml");
+        config.api_key = Some("sk-test".into());
+        let tools = all_composio_agent_tools(&config);
+        assert_eq!(tools.len(), 5);
     }
 }

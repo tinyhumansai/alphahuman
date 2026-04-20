@@ -21,7 +21,7 @@
 //! runtime — it is pure data so the model can be unit-tested in isolation
 //! and serialised straight from disk.
 
-use crate::openhuman::tools::ToolCategory;
+use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -113,9 +113,14 @@ pub struct AgentDefinition {
     #[serde(default)]
     pub skill_filter: Option<String>,
 
-    /// Filter to only tools belonging to a specific high-level category.
+    /// Named tools that should always be visible to this agent in
+    /// addition to its [`ToolScope`]. Historically this was a bypass
+    /// list for the now-removed `category_filter`; kept as a generic
+    /// "also include these" hook for custom definitions.
+    ///
+    /// Entries are still subject to [`AgentDefinition::disallowed_tools`].
     #[serde(default)]
-    pub category_filter: Option<ToolCategory>,
+    pub extra_tools: Vec<String>,
 
     // ── runtime limits ──────────────────────────────────────────────────
     /// Maximum number of tool iterations for this sub-agent's task.
@@ -150,7 +155,7 @@ pub struct AgentDefinition {
     ///
     /// * [`SubagentEntry::Skills`] — one [`SkillDelegationTool`] per
     ///   connected Composio toolkit, each named `delegate_{toolkit}`,
-    ///   all routing to the generic `skills_agent` with an appropriate
+    ///   all routing to the generic `integrations_agent` with an appropriate
     ///   `skill_filter` pre-populated.
     ///
     /// `subagents` is intentionally separate from [`AgentDefinition::tools`]
@@ -200,7 +205,7 @@ pub enum SubagentEntry {
     AgentId(String),
     /// Expand at build time to one `delegate_{toolkit}` tool per
     /// connected Composio toolkit, each routing to the generic
-    /// `skills_agent` with `skill_filter` pre-set.
+    /// `integrations_agent` with `skill_filter` pre-set.
     Skills(SkillsWildcard),
 }
 
@@ -237,9 +242,18 @@ impl AgentDefinition {
 // Prompt source
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Builder function signature for [`PromptSource::Dynamic`]. Takes the
+/// full runtime [`crate::openhuman::context::prompt::PromptContext`]
+/// (tools, skills, memory, connected integrations, dispatcher, model,
+/// …) and returns the final system prompt body — typically assembled
+/// by calling the `render_*` section helpers in
+/// [`crate::openhuman::context::prompt`] in the order the builder
+/// wants.
+pub type PromptBuilder =
+    fn(&crate::openhuman::context::prompt::PromptContext<'_>) -> anyhow::Result<String>;
+
 /// Where the sub-agent's core system prompt comes from.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone)]
 pub enum PromptSource {
     /// Inline prompt string (custom TOML-defined agents).
     Inline(String),
@@ -247,6 +261,61 @@ pub enum PromptSource {
     /// `src/openhuman/agent/prompts/` for built-ins. Resolved by the runner
     /// at spawn time.
     File { path: String },
+    /// Function-driven prompt: the builder is invoked at spawn time with
+    /// a [`PromptContext`] so the returned body can depend on runtime
+    /// state (available tools, user profile, connected skills, etc.).
+    ///
+    /// Only constructed in-process (by built-in agent loaders). Not
+    /// deserializable from TOML — TOML-authored agents must use `inline`
+    /// or `file`.
+    Dynamic(PromptBuilder),
+}
+
+impl std::fmt::Debug for PromptSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PromptSource::Inline(s) => f.debug_tuple("Inline").field(&s).finish(),
+            PromptSource::File { path } => f.debug_struct("File").field("path", path).finish(),
+            PromptSource::Dynamic(_) => f.debug_tuple("Dynamic").field(&"<fn>").finish(),
+        }
+    }
+}
+
+impl Serialize for PromptSource {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            PromptSource::Inline(s) => map.serialize_entry("inline", s)?,
+            PromptSource::File { path } => {
+                #[derive(Serialize)]
+                struct FileBody<'a> {
+                    path: &'a str,
+                }
+                map.serialize_entry("file", &FileBody { path })?;
+            }
+            // Opaque marker — runtime-only. Round-trips back through
+            // Deserialize would produce an error (Dynamic is unsupported
+            // there) which is intentional: RPC consumers treat Dynamic
+            // sources as "built-in, runtime-generated".
+            PromptSource::Dynamic(_) => map.serialize_entry("dynamic", &serde_json::Value::Null)?,
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PromptSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Shape {
+            Inline(String),
+            File { path: String },
+        }
+        Shape::deserialize(deserializer).map(|s| match s {
+            Shape::Inline(body) => PromptSource::Inline(body),
+            Shape::File { path } => PromptSource::File { path },
+        })
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,7 +577,7 @@ mod tests {
             tools: ToolScope::Wildcard,
             disallowed_tools: vec![],
             skill_filter: None,
-            category_filter: None,
+            extra_tools: vec![],
             max_iterations: 8,
             timeout_secs: None,
             sandbox_mode: SandboxMode::None,

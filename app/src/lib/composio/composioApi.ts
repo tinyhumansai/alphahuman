@@ -18,6 +18,7 @@ import type {
   ComposioExecuteResponse,
   ComposioToolkitsResponse,
   ComposioToolsResponse,
+  ComposioUserScopePref,
 } from './types';
 
 /**
@@ -87,6 +88,53 @@ export async function deleteConnection(connectionId: string): Promise<ComposioDe
     params: { connection_id: connectionId },
   });
   return unwrapCliEnvelope<ComposioDeleteResponse>(raw);
+}
+
+/**
+ * Read the per-toolkit user scope preference (read/write/admin) used
+ * to gate `composio_execute`. Returns the default
+ * `{ read: true, write: true, admin: false }` when nothing is stored.
+ */
+export async function getUserScopes(toolkit: string): Promise<ComposioUserScopePref> {
+  console.debug('[composio][scopes] → openhuman.composio_get_user_scopes toolkit=%s', toolkit);
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.composio_get_user_scopes',
+    params: { toolkit },
+  });
+  const pref = unwrapCliEnvelope<ComposioUserScopePref>(raw);
+  console.debug(
+    '[composio][scopes] ← openhuman.composio_get_user_scopes toolkit=%s pref=%o',
+    toolkit,
+    pref
+  );
+  return pref;
+}
+
+/**
+ * Persist a per-toolkit user scope preference. The agent will only be
+ * able to invoke composio actions whose classified scope is enabled
+ * here.
+ */
+export async function setUserScopes(
+  toolkit: string,
+  pref: ComposioUserScopePref
+): Promise<ComposioUserScopePref> {
+  console.debug(
+    '[composio][scopes] → openhuman.composio_set_user_scopes toolkit=%s pref=%o',
+    toolkit,
+    pref
+  );
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.composio_set_user_scopes',
+    params: { toolkit, ...pref },
+  });
+  const persisted = unwrapCliEnvelope<ComposioUserScopePref>(raw);
+  console.debug(
+    '[composio][scopes] ← openhuman.composio_set_user_scopes toolkit=%s persisted=%o',
+    toolkit,
+    persisted
+  );
+  return persisted;
 }
 
 /**

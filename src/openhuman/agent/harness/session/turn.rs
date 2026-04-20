@@ -26,15 +26,14 @@ use crate::openhuman::agent::dispatcher::{ParsedToolCall, ToolExecutionResult};
 use crate::openhuman::agent::harness;
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
 use crate::openhuman::agent::progress::AgentProgress;
-use crate::openhuman::context::prompt::{
-    LearnedContextData, PromptContext, PromptTool, RenderedPrompt,
-};
+use crate::openhuman::context::prompt::{LearnedContextData, PromptContext, PromptTool};
 use crate::openhuman::context::{ReductionOutcome, ARCHIVIST_EXTRACTION_PROMPT};
 use crate::openhuman::memory::MemoryCategory;
 use crate::openhuman::providers::{ChatMessage, ChatRequest, ConversationMessage, ProviderDelta};
 use crate::openhuman::tools::Tool;
 use crate::openhuman::util::truncate_with_ellipsis;
 use anyhow::Result;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 impl Agent {
@@ -88,32 +87,29 @@ impl Agent {
             log::info!("[agent] system prompt built — initialising conversation history");
             log::info!(
                 "[agent_loop] system prompt built chars={}",
-                rendered_prompt.text.chars().count()
+                rendered_prompt.chars().count()
             );
             // User-file injection (PROFILE.md, MEMORY.md) puts
             // potentially-sensitive content (LinkedIn scrape output,
             // archivist-curated memories) into the system prompt. Avoid
             // leaking that to debug logs — log a length + content hash
-            // instead so cache-boundary diagnostics still work. Narrow
-            // specialists (both flags off) keep the full-body log so
-            // prompt-engineering iteration on tools/safety sections
-            // stays easy.
+            // instead. Narrow specialists (both flags off) keep the
+            // full-body log so prompt-engineering iteration on
+            // tools/safety sections stays easy.
             if self.omit_profile && self.omit_memory_md {
-                log::debug!("[agent_loop] system prompt body:\n{}", rendered_prompt.text);
+                log::debug!("[agent_loop] system prompt body:\n{}", rendered_prompt);
             } else {
-                use std::hash::{Hash, Hasher};
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                rendered_prompt.text.hash(&mut hasher);
+                rendered_prompt.hash(&mut hasher);
                 log::debug!(
                     "[agent_loop] system prompt body redacted (contains PROFILE/MEMORY): chars={} hash={:016x}",
-                    rendered_prompt.text.chars().count(),
+                    rendered_prompt.chars().count(),
                     hasher.finish()
                 );
             }
-            self.system_prompt_cache_boundary = rendered_prompt.cache_boundary;
             self.history
                 .push(ConversationMessage::Chat(ChatMessage::system(
-                    rendered_prompt.text,
+                    rendered_prompt,
                 )));
         } else {
             // Deliberately do NOT rebuild the system prompt on subsequent
@@ -200,6 +196,10 @@ impl Agent {
         let mut cumulative_output_tokens: u64 = 0;
         let mut cumulative_cached_input_tokens: u64 = 0;
         let mut cumulative_charged_usd: f64 = 0.0;
+
+        // Per-turn usage from the final provider response, attached to the
+        // last assistant message in the persisted transcript.
+        let mut last_turn_usage: Option<transcript::TurnUsage> = None;
 
         let turn_body = async {
             for iteration in 0..self.config.max_tool_iterations {
@@ -379,7 +379,6 @@ impl Agent {
                             } else {
                                 None
                             },
-                            system_prompt_cache_boundary: self.system_prompt_cache_boundary,
                             stream: delta_tx_opt.as_ref(),
                         },
                         &effective_model,
@@ -405,6 +404,25 @@ impl Agent {
                             cumulative_output_tokens += usage.output_tokens;
                             cumulative_cached_input_tokens += usage.cached_input_tokens;
                             cumulative_charged_usd += usage.charged_amount_usd;
+                            // Snapshot this turn's usage so the transcript
+                            // writer can attribute it to the last assistant
+                            // message.
+                            last_turn_usage = Some(transcript::TurnUsage {
+                                model: effective_model.clone(),
+                                usage: transcript::MessageUsage {
+                                    input: usage.input_tokens,
+                                    output: usage.output_tokens,
+                                    cached_input: usage.cached_input_tokens,
+                                    cost_usd: usage.charged_amount_usd,
+                                },
+                                ts: chrono::Utc::now().to_rfc3339(),
+                            });
+                        } else {
+                            // Missing usage on this iteration: clear any
+                            // snapshot carried from a prior iteration so
+                            // the transcript doesn't attribute stale
+                            // numbers to the final assistant message.
+                            last_turn_usage = None;
                         }
                         resp
                     }
@@ -460,6 +478,28 @@ impl Agent {
                             final_text.clone(),
                         )));
                     self.trim_history();
+
+                    // Mirror the final assistant reply into the transcript
+                    // snapshot so the JSONL persisted below captures the
+                    // response (not just the prompt that was sent).
+                    if let Some(ref mut msgs) = last_provider_messages {
+                        msgs.push(ChatMessage::assistant(final_text.clone()));
+                    }
+
+                    // Persist the transcript **now** — right after the
+                    // provider response lands — so a crash during hooks
+                    // / memory-extraction / the outer epilogue can't
+                    // lose the assistant's reply.
+                    if let Some(ref messages) = last_provider_messages {
+                        self.persist_session_transcript(
+                            messages,
+                            cumulative_input_tokens,
+                            cumulative_output_tokens,
+                            cumulative_cached_input_tokens,
+                            cumulative_charged_usd,
+                            last_turn_usage.as_ref(),
+                        );
+                    }
 
                     if self.auto_save {
                         let summary = truncate_with_ellipsis(&final_text, 100);
@@ -539,6 +579,26 @@ impl Agent {
                     tool_calls: persisted_tool_calls,
                 });
 
+                // Persist the transcript **right after** the provider
+                // response lands — before executing tools — so if the
+                // session crashes mid-tool-call we still have the
+                // assistant's response + tool-call intents on disk.
+                // Rebuild `last_provider_messages` from the current
+                // history so the snapshot includes whatever the
+                // assistant just emitted (plain text + tool calls).
+                last_provider_messages =
+                    Some(self.tool_dispatcher.to_provider_messages(&self.history));
+                if let Some(ref messages) = last_provider_messages {
+                    self.persist_session_transcript(
+                        messages,
+                        cumulative_input_tokens,
+                        cumulative_output_tokens,
+                        cumulative_cached_input_tokens,
+                        cumulative_charged_usd,
+                        last_turn_usage.as_ref(),
+                    );
+                }
+
                 let (results, records) = self.execute_tools(&calls, iteration).await;
                 all_tool_records.extend(records);
                 log::info!(
@@ -566,6 +626,21 @@ impl Agent {
                 let formatted = self.tool_dispatcher.format_results(&results);
                 self.history.push(formatted);
                 self.trim_history();
+                // Flush the transcript again now that tool results have
+                // been appended — the pre-tool persist above only
+                // captured the assistant's tool-call intents. A crash
+                // or early-exit between iterations would otherwise lose
+                // the tool output from the on-disk session record.
+                let post_tool_messages = self.tool_dispatcher.to_provider_messages(&self.history);
+                self.persist_session_transcript(
+                    &post_tool_messages,
+                    cumulative_input_tokens,
+                    cumulative_output_tokens,
+                    cumulative_cached_input_tokens,
+                    cumulative_charged_usd,
+                    last_turn_usage.as_ref(),
+                );
+                last_provider_messages = Some(post_tool_messages);
                 log::info!(
                     "[agent_loop] iteration end i={} history_len={}",
                     iteration + 1,
@@ -593,20 +668,13 @@ impl Agent {
         // the PARENT_CONTEXT task-local.
         let result = harness::with_parent_context(parent_context, turn_body).await;
 
-        // ── Session transcript persistence ────────────────────────────
-        // Persist the exact provider messages so a future session can
-        // resume with a byte-identical prefix for KV cache reuse.
-        if result.is_ok() {
-            if let Some(ref messages) = last_provider_messages {
-                self.persist_session_transcript(
-                    messages,
-                    cumulative_input_tokens,
-                    cumulative_output_tokens,
-                    cumulative_cached_input_tokens,
-                    cumulative_charged_usd,
-                );
-            }
-        }
+        // Session transcript persistence lives INSIDE the turn body —
+        // one write per provider response, fired right after the
+        // response lands (see the tool-call and terminal branches in
+        // `turn_body`). A crash during tool execution no longer drops
+        // the assistant's reply because it was already flushed to
+        // disk before tool dispatch started. No outer-loop save is
+        // needed here.
 
         // ── Session-memory extraction (stage 5) ───────────────────────
         //
@@ -715,7 +783,48 @@ impl Agent {
             match outcome {
                 Ok(r) => {
                     if !r.is_error {
-                        (r.output(), true)
+                        let mut output = r.output();
+                        // Issue #574 — if a payload summarizer is wired
+                        // in (orchestrator session only) and the output
+                        // exceeds the configured threshold, hand it to
+                        // the summarizer sub-agent before it enters
+                        // history. On any failure or below-threshold
+                        // payload, leave `output` untouched and let the
+                        // existing tool_result_budget_bytes truncation
+                        // pipeline handle it downstream.
+                        if let Some(ps) = self.payload_summarizer.as_ref() {
+                            log::debug!(
+                                "[agent_loop] payload_summarizer intercepting tool={} bytes={}",
+                                call.name,
+                                output.len()
+                            );
+                            match ps.maybe_summarize(&call.name, None, &output).await {
+                                Ok(Some(payload)) => {
+                                    log::info!(
+                                        "[agent_loop] payload_summarizer compressed tool={} {}->{} bytes",
+                                        call.name,
+                                        payload.original_bytes,
+                                        payload.summary_bytes
+                                    );
+                                    output = payload.summary;
+                                }
+                                Ok(None) => {
+                                    log::debug!(
+                                        "[agent_loop] payload_summarizer pass-through tool={} bytes={}",
+                                        call.name,
+                                        output.len()
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[agent_loop] payload_summarizer error tool={} err={} (passing raw payload through)",
+                                        call.name,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                        (output, true)
                     } else {
                         (format!("Error: {}", r.output()), false)
                     }
@@ -841,6 +950,10 @@ impl Agent {
             session_id: self.event_session_id().to_string(),
             channel: self.event_channel().to_string(),
             connected_integrations: self.connected_integrations.clone(),
+            composio_client: self.composio_client.clone(),
+            tool_call_format: self.tool_dispatcher.tool_call_format(),
+            session_key: self.session_key.clone(),
+            session_parent_prefix: self.session_parent_prefix.clone(),
         }
     }
 
@@ -873,7 +986,6 @@ impl Agent {
             system_prompt: Arc::new(system_prompt),
             tool_specs: Arc::clone(&self.visible_tool_specs),
             message_prefix: Arc::new(messages),
-            cache_boundary: self.system_prompt_cache_boundary,
             fork_task_prompt,
         }
     }
@@ -993,10 +1105,13 @@ impl Agent {
 
     /// Fetches the user's active Composio connections and populates
     /// `self.connected_integrations` so the system prompt can surface them.
+    /// Also caches a [`ComposioClient`] on the session so the sub-agent
+    /// runner can construct per-action tools for `integrations_agent` spawns
+    /// without rebuilding the client on every call.
     ///
     /// Delegates to the shared [`crate::openhuman::composio::fetch_connected_integrations`]
     /// which is the single source of truth for integration discovery.
-    pub(super) async fn fetch_connected_integrations(&mut self) {
+    pub async fn fetch_connected_integrations(&mut self) {
         let config = match crate::openhuman::config::Config::load_or_init().await {
             Ok(c) => c,
             Err(e) => {
@@ -1008,14 +1123,12 @@ impl Agent {
         };
         self.connected_integrations =
             crate::openhuman::composio::fetch_connected_integrations(&config).await;
+        self.composio_client = crate::openhuman::composio::build_composio_client(&config);
     }
 
     /// Builds the system prompt for the current turn, including tool
     /// instructions and learned context.
-    pub(super) fn build_system_prompt(
-        &self,
-        learned: LearnedContextData,
-    ) -> Result<RenderedPrompt> {
+    pub fn build_system_prompt(&self, learned: LearnedContextData) -> Result<String> {
         let tools_slice: &[Box<dyn Tool>] = self.tools.as_slice();
         let instructions = self.tool_dispatcher.prompt_instructions(tools_slice);
         // Adapt the owned Box<dyn Tool> slice into the shared PromptTool
@@ -1026,6 +1139,7 @@ impl Agent {
         let ctx = PromptContext {
             workspace_dir: &self.workspace_dir,
             model_name: &self.model_name,
+            agent_id: &self.agent_definition_name,
             tools: &prompt_tools,
             skills: &self.skills,
             dispatcher_instructions: &instructions,
@@ -1038,9 +1152,8 @@ impl Agent {
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,
-        // channel runtimes — shares one builder configuration while
-        // still preserving cache-boundary metadata for provider calls.
-        self.context.build_system_prompt_with_cache_metadata(&ctx)
+        // channel runtimes — shares one builder configuration.
+        self.context.build_system_prompt(&ctx)
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1065,14 +1178,9 @@ impl Agent {
                             );
                             return;
                         }
-                        // Restore the cache boundary from the transcript
-                        // metadata so the provider request carries the
-                        // same offset as the original session.
-                        self.system_prompt_cache_boundary = session.meta.cache_boundary;
                         log::info!(
-                            "[transcript] loaded {} messages for resume (cache_boundary={:?})",
-                            session.messages.len(),
-                            session.meta.cache_boundary
+                            "[transcript] loaded {} messages for resume",
+                            session.messages.len()
                         );
                         self.cached_transcript_messages = Some(session.messages);
                     }
@@ -1095,9 +1203,14 @@ impl Agent {
 
     /// Persist the exact provider messages as a session transcript.
     ///
-    /// Best-effort: failures are logged and silently ignored. The JSONL
-    /// conversation store remains the authoritative persistence layer;
-    /// session transcripts are an optimization for KV cache stability.
+    /// Writes JSONL as source of truth and re-renders the companion `.md`
+    /// for human readability. Best-effort: failures are logged and silently
+    /// ignored. The JSONL conversation store remains the authoritative
+    /// persistence layer; session transcripts are an optimization for KV
+    /// cache stability.
+    ///
+    /// `turn_usage` — when `Some`, attributes per-message token/cost figures
+    /// to the last assistant message in the written transcript.
     pub(super) fn persist_session_transcript(
         &mut self,
         messages: &[ChatMessage],
@@ -1105,13 +1218,19 @@ impl Agent {
         output_tokens: u64,
         cached_input_tokens: u64,
         charged_amount_usd: f64,
+        turn_usage: Option<&transcript::TurnUsage>,
     ) {
-        // Resolve the transcript path on first write.
+        // Resolve the transcript path on first write. The stem is
+        // `{parent_prefix}__{session_key}` for sub-agents (producing a
+        // flat hierarchical filename) or just `{session_key}` for a
+        // root session. Prefix chaining is already done by the
+        // sub-agent runner when it populates `session_parent_prefix`.
         if self.session_transcript_path.is_none() {
-            match transcript::resolve_new_transcript_path(
-                &self.workspace_dir,
-                &self.agent_definition_name,
-            ) {
+            let stem = match &self.session_parent_prefix {
+                Some(prefix) => format!("{}__{}", prefix, self.session_key),
+                None => self.session_key.clone(),
+            };
+            match transcript::resolve_keyed_transcript_path(&self.workspace_dir, &stem) {
                 Ok(path) => {
                     log::info!(
                         "[transcript] new session transcript path={}",
@@ -1136,7 +1255,6 @@ impl Agent {
             } else {
                 "xml".into()
             },
-            cache_boundary: self.system_prompt_cache_boundary,
             created: now.clone(),
             updated: now,
             turn_count: self.context.stats().session_memory_current_turn as usize,
@@ -1146,7 +1264,7 @@ impl Agent {
             charged_amount_usd,
         };
 
-        if let Err(err) = transcript::write_transcript(path, messages, &meta) {
+        if let Err(err) = transcript::write_transcript(path, messages, &meta, turn_usage) {
             log::warn!(
                 "[transcript] failed to write transcript {}: {err}",
                 path.display()
@@ -1569,21 +1687,18 @@ mod tests {
             ChatMessage::user("hello"),
             ChatMessage::assistant("done"),
         ];
-        agent.system_prompt_cache_boundary = Some(12);
-        agent.persist_session_transcript(&messages, 10, 5, 3, 0.25);
+        agent.persist_session_transcript(&messages, 10, 5, 3, 0.25, None);
         assert!(agent.session_transcript_path.is_some());
 
         let loaded = transcript::read_transcript(agent.session_transcript_path.as_ref().unwrap())
             .expect("transcript should be readable");
         assert_eq!(loaded.messages.len(), 3);
-        assert_eq!(loaded.meta.cache_boundary, Some(12));
         assert_eq!(loaded.meta.input_tokens, 10);
 
         let mut resumed = make_agent(None);
         resumed.workspace_dir = agent.workspace_dir.clone();
         resumed.agent_definition_name = agent.agent_definition_name.clone();
         resumed.try_load_session_transcript();
-        assert_eq!(resumed.system_prompt_cache_boundary, Some(12));
         assert_eq!(
             resumed.cached_transcript_messages.as_ref().map(|m| m.len()),
             Some(3)

@@ -10,7 +10,6 @@ import {
   type ApplyPresetResult,
   type LocalAiDownloadsProgress,
   type LocalAiStatus,
-  openhumanLocalAiApplyPreset,
   openhumanLocalAiDownload,
   openhumanLocalAiDownloadAllAssets,
   openhumanLocalAiDownloadsProgress,
@@ -37,7 +36,6 @@ const LocalModelPanel = () => {
 
   const [presetsData, setPresetsData] = useState<PresetsResponse | null>(null);
   const [presetsLoading, setPresetsLoading] = useState(true);
-  const [isApplyingPreset, setIsApplyingPreset] = useState(false);
   const [presetError, setPresetError] = useState('');
   const [presetSuccess, setPresetSuccess] = useState<ApplyPresetResult | null>(null);
 
@@ -89,23 +87,6 @@ const LocalModelPanel = () => {
     }
   };
 
-  const applyPreset = async (tier: string) => {
-    setIsApplyingPreset(true);
-    setPresetError('');
-    setPresetSuccess(null);
-    try {
-      const result = await openhumanLocalAiApplyPreset(tier);
-      setPresetSuccess(result);
-      await loadPresets();
-      await loadStatus();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to apply preset';
-      setPresetError(msg);
-    } finally {
-      setIsApplyingPreset(false);
-    }
-  };
-
   useEffect(() => {
     void loadStatus();
     void loadPresets();
@@ -152,9 +133,12 @@ const LocalModelPanel = () => {
           presetsLoading={presetsLoading}
           presetError={presetError}
           presetSuccess={presetSuccess}
-          isApplyingPreset={isApplyingPreset}
-          onApplyPreset={tier => void applyPreset(tier)}
           formatRamGb={formatRamGb}
+          onPresetApplied={result => {
+            setPresetSuccess(result);
+            void loadPresets();
+            void loadStatus();
+          }}
         />
 
         {/* Simplified download status */}

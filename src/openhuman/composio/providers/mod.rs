@@ -32,322 +32,106 @@
 //! provider's implementation isolated, individually testable, and
 //! easy to add without touching the dispatch layer.
 
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+mod descriptions;
+pub(crate) mod helpers;
+pub mod tool_scope;
+mod traits;
+mod types;
+pub mod user_scopes;
 
-use crate::openhuman::config::Config;
-
-use super::client::{build_composio_client, ComposioClient};
-
+pub mod catalogs;
+pub mod github;
 pub mod gmail;
 pub mod notion;
 pub mod profile;
 pub mod registry;
 pub mod sync_state;
 
+/// Static toolkit → curated catalog map.
+///
+/// This is consulted by the meta-tool layer alongside any registered
+/// provider's [`ComposioProvider::curated_tools`]. It lets toolkits
+/// without a full native provider (e.g. `github`, which has no sync
+/// logic yet) still benefit from curated whitelisting.
+///
+/// Lookup key is the lowercased prefix returned by
+/// [`toolkit_from_slug`] applied to the action slug — e.g.
+/// `GOOGLECALENDAR_CREATE_EVENT` → `"googlecalendar"`. Multi-segment
+/// prefixes like `MICROSOFT_TEAMS_*` are matched via their first
+/// segment with an extra arm.
+/// Synchronous visibility check for a Composio action slug given a
+/// pre-loaded user scope preference.
+///
+/// Returns `true` if the action should appear in the agent's tool
+/// surface — i.e. it's in the toolkit's curated whitelist (or the
+/// toolkit has no curation) **and** the user's scope pref allows its
+/// classification. Falls back to [`classify_unknown`] for un-curated
+/// toolkits.
+///
+/// Use this when the user pref has already been loaded for the
+/// toolkit (typical inside a `for slug in toolkits {...}` loop where
+/// awaiting once per toolkit is cheaper than once per action).
+pub fn is_action_visible_with_pref(slug: &str, pref: &UserScopePref) -> bool {
+    let Some(toolkit) = toolkit_from_slug(slug) else {
+        return true;
+    };
+    let catalog = get_provider(&toolkit)
+        .and_then(|p| p.curated_tools())
+        .or_else(|| catalog_for_toolkit(&toolkit));
+    match catalog {
+        Some(catalog) => match find_curated(catalog, slug) {
+            Some(curated) => pref.allows(curated.scope),
+            None => false,
+        },
+        None => pref.allows(classify_unknown(slug)),
+    }
+}
+
+pub fn catalog_for_toolkit(toolkit: &str) -> Option<&'static [CuratedTool]> {
+    match toolkit.trim().to_ascii_lowercase().as_str() {
+        // Native providers
+        "gmail" => Some(gmail::GMAIL_CURATED),
+        "notion" => Some(notion::NOTION_CURATED),
+        "github" => Some(github::GITHUB_CURATED),
+        // Catalog-only toolkits
+        "slack" => Some(catalogs::SLACK_CURATED),
+        "discord" => Some(catalogs::DISCORD_CURATED),
+        "googlecalendar" | "google_calendar" => Some(catalogs::GOOGLECALENDAR_CURATED),
+        "googledrive" | "google_drive" => Some(catalogs::GOOGLEDRIVE_CURATED),
+        "googledocs" | "google_docs" => Some(catalogs::GOOGLEDOCS_CURATED),
+        "googlesheets" | "google_sheets" => Some(catalogs::GOOGLESHEETS_CURATED),
+        "outlook" => Some(catalogs::OUTLOOK_CURATED),
+        // MICROSOFT_TEAMS_* slugs extract to "microsoft" via toolkit_from_slug.
+        "microsoft" | "microsoft_teams" => Some(catalogs::MICROSOFT_TEAMS_CURATED),
+        "linear" => Some(catalogs::LINEAR_CURATED),
+        "jira" => Some(catalogs::JIRA_CURATED),
+        "trello" => Some(catalogs::TRELLO_CURATED),
+        "asana" => Some(catalogs::ASANA_CURATED),
+        "dropbox" => Some(catalogs::DROPBOX_CURATED),
+        "twitter" => Some(catalogs::TWITTER_CURATED),
+        "spotify" => Some(catalogs::SPOTIFY_CURATED),
+        "telegram" => Some(catalogs::TELEGRAM_CURATED),
+        "whatsapp" => Some(catalogs::WHATSAPP_CURATED),
+        "shopify" => Some(catalogs::SHOPIFY_CURATED),
+        "stripe" => Some(catalogs::STRIPE_CURATED),
+        "hubspot" => Some(catalogs::HUBSPOT_CURATED),
+        "salesforce" => Some(catalogs::SALESFORCE_CURATED),
+        "airtable" => Some(catalogs::AIRTABLE_CURATED),
+        "figma" => Some(catalogs::FIGMA_CURATED),
+        "youtube" => Some(catalogs::YOUTUBE_CURATED),
+        _ => None,
+    }
+}
+
+pub use descriptions::toolkit_description;
+pub(crate) use helpers::pick_str;
 pub use registry::{
     all_providers, get_provider, init_default_providers, register_provider, ProviderArc,
 };
-
-/// Human-readable capability summary for a Composio toolkit slug.
-///
-/// Used by the prompt renderer to tell the orchestrator what each connected
-/// integration can do. Covers the most common toolkits; unknown slugs get
-/// a generic fallback so newly connected services still appear.
-pub fn toolkit_description(slug: &str) -> &'static str {
-    match slug {
-        "gmail" => {
-            "Send, read, draft, reply, forward, and search emails; manage labels and threads"
-        }
-        "notion" => "Create, read, update, and search notion pages and notion databases",
-        "github" => "Manage repositories, issues, pull requests on GitHub",
-        "slack" => "Send messages, read channels, manage threads, and post updates in Slack",
-        "discord" => "Send messages, manage channels, and interact with Discord servers",
-        "google_calendar" => "Create, update, and query calendar events; check availability",
-        "google_drive" => "Upload, download, search, and share files in Google Drive",
-        "google_docs" => "Create, read, and edit Google Docs documents",
-        "google_sheets" => "Read, write, and manage Google Sheets spreadsheets",
-        "outlook" => "Send, read, and manage emails in Microsoft Outlook",
-        "microsoft_teams" => "Send messages and manage channels in Microsoft Teams",
-        "linear" => "Create and manage issues, projects, and cycles in Linear",
-        "jira" => "Create and manage issues, projects, and sprints in Jira",
-        "trello" => "Create and manage cards, lists, and boards in Trello",
-        "asana" => "Create and manage tasks, projects, and sections in Asana",
-        "dropbox" => "Upload, download, and share files in Dropbox",
-        "twitter" => "Post tweets, read timelines, and manage Twitter interactions",
-        "spotify" => "Control playback, search music, and manage playlists on Spotify",
-        "telegram" => "Send and receive messages via Telegram",
-        "whatsapp" => "Send and receive messages via WhatsApp",
-        "twilio" => "Send SMS, make calls, and manage communications via Twilio",
-        "shopify" => "Manage products, orders, and customers in Shopify",
-        "stripe" => "Manage payments, subscriptions, and customers in Stripe",
-        "hubspot" => "Manage contacts, deals, and marketing in HubSpot",
-        "salesforce" => "Manage contacts, leads, and opportunities in Salesforce",
-        "airtable" => "Read and write records in Airtable bases",
-        "figma" => "Access and manage Figma design files and components",
-        "youtube" => "Search videos, manage playlists, and interact with YouTube",
-        "calendar" => "Create, update, and query calendar events",
-        _ => "Interact with this connected service via its available actions",
-    }
-}
-
-/// Reason a sync was triggered. Providers can use this to decide
-/// whether to do a full backfill or an incremental pull.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SyncReason {
-    /// First sync immediately after an OAuth handoff completes.
-    ConnectionCreated,
-    /// Periodic background sync from the scheduler.
-    Periodic,
-    /// Explicit user-driven sync from RPC / UI.
-    Manual,
-}
-
-impl SyncReason {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SyncReason::ConnectionCreated => "connection_created",
-            SyncReason::Periodic => "periodic",
-            SyncReason::Manual => "manual",
-        }
-    }
-}
-
-/// Normalized user profile shape returned by every provider.
-///
-/// The shared fields (`display_name`, `email`, `username`, `avatar_url`)
-/// cover what the desktop UI actually needs to render a connected
-/// account card. Anything provider-specific (Gmail's `messagesTotal`,
-/// Notion's workspace ids, …) goes into [`extras`](Self::extras) so
-/// callers don't have to widen the shape every time a new toolkit
-/// lands.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProviderUserProfile {
-    pub toolkit: String,
-    pub connection_id: Option<String>,
-    pub display_name: Option<String>,
-    pub email: Option<String>,
-    pub username: Option<String>,
-    pub avatar_url: Option<String>,
-    /// Provider-specific extras (raw JSON object).
-    #[serde(default)]
-    pub extras: serde_json::Value,
-}
-
-/// Result of a provider sync run. Mostly used for logging + UI status.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SyncOutcome {
-    pub toolkit: String,
-    pub connection_id: Option<String>,
-    pub reason: String,
-    pub items_ingested: usize,
-    pub started_at_ms: u64,
-    pub finished_at_ms: u64,
-    pub summary: String,
-    /// Provider-specific extras (raw JSON object).
-    #[serde(default)]
-    pub details: serde_json::Value,
-}
-
-impl SyncOutcome {
-    pub fn elapsed_ms(&self) -> u64 {
-        self.finished_at_ms.saturating_sub(self.started_at_ms)
-    }
-}
-
-/// Per-call context handed to provider methods.
-///
-/// `connection_id` is `None` when a method runs in a "no specific
-/// connection" mode (e.g. an across-the-board periodic sync that
-/// already iterated). For per-connection paths it is always populated.
-#[derive(Clone)]
-pub struct ProviderContext {
-    pub config: Arc<Config>,
-    pub client: ComposioClient,
-    pub toolkit: String,
-    pub connection_id: Option<String>,
-}
-
-impl ProviderContext {
-    /// Build a context from the current config + a toolkit slug.
-    ///
-    /// Returns `None` if a [`ComposioClient`] cannot be constructed
-    /// (no JWT yet — user not signed in). Callers should treat that
-    /// case as "skip silently" rather than as a hard error, mirroring
-    /// the existing op layer.
-    pub fn from_config(
-        config: Arc<Config>,
-        toolkit: impl Into<String>,
-        connection_id: Option<String>,
-    ) -> Option<Self> {
-        let client = build_composio_client(&config)?;
-        Some(Self {
-            config,
-            client,
-            toolkit: toolkit.into(),
-            connection_id,
-        })
-    }
-
-    /// Memory client handle if the global memory singleton is ready.
-    /// Used by providers that want to persist sync snapshots.
-    pub fn memory_client(&self) -> Option<crate::openhuman::memory::MemoryClientRef> {
-        crate::openhuman::memory::global::client_if_ready()
-    }
-}
-
-/// Native provider implementation for a specific Composio toolkit.
-///
-/// All methods are async and return `Result<_, String>` so the bus
-/// subscriber + RPC layer can forward errors as user-visible strings
-/// without `anyhow` round-tripping.
-#[async_trait]
-pub trait ComposioProvider: Send + Sync {
-    /// Toolkit slug (e.g. `"gmail"`). Must match the slug Composio /
-    /// the backend allowlist uses — the registry keys on this.
-    fn toolkit_slug(&self) -> &'static str;
-
-    /// Suggested periodic sync interval in seconds. Return `None` to
-    /// opt out of the periodic scheduler entirely (e.g. for write-only
-    /// providers like Slack send-message).
-    fn sync_interval_secs(&self) -> Option<u64> {
-        Some(15 * 60)
-    }
-
-    /// Fetch a normalized user profile for the current connection in
-    /// `ctx`. Most providers implement this by calling a provider
-    /// "get profile / about me" action via [`super::ops::composio_execute`].
-    async fn fetch_user_profile(
-        &self,
-        ctx: &ProviderContext,
-    ) -> Result<ProviderUserProfile, String>;
-
-    /// Run a sync pass for the current connection in `ctx`. Implementations
-    /// are responsible for persisting whatever they fetch (typically into
-    /// the memory layer via [`ProviderContext::memory_client`]).
-    async fn sync(&self, ctx: &ProviderContext, reason: SyncReason) -> Result<SyncOutcome, String>;
-
-    /// Hook fired when an OAuth handoff completes
-    /// ([`crate::core::event_bus::DomainEvent::ComposioConnectionCreated`]).
-    ///
-    /// Default impl: fetch the user profile, then run an initial sync.
-    /// Providers can override to add provider-specific bootstrapping
-    /// (e.g. registering Composio triggers, seeding labels, …).
-    async fn on_connection_created(&self, ctx: &ProviderContext) -> Result<(), String> {
-        let toolkit = self.toolkit_slug();
-        tracing::info!(
-            toolkit = %toolkit,
-            connection_id = ?ctx.connection_id,
-            "[composio:provider] on_connection_created → fetch_user_profile + initial sync"
-        );
-        match self.fetch_user_profile(ctx).await {
-            Ok(profile) => {
-                // PII discipline: do not log raw display_name or email.
-                // We log only presence indicators and the email domain
-                // (non-PII) so the trace is debuggable without leaking
-                // the user's identity. Provider-specific impls follow
-                // the same convention.
-                let has_display_name = profile.display_name.is_some();
-                let has_email = profile.email.is_some();
-                let email_domain = profile
-                    .email
-                    .as_deref()
-                    .and_then(|e| e.split('@').nth(1))
-                    .map(|d| d.to_string());
-                tracing::info!(
-                    toolkit = %toolkit,
-                    has_display_name,
-                    has_email,
-                    email_domain = ?email_domain,
-                    "[composio:provider] user profile fetched"
-                );
-
-                // Persist profile fields into the local user_profile
-                // facet table so display_name / email / avatar are
-                // available to the agent context and UI without a
-                // round-trip to the upstream provider.
-                let facets = profile::persist_provider_profile(&profile);
-                tracing::debug!(
-                    toolkit = %toolkit,
-                    facets_written = facets,
-                    "[composio:provider] profile facets persisted"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    toolkit = %toolkit,
-                    error = %e,
-                    "[composio:provider] user profile fetch failed (continuing to sync)"
-                );
-            }
-        }
-        let outcome = self.sync(ctx, SyncReason::ConnectionCreated).await?;
-        tracing::info!(
-            toolkit = %toolkit,
-            items = outcome.items_ingested,
-            elapsed_ms = outcome.elapsed_ms(),
-            "[composio:provider] initial sync complete"
-        );
-        Ok(())
-    }
-
-    /// Hook fired when a Composio trigger webhook arrives for this
-    /// toolkit. `payload` is the raw provider payload as forwarded by
-    /// the backend. Implementations should be defensive — payload
-    /// shapes vary across triggers.
-    ///
-    /// Default impl: log and no-op. Most providers will want to
-    /// override this to react to specific triggers.
-    async fn on_trigger(
-        &self,
-        ctx: &ProviderContext,
-        trigger: &str,
-        payload: &serde_json::Value,
-    ) -> Result<(), String> {
-        tracing::debug!(
-            toolkit = %self.toolkit_slug(),
-            trigger = %trigger,
-            connection_id = ?ctx.connection_id,
-            payload_bytes = payload.to_string().len(),
-            "[composio:provider] on_trigger (default no-op)"
-        );
-        Ok(())
-    }
-}
-
-/// Helper used by every provider's `fetch_user_profile` impl.
-///
-/// Walks a JSON object using a list of dotted-path candidates and
-/// returns the first non-empty string match. Keeps each provider's
-/// extraction code free of repetitive `as_object().and_then(...)`
-/// chains.
-pub(crate) fn pick_str(value: &serde_json::Value, paths: &[&str]) -> Option<String> {
-    for path in paths {
-        let mut cur = value;
-        let mut ok = true;
-        for segment in path.split('.') {
-            match cur.get(segment) {
-                Some(next) => cur = next,
-                None => {
-                    ok = false;
-                    break;
-                }
-            }
-        }
-        if !ok {
-            continue;
-        }
-        if let Some(s) = cur.as_str() {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    None
-}
+pub use tool_scope::{classify_unknown, find_curated, toolkit_from_slug, CuratedTool, ToolScope};
+pub use traits::ComposioProvider;
+pub use types::{ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason};
+pub use user_scopes::{load_or_default as load_user_scope_or_default, UserScopePref};
 
 #[cfg(test)]
 mod tests {
@@ -382,5 +166,115 @@ mod tests {
         assert_eq!(o.elapsed_ms(), 0);
         o.finished_at_ms = 250;
         assert_eq!(o.elapsed_ms(), 150);
+    }
+
+    #[test]
+    fn pick_str_returns_none_for_non_string_values() {
+        let v = json!({ "count": 42, "flag": true, "empty": "", "whitespace": "   " });
+        assert_eq!(pick_str(&v, &["count"]), None);
+        assert_eq!(pick_str(&v, &["flag"]), None);
+        assert_eq!(pick_str(&v, &["empty"]), None);
+        assert_eq!(pick_str(&v, &["whitespace"]), None);
+    }
+
+    #[test]
+    fn pick_str_respects_path_order() {
+        let v = json!({ "a": "first", "b": "second" });
+        assert_eq!(pick_str(&v, &["a", "b"]), Some("first".into()));
+        assert_eq!(pick_str(&v, &["b", "a"]), Some("second".into()));
+    }
+
+    #[test]
+    fn sync_reason_as_str_matches_enum_variant() {
+        assert_eq!(SyncReason::ConnectionCreated.as_str(), "connection_created");
+        assert_eq!(SyncReason::Periodic.as_str(), "periodic");
+        assert_eq!(SyncReason::Manual.as_str(), "manual");
+    }
+
+    #[test]
+    fn sync_reason_serde_is_snake_case() {
+        let s = serde_json::to_string(&SyncReason::ConnectionCreated).unwrap();
+        assert_eq!(s, "\"connection_created\"");
+        let back: SyncReason = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, SyncReason::ConnectionCreated);
+    }
+
+    #[test]
+    fn toolkit_description_known_slugs_are_distinct_and_non_empty() {
+        let known = [
+            "gmail",
+            "notion",
+            "github",
+            "slack",
+            "discord",
+            "google_calendar",
+            "google_drive",
+            "google_docs",
+            "google_sheets",
+            "outlook",
+            "microsoft_teams",
+            "linear",
+            "jira",
+            "trello",
+            "asana",
+            "dropbox",
+            "twitter",
+            "spotify",
+            "telegram",
+            "whatsapp",
+            "twilio",
+            "shopify",
+            "stripe",
+            "hubspot",
+            "salesforce",
+            "airtable",
+            "figma",
+            "youtube",
+            "calendar",
+        ];
+        let fallback = toolkit_description("__definitely_unknown_slug__");
+        for slug in known {
+            let desc = toolkit_description(slug);
+            assert!(!desc.is_empty(), "{slug} description must not be empty");
+            assert_ne!(
+                desc, fallback,
+                "known slug `{slug}` must not map to the generic fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn toolkit_description_unknown_slug_uses_generic_fallback() {
+        assert_eq!(
+            toolkit_description("not_a_real_toolkit_123"),
+            "Interact with this connected service via its available actions"
+        );
+        assert_eq!(
+            toolkit_description(""),
+            "Interact with this connected service via its available actions"
+        );
+    }
+
+    #[test]
+    fn toolkit_description_is_case_sensitive() {
+        // The match is lowercase-only by convention; an uppercase slug
+        // should fall through to the generic description. Explicitly
+        // documenting this guards against accidental case-insensitive
+        // matching sneaking in later.
+        let fallback = toolkit_description("__fallback__");
+        assert_eq!(toolkit_description("GMAIL"), fallback);
+        assert_eq!(toolkit_description("Notion"), fallback);
+    }
+
+    #[test]
+    fn provider_user_profile_default_is_empty() {
+        let p = ProviderUserProfile::default();
+        assert!(p.toolkit.is_empty());
+        assert!(p.connection_id.is_none());
+        assert!(p.display_name.is_none());
+        assert!(p.email.is_none());
+        assert!(p.username.is_none());
+        assert!(p.avatar_url.is_none());
+        assert!(p.extras.is_null());
     }
 }
