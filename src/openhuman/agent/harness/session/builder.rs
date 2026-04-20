@@ -596,6 +596,28 @@ impl Agent {
             });
         }
 
+        // Filter tools by user preference stored in app state.
+        {
+            use crate::openhuman::app_state::load_stored_app_state;
+            match load_stored_app_state(config) {
+                Ok(stored) => {
+                    if let Some(ref tasks) = stored.onboarding_tasks {
+                        if !tasks.enabled_tools.is_empty() {
+                            crate::openhuman::tools::filter_tools_by_user_preference(
+                                &mut tools,
+                                &tasks.enabled_tools,
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[session-builder] failed to load app state for tool filtering: {e}"
+                    );
+                }
+            }
+        }
+
         let model_name = config
             .default_model
             .as_deref()
