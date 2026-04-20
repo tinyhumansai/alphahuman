@@ -77,6 +77,18 @@ impl NodeBootstrap {
         }
     }
 
+    /// Peek at the memoised [`ResolvedNode`] without triggering a download.
+    ///
+    /// Returns `Some(..)` only when a previous `resolve()` call succeeded
+    /// and the cache lock is currently free. Returns `None` otherwise —
+    /// e.g. no resolution has happened yet, or another task holds the
+    /// lock doing the initial install. Callers use this for transparent
+    /// PATH injection (shell tool) where a blocking wait or a forced
+    /// download would change the semantics of unrelated commands.
+    pub fn try_cached(&self) -> Option<ResolvedNode> {
+        self.cached.try_lock().ok().and_then(|g| g.clone())
+    }
+
     /// Resolve the Node.js toolchain, downloading + extracting a managed
     /// distribution if necessary. Idempotent: the first successful call
     /// memoises the result; later calls return it without further I/O.
