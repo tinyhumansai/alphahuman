@@ -499,19 +499,15 @@ fn load_from_legacy_manifest(
         manifest.name
     };
 
-    let skill_md = dir.join(SKILL_MD);
+    // `load_from_legacy_manifest` is only called when SKILL.md is absent
+    // (see load_skill_dir), so there is no SKILL.md to fall back to here.
     let description = if manifest.description.is_empty() {
-        read_skill_md_description(&skill_md)
-            .unwrap_or_else(|| "No description provided".to_string())
+        "No description provided".to_string()
     } else {
         manifest.description
     };
 
-    let location = if skill_md.exists() {
-        Some(skill_md)
-    } else {
-        Some(manifest_path.to_path_buf())
-    };
+    let location = Some(manifest_path.to_path_buf());
 
     Skill {
         name,
@@ -619,12 +615,6 @@ fn first_body_line(body: &str) -> Option<String> {
         return Some(trimmed.to_string());
     }
     None
-}
-
-/// Extract the first non-empty, non-header line from a `SKILL.md` file.
-fn read_skill_md_description(path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
-    first_body_line(&content)
 }
 
 #[cfg(test)]
