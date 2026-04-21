@@ -27,6 +27,7 @@ pub mod chunker;
 pub mod ingest;
 pub mod rpc;
 pub mod schemas;
+pub mod score;
 pub mod store;
 pub mod types;
 

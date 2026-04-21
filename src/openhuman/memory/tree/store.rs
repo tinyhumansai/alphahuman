@@ -44,6 +44,46 @@ CREATE INDEX IF NOT EXISTS idx_mem_tree_chunks_owner
     ON mem_tree_chunks(owner);
 CREATE INDEX IF NOT EXISTS idx_mem_tree_chunks_source_seq
     ON mem_tree_chunks(source_kind, source_id, seq_in_source);
+
+-- Phase 2 (#708): per-chunk score rationale for admission debugging.
+CREATE TABLE IF NOT EXISTS mem_tree_score (
+    chunk_id               TEXT PRIMARY KEY,
+    total                  REAL NOT NULL,
+    token_count_signal     REAL NOT NULL,
+    unique_words_signal    REAL NOT NULL,
+    metadata_weight        REAL NOT NULL,
+    source_weight          REAL NOT NULL,
+    interaction_weight     REAL NOT NULL,
+    entity_density         REAL NOT NULL,
+    dropped                INTEGER NOT NULL DEFAULT 0,
+    reason                 TEXT,
+    computed_at_ms         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mem_tree_score_total
+    ON mem_tree_score(total);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_score_dropped
+    ON mem_tree_score(dropped);
+
+-- Phase 2 (#708): inverted index entity_id -> node_id for retrieval.
+CREATE TABLE IF NOT EXISTS mem_tree_entity_index (
+    entity_id              TEXT NOT NULL,
+    node_id                TEXT NOT NULL,
+    node_kind              TEXT NOT NULL,
+    entity_kind            TEXT NOT NULL,
+    surface                TEXT NOT NULL,
+    score                  REAL NOT NULL,
+    timestamp_ms           INTEGER NOT NULL,
+    tree_id                TEXT,
+    PRIMARY KEY (entity_id, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_entity
+    ON mem_tree_entity_index(entity_id);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_node
+    ON mem_tree_entity_index(node_id);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_timestamp
+    ON mem_tree_entity_index(timestamp_ms);
 ";
 
 /// Upsert a batch of chunks atomically.
@@ -234,7 +274,14 @@ fn ms_to_utc(ms: i64) -> rusqlite::Result<DateTime<Utc>> {
     })
 }
 
-fn with_connection<T>(config: &Config, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+/// Open the memory_tree SQLite DB and run a closure against it.
+///
+/// Visible to sibling modules (e.g. `score::store`) so Phase 2 can reuse
+/// the same connection setup / schema initialisation without duplication.
+pub(crate) fn with_connection<T>(
+    config: &Config,
+    f: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
     let dir = config.workspace_dir.join(DB_DIR);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create memory_tree dir: {}", dir.display()))?;
@@ -243,7 +290,81 @@ fn with_connection<T>(config: &Config, f: impl FnOnce(&Connection) -> Result<T>)
         .with_context(|| format!("Failed to open memory_tree DB: {}", db_path.display()))?;
     conn.execute_batch(SCHEMA)
         .context("Failed to initialize memory_tree schema")?;
+    // Phase 2 migrations — additive, idempotent.
+    add_column_if_missing(&conn, "mem_tree_chunks", "embedding", "BLOB")?;
     f(&conn)
+}
+
+/// Idempotent `ALTER TABLE ADD COLUMN` — adds the column only when absent.
+///
+/// SQLite's `ADD COLUMN` has no `IF NOT EXISTS` variant, so we check the
+/// column list via `pragma_table_info` first. Safe to run on every
+/// connection; it's a no-op once the column is there.
+fn add_column_if_missing(conn: &Connection, table: &str, name: &str, sql_type: &str) -> Result<()> {
+    let exists: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",),
+            rusqlite::params![table, name],
+            |r| r.get(0),
+        )
+        .with_context(|| format!("pragma_table_info lookup failed for {table}.{name}"))?;
+    if exists == 0 {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {name} {sql_type}"),
+            [],
+        )
+        .with_context(|| format!("Failed to add column {table}.{name}"))?;
+        log::debug!("[memory_tree::store] migration: added column {table}.{name} ({sql_type})");
+    }
+    Ok(())
+}
+
+// ── Phase 2: embedding column accessors ─────────────────────────────────
+
+/// Store a chunk's embedding as a packed little-endian `f32` blob.
+///
+/// Length is `embedding.len() * 4` bytes. The caller is responsible for
+/// ensuring all embeddings in a given deployment share the same dimension.
+pub fn set_chunk_embedding(config: &Config, chunk_id: &str, embedding: &[f32]) -> Result<()> {
+    let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+    with_connection(config, |conn| {
+        let changed = conn.execute(
+            "UPDATE mem_tree_chunks SET embedding = ?1 WHERE id = ?2",
+            rusqlite::params![bytes, chunk_id],
+        )?;
+        if changed == 0 {
+            log::warn!("[memory_tree::store] set_chunk_embedding: no row for chunk_id={chunk_id}");
+        }
+        Ok(())
+    })
+}
+
+/// Fetch a chunk's embedding, decoding the stored little-endian `f32` blob.
+///
+/// Returns `Ok(None)` if the chunk doesn't exist or has no embedding stored.
+pub fn get_chunk_embedding(config: &Config, chunk_id: &str) -> Result<Option<Vec<f32>>> {
+    with_connection(config, |conn| {
+        let blob: Option<Option<Vec<u8>>> = conn
+            .query_row(
+                "SELECT embedding FROM mem_tree_chunks WHERE id = ?1",
+                rusqlite::params![chunk_id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?;
+        match blob.flatten() {
+            None => Ok(None),
+            Some(bytes) => {
+                if !bytes.len().is_multiple_of(4) {
+                    anyhow::bail!("embedding blob length {} not a multiple of 4", bytes.len());
+                }
+                let floats: Vec<f32> = bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                Ok(Some(floats))
+            }
+        }
+    })
 }
 
 #[cfg(test)]

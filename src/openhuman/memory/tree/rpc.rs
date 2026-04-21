@@ -63,33 +63,32 @@ pub async fn ingest_rpc(
         source_id
     );
 
-    let result = tokio::task::spawn_blocking({
-        let config = config.clone();
-        let source_id = source_id.clone();
-        let owner = owner.clone();
-        move || -> anyhow::Result<IngestResult> {
-            match source_kind {
-                SourceKind::Chat => {
-                    let batch: ChatBatch = serde_json::from_value(payload)
-                        .map_err(|e| anyhow::anyhow!("invalid chat payload: {e}"))?;
-                    do_ingest_chat(&config, &source_id, &owner, tags, batch)
-                }
-                SourceKind::Email => {
-                    let thread: EmailThread = serde_json::from_value(payload)
-                        .map_err(|e| anyhow::anyhow!("invalid email payload: {e}"))?;
-                    do_ingest_email(&config, &source_id, &owner, tags, thread)
-                }
-                SourceKind::Document => {
-                    let doc: DocumentInput = serde_json::from_value(payload)
-                        .map_err(|e| anyhow::anyhow!("invalid document payload: {e}"))?;
-                    do_ingest_document(&config, &source_id, &owner, tags, doc)
-                }
-            }
+    // Phase 2: ingest functions are async. Their scoring stage awaits the
+    // extractor (cheap for regex, not-cheap for future GLiNER/LLM impls)
+    // and the DB work is isolated on `spawn_blocking` inside `persist`.
+    let result = match source_kind {
+        SourceKind::Chat => {
+            let batch: ChatBatch = serde_json::from_value(payload)
+                .map_err(|e| format!("invalid chat payload: {e}"))?;
+            do_ingest_chat(config, &source_id, &owner, tags, batch)
+                .await
+                .map_err(|e| format!("ingest: {e}"))?
         }
-    })
-    .await
-    .map_err(|e| format!("ingest join error: {e}"))?
-    .map_err(|e| format!("ingest: {e}"))?;
+        SourceKind::Email => {
+            let thread: EmailThread = serde_json::from_value(payload)
+                .map_err(|e| format!("invalid email payload: {e}"))?;
+            do_ingest_email(config, &source_id, &owner, tags, thread)
+                .await
+                .map_err(|e| format!("ingest: {e}"))?
+        }
+        SourceKind::Document => {
+            let doc: DocumentInput = serde_json::from_value(payload)
+                .map_err(|e| format!("invalid document payload: {e}"))?;
+            do_ingest_document(config, &source_id, &owner, tags, doc)
+                .await
+                .map_err(|e| format!("ingest: {e}"))?
+        }
+    };
 
     Ok(RpcOutcome::single_log(
         result,
