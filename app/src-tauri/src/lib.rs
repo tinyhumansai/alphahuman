@@ -222,6 +222,13 @@ async fn run_core_cli(args: Vec<String>) -> Result<String, String> {
         }
         cmd.args(&args);
 
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         log::info!(
             "[service-direct] running {:?} {}{}",
             bin,
