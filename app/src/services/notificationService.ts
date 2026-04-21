@@ -70,7 +70,9 @@ export async function ingestNotification(payload: {
   return result;
 }
 
-export async function getNotificationSettings(provider: string): Promise<{
+export async function getNotificationSettings(
+  provider: string
+): Promise<{
   provider: string;
   enabled: boolean;
   importance_threshold: number;
@@ -83,10 +85,7 @@ export async function getNotificationSettings(provider: string): Promise<{
       importance_threshold: number;
       route_to_orchestrator: boolean;
     };
-  }>({
-    method: 'openhuman.notification_settings_get',
-    params: { provider },
-  });
+  }>({ method: 'openhuman.notification_settings_get', params: { provider } });
   return result.settings;
 }
 

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 
-import { getNotificationSettings, setNotificationSettings } from '../../../services/notificationService';
+import {
+  getNotificationSettings,
+  setNotificationSettings,
+} from '../../../services/notificationService';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -14,7 +17,10 @@ const NotificationRoutingPanel = () => {
   const { navigateBack, breadcrumbs } = useSettingsNavigation();
   const providers = ['gmail', 'slack', 'discord', 'whatsapp'];
   const [settings, setSettings] = useState<
-    Record<string, { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }>
+    Record<
+      string,
+      { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }
+    >
   >({});
 
   useEffect(() => {
@@ -43,7 +49,11 @@ const NotificationRoutingPanel = () => {
 
   const updateSetting = async (
     provider: string,
-    patch: Partial<{ enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }>
+    patch: Partial<{
+      enabled: boolean;
+      importance_threshold: number;
+      route_to_orchestrator: boolean;
+    }>
   ) => {
     const current = settings[provider] ?? {
       enabled: true,
@@ -179,9 +189,7 @@ const NotificationRoutingPanel = () => {
                       type="checkbox"
                       checked={s.route_to_orchestrator}
                       onChange={e => {
-                        void updateSetting(provider, {
-                          route_to_orchestrator: e.target.checked,
-                        });
+                        void updateSetting(provider, { route_to_orchestrator: e.target.checked });
                       }}
                     />
                   </label>

@@ -234,7 +234,10 @@ pub fn get_settings(config: &Config, provider: &str) -> Result<NotificationSetti
         let mut rows = stmt
             .query(params![provider])
             .context("[notifications::store] get_settings query failed")?;
-        if let Some(row) = rows.next().context("[notifications::store] get_settings row failed")? {
+        if let Some(row) = rows
+            .next()
+            .context("[notifications::store] get_settings row failed")?
+        {
             return Ok(NotificationSettings {
                 provider: row.get(0)?,
                 enabled: row.get::<_, i64>(1)? != 0,

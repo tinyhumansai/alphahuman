@@ -2072,7 +2072,10 @@ async fn notification_settings_roundtrip_and_disabled_ingest_skip() {
     .await;
     let get_result = assert_no_jsonrpc_error(&get, "notification_settings_get");
     let settings = get_result.get("settings").expect("settings object");
-    assert_eq!(settings.get("enabled").and_then(Value::as_bool), Some(false));
+    assert_eq!(
+        settings.get("enabled").and_then(Value::as_bool),
+        Some(false)
+    );
     let threshold = settings
         .get("importance_threshold")
         .and_then(Value::as_f64)

@@ -273,7 +273,13 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            vec!["ingest", "list", "mark_read", "settings_get", "settings_set"]
+            vec![
+                "ingest",
+                "list",
+                "mark_read",
+                "settings_get",
+                "settings_set"
+            ]
         );
     }
 
@@ -284,7 +290,13 @@ mod tests {
         let names: Vec<_> = controllers.iter().map(|c| c.schema.function).collect();
         assert_eq!(
             names,
-            vec!["ingest", "list", "mark_read", "settings_get", "settings_set"]
+            vec![
+                "ingest",
+                "list",
+                "mark_read",
+                "settings_get",
+                "settings_set"
+            ]
         );
     }
 

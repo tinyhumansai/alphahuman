@@ -36,7 +36,10 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
     let provider_settings = store::get_settings(&config, &req.provider)
         .map_err(|e| format!("[notifications::rpc] get_settings failed: {e}"))?;
     if !provider_settings.enabled {
-        let outcome = RpcOutcome::new(json!({ "skipped": true, "reason": "provider_disabled" }), vec![]);
+        let outcome = RpcOutcome::new(
+            json!({ "skipped": true, "reason": "provider_disabled" }),
+            vec![],
+        );
         return outcome.into_cli_compatible_json();
     }
     let id = Uuid::new_v4().to_string();
