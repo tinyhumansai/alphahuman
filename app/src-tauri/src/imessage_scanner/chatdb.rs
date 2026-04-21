@@ -18,6 +18,10 @@ pub struct Message {
     pub rowid: i64,
     pub guid: Option<String>,
     pub text: Option<String>,
+    /// Binary NSKeyedArchiver/typedstream blob carrying message body for
+    /// newer macOS versions that leave `text` NULL. Best-effort decoded at
+    /// transcript-format time.
+    pub attributed_body: Option<Vec<u8>>,
     /// Apple epoch nanoseconds (seconds since 2001-01-01 UTC × 1e9).
     pub date_ns: i64,
     pub is_from_me: bool,
@@ -54,6 +58,7 @@ pub fn read_since(db_path: &Path, since_rowid: i64, limit: usize) -> anyhow::Res
           m.ROWID            AS rowid,
           m.guid             AS guid,
           m.text             AS text,
+          m.attributedBody   AS attributed_body,
           m.date             AS date_ns,
           m.is_from_me       AS is_from_me,
           h.id               AS handle_id,
@@ -75,14 +80,85 @@ pub fn read_since(db_path: &Path, since_rowid: i64, limit: usize) -> anyhow::Res
             rowid: row.get(0)?,
             guid: row.get(1)?,
             text: row.get(2)?,
-            date_ns: row.get(3)?,
-            is_from_me: row.get::<_, i64>(4)? != 0,
-            handle_id: row.get(5)?,
-            chat_identifier: row.get(6)?,
-            chat_name: row.get(7)?,
-            service: row.get(8)?,
+            attributed_body: row.get(3)?,
+            date_ns: row.get(4)?,
+            is_from_me: row.get::<_, i64>(5)? != 0,
+            handle_id: row.get(6)?,
+            chat_identifier: row.get(7)?,
+            chat_name: row.get(8)?,
+            service: row.get(9)?,
         })
     })?;
+
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Read ALL messages for a single `(chat_identifier, day)` slice, inclusive
+/// of the day boundary in Apple nanosecond epoch. Used to rebuild full-day
+/// transcripts before upserting memory docs — so tick-over-tick we always
+/// write the complete conversation for the day, never a partial delta
+/// that would overwrite prior content.
+pub fn read_chat_day(
+    db_path: &Path,
+    chat_identifier: &str,
+    day_start_apple_ns: i64,
+    day_end_apple_ns: i64,
+    limit: usize,
+) -> anyhow::Result<Vec<Message>> {
+    let conn = open(db_path)
+        .map_err(|e| anyhow::anyhow!("open chat.db failed for full-day read ({})", e))?;
+
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT
+          m.ROWID            AS rowid,
+          m.guid             AS guid,
+          m.text             AS text,
+          m.attributedBody   AS attributed_body,
+          m.date             AS date_ns,
+          m.is_from_me       AS is_from_me,
+          h.id               AS handle_id,
+          c.chat_identifier  AS chat_identifier,
+          c.display_name     AS chat_name,
+          m.service          AS service
+        FROM message m
+        LEFT JOIN handle h ON h.ROWID = m.handle_id
+        LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+        LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+        WHERE c.chat_identifier = ?1
+          AND m.date >= ?2
+          AND m.date <  ?3
+        ORDER BY m.date ASC
+        LIMIT ?4
+        "#,
+    )?;
+
+    let rows = stmt.query_map(
+        params![
+            chat_identifier,
+            day_start_apple_ns,
+            day_end_apple_ns,
+            limit as i64
+        ],
+        |row| {
+            Ok(Message {
+                rowid: row.get(0)?,
+                guid: row.get(1)?,
+                text: row.get(2)?,
+                attributed_body: row.get(3)?,
+                date_ns: row.get(4)?,
+                is_from_me: row.get::<_, i64>(5)? != 0,
+                handle_id: row.get(6)?,
+                chat_identifier: row.get(7)?,
+                chat_name: row.get(8)?,
+                service: row.get(9)?,
+            })
+        },
+    )?;
 
     let mut out = Vec::new();
     for r in rows {
