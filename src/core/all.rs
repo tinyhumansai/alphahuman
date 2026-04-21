@@ -141,6 +141,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::learning::all_learning_registered_controllers());
     // Conversation thread and message management
     controllers.extend(crate::openhuman::threads::all_threads_registered_controllers());
+    // Embedded webview native notifications
+    controllers.extend(crate::openhuman::webview_notifications::all_webview_notifications_registered_controllers());
     controllers
 }
 
