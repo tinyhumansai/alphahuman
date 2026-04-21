@@ -265,11 +265,26 @@ fn resolve_from_system(system: SystemNode) -> Result<ResolvedNode> {
 /// Check whether `install_dir` already contains a usable managed install
 /// for `target_version`. Cheap enough to run on every `resolve()` because
 /// it never touches the network — just a few `stat()` calls.
+///
+/// A managed install is only "usable" when both `node` and `npm` launchers
+/// are present. `build_resolved` only hard-fails on missing `node`, so we
+/// re-check `npm_bin` here and return `None` on absence — forcing a fresh
+/// download via the normal resolve path. Without this, a corrupted cache
+/// (e.g. download interrupted after node was extracted but before npm)
+/// would be reused forever and `npm_exec` could never self-heal.
 fn probe_managed_install(install_dir: &Path, target_version: &str) -> Option<ResolvedNode> {
     if !install_dir.is_dir() {
         return None;
     }
     let bin_dir = managed_bin_dir(install_dir);
     let version = target_version.trim_start_matches('v').to_string();
-    build_resolved(bin_dir, version, NodeSource::Managed).ok()
+    let resolved = build_resolved(bin_dir, version, NodeSource::Managed).ok()?;
+    if !resolved.npm_bin.is_file() {
+        tracing::warn!(
+            npm_bin = %resolved.npm_bin.display(),
+            "[node_runtime::bootstrap] managed install missing npm; forcing reinstall"
+        );
+        return None;
+    }
+    Some(resolved)
 }
