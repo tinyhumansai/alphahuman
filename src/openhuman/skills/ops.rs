@@ -220,17 +220,19 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<(), String> {
 
 /// Backwards-compatible shim for callers that only have a workspace path.
 ///
-/// Scans (in order, with project > user precedence):
-///   1. `<workspace>/.openhuman/skills/`
-///   2. `<workspace>/.agents/skills/`
-///   3. Legacy `<workspace>/skills/`
+/// Delegates to [`discover_skills`] with the current user's home directory
+/// so user-scope skills (`~/.openhuman/skills/`, `~/.agents/skills/`) are
+/// surfaced for existing production callers (`agent::harness::session::builder`,
+/// `channels::runtime::startup`). Previously this shim passed `None` for the
+/// home directory, which silently dropped user-installed skills from the
+/// main runtime path.
 ///
-/// Does not consult the user's home directory. New code should prefer
-/// [`discover_skills`], which additionally scans `~/.openhuman/skills/` and
-/// `~/.agents/skills/`.
+/// Project-scope (workspace) skills still take precedence over user-scope
+/// on name collisions.
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
     let trusted = is_workspace_trusted(workspace_dir);
-    discover_skills_inner(None, Some(workspace_dir), trusted)
+    let home = dirs::home_dir();
+    discover_skills_inner(home.as_deref(), Some(workspace_dir), trusted)
 }
 
 /// Discover skills from every supported location.
@@ -661,6 +663,17 @@ mod tests {
         std::fs::write(path, content).unwrap();
     }
 
+    /// Workspace-only variant of [`load_skills`] used by tests that care only
+    /// about project-scope semantics. The production [`load_skills`] now
+    /// consults `dirs::home_dir()`; in unit tests that would non-deterministically
+    /// pick up whatever skills the developer has installed under their real
+    /// home. Tests exercising user-scope delegation drive a tempdir through
+    /// [`discover_skills`] explicitly (see `load_skills_surfaces_user_scope`).
+    fn load_skills_ws(workspace_dir: &Path) -> Vec<Skill> {
+        let trusted = is_workspace_trusted(workspace_dir);
+        discover_skills_inner(None, Some(workspace_dir), trusted)
+    }
+
     #[test]
     fn init_skills_dir_creates_dir_and_readme() {
         let dir = tempfile::tempdir().unwrap();
@@ -681,7 +694,7 @@ mod tests {
             &skill_dir.join("skill.json"),
             r#"{"name":"My Skill","description":"A test","version":"1.0"}"#,
         );
-        let skills = load_skills(dir.path());
+        let skills = load_skills_ws(dir.path());
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "My Skill");
         assert_eq!(skills[0].description, "A test");
@@ -700,7 +713,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\nname: hello-world\ndescription: Say hi\nmetadata:\n  version: 0.1.0\n  tags: [demo, greeting]\n---\n\nSay hello to the user.\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert_eq!(skills.len(), 1);
         let s = &skills[0];
         assert_eq!(s.name, "hello-world");
@@ -722,7 +735,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\nname: legacy-fm\ndescription: uses deprecated top-level fields\nversion: 0.2.0\nauthor: Jane\ntags: [old, school]\n---\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert_eq!(skills.len(), 1);
         let s = &skills[0];
         assert_eq!(s.version, "0.2.0");
@@ -766,7 +779,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\nname: unsafe\ndescription: should not load\n---\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert!(skills.is_empty(), "got {skills:?}");
     }
 
@@ -780,7 +793,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\ndescription: no name here\n---\n\nbody\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "mystery");
         assert!(skills[0]
@@ -799,7 +812,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\nname: s\n---\n\n# Heading\n\nActual first line.\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert_eq!(skills[0].description, "Actual first line.");
     }
 
@@ -813,7 +826,7 @@ mod tests {
             &skill_dir.join("SKILL.md"),
             "---\nname: other-name\ndescription: mismatch\n---\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "other-name");
         assert!(skills[0]
@@ -895,6 +908,36 @@ mod tests {
     }
 
     #[test]
+    fn load_skills_surfaces_user_scope() {
+        // load_skills now delegates to discover_skills with dirs::home_dir(),
+        // so user-scope skills reach production callers that still hit the
+        // backwards-compat shim. Simulate this with an explicit tempdir home
+        // via discover_skills — we can't safely override the process HOME in
+        // unit tests.
+        let user_dir = tempfile::tempdir().unwrap();
+        let ws_dir = tempfile::tempdir().unwrap();
+
+        let user_skill = user_dir
+            .path()
+            .join(".openhuman")
+            .join("skills")
+            .join("user-only");
+        write(
+            &user_skill.join("SKILL.md"),
+            "---\nname: user-only\ndescription: from user home\n---\n",
+        );
+
+        let skills = discover_skills(
+            Some(user_dir.path()),
+            Some(ws_dir.path()),
+            is_workspace_trusted(ws_dir.path()),
+        );
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "user-only");
+        assert_eq!(skills[0].scope, SkillScope::User);
+    }
+
+    #[test]
     fn hidden_dirs_are_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
@@ -904,7 +947,7 @@ mod tests {
             &hidden.join("SKILL.md"),
             "---\nname: hidden\ndescription: nope\n---\n",
         );
-        let skills = load_skills(ws);
+        let skills = load_skills_ws(ws);
         assert!(skills.is_empty());
     }
 }
