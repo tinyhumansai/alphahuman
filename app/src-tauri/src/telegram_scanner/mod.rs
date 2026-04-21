@@ -45,16 +45,23 @@ struct CdpTarget {
     id: String,
     kind: String,
     url: String,
+    title: String,
 }
 
 /// Spawn a per-account CDP poller. Caller is expected to guard against
 /// double-spawning via `ScannerRegistry`.
-pub fn spawn_scanner<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix: String) {
+pub fn spawn_scanner<R: Runtime>(
+    app: AppHandle<R>,
+    account_id: String,
+    url_prefix: String,
+    target_marker: Option<String>,
+) {
     tokio::spawn(async move {
         log::info!(
-            "[tg] scanner up account={} url_prefix={} interval={:?}",
+            "[tg] scanner up account={} url_prefix={} target_marker={:?} interval={:?}",
             account_id,
             url_prefix,
+            target_marker,
             IDB_SCAN_INTERVAL,
         );
         // Let tweb hydrate IDB before the first scan — otherwise we'd
@@ -62,7 +69,7 @@ pub fn spawn_scanner<R: Runtime>(app: AppHandle<R>, account_id: String, url_pref
         sleep(Duration::from_secs(10)).await;
 
         loop {
-            match scan_once(&account_id, &url_prefix).await {
+            match scan_once(&account_id, &url_prefix, target_marker.as_deref()).await {
                 Ok(dump) => {
                     let harvest = extract::harvest(&dump);
                     log::info!(
@@ -87,7 +94,11 @@ pub fn spawn_scanner<R: Runtime>(app: AppHandle<R>, account_id: String, url_pref
 }
 
 /// Single scan cycle: open CDP, attach to the Telegram page, walk IDB, detach.
-async fn scan_once(account_id: &str, url_prefix: &str) -> Result<idb::IdbDump, String> {
+async fn scan_once(
+    account_id: &str,
+    url_prefix: &str,
+    target_marker: Option<&str>,
+) -> Result<idb::IdbDump, String> {
     let browser_ws = browser_ws_url().await?;
     let mut cdp = CdpConn::open(&browser_ws).await?;
 
@@ -95,8 +106,17 @@ async fn scan_once(account_id: &str, url_prefix: &str) -> Result<idb::IdbDump, S
     let targets = parse_targets(&targets_v);
     let page_target = targets
         .iter()
-        .find(|t| t.kind == "page" && t.url.starts_with(url_prefix))
-        .ok_or_else(|| format!("no page target matching {url_prefix}"))?;
+        .find(|t| {
+            t.kind == "page"
+                && t.url.starts_with(url_prefix)
+                && target_marker.is_none_or(|marker| t.title.contains(marker))
+        })
+        .ok_or_else(|| {
+            format!(
+                "no page target matching {} marker={:?}",
+                url_prefix, target_marker
+            )
+        })?;
 
     let attach = cdp
         .call(
@@ -439,6 +459,11 @@ fn parse_targets(v: &Value) -> Vec<CdpTarget> {
                             .and_then(|u| u.as_str())
                             .unwrap_or("")
                             .to_string(),
+                        title: t
+                            .get("title")
+                            .and_then(|u| u.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     })
                 })
                 .collect()
@@ -565,13 +590,14 @@ impl ScannerRegistry {
         app: AppHandle<R>,
         account_id: String,
         url_prefix: String,
+        target_marker: Option<String>,
     ) {
         let mut g = self.started.lock().await;
         if !g.insert(account_id.clone()) {
             log::debug!("[tg] scanner already running for {}", account_id);
             return;
         }
-        spawn_scanner(app, account_id, url_prefix);
+        spawn_scanner(app, account_id, url_prefix, target_marker);
     }
 
     pub async fn forget(&self, account_id: &str) {
