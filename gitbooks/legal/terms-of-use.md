@@ -1,3 +1,7 @@
+---
+icon: file-contract
+---
+
 # Terms & Conditions
 
 Last Updated: 02/02/2026
@@ -10,13 +14,13 @@ The Service is a system-level AI assistant designed to help users complete tasks
 
 ## User Responsibilities
 
-You agree to:&#x20;
+You agree to:
 
-• Use the Service in compliance with applicable laws and regulations&#x20;
+• Use the Service in compliance with applicable laws and regulations
 
-• Use the Service only with content and systems you have the right to access&#x20;
+• Use the Service only with content and systems you have the right to access
 
-• Not use the Service for surveillance, harassment, or unlawful activity&#x20;
+• Not use the Service for surveillance, harassment, or unlawful activity
 
 • Not attempt to reverse engineer, interfere with, or misuse the Service
 

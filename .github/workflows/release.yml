@@ -656,6 +656,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
         run: |
           bash scripts/release/upload-macos-artifacts.sh \
             "${{ steps.locate-app.outputs.app_path }}" \
@@ -875,8 +877,6 @@ jobs:
             const requiredPatterns = [
               /OpenHuman_.*_aarch64\.dmg$/,
               /OpenHuman_.*_x64\.dmg$/,
-              /OpenHuman_.*_amd64\.AppImage$/,
-              /OpenHuman_.*_amd64\.deb$/,
               /(OpenHuman_.*_x64-setup\.exe$|OpenHuman_.*_x64.*\.msi$)/,
               // Auto-updater manifest — without this, installed clients can't
               // discover new releases via plugins.updater.endpoints.

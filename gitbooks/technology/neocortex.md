@@ -1,3 +1,7 @@
+---
+icon: head-side-brain
+---
+
 # Neocortex
 
 Neocortex is OpenHuman's memory engine. It is a human-like AI memory system designed to work accurately with over 1 billion tokens of data while supporting the computational demands of a subconscious system.
@@ -73,6 +77,20 @@ Neocortex does not store flat text. It builds knowledge graphs: structured repre
 **Temporal context weighting** applies time-decay functions so recent events carry more weight than older ones. This mirrors how human attention naturally prioritizes recency.
 
 The result: millions of tokens of organizational noise compressed into a structured, queryable knowledge graph that any AI model can reason over in real time.
+
+#### What Neocortex Indexes
+
+Neocortex ingests data from multiple source types:
+
+**Messaging platforms:** Telegram, Slack, Discord, and other connected communication tools. Messages, conversations, group discussions, and channel activity are all compressed into the knowledge graph.
+
+**Screen activity:** When Screen Intelligence is enabled, the on-device vision model produces structured summaries of your screen captures. These summaries are indexed by Neocortex as context about what you were working on, which applications you used, and what content you were viewing.
+
+**Productivity tools:** Documents from Notion, data from Google Sheets, and other connected tools contribute entities and relationships to the graph.
+
+**Blockchain data:** Wallet activity, transaction history, and on-chain events from connected Web3 sources.
+
+Every source type feeds into the same unified knowledge graph. Cross-source entity resolution ensures that a project mentioned in Slack, visible on your screen in a spreadsheet, and documented in Notion is understood as one entity.
 
 #### Neocortex and the subconscious
 

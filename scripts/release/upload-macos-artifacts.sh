@@ -29,11 +29,30 @@ if [ -n "$DMG_PATH" ]; then
   gh release upload "v${VERSION}" "$DMG_PATH" --repo "$UPLOAD_REPO" --clobber
 fi
 
-# ── Upload .app as tar.gz ────────────────────────────────────────────────────
+# ── Upload .app as tar.gz + updater signature ────────────────────────────────
+# We must re-sign the tarball with the Tauri updater key because re-tarring
+# the hardened .app produces different bytes than the bundler's original
+# .app.tar.gz — its .sig would no longer verify on installed clients.
 if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
   APP_ZIP="/tmp/OpenHuman_${VERSION}_${ARCH}.app.tar.gz"
   tar -czf "$APP_ZIP" -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")"
-  gh release upload "v${VERSION}" "$APP_ZIP" --repo "$UPLOAD_REPO" --clobber
-  rm -f "$APP_ZIP"
-  echo "[upload] Uploaded .app tarball"
+
+  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    echo "[upload] ERROR: TAURI_SIGNING_PRIVATE_KEY not set — cannot sign updater tarball" >&2
+    exit 1
+  fi
+
+  # Tauri CLI reads the key from env and writes <file>.sig alongside.
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD is optional (may be empty for unencrypted key).
+  echo "[upload] Signing updater tarball with Tauri signer..."
+  cargo tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" "$APP_ZIP"
+
+  if [ ! -f "${APP_ZIP}.sig" ]; then
+    echo "[upload] ERROR: ${APP_ZIP}.sig was not produced" >&2
+    exit 1
+  fi
+
+  gh release upload "v${VERSION}" "$APP_ZIP" "${APP_ZIP}.sig" --repo "$UPLOAD_REPO" --clobber
+  rm -f "$APP_ZIP" "${APP_ZIP}.sig"
+  echo "[upload] Uploaded .app tarball + signature"
 fi

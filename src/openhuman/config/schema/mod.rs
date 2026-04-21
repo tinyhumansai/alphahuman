@@ -19,6 +19,7 @@ pub use load::{
     user_openhuman_dir, write_active_user_id, PRE_LOGIN_USER_ID,
 };
 mod local_ai;
+mod node;
 mod observability;
 mod proxy;
 mod routes;
@@ -43,6 +44,7 @@ pub use heartbeat_cron::{CronConfig, HeartbeatConfig};
 pub use identity_cost::{CostConfig, ModelPricing};
 pub use learning::{LearningConfig, ReflectionSource};
 pub use local_ai::LocalAiConfig;
+pub use node::NodeConfig;
 pub use observability::ObservabilityConfig;
 pub use proxy::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,

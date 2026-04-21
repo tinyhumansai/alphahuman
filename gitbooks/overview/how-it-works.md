@@ -8,15 +8,27 @@ OpenHuman is built on three technology pillars: a memory engine called Neocortex
 
 ### The problem OpenHuman solves
 
-Current AI systems fall into the category of Artificial Narrow Intelligence (ANI). They perform well within bounded domains, but they depend on carefully designed architectures and human-defined operational boundaries. They lack three things needed to get closer to general intelligence: persistent memory at scale, a form of consciousness or instinct, and the ability to ingest data without becoming inaccurate or expensive.
+Current AI systems fall into the category of Artificial Narrow Intelligence (ANI). They perform well within bounded domains but they depend on carefully designed architectures and human-defined operational boundaries. They lack three things needed to get closer to general intelligence: persistent memory at scale, a form of consciousness or instinct, and the ability to ingest data without becoming inaccurate or expensive.
 
 Research from Google's Titans project demonstrates the core issue clearly. As LLMs try to absorb more data, they become less accurate. Larger context windows do not solve this. They make the models slower, more expensive, and more prone to errors. This means the path to superhuman AI requires solving for context that is high accuracy, high speed, and low cost.
 
 <figure><img src="../.gitbook/assets/V04_The_ANI_Problem@2x.png" alt=""><figcaption></figcaption></figure>
 
-OpenHuman solves this in two steps.
+OpenHuman solves this in three steps.
 
-#### Step 1: Neocortex, the memory engine
+#### **Step 1: A local-first desktop app**
+
+Before anything reaches the cloud, OpenHuman runs AI models directly on your machine. The desktop app uses Gemma 3 for chat, vision analysis, speech-to-text, and text-to-speech, all running locally on your device's hardware.
+
+Two capabilities define the desktop experience:
+
+**Screen Intelligence** captures screenshots of your screen approximately every 5 seconds and processes them locally using the on-device vision model. Each capture is summarized into structured context: what application you were using, what content was visible, what actions you were taking. Raw screenshots are not stored long-term or sent to any server. You control which apps are included through per-app permissions, so you can exclude sensitive applications like banking or medical tools.
+
+**Auto-complete** uses your accumulated memory context combined with the local model to generate relevant text completions on any input surface across your system. Because it draws on your Neocortex memory, the suggestions reflect your actual work context, terminology, and patterns rather than generic predictions.
+
+Both features run entirely on-device. No raw screen data or keystroke data touches any server.
+
+#### Step 2: Neocortex, the memory engine
 
 Neocortex is a human-like AI memory system that can accurately work with over 1 billion tokens. It is the foundation everything else is built on.
 
@@ -48,7 +60,7 @@ Additional capabilities of Neocortex:
 
 **Temporal context weighting** uses time-decay functions so recent events carry more weight than older ones, matching how human attention naturally works.
 
-#### Step 2: The personalized subconscious
+#### Step 3: The personalized subconscious
 
 With good memory and good recall, OpenHuman can do something no other AI agent does: maintain a personalized subconscious.
 
@@ -66,17 +78,19 @@ The success metric for the subconscious is what the team calls the "mirror test"
 
 When you use OpenHuman, here is what happens:
 
-<figure><img src="../.gitbook/assets/V08_How_Pieces_Connect@2x.png" alt=""><figcaption></figcaption></figure>
+**Your desktop app runs locally.** Screen Intelligence captures your screen context. Auto-complete assists your typing. Local models handle chat, vision, and voice. All of this runs on your device with no server dependency.
 
 **Connect your data sources.** Telegram, Slack, Gmail, Notion, blockchain wallets, and more. Each connection expands your knowledge graph.
 
-**Neocortex compresses.** Millions of tokens of organizational history become structured intelligence: entities, relationships, timelines, sentiment. Noise is stripped. Signal is preserved.
+**Neocortex compresses.** Millions of tokens of organizational history, including both your screen activity summaries and your messaging data, become structured intelligence: entities, relationships, timelines, sentiment. Noise is stripped. Signal is preserved.
 
 **The subconscious runs.** Thousands of recall loops per day surface proactive insights, track evolving patterns, and update the knowledge graph.
 
-**You interact naturally.** Ask anything about your life, your team, your projects. Not general knowledge. Your knowledge. What did your team decide? What is the status? What did you miss? OpenHuman already knows.
+**You interact naturally.** Ask anything about your life, your team, your projects. Not general knowledge. Your knowledge. What did your team decide? What is the status? What did you miss? What was on that dashboard you were looking at this morning? OpenHuman already knows.
 
-**Privacy is maintained.** Raw data stays on device, encrypted with AES-256-GCM. Encryption keys never leave the device. Only compressed metadata and summaries are processed server-side.
+**Privacy is maintained.** Raw data stays on device, encrypted with AES-256-GCM. Encryption keys never leave the device. Screen captures are processed locally and discarded. Only compressed metadata and summaries are processed server-side.
+
+<figure><img src="../.gitbook/assets/2. How It Works@2x.png" alt=""><figcaption></figcaption></figure>
 
 ### The architecture: OpenClaw foundation
 
@@ -89,6 +103,8 @@ All agents share a common compressed context provided by Neocortex. This effecti
 ### Limitations
 
 OpenHuman works with probabilistic models. It may occasionally miss nuance, misinterpret sarcasm, or over-prioritize certain messages. This is more likely in highly informal conversations, fast-moving threads, or contexts with limited data.
+
+Screen Intelligence processes visual information through a local vision model, which means accuracy depends on screen clarity, text size, and application complexity. Highly dynamic or visually dense interfaces may produce less precise summaries.
 
 OpenHuman is not AGI. It is a meaningful step closer, with better memory and better orchestration for memory, taking inspiration from the human brain. But human judgment still matters. OpenHuman helps you think faster. It does not think for you.
 
