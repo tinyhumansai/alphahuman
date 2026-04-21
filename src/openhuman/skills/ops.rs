@@ -614,7 +614,16 @@ pub fn inventory_resources(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for sub in RESOURCE_DIRS {
         let root = dir.join(sub);
-        if !root.is_dir() {
+        // `root.is_dir()` follows symlinks, so a `scripts -> /some/other/tree`
+        // symlink would still pass and `walk_files` would inventory the
+        // external tree. Use `symlink_metadata` for a non-dereferencing check
+        // and reject symlinked roots outright; `walk_files` already guards
+        // deeper symlinks inside the tree.
+        let meta = match std::fs::symlink_metadata(&root) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.file_type().is_symlink() || !meta.is_dir() {
             continue;
         }
         walk_files(&root, dir, &mut out);
@@ -943,6 +952,33 @@ mod tests {
         assert!(
             skills.is_empty(),
             "symlinked skill dir should be skipped, got: {skills:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_resource_roots_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let skill = dir.path().join("s");
+        write(
+            &skill.join("SKILL.md"),
+            "---\nname: s\ndescription: d\n---\n",
+        );
+
+        // External directory that must not be inventoried.
+        let external = tempfile::tempdir().unwrap();
+        write(&external.path().join("leaked.txt"), "should not appear");
+
+        // Symlink <skill>/assets -> external
+        std::fs::create_dir_all(&skill).unwrap();
+        symlink(external.path(), skill.join("assets")).unwrap();
+
+        let res = inventory_resources(&skill);
+        assert!(
+            res.is_empty(),
+            "symlinked resource root must be rejected, got: {res:?}"
         );
     }
 
