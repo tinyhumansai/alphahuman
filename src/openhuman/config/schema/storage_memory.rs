@@ -23,7 +23,9 @@ pub struct StorageProviderConfig {
 
 impl Default for StorageProviderConfig {
     fn default() -> Self {
-        Self { provider: String::new() }
+        Self {
+            provider: String::new(),
+        }
     }
 }
 

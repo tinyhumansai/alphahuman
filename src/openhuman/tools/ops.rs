@@ -36,7 +36,7 @@ pub fn all_tools(
     http_config: &crate::openhuman::config::HttpRequestConfig,
     workspace_dir: &std::path::Path,
     agents: &HashMap<String, DelegateAgentConfig>,
-    fallback_api_key: Option<&str>,
+    _fallback_api_key: Option<&str>,
     root_config: &crate::openhuman::config::Config,
 ) -> Vec<Box<dyn Tool>> {
     all_tools_with_runtime(
@@ -50,7 +50,7 @@ pub fn all_tools(
         http_config,
         workspace_dir,
         agents,
-        fallback_api_key,
+        None,
         root_config,
     )
 }
@@ -68,7 +68,7 @@ pub fn all_tools_with_runtime(
     http_config: &crate::openhuman::config::HttpRequestConfig,
     workspace_dir: &std::path::Path,
     agents: &HashMap<String, DelegateAgentConfig>,
-    fallback_api_key: Option<&str>,
+    _fallback_api_key: Option<&str>,
     root_config: &crate::openhuman::config::Config,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
@@ -123,7 +123,7 @@ pub fn all_tools_with_runtime(
             browser_config.native_chrome_path.clone(),
             ComputerUseConfig {
                 endpoint: browser_config.computer_use.endpoint.clone(),
-                api_key: browser_config.computer_use.api_key.clone(),
+                api_key: None,
                 timeout_ms: browser_config.computer_use.timeout_ms,
                 allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
                 window_allowlist: browser_config.computer_use.window_allowlist.clone(),
@@ -144,14 +144,12 @@ pub fn all_tools_with_runtime(
         http_config.timeout_secs,
     )));
 
-    // Web search — always registered. Provider / API-key / budget
+    // Web search — always registered. Result/timeout budget
     // knobs still come from `config.web_search`, but there is no
     // enable flag: every session needs research as a baseline
     // capability.
     tools.push(Box::new(WebSearchTool::new(
-        root_config.web_search.provider.clone(),
-        root_config.web_search.brave_api_key.clone(),
-        root_config.web_search.parallel_api_key.clone(),
+        crate::openhuman::integrations::build_client(root_config),
         root_config.web_search.max_results,
         root_config.web_search.timeout_secs,
     )));
@@ -194,13 +192,9 @@ pub fn all_tools_with_runtime(
             .iter()
             .map(|(name, cfg)| (name.clone(), cfg.clone()))
             .collect();
-        let delegate_fallback_credential = fallback_api_key.and_then(|value| {
-            let trimmed_value = value.trim();
-            (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
-        });
         tools.push(Box::new(DelegateTool::new_with_options(
             delegate_agents,
-            delegate_fallback_credential,
+            None,
             security.clone(),
             crate::openhuman::providers::ProviderRuntimeOptions {
                 auth_profile_override: None,
@@ -608,7 +602,6 @@ mod tests {
             DelegateAgentConfig {
                 model: "llama3".to_string(),
                 system_prompt: None,
-                api_key: None,
                 temperature: None,
                 max_depth: 3,
             },

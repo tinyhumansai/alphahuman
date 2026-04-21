@@ -191,15 +191,10 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagnosticItem>) {
         ));
     }
 
-    // API key / session
-    if config.api_key.is_some() {
-        items.push(DiagnosticItem::ok(cat, "API key configured"));
-    } else {
-        items.push(DiagnosticItem::warn(
-            cat,
-            "no api_key set (may use app session JWT from auth profile)",
-        ));
-    }
+    items.push(DiagnosticItem::ok(
+        cat,
+        "auth uses app session JWT from auth profile",
+    ));
 
     // Model configured
     if config.default_model.is_some() {

@@ -59,25 +59,7 @@ mod tests {
 
     #[test]
     fn build_client_returns_none_when_no_auth_token() {
-        let mut config = crate::openhuman::config::Config::default();
-        config.api_key = None;
-        assert!(build_client(&config).is_none());
-    }
-
-    #[test]
-    fn build_client_uses_core_api_key() {
-        // No per-integration config exists any more — the client is
-        // built solely from the core `config.api_key` / `config.api_url`.
-        let mut config = crate::openhuman::config::Config::default();
-        config.api_key = Some("root-token".into());
-        config.api_url = Some("https://api.example.test".into());
-        assert!(build_client(&config).is_some());
-    }
-
-    #[test]
-    fn build_client_rejects_whitespace_only_api_key() {
-        let mut config = crate::openhuman::config::Config::default();
-        config.api_key = Some("   ".into());
+        let config = crate::openhuman::config::Config::default();
         assert!(build_client(&config).is_none());
     }
 }

@@ -28,7 +28,6 @@ pub struct Config {
     pub workspace_dir: PathBuf,
     #[serde(skip)]
     pub config_path: PathBuf,
-    pub api_key: Option<String>,
     pub api_url: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: f64,
@@ -206,7 +205,6 @@ impl Default for Config {
         Self {
             workspace_dir: openhuman_dir.join("workspace"),
             config_path: openhuman_dir.join("config.toml"),
-            api_key: None,
             api_url: None,
             default_model: Some(DEFAULT_MODEL.to_string()),
             default_temperature: 0.7,

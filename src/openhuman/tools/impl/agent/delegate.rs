@@ -17,7 +17,7 @@ use std::time::Duration;
 pub struct DelegateTool {
     agents: Arc<HashMap<String, DelegateAgentConfig>>,
     security: Arc<SecurityPolicy>,
-    /// Global credential fallback (from config.api_key)
+    /// Deprecated credential fallback slot retained for constructor compatibility.
     fallback_credential: Option<String>,
     /// Provider runtime options inherited from root config.
     provider_runtime_options: providers::ProviderRuntimeOptions,
@@ -194,16 +194,8 @@ impl Tool for DelegateTool {
             return Ok(ToolResult::error(error));
         }
 
-        // Create provider for this agent
-        let provider_credential_owned = agent_config
-            .api_key
-            .clone()
-            .or_else(|| self.fallback_credential.clone());
-        #[allow(clippy::option_as_ref_deref)]
-        let provider_credential = provider_credential_owned.as_ref().map(String::as_str);
-
         let provider: Box<dyn Provider> = match providers::create_backend_inference_provider(
-            provider_credential,
+            None,
             None,
             &self.provider_runtime_options,
         ) {
@@ -282,7 +274,6 @@ mod tests {
             DelegateAgentConfig {
                 model: "llama3".to_string(),
                 system_prompt: Some("You are a research assistant.".to_string()),
-                api_key: None,
                 temperature: Some(0.3),
                 max_depth: 3,
             },
@@ -292,7 +283,6 @@ mod tests {
             DelegateAgentConfig {
                 model: crate::openhuman::config::DEFAULT_MODEL.to_string(),
                 system_prompt: None,
-                api_key: Some("delegate-test-credential".to_string()),
                 temperature: None,
                 max_depth: 2,
             },
@@ -463,7 +453,6 @@ mod tests {
             DelegateAgentConfig {
                 model: "test-model".to_string(),
                 system_prompt: None,
-                api_key: None,
                 temperature: None,
                 max_depth: 3,
             },
@@ -493,7 +482,6 @@ mod tests {
             DelegateAgentConfig {
                 model: "test-model".to_string(),
                 system_prompt: None,
-                api_key: None,
                 temperature: None,
                 max_depth: 3,
             },

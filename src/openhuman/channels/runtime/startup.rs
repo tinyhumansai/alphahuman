@@ -87,7 +87,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
     let provider: Arc<dyn Provider> = Arc::from(providers::create_intelligent_routing_provider(
-        config.api_key.as_deref(),
+        None,
         config.api_url.as_deref(),
         &config,
         &provider_runtime_options,
@@ -114,15 +114,12 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &config.memory,
         Some(&config.storage.provider.config),
         &config.workspace_dir,
-        config.api_key.as_deref(),
+        None,
     )?);
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
+    let composio_entity_id = if config.composio.enabled {
+        Some(config.composio.entity_id.as_str())
     } else {
-        (None, None)
+        None
     };
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
@@ -131,13 +128,13 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &security,
         runtime,
         Arc::clone(&mem),
-        composio_key,
+        None,
         composio_entity_id,
         &config.browser,
         &config.http_request,
         &workspace,
         &config.agents,
-        config.api_key.as_deref(),
+        None,
         &config,
     ));
 
@@ -519,7 +516,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
         route_overrides: Arc::new(Mutex::new(HashMap::new())),
-        api_key: config.api_key.clone(),
+        api_key: None,
         api_url: config.api_url.clone(),
         reliability: Arc::new(config.reliability.clone()),
         provider_runtime_options,

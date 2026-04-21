@@ -147,32 +147,14 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
     anyhow::anyhow!("{provider} API error ({status}): {sanitized}")
 }
 
-fn resolve_provider_credential(_name: &str, credential_override: Option<&str>) -> Option<String> {
-    if let Some(raw) = credential_override.map(str::trim).filter(|s| !s.is_empty()) {
-        return Some(raw.to_owned());
-    }
-    for env_var in ["OPENHUMAN_API_KEY", "API_KEY"] {
-        if let Ok(value) = std::env::var(env_var) {
-            let value = value.trim();
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Create the OpenHuman backend inference client (session JWT or `api_key`).
+/// Create the OpenHuman backend inference client (session JWT only).
 pub fn create_backend_inference_provider(
-    api_key: Option<&str>,
+    _api_key: Option<&str>,
     api_url: Option<&str>,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    let resolved = resolve_provider_credential(INFERENCE_BACKEND_ID, api_key)
-        .map(|v| String::from_utf8(v.into_bytes()).unwrap_or_default());
-    let key = resolved.as_deref();
     Ok(Box::new(openhuman_backend::OpenHumanBackendProvider::new(
-        api_url, key, options,
+        api_url, None, options,
     )))
 }
 
@@ -230,7 +212,6 @@ pub fn create_resilient_provider_with_options(
         reliability.provider_retries,
         reliability.provider_backoff_ms,
     )
-    .with_api_keys(reliability.api_keys.clone())
     .with_model_fallbacks(reliability.model_fallbacks.clone());
 
     Ok(Box::new(reliable))
