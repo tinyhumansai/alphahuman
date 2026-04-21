@@ -14,7 +14,10 @@ use crate::openhuman::config::rpc as config_rpc;
 use crate::rpc::RpcOutcome;
 
 use super::store;
-use super::types::{IntegrationNotification, NotificationIngestRequest, NotificationStatus};
+use super::types::{
+    IntegrationNotification, NotificationIngestRequest, NotificationSettings,
+    NotificationSettingsUpsertRequest, NotificationStatus,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // notification_ingest
@@ -30,6 +33,12 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
     let req: NotificationIngestRequest = serde_json::from_value(Value::Object(params.clone()))
         .map_err(|e| format!("[notifications::rpc] invalid ingest params: {e}"))?;
 
+    let provider_settings = store::get_settings(&config, &req.provider)
+        .map_err(|e| format!("[notifications::rpc] get_settings failed: {e}"))?;
+    if !provider_settings.enabled {
+        let outcome = RpcOutcome::new(json!({ "skipped": true, "reason": "provider_disabled" }), vec![]);
+        return outcome.into_cli_compatible_json();
+    }
     let id = Uuid::new_v4().to_string();
     let notification = IntegrationNotification {
         id: id.clone(),
@@ -107,7 +116,10 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
                 }
 
                 // Auto-escalate high-importance notifications to the orchestrator.
-                if action == "escalate" || action == "react" {
+                if (action == "escalate" || action == "react")
+                    && score >= provider_settings.importance_threshold
+                    && provider_settings.route_to_orchestrator
+                {
                     if let Err(e) = apply_decision(triage_run, &envelope).await {
                         tracing::warn!(
                             id = %id_for_triage,
@@ -127,7 +139,7 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
         }
     });
 
-    let outcome = RpcOutcome::new(json!({ "id": id }), vec![]);
+    let outcome = RpcOutcome::new(json!({ "id": id, "skipped": false }), vec![]);
     outcome.into_cli_compatible_json()
 }
 
@@ -191,6 +203,36 @@ pub async fn handle_mark_read(params: Map<String, Value>) -> Result<Value, Strin
     tracing::debug!(id = %id, "[notifications::rpc] marked read");
 
     let outcome = RpcOutcome::new(json!({ "ok": true }), vec![]);
+    outcome.into_cli_compatible_json()
+}
+
+/// Read notification routing settings for a provider.
+pub async fn handle_settings_get(params: Map<String, Value>) -> Result<Value, String> {
+    let config = config_rpc::load_config_with_timeout().await?;
+    let provider = params
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "[notifications::rpc] missing required param 'provider'".to_string())?;
+    let settings = store::get_settings(&config, provider)
+        .map_err(|e| format!("[notifications::rpc] settings_get failed: {e}"))?;
+    let outcome = RpcOutcome::new(json!({ "settings": settings }), vec![]);
+    outcome.into_cli_compatible_json()
+}
+
+/// Upsert notification routing settings for a provider.
+pub async fn handle_settings_set(params: Map<String, Value>) -> Result<Value, String> {
+    let config = config_rpc::load_config_with_timeout().await?;
+    let req: NotificationSettingsUpsertRequest = serde_json::from_value(Value::Object(params))
+        .map_err(|e| format!("[notifications::rpc] invalid settings_set params: {e}"))?;
+    let clamped = NotificationSettings {
+        provider: req.provider,
+        enabled: req.enabled,
+        importance_threshold: req.importance_threshold.clamp(0.0, 1.0),
+        route_to_orchestrator: req.route_to_orchestrator,
+    };
+    store::upsert_settings(&config, &clamped)
+        .map_err(|e| format!("[notifications::rpc] settings_set failed: {e}"))?;
+    let outcome = RpcOutcome::new(json!({ "ok": true, "settings": clamped }), vec![]);
     outcome.into_cli_compatible_json()
 }
 

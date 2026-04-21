@@ -13,7 +13,13 @@ use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
-    vec![schemas("ingest"), schemas("list"), schemas("mark_read")]
+    vec![
+        schemas("ingest"),
+        schemas("list"),
+        schemas("mark_read"),
+        schemas("settings_get"),
+        schemas("settings_set"),
+    ]
 }
 
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
@@ -29,6 +35,14 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("mark_read"),
             handler: handle_mark_read_wrap,
+        },
+        RegisteredController {
+            schema: schemas("settings_get"),
+            handler: handle_settings_get_wrap,
+        },
+        RegisteredController {
+            schema: schemas("settings_set"),
+            handler: handle_settings_set_wrap,
         },
     ]
 }
@@ -144,6 +158,60 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 required: true,
             }],
         },
+        "settings_get" => ControllerSchema {
+            namespace: "notification",
+            function: "settings_get",
+            description: "Get provider-level notification routing settings.",
+            inputs: vec![FieldSchema {
+                name: "provider",
+                ty: TypeSchema::String,
+                comment: "Provider slug, e.g. \"gmail\".",
+                required: true,
+            }],
+            outputs: vec![FieldSchema {
+                name: "settings",
+                ty: TypeSchema::Ref("NotificationSettings"),
+                comment: "Current settings for provider, defaulted if missing.",
+                required: true,
+            }],
+        },
+        "settings_set" => ControllerSchema {
+            namespace: "notification",
+            function: "settings_set",
+            description: "Upsert provider-level notification routing settings.",
+            inputs: vec![
+                FieldSchema {
+                    name: "provider",
+                    ty: TypeSchema::String,
+                    comment: "Provider slug, e.g. \"gmail\".",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "enabled",
+                    ty: TypeSchema::Bool,
+                    comment: "Enable/disable ingestion for this provider.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "importance_threshold",
+                    ty: TypeSchema::F64,
+                    comment: "Minimum score 0.0..1.0 for routing decisions.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "route_to_orchestrator",
+                    ty: TypeSchema::Bool,
+                    comment: "When true, allow triage react/escalate to route to orchestrator.",
+                    required: true,
+                },
+            ],
+            outputs: vec![FieldSchema {
+                name: "ok",
+                ty: TypeSchema::Bool,
+                comment: "True when settings were saved.",
+                required: true,
+            }],
+        },
 
         _other => ControllerSchema {
             namespace: "notification",
@@ -181,6 +249,14 @@ fn handle_mark_read_wrap(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move { super::rpc::handle_mark_read(params).await })
 }
 
+fn handle_settings_get_wrap(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move { super::rpc::handle_settings_get(params).await })
+}
+
+fn handle_settings_set_wrap(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move { super::rpc::handle_settings_set(params).await })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,15 +271,21 @@ mod tests {
             .into_iter()
             .map(|s| s.function)
             .collect();
-        assert_eq!(names, vec!["ingest", "list", "mark_read"]);
+        assert_eq!(
+            names,
+            vec!["ingest", "list", "mark_read", "settings_get", "settings_set"]
+        );
     }
 
     #[test]
     fn all_registered_controllers_has_handler_per_schema() {
         let controllers = all_registered_controllers();
-        assert_eq!(controllers.len(), 3);
+        assert_eq!(controllers.len(), 5);
         let names: Vec<_> = controllers.iter().map(|c| c.schema.function).collect();
-        assert_eq!(names, vec!["ingest", "list", "mark_read"]);
+        assert_eq!(
+            names,
+            vec!["ingest", "list", "mark_read", "settings_get", "settings_set"]
+        );
     }
 
     #[test]

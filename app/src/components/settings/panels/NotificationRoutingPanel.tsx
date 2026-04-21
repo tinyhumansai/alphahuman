@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+
+import { getNotificationSettings, setNotificationSettings } from '../../../services/notificationService';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -9,6 +12,48 @@ import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
  */
 const NotificationRoutingPanel = () => {
   const { navigateBack, breadcrumbs } = useSettingsNavigation();
+  const providers = ['gmail', 'slack', 'discord', 'whatsapp'];
+  const [settings, setSettings] = useState<
+    Record<string, { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }>
+  >({});
+
+  useEffect(() => {
+    void Promise.all(
+      providers.map(async provider => {
+        const s = await getNotificationSettings(provider);
+        return [provider, s] as const;
+      })
+    )
+      .then(rows => {
+        const next: Record<
+          string,
+          { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }
+        > = {};
+        rows.forEach(([provider, s]) => {
+          next[provider] = {
+            enabled: s.enabled,
+            importance_threshold: s.importance_threshold,
+            route_to_orchestrator: s.route_to_orchestrator,
+          };
+        });
+        setSettings(next);
+      })
+      .catch(() => {});
+  }, []);
+
+  const updateSetting = async (
+    provider: string,
+    patch: Partial<{ enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }>
+  ) => {
+    const current = settings[provider] ?? {
+      enabled: true,
+      importance_threshold: 0,
+      route_to_orchestrator: true,
+    };
+    const next = { ...current, ...patch };
+    setSettings(prev => ({ ...prev, [provider]: next }));
+    await setNotificationSettings({ provider, ...next });
+  };
 
   return (
     <div>
@@ -85,12 +130,65 @@ const NotificationRoutingPanel = () => {
           </div>
         </div>
 
-        {/* Placeholder for per-provider settings */}
-        <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl text-center">
-          <p className="text-xs text-stone-500">
-            Per-provider importance thresholds will appear here once you connect accounts via the
-            Accounts screen.
-          </p>
+        <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-stone-100">
+            <p className="text-sm font-medium text-stone-900">Per-provider routing</p>
+          </div>
+          <div className="divide-y divide-stone-100">
+            {providers.map(provider => {
+              const s = settings[provider] ?? {
+                enabled: true,
+                importance_threshold: 0,
+                route_to_orchestrator: true,
+              };
+              return (
+                <div key={provider} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-stone-800 capitalize">{provider}</p>
+                    <label className="text-xs text-stone-600 flex items-center gap-2">
+                      Enabled
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        onChange={e => {
+                          void updateSetting(provider, { enabled: e.target.checked });
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-stone-600">
+                    Threshold
+                    <input
+                      className="flex-1"
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={s.importance_threshold}
+                      onChange={e => {
+                        void updateSetting(provider, {
+                          importance_threshold: Number(e.target.value),
+                        });
+                      }}
+                    />
+                    <span>{s.importance_threshold.toFixed(2)}</span>
+                  </label>
+                  <label className="text-xs text-stone-600 flex items-center gap-2">
+                    Route to orchestrator
+                    <input
+                      type="checkbox"
+                      checked={s.route_to_orchestrator}
+                      onChange={e => {
+                        void updateSetting(provider, {
+                          route_to_orchestrator: e.target.checked,
+                        });
+                      }}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

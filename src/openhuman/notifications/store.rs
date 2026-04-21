@@ -9,7 +9,7 @@ use rusqlite::{params, Connection};
 
 use crate::openhuman::config::Config;
 
-use super::types::{IntegrationNotification, NotificationStatus};
+use super::types::{IntegrationNotification, NotificationSettings, NotificationStatus};
 
 /// SQL schema applied on every `with_connection` call (idempotent).
 const SCHEMA: &str = "
@@ -33,6 +33,13 @@ CREATE INDEX IF NOT EXISTS idx_integration_notifications_provider
     ON integration_notifications(provider);
 CREATE INDEX IF NOT EXISTS idx_integration_notifications_status
     ON integration_notifications(status);
+
+CREATE TABLE IF NOT EXISTS notification_settings (
+    provider              TEXT PRIMARY KEY,
+    enabled               INTEGER NOT NULL DEFAULT 1,
+    importance_threshold  REAL NOT NULL DEFAULT 0.0,
+    route_to_orchestrator INTEGER NOT NULL DEFAULT 1
+);
 ";
 
 /// Open (and migrate) the notifications DB, then call `f` with the live
@@ -192,6 +199,56 @@ pub fn unread_count(config: &Config) -> Result<i64> {
     })
 }
 
+/// Upsert provider-level notification settings.
+pub fn upsert_settings(config: &Config, settings: &NotificationSettings) -> Result<()> {
+    with_connection(config, |conn| {
+        conn.execute(
+            "INSERT INTO notification_settings (provider, enabled, importance_threshold, route_to_orchestrator)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(provider) DO UPDATE SET
+               enabled = excluded.enabled,
+               importance_threshold = excluded.importance_threshold,
+               route_to_orchestrator = excluded.route_to_orchestrator",
+            params![
+                settings.provider,
+                if settings.enabled { 1 } else { 0 },
+                settings.importance_threshold,
+                if settings.route_to_orchestrator { 1 } else { 0 }
+            ],
+        )
+        .context("[notifications::store] upsert_settings failed")?;
+        Ok(())
+    })
+}
+
+/// Read provider-level notification settings with defaults when missing.
+pub fn get_settings(config: &Config, provider: &str) -> Result<NotificationSettings> {
+    with_connection(config, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider, enabled, importance_threshold, route_to_orchestrator
+                 FROM notification_settings
+                 WHERE provider = ?1",
+            )
+            .context("[notifications::store] prepare get_settings failed")?;
+        let mut rows = stmt
+            .query(params![provider])
+            .context("[notifications::store] get_settings query failed")?;
+        if let Some(row) = rows.next().context("[notifications::store] get_settings row failed")? {
+            return Ok(NotificationSettings {
+                provider: row.get(0)?,
+                enabled: row.get::<_, i64>(1)? != 0,
+                importance_threshold: row.get(2)?,
+                route_to_orchestrator: row.get::<_, i64>(3)? != 0,
+            });
+        }
+        Ok(NotificationSettings {
+            provider: provider.to_string(),
+            ..NotificationSettings::default()
+        })
+    })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Row conversion helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,5 +379,33 @@ mod tests {
         let gmail = list(&config, 10, 0, Some("gmail"), None).unwrap();
         assert_eq!(gmail.len(), 1);
         assert_eq!(gmail[0].provider, "gmail");
+    }
+
+    #[test]
+    fn settings_roundtrip_defaults_and_upsert() {
+        let dir = TempDir::new().unwrap();
+        let config = test_config(&dir);
+
+        let defaults = get_settings(&config, "gmail").unwrap();
+        assert_eq!(defaults.provider, "gmail");
+        assert!(defaults.enabled);
+        assert_eq!(defaults.importance_threshold, 0.0);
+        assert!(defaults.route_to_orchestrator);
+
+        upsert_settings(
+            &config,
+            &NotificationSettings {
+                provider: "gmail".to_string(),
+                enabled: false,
+                importance_threshold: 0.75,
+                route_to_orchestrator: false,
+            },
+        )
+        .unwrap();
+
+        let updated = get_settings(&config, "gmail").unwrap();
+        assert!(!updated.enabled);
+        assert_eq!(updated.importance_threshold, 0.75);
+        assert!(!updated.route_to_orchestrator);
     }
 }

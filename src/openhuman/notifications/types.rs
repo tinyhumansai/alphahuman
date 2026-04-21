@@ -74,6 +74,17 @@ pub struct NotificationSettings {
     pub route_to_orchestrator: bool,
 }
 
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            provider: String::new(),
+            enabled: true,
+            importance_threshold: 0.0,
+            route_to_orchestrator: true,
+        }
+    }
+}
+
 /// Payload for the `notification_ingest` RPC endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationIngestRequest {
@@ -87,4 +98,13 @@ pub struct NotificationIngestRequest {
     pub body: String,
     /// Full raw payload from the source.
     pub raw_payload: serde_json::Value,
+}
+
+/// Payload for `notification_settings_set`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettingsUpsertRequest {
+    pub provider: String,
+    pub enabled: bool,
+    pub importance_threshold: f32,
+    pub route_to_orchestrator: bool,
 }

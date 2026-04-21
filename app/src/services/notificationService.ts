@@ -69,3 +69,35 @@ export async function ingestNotification(payload: {
   log('ingestNotification created id=%s', result.id);
   return result;
 }
+
+export async function getNotificationSettings(provider: string): Promise<{
+  provider: string;
+  enabled: boolean;
+  importance_threshold: number;
+  route_to_orchestrator: boolean;
+}> {
+  const result = await callCoreRpc<{
+    settings: {
+      provider: string;
+      enabled: boolean;
+      importance_threshold: number;
+      route_to_orchestrator: boolean;
+    };
+  }>({
+    method: 'openhuman.notification_settings_get',
+    params: { provider },
+  });
+  return result.settings;
+}
+
+export async function setNotificationSettings(payload: {
+  provider: string;
+  enabled: boolean;
+  importance_threshold: number;
+  route_to_orchestrator: boolean;
+}): Promise<void> {
+  await callCoreRpc<{ ok: boolean }>({
+    method: 'openhuman.notification_settings_set',
+    params: payload,
+  });
+}
