@@ -120,14 +120,36 @@ impl NodeBootstrap {
         Ok(managed)
     }
 
-    /// Compute the cache root. Uses `config.cache_dir` when set, otherwise
-    /// `{workspace}/node-runtime/`.
+    /// Compute the cache root for managed Node.js installs.
+    ///
+    /// Resolution order (first hit wins):
+    /// 1. Explicit `config.cache_dir` — an operator/user opted into a specific
+    ///    location and we honour it verbatim (including workspace-local paths
+    ///    if they set one).
+    /// 2. OS user cache (`dirs::cache_dir()/openhuman/node-runtime`) — the
+    ///    default. Lives in the user's home and cannot be spoofed by a
+    ///    repository checked-in `./node-runtime/` tree.
+    /// 3. Last-resort `{workspace}/node-runtime/` fallback, emitted with a
+    ///    warning for platforms where `dirs::cache_dir()` returns `None`.
+    ///
+    /// Note: returning a workspace-local path by default would let a malicious
+    /// repository vendor a fake `node-v*/` tree into the workspace and have
+    /// [`probe_managed_install`] reuse it as a trusted managed runtime (see
+    /// CodeRabbit finding on PR #723). Guarding that path in the probe is the
+    /// second defence; picking a user-owned default here is the first.
     fn cache_root(&self) -> PathBuf {
-        if self.config.cache_dir.trim().is_empty() {
-            self.workspace_dir.join("node-runtime")
-        } else {
-            PathBuf::from(self.config.cache_dir.trim())
+        let configured = self.config.cache_dir.trim();
+        if !configured.is_empty() {
+            return PathBuf::from(configured);
         }
+        if let Some(user_cache) = dirs::cache_dir() {
+            return user_cache.join("openhuman").join("node-runtime");
+        }
+        tracing::warn!(
+            workspace = %self.workspace_dir.display(),
+            "[node_runtime::bootstrap] dirs::cache_dir() unavailable; falling back to workspace-local node-runtime (less secure — set config.cache_dir to a user-owned path)"
+        );
+        self.workspace_dir.join("node-runtime")
     }
 
     /// Full install path for the managed distribution. Matches the
@@ -154,7 +176,10 @@ impl NodeBootstrap {
         let dist = NodeDistribution::for_host(&self.config.version)?;
         let install_dir = self.install_dir(&dist);
 
-        if let Some(resolved) = probe_managed_install(&install_dir, &self.config.version) {
+        let cache_root = self.cache_root();
+        if let Some(resolved) =
+            probe_managed_install(&install_dir, &cache_root, &self.config.version)
+        {
             tracing::info!(
                 install_dir = %install_dir.display(),
                 "[node_runtime::bootstrap] reusing existing managed install"
@@ -266,14 +291,60 @@ fn resolve_from_system(system: SystemNode) -> Result<ResolvedNode> {
 /// for `target_version`. Cheap enough to run on every `resolve()` because
 /// it never touches the network — just a few `stat()` calls.
 ///
+/// Also guards against **cache-root escape**: callers derive `install_dir`
+/// from `cache_root` via [`NodeBootstrap::install_dir`], but a symlinked or
+/// out-of-tree `install_dir` (e.g. a committed workspace `./node-runtime/`
+/// tree when `cache_root` resolves to the user cache) must not be treated
+/// as a trusted install. We canonicalise both paths and require the install
+/// to live under the cache root; mismatches force a fresh, verified
+/// download via `install_managed()`.
+///
 /// A managed install is only "usable" when both `node` and `npm` launchers
 /// are present. `build_resolved` only hard-fails on missing `node`, so we
 /// re-check `npm_bin` here and return `None` on absence — forcing a fresh
 /// download via the normal resolve path. Without this, a corrupted cache
 /// (e.g. download interrupted after node was extracted but before npm)
 /// would be reused forever and `npm_exec` could never self-heal.
-fn probe_managed_install(install_dir: &Path, target_version: &str) -> Option<ResolvedNode> {
+fn probe_managed_install(
+    install_dir: &Path,
+    cache_root: &Path,
+    target_version: &str,
+) -> Option<ResolvedNode> {
     if !install_dir.is_dir() {
+        return None;
+    }
+    // Canonicalise both sides so a symlink inside the install can't smuggle
+    // a repo-controlled tree past the `starts_with` check. `cache_root` must
+    // exist because the caller created `install_dir` under it, but be
+    // defensive: treat a failed canonicalize as "not trustworthy".
+    let canon_install = match std::fs::canonicalize(install_dir) {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::warn!(
+                install_dir = %install_dir.display(),
+                error = %err,
+                "[node_runtime::bootstrap] canonicalize(install_dir) failed; treating as unusable"
+            );
+            return None;
+        }
+    };
+    let canon_cache = match std::fs::canonicalize(cache_root) {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::warn!(
+                cache_root = %cache_root.display(),
+                error = %err,
+                "[node_runtime::bootstrap] canonicalize(cache_root) failed; treating managed install as unusable"
+            );
+            return None;
+        }
+    };
+    if !canon_install.starts_with(&canon_cache) {
+        tracing::warn!(
+            install_dir = %canon_install.display(),
+            cache_root = %canon_cache.display(),
+            "[node_runtime::bootstrap] refusing to reuse managed install outside the resolved cache root (possible spoof)"
+        );
         return None;
     }
     let bin_dir = managed_bin_dir(install_dir);
