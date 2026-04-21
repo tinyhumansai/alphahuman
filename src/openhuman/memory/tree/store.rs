@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::time::Duration;
 
 use crate::openhuman::config::Config;
@@ -48,6 +48,46 @@ CREATE INDEX IF NOT EXISTS idx_mem_tree_chunks_owner
     ON mem_tree_chunks(owner);
 CREATE INDEX IF NOT EXISTS idx_mem_tree_chunks_source_seq
     ON mem_tree_chunks(source_kind, source_id, seq_in_source);
+
+-- Phase 2 (#708): per-chunk score rationale for admission debugging.
+CREATE TABLE IF NOT EXISTS mem_tree_score (
+    chunk_id               TEXT PRIMARY KEY,
+    total                  REAL NOT NULL,
+    token_count_signal     REAL NOT NULL,
+    unique_words_signal    REAL NOT NULL,
+    metadata_weight        REAL NOT NULL,
+    source_weight          REAL NOT NULL,
+    interaction_weight     REAL NOT NULL,
+    entity_density         REAL NOT NULL,
+    dropped                INTEGER NOT NULL DEFAULT 0,
+    reason                 TEXT,
+    computed_at_ms         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mem_tree_score_total
+    ON mem_tree_score(total);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_score_dropped
+    ON mem_tree_score(dropped);
+
+-- Phase 2 (#708): inverted index entity_id -> node_id for retrieval.
+CREATE TABLE IF NOT EXISTS mem_tree_entity_index (
+    entity_id              TEXT NOT NULL,
+    node_id                TEXT NOT NULL,
+    node_kind              TEXT NOT NULL,
+    entity_kind            TEXT NOT NULL,
+    surface                TEXT NOT NULL,
+    score                  REAL NOT NULL,
+    timestamp_ms           INTEGER NOT NULL,
+    tree_id                TEXT,
+    PRIMARY KEY (entity_id, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_entity
+    ON mem_tree_entity_index(entity_id);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_node
+    ON mem_tree_entity_index(node_id);
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_index_timestamp
+    ON mem_tree_entity_index(timestamp_ms);
 ";
 
 /// Upsert a batch of chunks atomically.
@@ -68,33 +108,83 @@ pub fn upsert_chunks(config: &Config, chunks: &[Chunk]) -> Result<usize> {
         let tx = conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO mem_tree_chunks (
+                "INSERT INTO mem_tree_chunks (
                     id, source_kind, source_id, source_ref, owner,
                     timestamp_ms, time_range_start_ms, time_range_end_ms,
                     tags_json, content, token_count, seq_in_source, created_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_kind = excluded.source_kind,
+                    source_id = excluded.source_id,
+                    source_ref = excluded.source_ref,
+                    owner = excluded.owner,
+                    timestamp_ms = excluded.timestamp_ms,
+                    time_range_start_ms = excluded.time_range_start_ms,
+                    time_range_end_ms = excluded.time_range_end_ms,
+                    tags_json = excluded.tags_json,
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    seq_in_source = excluded.seq_in_source,
+                    created_at_ms = excluded.created_at_ms",
             )?;
-            for chunk in chunks {
-                stmt.execute(params![
-                    chunk.id,
-                    chunk.metadata.source_kind.as_str(),
-                    chunk.metadata.source_id,
-                    chunk.metadata.source_ref.as_ref().map(|r| r.value.as_str()),
-                    chunk.metadata.owner,
-                    chunk.metadata.timestamp.timestamp_millis(),
-                    chunk.metadata.time_range.0.timestamp_millis(),
-                    chunk.metadata.time_range.1.timestamp_millis(),
-                    serde_json::to_string(&chunk.metadata.tags)?,
-                    chunk.content,
-                    chunk.token_count,
-                    chunk.seq_in_source,
-                    chunk.created_at.timestamp_millis(),
-                ])?;
-            }
+            upsert_chunks_with_statement(&mut stmt, chunks)?;
         }
         tx.commit()?;
         Ok(chunks.len())
     })
+}
+
+/// Upsert chunks using an existing transaction, preserving previously stored embeddings.
+pub(crate) fn upsert_chunks_tx(tx: &Transaction<'_>, chunks: &[Chunk]) -> Result<usize> {
+    if chunks.is_empty() {
+        return Ok(0);
+    }
+    let mut stmt = tx.prepare(
+        "INSERT INTO mem_tree_chunks (
+            id, source_kind, source_id, source_ref, owner,
+            timestamp_ms, time_range_start_ms, time_range_end_ms,
+            tags_json, content, token_count, seq_in_source, created_at_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        ON CONFLICT(id) DO UPDATE SET
+            source_kind = excluded.source_kind,
+            source_id = excluded.source_id,
+            source_ref = excluded.source_ref,
+            owner = excluded.owner,
+            timestamp_ms = excluded.timestamp_ms,
+            time_range_start_ms = excluded.time_range_start_ms,
+            time_range_end_ms = excluded.time_range_end_ms,
+            tags_json = excluded.tags_json,
+            content = excluded.content,
+            token_count = excluded.token_count,
+            seq_in_source = excluded.seq_in_source,
+            created_at_ms = excluded.created_at_ms",
+    )?;
+    upsert_chunks_with_statement(&mut stmt, chunks)?;
+    Ok(chunks.len())
+}
+
+fn upsert_chunks_with_statement(
+    stmt: &mut rusqlite::Statement<'_>,
+    chunks: &[Chunk],
+) -> Result<()> {
+    for chunk in chunks {
+        stmt.execute(params![
+            chunk.id,
+            chunk.metadata.source_kind.as_str(),
+            chunk.metadata.source_id,
+            chunk.metadata.source_ref.as_ref().map(|r| r.value.as_str()),
+            chunk.metadata.owner,
+            chunk.metadata.timestamp.timestamp_millis(),
+            chunk.metadata.time_range.0.timestamp_millis(),
+            chunk.metadata.time_range.1.timestamp_millis(),
+            serde_json::to_string(&chunk.metadata.tags)?,
+            chunk.content,
+            chunk.token_count,
+            chunk.seq_in_source,
+            chunk.created_at.timestamp_millis(),
+        ])?;
+    }
+    Ok(())
 }
 
 /// Fetch one chunk by its id.
@@ -238,7 +328,14 @@ fn ms_to_utc(ms: i64) -> rusqlite::Result<DateTime<Utc>> {
     })
 }
 
-fn with_connection<T>(config: &Config, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+/// Open the memory_tree SQLite DB and run a closure against it.
+///
+/// Visible to sibling modules (e.g. `score::store`) so Phase 2 can reuse
+/// the same connection setup / schema initialisation without duplication.
+pub(crate) fn with_connection<T>(
+    config: &Config,
+    f: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
     let dir = config.workspace_dir.join(DB_DIR);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create memory_tree dir: {}", dir.display()))?;
@@ -251,6 +348,8 @@ fn with_connection<T>(config: &Config, f: impl FnOnce(&Connection) -> Result<T>)
         .context("Failed to enable memory_tree WAL mode")?;
     conn.execute_batch(SCHEMA)
         .context("Failed to initialize memory_tree schema")?;
+    // Phase 2 migrations — additive, idempotent.
+    add_column_if_missing(&conn, "mem_tree_chunks", "embedding", "BLOB")?;
     f(&conn)
 }
 
@@ -259,6 +358,69 @@ fn normalized_limit(requested: Option<usize>) -> i64 {
         .unwrap_or(DEFAULT_LIST_LIMIT)
         .clamp(1, MAX_LIST_LIMIT);
     i64::try_from(clamped).unwrap_or(MAX_LIST_LIMIT as i64)
+}
+
+/// Idempotent `ALTER TABLE ADD COLUMN` — treats an existing column as success.
+fn add_column_if_missing(conn: &Connection, table: &str, name: &str, sql_type: &str) -> Result<()> {
+    match conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {name} {sql_type}"),
+        [],
+    ) {
+        Ok(_) => {
+            log::debug!("[memory_tree::store] migration: added column {table}.{name} ({sql_type})");
+            Ok(())
+        }
+        Err(err) if err.to_string().contains("duplicate column name") => Ok(()),
+        Err(err) => Err(err).with_context(|| format!("Failed to add column {table}.{name}")),
+    }
+}
+
+// ── Phase 2: embedding column accessors ─────────────────────────────────
+
+/// Store a chunk's embedding as a packed little-endian `f32` blob.
+///
+/// Length is `embedding.len() * 4` bytes. The caller is responsible for
+/// ensuring all embeddings in a given deployment share the same dimension.
+pub fn set_chunk_embedding(config: &Config, chunk_id: &str, embedding: &[f32]) -> Result<()> {
+    let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+    with_connection(config, |conn| {
+        let changed = conn.execute(
+            "UPDATE mem_tree_chunks SET embedding = ?1 WHERE id = ?2",
+            rusqlite::params![bytes, chunk_id],
+        )?;
+        if changed == 0 {
+            log::warn!("[memory_tree::store] set_chunk_embedding: no row for chunk_id={chunk_id}");
+        }
+        Ok(())
+    })
+}
+
+/// Fetch a chunk's embedding, decoding the stored little-endian `f32` blob.
+///
+/// Returns `Ok(None)` if the chunk doesn't exist or has no embedding stored.
+pub fn get_chunk_embedding(config: &Config, chunk_id: &str) -> Result<Option<Vec<f32>>> {
+    with_connection(config, |conn| {
+        let blob: Option<Option<Vec<u8>>> = conn
+            .query_row(
+                "SELECT embedding FROM mem_tree_chunks WHERE id = ?1",
+                rusqlite::params![chunk_id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?;
+        match blob.flatten() {
+            None => Ok(None),
+            Some(bytes) => {
+                if !bytes.len().is_multiple_of(4) {
+                    anyhow::bail!("embedding blob length {} not a multiple of 4", bytes.len());
+                }
+                let floats: Vec<f32> = bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                Ok(Some(floats))
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -311,6 +473,24 @@ mod tests {
         upsert_chunks(&cfg, &[c.clone()]).unwrap();
         upsert_chunks(&cfg, &[c.clone()]).unwrap();
         assert_eq!(count_chunks(&cfg).unwrap(), 1);
+    }
+
+    #[test]
+    fn reingest_preserves_existing_embedding() {
+        let (_tmp, cfg) = test_config();
+        let mut c = sample_chunk("slack:#eng", 0, 1_700_000_000_000);
+        upsert_chunks(&cfg, &[c.clone()]).unwrap();
+        set_chunk_embedding(&cfg, &c.id, &[0.1, 0.2, 0.3]).unwrap();
+
+        c.content = "updated content".into();
+        c.token_count = 99;
+        upsert_chunks(&cfg, &[c.clone()]).unwrap();
+
+        let embedding = get_chunk_embedding(&cfg, &c.id).unwrap().unwrap();
+        assert_eq!(embedding, vec![0.1, 0.2, 0.3]);
+        let got = get_chunk(&cfg, &c.id).unwrap().unwrap();
+        assert_eq!(got.content, "updated content");
+        assert_eq!(got.token_count, 99);
     }
 
     #[test]

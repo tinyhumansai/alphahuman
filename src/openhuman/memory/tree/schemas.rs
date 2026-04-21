@@ -98,13 +98,19 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 FieldSchema {
                     name: "chunks_written",
                     ty: TypeSchema::U64,
-                    comment: "Number of chunks persisted (including idempotent rewrites).",
+                    comment: "Number of chunks persisted after admission.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "chunks_dropped",
+                    ty: TypeSchema::U64,
+                    comment: "Number of chunks rejected by the admission gate.",
                     required: true,
                 },
                 FieldSchema {
                     name: "chunk_ids",
                     ty: TypeSchema::Array(Box::new(TypeSchema::String)),
-                    comment: "IDs of all chunks produced.",
+                    comment: "IDs of all chunks persisted after admission.",
                     required: true,
                 },
             ],

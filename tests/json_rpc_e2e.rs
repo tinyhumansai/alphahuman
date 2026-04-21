@@ -819,7 +819,7 @@ async fn json_rpc_memory_tree_end_to_end() {
             "payload": {
                 "provider": "notion",
                 "title": "Launch Plan",
-                "body": "Alpha\n\nBeta",
+                "body": "We decided to ship Phoenix on Friday after reviewing alice@example.com and the migration plan carefully. @bob will coordinate rollout, track #launch-q2 details, and update the Notion launch checklist with staging validation notes.",
                 "modified_at": 1700000000000_i64,
                 "source_ref": " notion://page/launch-plan "
             }
@@ -833,6 +833,7 @@ async fn json_rpc_memory_tree_end_to_end() {
         Some(&json!("notion:launch-plan"))
     );
     assert_eq!(ingest_result.get("chunks_written"), Some(&json!(1)));
+    assert_eq!(ingest_result.get("chunks_dropped"), Some(&json!(0)));
     let chunk_ids = ingest_result
         .get("chunk_ids")
         .and_then(Value::as_array)
