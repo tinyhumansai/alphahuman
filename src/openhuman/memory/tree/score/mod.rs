@@ -175,15 +175,22 @@ pub fn persist_score(
     let row = score_row(result);
     store::upsert_score(config, &row)?;
 
-    if result.kept && !result.canonical_entities.is_empty() {
-        store::index_entities(
-            config,
-            &result.canonical_entities,
-            &result.chunk_id,
-            "leaf",
-            timestamp_ms,
-            tree_id,
-        )?;
+    if result.kept {
+        // Clear any stale entity-index rows for this chunk before re-indexing.
+        // INSERT OR REPLACE on (entity_id, node_id) never deletes rows whose
+        // entity_id is no longer present in the new extraction — so a re-score
+        // that drops an entity would otherwise leave a phantom index row.
+        store::clear_entity_index_for_node(config, &result.chunk_id)?;
+        if !result.canonical_entities.is_empty() {
+            store::index_entities(
+                config,
+                &result.canonical_entities,
+                &result.chunk_id,
+                "leaf",
+                timestamp_ms,
+                tree_id,
+            )?;
+        }
     }
 
     Ok(())
@@ -198,15 +205,19 @@ pub(crate) fn persist_score_tx(
     let row = score_row(result);
     store::upsert_score_tx(tx, &row)?;
 
-    if result.kept && !result.canonical_entities.is_empty() {
-        store::index_entities_tx(
-            tx,
-            &result.canonical_entities,
-            &result.chunk_id,
-            "leaf",
-            timestamp_ms,
-            tree_id,
-        )?;
+    if result.kept {
+        // See persist_score for why we clear before re-indexing.
+        store::clear_entity_index_for_node_tx(tx, &result.chunk_id)?;
+        if !result.canonical_entities.is_empty() {
+            store::index_entities_tx(
+                tx,
+                &result.canonical_entities,
+                &result.chunk_id,
+                "leaf",
+                timestamp_ms,
+                tree_id,
+            )?;
+        }
     }
 
     Ok(())

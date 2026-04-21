@@ -189,6 +189,27 @@ pub fn index_entities(
     })
 }
 
+/// Remove all entity-index rows for a given node. Used before re-indexing
+/// a re-scored chunk so entities dropped from the new extraction don't leak
+/// through as stale `INSERT OR REPLACE` never deletes.
+pub fn clear_entity_index_for_node(config: &Config, node_id: &str) -> Result<usize> {
+    with_connection(config, |conn| {
+        let n = conn.execute(
+            "DELETE FROM mem_tree_entity_index WHERE node_id = ?1",
+            params![node_id],
+        )?;
+        Ok(n)
+    })
+}
+
+pub(crate) fn clear_entity_index_for_node_tx(tx: &Transaction<'_>, node_id: &str) -> Result<usize> {
+    let n = tx.execute(
+        "DELETE FROM mem_tree_entity_index WHERE node_id = ?1",
+        params![node_id],
+    )?;
+    Ok(n)
+}
+
 pub(crate) fn index_entities_tx(
     tx: &Transaction<'_>,
     entities: &[CanonicalEntity],
@@ -240,7 +261,9 @@ pub fn lookup_entity(
     entity_id: &str,
     limit: Option<usize>,
 ) -> Result<Vec<EntityHit>> {
-    let limit = limit.unwrap_or(100) as i64;
+    // Clamp to i64::MAX before casting so callers can't wrap a large usize
+    // into a negative LIMIT and bypass it.
+    let limit = limit.unwrap_or(100).min(i64::MAX as usize) as i64;
     with_connection(config, |conn| {
         let mut stmt = conn.prepare(
             "SELECT entity_id, node_id, node_kind, entity_kind, surface,
@@ -399,6 +422,25 @@ mod tests {
         let n = index_entities(&cfg, &entities, "chunk-1", "leaf", 1000, None).unwrap();
         assert_eq!(n, 3);
         assert_eq!(count_entity_index(&cfg).unwrap(), 3);
+    }
+
+    #[test]
+    fn clear_entity_index_drops_stale_rows() {
+        let (_tmp, cfg) = test_config();
+        let a = sample_entity("a");
+        let b = sample_entity("b");
+        index_entities(&cfg, &[a.clone(), b], "chunk-1", "leaf", 1000, None).unwrap();
+        assert_eq!(count_entity_index(&cfg).unwrap(), 2);
+
+        // Simulate a re-score that only keeps entity "a".
+        let cleared = clear_entity_index_for_node(&cfg, "chunk-1").unwrap();
+        assert_eq!(cleared, 2);
+        index_entities(&cfg, &[a], "chunk-1", "leaf", 1000, None).unwrap();
+
+        let hits = lookup_entity(&cfg, "email:b", None).unwrap();
+        assert!(hits.is_empty(), "stale entity should be removed");
+        let hits = lookup_entity(&cfg, "email:a", None).unwrap();
+        assert_eq!(hits.len(), 1);
     }
 
     #[test]

@@ -133,6 +133,16 @@ async fn persist(
     let scoring_cfg = ScoringConfig::default_regex_only();
     let scores = score::score_chunks(&chunks, &scoring_cfg).await?;
 
+    // Fail fast on scorer length mismatch — silently truncating via zip would
+    // drop chunks (or their score rationale) without trace.
+    if scores.len() != chunks.len() {
+        anyhow::bail!(
+            "[memory_tree::ingest] scorer length mismatch: chunks={} scores={}",
+            chunks.len(),
+            scores.len()
+        );
+    }
+
     // 3. Partition kept vs dropped
     let mut kept_chunks: Vec<Chunk> = Vec::new();
     let mut all_results: Vec<(ScoreResult, i64)> = Vec::new();
