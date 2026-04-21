@@ -19,6 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 
 const TRUST_MARKER: &str = "trust";
@@ -1123,6 +1124,295 @@ fn yaml_scalar(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
+/// Default wall-clock budget for the `npx skills add` install path.
+pub const DEFAULT_INSTALL_TIMEOUT_SECS: u64 = 60;
+/// Hard ceiling callers can request via `timeout_secs`.
+pub const MAX_INSTALL_TIMEOUT_SECS: u64 = 600;
+/// Upper bound on raw URL length accepted by [`validate_install_url`].
+pub const MAX_INSTALL_URL_LEN: usize = 2048;
+
+/// Input for [`install_skill_from_url`]. Mirrors the `skills.install_from_url`
+/// JSON-RPC payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct InstallSkillFromUrlParams {
+    /// Remote skill package URL. Must be `https://` and resolve to a
+    /// non-private host (see [`validate_install_url`]).
+    pub url: String,
+    /// Optional wall-clock budget override, in seconds. Defaults to
+    /// [`DEFAULT_INSTALL_TIMEOUT_SECS`] and is capped at
+    /// [`MAX_INSTALL_TIMEOUT_SECS`].
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+/// Outcome of a successful install. `new_skills` is the set of skill slugs
+/// that appeared in the catalog as a result of the CLI run (post-discovery
+/// minus pre-discovery).
+#[derive(Debug, Clone, Serialize)]
+pub struct InstallSkillFromUrlOutcome {
+    pub url: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub new_skills: Vec<String>,
+}
+
+/// Install a skill from a remote registry URL by shelling out to
+/// `npx --yes skills add <url>` through the managed Node.js toolchain.
+///
+/// Validation applied before spawning anything:
+/// * URL length, scheme (`https` only), and host safety via
+///   [`validate_install_url`] — rejects loopback, private, link-local,
+///   multicast, shared-address ranges, `localhost`, and `.local` / `.localhost`
+///   mDNS-style hostnames.
+/// * `timeout_secs` is clamped to [`MAX_INSTALL_TIMEOUT_SECS`].
+///
+/// Runtime:
+/// * Reuses [`NodeBootstrap`] for toolchain resolution (same code path as
+///   `npm_exec`), so the user sees the same bootstrap / download behavior.
+/// * Clears the host env before spawn and rebuilds `PATH` with
+///   `resolved.bin_dir` prepended — `npx`, `node`, and anything the CLI
+///   shells out to stay on the managed toolchain.
+/// * Child runs in `workspace_dir` so the installer lands packages in the
+///   current project by default.
+///
+/// On success the full post-install skills catalog is re-discovered and the
+/// outcome includes the list of skill slugs that appeared since the start of
+/// the call (i.e. the skill(s) produced by `skills add`).
+pub async fn install_skill_from_url(
+    workspace_dir: &Path,
+    node_config: crate::openhuman::config::schema::NodeConfig,
+    params: InstallSkillFromUrlParams,
+) -> Result<InstallSkillFromUrlOutcome, String> {
+    let url = params.url.trim();
+    validate_install_url(url)?;
+
+    let timeout_secs = params
+        .timeout_secs
+        .unwrap_or(DEFAULT_INSTALL_TIMEOUT_SECS)
+        .min(MAX_INSTALL_TIMEOUT_SECS)
+        .max(1);
+
+    tracing::debug!(
+        url = %url,
+        workspace = %workspace_dir.display(),
+        timeout_secs = timeout_secs,
+        "[skills] install_skill_from_url: entry"
+    );
+
+    let home = dirs::home_dir();
+    let trusted_before = is_workspace_trusted(workspace_dir);
+    let before: std::collections::HashSet<String> =
+        discover_skills_inner(home.as_deref(), Some(workspace_dir), trusted_before)
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+
+    let bootstrap = crate::openhuman::node_runtime::NodeBootstrap::new(
+        node_config,
+        workspace_dir.to_path_buf(),
+        reqwest::Client::new(),
+    );
+    let resolved = bootstrap
+        .resolve()
+        .await
+        .map_err(|e| format!("node runtime unavailable: {e}"))?;
+
+    let npx_bin = if cfg!(windows) {
+        resolved.bin_dir.join("npx.cmd")
+    } else {
+        resolved.bin_dir.join("npx")
+    };
+    if !npx_bin.exists() {
+        return Err(format!(
+            "npx binary not found at {} (resolved toolchain {} is missing the npx launcher)",
+            npx_bin.display(),
+            resolved.version,
+        ));
+    }
+
+    let mut cmd = tokio::process::Command::new(&npx_bin);
+    cmd.arg("--yes").arg("skills").arg("add").arg(url);
+    cmd.current_dir(workspace_dir);
+    cmd.env_clear();
+
+    let host_path = std::env::var("PATH").unwrap_or_default();
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let new_path = if host_path.is_empty() {
+        resolved.bin_dir.to_string_lossy().into_owned()
+    } else {
+        format!("{}{}{}", resolved.bin_dir.display(), sep, host_path)
+    };
+    cmd.env("PATH", &new_path);
+    for var in &[
+        "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "USER", "SHELL", "TMPDIR",
+    ] {
+        if let Ok(v) = std::env::var(var) {
+            cmd.env(var, v);
+        }
+    }
+
+    tracing::info!(
+        version = %resolved.version,
+        source = ?resolved.source,
+        npx = %npx_bin.display(),
+        url = %url,
+        "[skills] install_skill_from_url: spawning `npx --yes skills add <url>`"
+    );
+
+    let spawn_result =
+        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output()).await;
+
+    let output = match spawn_result {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(format!("failed to execute npx: {e}")),
+        Err(_) => {
+            return Err(format!(
+                "install timed out after {timeout_secs}s and was killed"
+            ));
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    if !output.status.success() {
+        let trimmed = stderr.trim();
+        let detail = if trimmed.is_empty() {
+            stdout.trim().to_string()
+        } else {
+            trimmed.to_string()
+        };
+        return Err(format!(
+            "`npx skills add {url}` exited with status {}: {detail}",
+            output.status
+        ));
+    }
+
+    let trusted_after = is_workspace_trusted(workspace_dir);
+    let after = discover_skills_inner(home.as_deref(), Some(workspace_dir), trusted_after);
+    let new_skills: Vec<String> = after
+        .into_iter()
+        .map(|s| s.name)
+        .filter(|name| !before.contains(name))
+        .collect();
+
+    tracing::info!(
+        url = %url,
+        new_count = new_skills.len(),
+        "[skills] install_skill_from_url: completed"
+    );
+
+    Ok(InstallSkillFromUrlOutcome {
+        url: url.to_string(),
+        stdout,
+        stderr,
+        new_skills,
+    })
+}
+
+/// Validate a remote skill install URL. Returns `Ok(())` when the URL is
+/// well-formed, uses `https`, and points at a public host.
+///
+/// Rejects:
+/// * empty string or > [`MAX_INSTALL_URL_LEN`] bytes
+/// * non-`https` schemes (including `http`, `ftp`, `file`, `git+ssh`)
+/// * missing or empty host
+/// * `localhost`, `*.localhost`, `*.local`
+/// * IPv4 literals in loopback (127.0.0.0/8), private (10/8, 172.16/12,
+///   192.168/16), link-local (169.254/16), shared-address (100.64/10),
+///   multicast, broadcast, or unspecified (0.0.0.0) ranges
+/// * IPv6 literals in loopback (::1), unspecified (::), unique-local
+///   (fc00::/7), link-local (fe80::/10), or multicast (ff00::/8)
+pub fn validate_install_url(raw: &str) -> Result<(), String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("url must not be empty".to_string());
+    }
+    if trimmed.len() > MAX_INSTALL_URL_LEN {
+        return Err(format!(
+            "url exceeds max {MAX_INSTALL_URL_LEN} chars (got {})",
+            trimmed.len()
+        ));
+    }
+    let parsed = url::Url::parse(trimmed).map_err(|e| format!("invalid url {trimmed:?}: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err(format!(
+            "url scheme {:?} not allowed; https only",
+            parsed.scheme()
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("url {trimmed:?} has no host"))?;
+    if host.is_empty() {
+        return Err(format!("url {trimmed:?} has empty host"));
+    }
+    if is_blocked_install_host(host) {
+        return Err(format!(
+            "host {host:?} not allowed (loopback/private/link-local/multicast)"
+        ));
+    }
+    Ok(())
+}
+
+fn is_blocked_install_host(host: &str) -> bool {
+    let lower = host.to_ascii_lowercase();
+    // url::Url::host_str returns IPv6 literals wrapped in brackets (e.g. "[::1]").
+    // Strip them before attempting Ipv6Addr parse.
+    let stripped = lower
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(&lower);
+    if stripped == "localhost" || stripped.ends_with(".localhost") || stripped.ends_with(".local") {
+        return true;
+    }
+    if let Ok(v4) = stripped.parse::<Ipv4Addr>() {
+        return is_private_v4(&v4);
+    }
+    if let Ok(v6) = stripped.parse::<Ipv6Addr>() {
+        return is_private_v6(&v6);
+    }
+    false
+}
+
+fn is_private_v4(ip: &Ipv4Addr) -> bool {
+    if ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_broadcast()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+    {
+        return true;
+    }
+    let [a, b, _, _] = ip.octets();
+    // 100.64.0.0/10 shared address (CGN)
+    if a == 100 && (64..=127).contains(&b) {
+        return true;
+    }
+    // 0.0.0.0/8
+    if a == 0 {
+        return true;
+    }
+    false
+}
+
+fn is_private_v6(ip: &Ipv6Addr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+        return true;
+    }
+    let first = ip.segments()[0];
+    // fc00::/7 unique-local
+    if (first & 0xfe00) == 0xfc00 {
+        return true;
+    }
+    // fe80::/10 link-local
+    if (first & 0xffc0) == 0xfe80 {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1847,5 +2137,84 @@ mod tests {
         );
         assert!(slugify_skill_name("   ").is_err());
         assert!(slugify_skill_name("!!!").is_err());
+    }
+
+    #[test]
+    fn validate_install_url_accepts_public_https() {
+        for url in &[
+            "https://registry.npmjs.org/@acme/skill",
+            "https://example.com/skill.tar.gz",
+            "https://github.com/acme/skill/releases/download/v1/skill.tgz",
+            "https://8.8.8.8/x",
+        ] {
+            validate_install_url(url).unwrap_or_else(|e| panic!("{url} rejected: {e}"));
+        }
+    }
+
+    #[test]
+    fn validate_install_url_rejects_non_https_scheme() {
+        for url in &[
+            "http://example.com/x",
+            "ftp://example.com/x",
+            "file:///etc/passwd",
+            "git+ssh://git@example.com/repo",
+            "javascript:alert(1)",
+        ] {
+            assert!(
+                validate_install_url(url).is_err(),
+                "{url} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_install_url_rejects_empty_and_oversized() {
+        assert!(validate_install_url("").is_err());
+        assert!(validate_install_url("   ").is_err());
+        let huge = format!("https://example.com/{}", "a".repeat(MAX_INSTALL_URL_LEN));
+        assert!(validate_install_url(&huge).is_err());
+    }
+
+    #[test]
+    fn validate_install_url_rejects_private_and_loopback() {
+        for url in &[
+            "https://localhost/x",
+            "https://foo.localhost/x",
+            "https://foo.local/x",
+            "https://127.0.0.1/x",
+            "https://127.42.1.1/x",
+            "https://10.0.0.5/x",
+            "https://172.16.0.1/x",
+            "https://172.31.255.255/x",
+            "https://192.168.1.1/x",
+            "https://169.254.169.254/x", // cloud metadata IP
+            "https://100.64.0.1/x",      // CGN
+            "https://0.0.0.0/x",
+            "https://255.255.255.255/x",
+            "https://224.0.0.1/x", // multicast
+            "https://[::1]/x",
+            "https://[::]/x",
+            "https://[fe80::1]/x",
+            "https://[fc00::1]/x",
+            "https://[fd12:3456:789a::1]/x",
+            "https://[ff02::1]/x",
+        ] {
+            assert!(
+                validate_install_url(url).is_err(),
+                "{url} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_install_url_rejects_malformed() {
+        // missing scheme -> parse error
+        assert!(validate_install_url("not-a-url").is_err());
+        // special scheme with empty host -> parse error
+        assert!(validate_install_url("https://").is_err());
+        // non-https scheme rejected even when otherwise well-formed
+        assert!(validate_install_url("ftp://example.com/x").is_err());
+        // unparseable bracketed host
+        assert!(validate_install_url("https://[not-an-ip]/x").is_err());
     }
 }

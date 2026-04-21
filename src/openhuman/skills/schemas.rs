@@ -7,6 +7,9 @@
 //!   traversal, symlink, size and UTF-8 guards.
 //! * `skills.create` — scaffold a new SKILL.md skill under the user or
 //!   workspace scope.
+//! * `skills.install_from_url` — install a remote skill by shelling out to
+//!   `npx --yes skills add <url>` through the managed Node.js toolchain,
+//!   with https-only / private-IP URL guards and a timeout.
 //!
 //! All controllers resolve the active workspace via the persisted config
 //! layer (`config::load_config_with_timeout`) so the CLI and UI see the same
@@ -22,8 +25,8 @@ use crate::core::all::{ControllerFuture, RegisteredController};
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
 use crate::openhuman::config::Config;
 use crate::openhuman::skills::ops::{
-    create_skill, discover_skills, is_workspace_trusted, read_skill_resource, CreateSkillParams,
-    Skill, SkillScope,
+    create_skill, discover_skills, install_skill_from_url, is_workspace_trusted,
+    read_skill_resource, CreateSkillParams, InstallSkillFromUrlParams, Skill, SkillScope,
 };
 use crate::rpc::RpcOutcome;
 
@@ -132,11 +135,36 @@ struct SkillsCreateResult {
     skill: SkillSummary,
 }
 
+#[derive(Debug, Deserialize)]
+struct SkillsInstallFromUrlParamsWire {
+    url: String,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+}
+
+impl From<SkillsInstallFromUrlParamsWire> for InstallSkillFromUrlParams {
+    fn from(p: SkillsInstallFromUrlParamsWire) -> Self {
+        InstallSkillFromUrlParams {
+            url: p.url,
+            timeout_secs: p.timeout_secs,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SkillsInstallFromUrlResult {
+    url: String,
+    stdout: String,
+    stderr: String,
+    new_skills: Vec<String>,
+}
+
 pub fn all_skills_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         skills_schemas("skills_list"),
         skills_schemas("skills_read_resource"),
         skills_schemas("skills_create"),
+        skills_schemas("skills_install_from_url"),
     ]
 }
 
@@ -153,6 +181,10 @@ pub fn all_skills_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: skills_schemas("skills_create"),
             handler: handle_skills_create,
+        },
+        RegisteredController {
+            schema: skills_schemas("skills_install_from_url"),
+            handler: handle_skills_install_from_url,
         },
     ]
 }
@@ -271,6 +303,51 @@ pub fn skills_schemas(function: &str) -> ControllerSchema {
                 required: true,
             }],
         },
+        "skills_install_from_url" => ControllerSchema {
+            namespace: "skills",
+            function: "install_from_url",
+            description: "Install a remote skill by shelling out to `npx --yes skills add <url>`. URL must be https and resolve to a public host; default 60s timeout (max 600s).",
+            inputs: vec![
+                FieldSchema {
+                    name: "url",
+                    ty: TypeSchema::String,
+                    comment: "Remote skill package URL (https only; loopback / private / link-local hosts rejected).",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "timeout_secs",
+                    ty: TypeSchema::U64,
+                    comment: "Optional wall-clock override in seconds. Default 60, capped at 600.",
+                    required: false,
+                },
+            ],
+            outputs: vec![
+                FieldSchema {
+                    name: "url",
+                    ty: TypeSchema::String,
+                    comment: "Echo of the installed URL.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "stdout",
+                    ty: TypeSchema::String,
+                    comment: "Captured stdout from the `npx skills add` invocation.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "stderr",
+                    ty: TypeSchema::String,
+                    comment: "Captured stderr from the `npx skills add` invocation.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "new_skills",
+                    ty: TypeSchema::Array(Box::new(TypeSchema::String)),
+                    comment: "Slugs of skills that appeared in the catalog as a result of the install.",
+                    required: true,
+                },
+            ],
+        },
         _ => ControllerSchema {
             namespace: "skills",
             function: "unknown",
@@ -371,6 +448,70 @@ fn handle_skills_create(params: Map<String, Value>) -> ControllerFuture {
             }
         }
     })
+}
+
+fn handle_skills_install_from_url(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let wire = deserialize_params::<SkillsInstallFromUrlParamsWire>(params)?;
+        tracing::debug!(
+            url = %wire.url,
+            timeout_secs = ?wire.timeout_secs,
+            "[skills][rpc] install_from_url"
+        );
+        let config = resolve_config().await;
+        let workspace = config.workspace_dir.clone();
+        let node_config = config.node.clone();
+        let payload: InstallSkillFromUrlParams = wire.into();
+        match install_skill_from_url(workspace.as_path(), node_config, payload).await {
+            Ok(outcome) => {
+                tracing::debug!(
+                    url = %outcome.url,
+                    new_count = outcome.new_skills.len(),
+                    "[skills][rpc] install_from_url: ok"
+                );
+                to_json(RpcOutcome::new(
+                    SkillsInstallFromUrlResult {
+                        url: outcome.url,
+                        stdout: outcome.stdout,
+                        stderr: outcome.stderr,
+                        new_skills: outcome.new_skills,
+                    },
+                    Vec::new(),
+                ))
+            }
+            Err(err) => {
+                tracing::debug!(error = %err, "[skills][rpc] install_from_url: rejected");
+                Err(err)
+            }
+        }
+    })
+}
+
+/// Resolve the active [`Config`]. Falls back to `Config::default()` with a
+/// best-effort workspace directory if the persisted load times out or errors,
+/// so headless diagnostics still work in partially-initialized environments.
+async fn resolve_config() -> Config {
+    match tokio::time::timeout(std::time::Duration::from_secs(30), Config::load_or_init()).await {
+        Ok(Ok(cfg)) => cfg,
+        Ok(Err(err)) => {
+            tracing::debug!(
+                error = %err,
+                "[skills][rpc] config load failed; falling back to default config"
+            );
+            fallback_config()
+        }
+        Err(_) => {
+            tracing::debug!("[skills][rpc] config load timed out; falling back to default config");
+            fallback_config()
+        }
+    }
+}
+
+fn fallback_config() -> Config {
+    Config {
+        workspace_dir: fallback_workspace_dir(),
+        ..Default::default()
+    }
 }
 
 /// Resolve the active workspace directory. Falls back to the runtime default
