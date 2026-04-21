@@ -97,4 +97,25 @@
   try {
     delete window.safari;
   } catch (_) {}
+
+  // navigator.permissions.query — return "granted" for notifications so apps
+  // like Slack don't show a "needs permission" banner. CEF's internal
+  // permission store hasn't recorded a grant at this point, so the native
+  // query returns "prompt" even though we intercept the actual Notification
+  // constructor in the render process. Patching here (via frame.execute_java_script
+  // in on_load_end) is more reliable than the V8 API approach in
+  // on_context_created because execute_java_script runs in the fully-
+  // initialised JS context where navigator.permissions is writable.
+  try {
+    var _perms = navigator && navigator.permissions;
+    if (_perms && typeof _perms.query === 'function') {
+      var _origPermsQuery = _perms.query.bind(_perms);
+      _perms.query = function (descriptor) {
+        if (descriptor && descriptor.name === 'notifications') {
+          return Promise.resolve({ state: 'granted', onchange: null });
+        }
+        return _origPermsQuery(descriptor);
+      };
+    }
+  } catch (_) {}
 })();
