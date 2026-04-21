@@ -13,6 +13,7 @@ import ScreenIntelligenceSetupModal from '../components/skills/ScreenIntelligenc
 import UnifiedSkillCard from '../components/skills/SkillCard';
 import { SKILL_CATEGORY_ORDER, type SkillCategory } from '../components/skills/skillCategories';
 import SkillCategoryFilter from '../components/skills/SkillCategoryFilter';
+import SkillDetailDrawer from '../components/skills/SkillDetailDrawer';
 import {
   BUILT_IN_SKILL_ICONS,
   CHANNEL_ICONS,
@@ -28,6 +29,7 @@ import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import { useComposioIntegrations } from '../lib/composio/hooks';
 import { canonicalizeComposioToolkitSlug } from '../lib/composio/toolkitSlug';
 import { type ComposioConnection, deriveComposioState } from '../lib/composio/types';
+import { skillsApi, type SkillSummary } from '../services/api/skillsApi';
 import { useAppSelector } from '../store/hooks';
 import type { ChannelConnectionStatus, ChannelDefinition, ChannelType } from '../types/channels';
 import { subconsciousEscalationsDismiss } from '../utils/tauriCommands';
@@ -135,7 +137,7 @@ interface SkillItem {
   name: string;
   description: string;
   category: SkillCategory;
-  kind: 'builtin' | 'channel' | 'composio';
+  kind: 'builtin' | 'channel' | 'composio' | 'discovered';
   // For built-in
   route?: string;
   icon?: React.ReactNode;
@@ -145,6 +147,8 @@ interface SkillItem {
   // For composio
   composioToolkit?: ComposioToolkitMeta;
   composioConnection?: ComposioConnection;
+  // For discovered SKILL.md skills
+  discoveredSkill?: SkillSummary;
 }
 
 // ─── Main Skills Page ──────────────────────────────────────────────────────────
@@ -175,6 +179,8 @@ export default function Skills() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<SkillCategory>('All');
+  const [discoveredSkills, setDiscoveredSkills] = useState<SkillSummary[]>([]);
+  const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
   const pendingEscalationId =
     location.state &&
     typeof location.state === 'object' &&
@@ -212,6 +218,27 @@ export default function Skills() {
     },
     [clearPendingEscalationState, pendingEscalationId]
   );
+
+  // Discover SKILL.md skills via the core RPC. Ignore failures — the rest of
+  // the page still works when the sidecar is unreachable or no skills exist.
+  useEffect(() => {
+    let cancelled = false;
+    skillsApi
+      .listSkills()
+      .then(skills => {
+        if (cancelled) return;
+        console.debug('[skills][discovered] listSkills ok', { count: skills.length });
+        setDiscoveredSkills(skills);
+      })
+      .catch((err: unknown) => {
+        console.debug('[skills][discovered] listSkills error', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -304,6 +331,21 @@ export default function Skills() {
       });
     }
 
+    // Discovered SKILL.md skills — surface each as a card whose CTA opens
+    // the detail drawer. They live under the generic "Other" category so
+    // they don't displace hand-curated built-ins or Channels.
+    for (const skill of discoveredSkills) {
+      items.push({
+        id: `discovered-${skill.id}`,
+        name: skill.name,
+        description: skill.description,
+        category: 'Other',
+        kind: 'discovered',
+        icon: BUILT_IN_SKILL_ICONS.screenIntelligence,
+        discoveredSkill: skill,
+      });
+    }
+
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -311,6 +353,7 @@ export default function Skills() {
     channelConnections,
     composioCatalogToolkits,
     composioConnectionByToolkit,
+    discoveredSkills,
   ]);
 
   const availableCategories: SkillCategory[] = useMemo(() => {
@@ -510,6 +553,48 @@ export default function Skills() {
                           />
                         );
                       }
+                      if (item.kind === 'discovered') {
+                        const skill = item.discoveredSkill!;
+                        const scopeLabel = skill.legacy
+                          ? 'Legacy'
+                          : skill.scope === 'user'
+                            ? 'User'
+                            : skill.scope === 'project'
+                              ? 'Project'
+                              : 'Legacy';
+                        const scopeDot = skill.legacy
+                          ? 'bg-stone-300'
+                          : skill.scope === 'user'
+                            ? 'bg-sage-500'
+                            : skill.scope === 'project'
+                              ? 'bg-amber-500'
+                              : 'bg-stone-300';
+                        const scopeColor = skill.legacy
+                          ? 'text-stone-600'
+                          : skill.scope === 'user'
+                            ? 'text-sage-600'
+                            : skill.scope === 'project'
+                              ? 'text-amber-600'
+                              : 'text-stone-600';
+                        return (
+                          <UnifiedSkillCard
+                            key={item.id}
+                            icon={item.icon}
+                            title={item.name}
+                            description={item.description}
+                            statusDot={scopeDot}
+                            statusLabel={scopeLabel}
+                            statusColor={scopeColor}
+                            ctaLabel="View"
+                            onCtaClick={() => {
+                              console.debug('[skills][discovered] open drawer', {
+                                skillId: skill.id,
+                              });
+                              setSelectedSkill(skill);
+                            }}
+                          />
+                        );
+                      }
                       if (item.kind === 'composio') {
                         const meta = item.composioToolkit!;
                         const connection = item.composioConnection;
@@ -596,6 +681,10 @@ export default function Skills() {
           }}
           onClose={() => setComposioModalToolkit(null)}
         />
+      )}
+
+      {selectedSkill && (
+        <SkillDetailDrawer skill={selectedSkill} onClose={() => setSelectedSkill(null)} />
       )}
     </div>
   );
