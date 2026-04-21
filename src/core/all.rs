@@ -191,6 +191,10 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::learning::all_learning_controller_schemas());
     // Conversation thread and message management
     schemas.extend(crate::openhuman::threads::all_threads_controller_schemas());
+    // Embedded webview native notifications
+    schemas.extend(
+        crate::openhuman::webview_notifications::all_webview_notifications_controller_schemas(),
+    );
     schemas
 }
 
