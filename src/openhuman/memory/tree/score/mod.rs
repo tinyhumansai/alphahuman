@@ -14,12 +14,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
+use futures_util::future::try_join_all;
+use rusqlite::Transaction;
 use serde::{Deserialize, Serialize};
 
 use self::extract::{EntityExtractor, ExtractedEntities};
 use self::resolver::{canonicalise, CanonicalEntity};
 use self::signals::{ScoreSignals, SignalWeights};
-use crate::openhuman::memory::tree::types::Chunk;
+use crate::openhuman::memory::tree::types::{approx_token_count, Chunk, SourceKind};
 
 /// Default drop threshold. Chunks with `total < DEFAULT_DROP_THRESHOLD`
 /// are tombstoned and never reach the chunk store.
@@ -70,24 +72,37 @@ pub async fn score_chunk(chunk: &Chunk, cfg: &ScoringConfig) -> Result<ScoreResu
         chunk.token_count
     );
 
+    let scoring_content = scoring_content_for_chunk(chunk);
+    let scoring_token_count = approx_token_count(&scoring_content);
+
     // 1. Extract entities (regex + any configured semantic extractors)
-    let extracted = cfg.extractor.extract(&chunk.content).await?;
+    let extracted = cfg.extractor.extract(&scoring_content).await?;
 
     // 2. Compute signals
     let signals = self::signals::compute(
         &chunk.metadata,
-        &chunk.content,
-        chunk.token_count,
+        &scoring_content,
+        scoring_token_count,
         &extracted,
     );
 
     // 3. Weighted combine
     let total = self::signals::combine(&signals, &cfg.weights);
 
-    // 4. Admission gate
-    let kept = total >= cfg.drop_threshold;
+    // 4. Admission gate. Source and interaction priors are deliberately
+    // non-zero, so guard against very short entity-free chatter being kept by
+    // metadata alone.
+    let tiny_entity_free =
+        scoring_token_count < self::signals::token_count::TOKEN_MIN && extracted.is_empty();
+    let kept = !tiny_entity_free && total >= cfg.drop_threshold;
     let drop_reason = if kept {
         None
+    } else if tiny_entity_free {
+        Some(format!(
+            "token_count {} < minimum {} and no entities extracted",
+            scoring_token_count,
+            self::signals::token_count::TOKEN_MIN
+        ))
     } else {
         Some(format!(
             "total {total:.3} < threshold {:.3}",
@@ -119,15 +134,27 @@ pub async fn score_chunk(chunk: &Chunk, cfg: &ScoringConfig) -> Result<ScoreResu
     })
 }
 
+fn scoring_content_for_chunk(chunk: &Chunk) -> String {
+    if chunk.metadata.source_kind != SourceKind::Chat {
+        return chunk.content.clone();
+    }
+
+    chunk
+        .content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("# Chat transcript") && !trimmed.starts_with("## ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Score a batch of chunks. Errors from any single chunk fail the batch —
 /// scoring is pure-ish (only the extractor may error) and a failure here is
 /// a real bug, not a per-chunk issue to tolerate silently.
 pub async fn score_chunks(chunks: &[Chunk], cfg: &ScoringConfig) -> Result<Vec<ScoreResult>> {
-    let mut out = Vec::with_capacity(chunks.len());
-    for c in chunks {
-        out.push(score_chunk(c, cfg).await?);
-    }
-    Ok(out)
+    try_join_all(chunks.iter().map(|chunk| score_chunk(chunk, cfg))).await
 }
 
 // ── Persistence helpers used by the ingest orchestrator ─────────────────
@@ -145,14 +172,7 @@ pub fn persist_score(
     timestamp_ms: i64,
     tree_id: Option<&str>,
 ) -> Result<()> {
-    let row = store::ScoreRow {
-        chunk_id: result.chunk_id.clone(),
-        total: result.total,
-        signals: result.signals.clone(),
-        dropped: !result.kept,
-        reason: result.drop_reason.clone(),
-        computed_at_ms: Utc::now().timestamp_millis(),
-    };
+    let row = score_row(result);
     store::upsert_score(config, &row)?;
 
     if result.kept && !result.canonical_entities.is_empty() {
@@ -167,6 +187,42 @@ pub fn persist_score(
     }
 
     Ok(())
+}
+
+pub(crate) fn persist_score_tx(
+    tx: &Transaction<'_>,
+    result: &ScoreResult,
+    timestamp_ms: i64,
+    tree_id: Option<&str>,
+) -> Result<()> {
+    let row = score_row(result);
+    store::upsert_score_tx(tx, &row)?;
+
+    if result.kept && !result.canonical_entities.is_empty() {
+        store::index_entities_tx(
+            tx,
+            &result.canonical_entities,
+            &result.chunk_id,
+            "leaf",
+            timestamp_ms,
+            tree_id,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn score_row(result: &ScoreResult) -> store::ScoreRow {
+    // Score rows keep wall-clock scoring time; the separate timestamp_ms
+    // argument used for entity indexes is the source/ingest ordering time.
+    store::ScoreRow {
+        chunk_id: result.chunk_id.clone(),
+        total: result.total,
+        signals: result.signals.clone(),
+        dropped: !result.kept,
+        reason: result.drop_reason.clone(),
+        computed_at_ms: Utc::now().timestamp_millis(),
+    }
 }
 
 #[cfg(test)]

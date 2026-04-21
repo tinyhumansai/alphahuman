@@ -9,7 +9,7 @@
 //! owns the CRUD operations.
 
 use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 
 use crate::openhuman::config::Config;
@@ -32,29 +32,56 @@ pub struct ScoreRow {
 /// Upsert one score rationale row, replacing any existing entry for `chunk_id`.
 pub fn upsert_score(config: &Config, row: &ScoreRow) -> Result<()> {
     with_connection(config, |conn| {
-        conn.execute(
-            "INSERT OR REPLACE INTO mem_tree_score (
-                chunk_id, total,
-                token_count_signal, unique_words_signal,
-                metadata_weight, source_weight, interaction_weight, entity_density,
-                dropped, reason, computed_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                row.chunk_id,
-                row.total,
-                row.signals.token_count,
-                row.signals.unique_words,
-                row.signals.metadata_weight,
-                row.signals.source_weight,
-                row.signals.interaction,
-                row.signals.entity_density,
-                i32::from(row.dropped),
-                row.reason,
-                row.computed_at_ms,
-            ],
-        )?;
+        upsert_score_on_connection(conn, row)?;
         Ok(())
     })
+}
+
+pub(crate) fn upsert_score_tx(tx: &Transaction<'_>, row: &ScoreRow) -> Result<()> {
+    tx.execute(
+        SCORE_UPSERT_SQL,
+        params![
+            row.chunk_id,
+            row.total,
+            row.signals.token_count,
+            row.signals.unique_words,
+            row.signals.metadata_weight,
+            row.signals.source_weight,
+            row.signals.interaction,
+            row.signals.entity_density,
+            i32::from(row.dropped),
+            row.reason,
+            row.computed_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+const SCORE_UPSERT_SQL: &str = "INSERT OR REPLACE INTO mem_tree_score (
+    chunk_id, total,
+    token_count_signal, unique_words_signal,
+    metadata_weight, source_weight, interaction_weight, entity_density,
+    dropped, reason, computed_at_ms
+ ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+
+fn upsert_score_on_connection(conn: &Connection, row: &ScoreRow) -> Result<()> {
+    conn.execute(
+        SCORE_UPSERT_SQL,
+        params![
+            row.chunk_id,
+            row.total,
+            row.signals.token_count,
+            row.signals.unique_words,
+            row.signals.metadata_weight,
+            row.signals.source_weight,
+            row.signals.interaction,
+            row.signals.entity_density,
+            i32::from(row.dropped),
+            row.reason,
+            row.computed_at_ms,
+        ],
+    )?;
+    Ok(())
 }
 
 /// Fetch one chunk's score rationale.
@@ -160,6 +187,38 @@ pub fn index_entities(
         tx.commit()?;
         Ok(entities.len())
     })
+}
+
+pub(crate) fn index_entities_tx(
+    tx: &Transaction<'_>,
+    entities: &[CanonicalEntity],
+    node_id: &str,
+    node_kind: &str,
+    timestamp_ms: i64,
+    tree_id: Option<&str>,
+) -> Result<usize> {
+    if entities.is_empty() {
+        return Ok(0);
+    }
+    let mut stmt = tx.prepare(
+        "INSERT OR REPLACE INTO mem_tree_entity_index (
+            entity_id, node_id, node_kind, entity_kind, surface,
+            score, timestamp_ms, tree_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    for e in entities {
+        stmt.execute(params![
+            e.canonical_id,
+            node_id,
+            node_kind,
+            e.kind.as_str(),
+            e.surface,
+            e.score,
+            timestamp_ms,
+            tree_id,
+        ])?;
+    }
+    Ok(entities.len())
 }
 
 /// Result row from [`lookup_entity`].

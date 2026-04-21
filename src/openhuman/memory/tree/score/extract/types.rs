@@ -106,12 +106,12 @@ impl ExtractedEntities {
         self.entities.is_empty() && self.topics.is_empty()
     }
 
-    /// Count of unique entity texts, case-insensitive. Used as a scoring signal.
+    /// Count of unique `(kind, text)` pairs, case-insensitive. Used as a scoring signal.
     pub fn unique_entity_count(&self) -> usize {
         use std::collections::BTreeSet;
         self.entities
             .iter()
-            .map(|e| e.text.to_lowercase())
+            .map(|e| (e.kind, e.text.to_lowercase()))
             .collect::<BTreeSet<_>>()
             .len()
     }
@@ -196,6 +196,30 @@ mod tests {
             topics: vec![],
         };
         assert_eq!(e.unique_entity_count(), 1);
+    }
+
+    #[test]
+    fn unique_entity_count_keeps_different_kinds_distinct() {
+        let e = ExtractedEntities {
+            entities: vec![
+                ExtractedEntity {
+                    kind: EntityKind::Handle,
+                    text: "alice".into(),
+                    span_start: 0,
+                    span_end: 5,
+                    score: 1.0,
+                },
+                ExtractedEntity {
+                    kind: EntityKind::Hashtag,
+                    text: "alice".into(),
+                    span_start: 10,
+                    span_end: 15,
+                    score: 1.0,
+                },
+            ],
+            topics: vec![],
+        };
+        assert_eq!(e.unique_entity_count(), 2);
     }
 
     #[test]

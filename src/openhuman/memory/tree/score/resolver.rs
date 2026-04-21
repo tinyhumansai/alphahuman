@@ -49,14 +49,19 @@ pub fn canonicalise(extracted: &ExtractedEntities) -> Vec<CanonicalEntity> {
 /// - Email: `email:lowercased`
 /// - Handle: `handle:lowercased` with leading `@` stripped
 /// - Hashtag: `hashtag:lowercased` with leading `#` stripped
-/// - URL: `url:lowercased-trimmed`
+/// - URL: `url:trimmed` with case preserved for path/query exact matching
 /// - Semantic kinds: `kind:lowercased-surface` (V1; fuzzy merge deferred)
 pub fn canonical_id_for(kind: EntityKind, surface: &str) -> String {
-    let s = surface.trim().to_lowercase();
-    let clean = s
-        .trim_start_matches('@')
-        .trim_start_matches('#')
-        .to_string();
+    let trimmed = surface.trim();
+    let clean = if kind == EntityKind::Url {
+        trimmed.to_string()
+    } else {
+        trimmed
+            .to_lowercase()
+            .trim_start_matches('@')
+            .trim_start_matches('#')
+            .to_string()
+    };
     format!("{}:{}", kind.as_str(), clean)
 }
 
@@ -96,6 +101,12 @@ mod tests {
         let a = canonical_id_for(EntityKind::Hashtag, "#launch");
         let b = canonical_id_for(EntityKind::Hashtag, "launch");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn url_preserves_case() {
+        let id = canonical_id_for(EntityKind::Url, " https://example.com/Path?Token=ABC ");
+        assert_eq!(id, "url:https://example.com/Path?Token=ABC");
     }
 
     #[test]

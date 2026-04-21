@@ -157,13 +157,17 @@ async fn persist(
     let kept_for_store = kept_chunks.clone();
     let results_for_store = all_results.clone();
     let written = tokio::task::spawn_blocking(move || -> Result<usize> {
-        let n = store::upsert_chunks(&config_owned, &kept_for_store)?;
-        for (result, ts_ms) in &results_for_store {
-            // Persist rationale for EVERY chunk (kept or dropped).
-            // Index entities only for kept chunks (handled inside persist_score).
-            score::persist_score(&config_owned, result, *ts_ms, None)?;
-        }
-        Ok(n)
+        store::with_connection(&config_owned, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            let n = store::upsert_chunks_tx(&tx, &kept_for_store)?;
+            for (result, ts_ms) in &results_for_store {
+                // Persist rationale for EVERY chunk (kept or dropped).
+                // Index entities only for kept chunks (handled inside persist_score_tx).
+                score::persist_score_tx(&tx, result, *ts_ms, None)?;
+            }
+            tx.commit()?;
+            Ok(n)
+        })
     })
     .await
     .map_err(|e| anyhow::anyhow!("persist join error: {e}"))??;

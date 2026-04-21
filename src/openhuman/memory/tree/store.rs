@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::time::Duration;
 
 use crate::openhuman::config::Config;
@@ -108,33 +108,83 @@ pub fn upsert_chunks(config: &Config, chunks: &[Chunk]) -> Result<usize> {
         let tx = conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO mem_tree_chunks (
+                "INSERT INTO mem_tree_chunks (
                     id, source_kind, source_id, source_ref, owner,
                     timestamp_ms, time_range_start_ms, time_range_end_ms,
                     tags_json, content, token_count, seq_in_source, created_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_kind = excluded.source_kind,
+                    source_id = excluded.source_id,
+                    source_ref = excluded.source_ref,
+                    owner = excluded.owner,
+                    timestamp_ms = excluded.timestamp_ms,
+                    time_range_start_ms = excluded.time_range_start_ms,
+                    time_range_end_ms = excluded.time_range_end_ms,
+                    tags_json = excluded.tags_json,
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    seq_in_source = excluded.seq_in_source,
+                    created_at_ms = excluded.created_at_ms",
             )?;
-            for chunk in chunks {
-                stmt.execute(params![
-                    chunk.id,
-                    chunk.metadata.source_kind.as_str(),
-                    chunk.metadata.source_id,
-                    chunk.metadata.source_ref.as_ref().map(|r| r.value.as_str()),
-                    chunk.metadata.owner,
-                    chunk.metadata.timestamp.timestamp_millis(),
-                    chunk.metadata.time_range.0.timestamp_millis(),
-                    chunk.metadata.time_range.1.timestamp_millis(),
-                    serde_json::to_string(&chunk.metadata.tags)?,
-                    chunk.content,
-                    chunk.token_count,
-                    chunk.seq_in_source,
-                    chunk.created_at.timestamp_millis(),
-                ])?;
-            }
+            upsert_chunks_with_statement(&mut stmt, chunks)?;
         }
         tx.commit()?;
         Ok(chunks.len())
     })
+}
+
+/// Upsert chunks using an existing transaction, preserving previously stored embeddings.
+pub(crate) fn upsert_chunks_tx(tx: &Transaction<'_>, chunks: &[Chunk]) -> Result<usize> {
+    if chunks.is_empty() {
+        return Ok(0);
+    }
+    let mut stmt = tx.prepare(
+        "INSERT INTO mem_tree_chunks (
+            id, source_kind, source_id, source_ref, owner,
+            timestamp_ms, time_range_start_ms, time_range_end_ms,
+            tags_json, content, token_count, seq_in_source, created_at_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        ON CONFLICT(id) DO UPDATE SET
+            source_kind = excluded.source_kind,
+            source_id = excluded.source_id,
+            source_ref = excluded.source_ref,
+            owner = excluded.owner,
+            timestamp_ms = excluded.timestamp_ms,
+            time_range_start_ms = excluded.time_range_start_ms,
+            time_range_end_ms = excluded.time_range_end_ms,
+            tags_json = excluded.tags_json,
+            content = excluded.content,
+            token_count = excluded.token_count,
+            seq_in_source = excluded.seq_in_source,
+            created_at_ms = excluded.created_at_ms",
+    )?;
+    upsert_chunks_with_statement(&mut stmt, chunks)?;
+    Ok(chunks.len())
+}
+
+fn upsert_chunks_with_statement(
+    stmt: &mut rusqlite::Statement<'_>,
+    chunks: &[Chunk],
+) -> Result<()> {
+    for chunk in chunks {
+        stmt.execute(params![
+            chunk.id,
+            chunk.metadata.source_kind.as_str(),
+            chunk.metadata.source_id,
+            chunk.metadata.source_ref.as_ref().map(|r| r.value.as_str()),
+            chunk.metadata.owner,
+            chunk.metadata.timestamp.timestamp_millis(),
+            chunk.metadata.time_range.0.timestamp_millis(),
+            chunk.metadata.time_range.1.timestamp_millis(),
+            serde_json::to_string(&chunk.metadata.tags)?,
+            chunk.content,
+            chunk.token_count,
+            chunk.seq_in_source,
+            chunk.created_at.timestamp_millis(),
+        ])?;
+    }
+    Ok(())
 }
 
 /// Fetch one chunk by its id.
@@ -310,28 +360,19 @@ fn normalized_limit(requested: Option<usize>) -> i64 {
     i64::try_from(clamped).unwrap_or(MAX_LIST_LIMIT as i64)
 }
 
-/// Idempotent `ALTER TABLE ADD COLUMN` — adds the column only when absent.
-///
-/// SQLite's `ADD COLUMN` has no `IF NOT EXISTS` variant, so we check the
-/// column list via `pragma_table_info` first. Safe to run on every
-/// connection; it's a no-op once the column is there.
+/// Idempotent `ALTER TABLE ADD COLUMN` — treats an existing column as success.
 fn add_column_if_missing(conn: &Connection, table: &str, name: &str, sql_type: &str) -> Result<()> {
-    let exists: i64 = conn
-        .query_row(
-            &format!("SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",),
-            rusqlite::params![table, name],
-            |r| r.get(0),
-        )
-        .with_context(|| format!("pragma_table_info lookup failed for {table}.{name}"))?;
-    if exists == 0 {
-        conn.execute(
-            &format!("ALTER TABLE {table} ADD COLUMN {name} {sql_type}"),
-            [],
-        )
-        .with_context(|| format!("Failed to add column {table}.{name}"))?;
-        log::debug!("[memory_tree::store] migration: added column {table}.{name} ({sql_type})");
+    match conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {name} {sql_type}"),
+        [],
+    ) {
+        Ok(_) => {
+            log::debug!("[memory_tree::store] migration: added column {table}.{name} ({sql_type})");
+            Ok(())
+        }
+        Err(err) if err.to_string().contains("duplicate column name") => Ok(()),
+        Err(err) => Err(err).with_context(|| format!("Failed to add column {table}.{name}")),
     }
-    Ok(())
 }
 
 // ── Phase 2: embedding column accessors ─────────────────────────────────
@@ -432,6 +473,24 @@ mod tests {
         upsert_chunks(&cfg, &[c.clone()]).unwrap();
         upsert_chunks(&cfg, &[c.clone()]).unwrap();
         assert_eq!(count_chunks(&cfg).unwrap(), 1);
+    }
+
+    #[test]
+    fn reingest_preserves_existing_embedding() {
+        let (_tmp, cfg) = test_config();
+        let mut c = sample_chunk("slack:#eng", 0, 1_700_000_000_000);
+        upsert_chunks(&cfg, &[c.clone()]).unwrap();
+        set_chunk_embedding(&cfg, &c.id, &[0.1, 0.2, 0.3]).unwrap();
+
+        c.content = "updated content".into();
+        c.token_count = 99;
+        upsert_chunks(&cfg, &[c.clone()]).unwrap();
+
+        let embedding = get_chunk_embedding(&cfg, &c.id).unwrap().unwrap();
+        assert_eq!(embedding, vec![0.1, 0.2, 0.3]);
+        let got = get_chunk(&cfg, &c.id).unwrap().unwrap();
+        assert_eq!(got.content, "updated content");
+        assert_eq!(got.token_count, 99);
     }
 
     #[test]

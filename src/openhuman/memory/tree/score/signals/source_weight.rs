@@ -12,16 +12,21 @@
 
 use crate::openhuman::memory::tree::types::{DataSource, Metadata, SourceKind};
 
+const PROVIDER_PREFIX: &str = "provider:";
+
 /// Best-effort map from `Metadata` to a [`DataSource`] — checks the `tags`
-/// list for a stable snake_case provider tag. If not present, falls back to
-/// kind-based defaults.
+/// list for a stable `provider:<snake_case>` provider tag. If not present,
+/// falls back to kind-based defaults.
 ///
 /// The ingestion pipeline can (and should) add a provider tag on the
 /// canonicalised output so this signal fires deterministically. Until that's
 /// wired everywhere, we fall back to the kind-level default.
 pub fn infer_data_source(meta: &Metadata) -> Option<DataSource> {
     for tag in &meta.tags {
-        if let Ok(ds) = DataSource::parse(tag) {
+        let Some(provider) = tag.strip_prefix(PROVIDER_PREFIX) else {
+            continue;
+        };
+        if let Ok(ds) = DataSource::parse(provider) {
             return Some(ds);
         }
     }
@@ -71,8 +76,15 @@ mod tests {
 
     #[test]
     fn data_source_inferred_from_tags() {
-        let m = meta_with_tag(SourceKind::Chat, "whatsapp");
+        let m = meta_with_tag(SourceKind::Chat, "provider:whatsapp");
         assert_eq!(infer_data_source(&m), Some(DataSource::Whatsapp));
+    }
+
+    #[test]
+    fn plain_user_label_does_not_infer_provider() {
+        let m = meta_with_tag(SourceKind::Email, "notion");
+        assert_eq!(infer_data_source(&m), None);
+        assert!((score(&m) - 0.75).abs() < 1e-6);
     }
 
     #[test]
@@ -84,7 +96,7 @@ mod tests {
 
     #[test]
     fn provider_specific_weights_applied() {
-        let m = meta_with_tag(SourceKind::Document, "meeting_notes");
+        let m = meta_with_tag(SourceKind::Document, "provider:meeting_notes");
         assert!((score(&m) - 0.85).abs() < 1e-6);
     }
 
