@@ -184,20 +184,39 @@ pub async fn download_distribution(
     let mut hasher = Sha256::new();
     let mut written: u64 = 0;
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .with_context(|| format!("streaming {}", dist.url))?
-    {
-        hasher.update(&chunk);
-        file.write_all(&chunk)
+    // Stream into `file`. On any chunk / write / flush failure we remove
+    // the partial file on disk so a retry starts clean and callers never
+    // see a half-written archive.
+    let stream_result: Result<()> = async {
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .with_context(|| format!("writing chunk to {}", target_path.display()))?;
-        written = written.saturating_add(chunk.len() as u64);
+            .with_context(|| format!("streaming {}", dist.url))?
+        {
+            hasher.update(&chunk);
+            file.write_all(&chunk)
+                .await
+                .with_context(|| format!("writing chunk to {}", target_path.display()))?;
+            written = written.saturating_add(chunk.len() as u64);
+        }
+        file.flush()
+            .await
+            .with_context(|| format!("flushing {}", target_path.display()))?;
+        Ok(())
     }
+    .await;
 
-    file.flush().await.ok();
     drop(file);
+
+    if let Err(err) = stream_result {
+        tracing::warn!(
+            target = %target_path.display(),
+            error = %err,
+            "[node_runtime::downloader] streaming failed — removing partial archive"
+        );
+        let _ = tokio::fs::remove_file(target_path).await;
+        return Err(err);
+    }
 
     let actual_hex = hex::encode(hasher.finalize());
     let expected = expected_sha256.trim().to_ascii_lowercase();
