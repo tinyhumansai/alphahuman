@@ -2,8 +2,8 @@ import { useState } from 'react';
 
 import { useDaemonHealth } from '../../hooks/useDaemonHealth';
 import { useDaemonLifecycle } from '../../hooks/useDaemonLifecycle';
-import { openUrl } from '../../utils/openUrl';
 import { useCoreState } from '../../providers/CoreStateProvider';
+import { openUrl } from '../../utils/openUrl';
 
 interface ServiceBlockingGateProps {
   children: React.ReactNode;

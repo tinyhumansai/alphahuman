@@ -1,3 +1,5 @@
+import { openUrl } from '../utils/openUrl';
+
 /**
  * ErrorFallbackScreen
  *
@@ -93,7 +95,7 @@ export default function ErrorFallbackScreen({
               Reload App
             </button>
             <button
-              onClick={() => window.open(LATEST_DOWNLOAD_URL, '_blank', 'noopener,noreferrer')}
+              onClick={() => openUrl(LATEST_DOWNLOAD_URL)}
               className="bg-stone-800 hover:bg-stone-700 text-white text-sm font-medium rounded-xl px-4 py-3 transition-colors border border-stone-600">
               Download Latest
             </button>

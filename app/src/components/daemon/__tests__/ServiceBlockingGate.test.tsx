@@ -12,13 +12,9 @@ vi.mock('../../../utils/openUrl', () => ({
   openUrl: (...args: unknown[]) => mockOpenUrl(...args),
 }));
 
-vi.mock('../../../providers/CoreStateProvider', () => ({
-  useCoreState: () => mockUseCoreState(),
-}));
+vi.mock('../../../providers/CoreStateProvider', () => ({ useCoreState: () => mockUseCoreState() }));
 
-vi.mock('../../../hooks/useDaemonHealth', () => ({
-  useDaemonHealth: () => mockUseDaemonHealth(),
-}));
+vi.mock('../../../hooks/useDaemonHealth', () => ({ useDaemonHealth: () => mockUseDaemonHealth() }));
 
 vi.mock('../../../hooks/useDaemonLifecycle', () => ({
   useDaemonLifecycle: () => mockUseDaemonLifecycle(),
