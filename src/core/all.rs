@@ -77,6 +77,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     // Webview APIs bridge — proxies connector calls (Gmail, …) through
     // a WebSocket to the Tauri shell so curl reaches the live webview.
     controllers.extend(crate::openhuman::webview_apis::all_webview_apis_registered_controllers());
+    // Local personal index — search + stats over captured life data.
+    controllers.extend(crate::openhuman::life_capture::all_life_capture_registered_controllers());
     // Agent definition and prompt inspection
     controllers.extend(crate::openhuman::agent::all_agent_registered_controllers());
     // System and process health monitoring
@@ -175,6 +177,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::composio::all_composio_controller_schemas());
     schemas.extend(crate::openhuman::cron::all_cron_controller_schemas());
     schemas.extend(crate::openhuman::webview_apis::all_webview_apis_controller_schemas());
+    schemas.extend(crate::openhuman::life_capture::all_life_capture_controller_schemas());
     schemas.extend(crate::openhuman::agent::all_agent_controller_schemas());
     schemas.extend(crate::openhuman::health::all_health_controller_schemas());
     schemas.extend(crate::openhuman::doctor::all_doctor_controller_schemas());
