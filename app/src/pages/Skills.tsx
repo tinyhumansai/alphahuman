@@ -8,6 +8,7 @@ import {
   type ComposioToolkitMeta,
   KNOWN_COMPOSIO_TOOLKITS,
 } from '../components/composio/toolkitMeta';
+import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
 import ScreenIntelligenceSetupModal from '../components/skills/ScreenIntelligenceSetupModal';
 import UnifiedSkillCard from '../components/skills/SkillCard';
@@ -21,7 +22,6 @@ import {
 } from '../components/skills/skillIcons';
 import SkillSearchBar from '../components/skills/SkillSearchBar';
 import VoiceSetupModal from '../components/skills/VoiceSetupModal';
-import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
 import { useScreenIntelligenceSkillStatus } from '../features/screen-intelligence/useScreenIntelligenceSkillStatus';
 import { useVoiceSkillStatus } from '../features/voice/useVoiceSkillStatus';
@@ -509,7 +509,11 @@ export default function Skills() {
                             statusColor={channelStatusColor(status)}
                             ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
                             onCtaClick={() => setChannelModalDef(item.channelDef!)}
-                            badge={isMessagingId(item.channelDef!.id) ? <ConnectionBadge kind="messaging" /> : undefined}
+                            badge={
+                              isMessagingId(item.channelDef!.id) ? (
+                                <ConnectionBadge kind="messaging" />
+                              ) : undefined
+                            }
                           />
                         );
                       }

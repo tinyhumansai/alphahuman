@@ -113,8 +113,8 @@ const SkillsStep = ({ onNext, onBack: _onBack }: SkillsStepProps) => {
       <div className="text-center mb-4">
         <h1 className="text-xl font-bold mb-2 text-stone-900">Connect your tools</h1>
         <p className="text-stone-600 text-sm">
-          Connect the services you already use so OpenHuman can build context for your agent. Your data
-          is saved locally and never leaves your device.
+          Connect the services you already use so OpenHuman can build context for your agent. Your
+          data is saved locally and never leaves your device.
         </p>
       </div>
 
