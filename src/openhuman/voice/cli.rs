@@ -88,9 +88,7 @@ pub(crate) fn run_standalone_subcommand(args: &[String]) -> Result<()> {
         let activation_mode = match mode.as_deref() {
             Some("tap") => ActivationMode::Tap,
             Some("push") | None => ActivationMode::Push,
-            Some(other) => {
-                return Err(anyhow!("invalid --mode '{other}', expected tap|push"))
-            }
+            Some(other) => return Err(anyhow!("invalid --mode '{other}', expected tap|push")),
         };
 
         let server_config = VoiceServerConfig {
