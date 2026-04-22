@@ -62,6 +62,9 @@ export default function CommandPalette({ open, onOpenChange }: Props) {
           aria-label="Command palette"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            Search and run commands. Use arrow keys to navigate, Enter to select, Escape to close.
+          </Dialog.Description>
           <Command label="Commands" shouldFilter={true}>
             <Command.Input
               autoFocus

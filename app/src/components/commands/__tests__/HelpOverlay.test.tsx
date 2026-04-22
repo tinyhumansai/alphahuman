@@ -43,7 +43,7 @@ describe('HelpOverlay', () => {
       </ScopeContext.Provider>,
     );
     expect(screen.getByText('Toggle foo')).toBeInTheDocument();
-    expect(screen.getByText(/Shortcuts/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Shortcuts/i, level: 3 })).toBeInTheDocument();
   });
 
   it('dedups same shortcut across scopes', () => {

@@ -1,6 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
@@ -128,6 +128,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const [showLimitModal, setShowLimitModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -195,11 +196,39 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     }
   }, [selectedThreadId, messages.length, dispatch]);
 
+  const location = useLocation();
+  const didInitialScrollRef = useRef(false);
+  const lastScrolledThreadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    didInitialScrollRef.current = false;
+  }, [location.pathname]);
+  // useLayoutEffect fires synchronously after DOM mutations but before paint,
+  // so the user never sees the un-scrolled state. Using a direct ref on the
+  // scroll container avoids the parent-walk which silently failed when
+  // scrollHeight===0 (container not yet laid out on repeated /chat entries).
+  useLayoutEffect(() => {
+    if (messages.length === 0) return;
+    const container = messagesContainerRef.current;
+    const threadChanged = lastScrolledThreadRef.current !== selectedThreadId;
+    const firstScroll = !didInitialScrollRef.current;
+    const instant = firstScroll || threadChanged;
+    console.debug('[scroll]', {
+      instant,
+      threadChanged,
+      firstScroll,
+      foundContainer: !!container,
+      containerScrollHeight: container?.scrollHeight ?? 0,
+    });
+    if (instant) {
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [messages]);
+    lastScrolledThreadRef.current = selectedThreadId ?? null;
+    didInitialScrollRef.current = true;
+  }, [messages, selectedThreadId]);
 
   useEffect(() => {
     const onDictationInsert = (event: Event) => {
@@ -739,13 +768,22 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               <p className="px-4 py-6 text-xs text-stone-400 text-center">No threads yet</p>
             ) : (
               sortedThreads.map(thread => (
-                <button
+                <div
                   key={thread.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     dispatch(setSelectedThread(thread.id));
                     void dispatch(loadThreadMessages(thread.id));
                   }}
-                  className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group ${
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      dispatch(setSelectedThread(thread.id));
+                      void dispatch(loadThreadMessages(thread.id));
+                    }
+                  }}
+                  className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group cursor-pointer ${
                     selectedThreadId === thread.id
                       ? 'bg-primary-50 border-l-2 border-l-primary-500'
                       : 'hover:bg-stone-50'
@@ -790,7 +828,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                       </span>
                     )}
                   </div> */}
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -833,7 +871,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-5 py-4 bg-[#f6f6f6]">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-5 py-4 bg-[#f6f6f6]">
           {isLoadingMessages ? (
             <div className="space-y-4">
               {Array.from({ length: 4 }).map((_, i) => (

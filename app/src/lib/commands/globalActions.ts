@@ -2,11 +2,11 @@ import type { NavigateFunction } from 'react-router-dom';
 import { registry } from './registry';
 import { hotkeyManager } from './hotkeyManager';
 
-export const GROUP_ORDER = ['Navigation', 'Help'] as const;
+export const GROUP_ORDER = ['Navigation'] as const;
 
 export function registerGlobalActions(
   navigate: NavigateFunction,
-  openHelpOverlay: () => void,
+  _openHelpOverlay: () => void,
   globalScopeSymbol: symbol,
 ): void {
   const nav = (path: string) => () => {
@@ -54,14 +54,17 @@ export function registerGlobalActions(
       handler: nav('/settings'),
       keywords: ['preferences', 'config'],
     },
-    {
-      id: 'help.show',
-      label: 'Show Keyboard Shortcuts',
-      group: 'Help',
-      shortcut: '?',
-      handler: openHelpOverlay,
-      keywords: ['help', 'shortcuts'],
-    },
+    // Help overlay disabled — the palette already lists each action's shortcut
+    // inline via <Kbd/>. Re-enable by restoring this entry, the mod+/ alias
+    // below, and the HelpOverlay wiring in CommandProvider.
+    // {
+    //   id: 'help.show',
+    //   label: 'Show Keyboard Shortcuts',
+    //   group: 'Help',
+    //   shortcut: '?',
+    //   handler: _openHelpOverlay,
+    //   keywords: ['help', 'shortcuts'],
+    // },
   ];
 
   for (const a of actions) {

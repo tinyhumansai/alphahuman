@@ -66,6 +66,10 @@ export default function HelpOverlay({ open, onOpenChange }: Props) {
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(560px,calc(100vw-32px))] max-h-[80vh] overflow-auto bg-cmd-surface text-cmd-foreground border border-cmd-border rounded-xl shadow-cmd-palette z-50 p-4"
           aria-label="Keyboard shortcuts"
         >
+          <Dialog.Title className="sr-only">Keyboard shortcuts</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            List of available keyboard shortcuts grouped by category.
+          </Dialog.Description>
           {actionRows.length > 0 && (
             <section aria-label="Actions">
               <h3 className="text-xs uppercase text-cmd-foreground-muted mb-2">Actions</h3>

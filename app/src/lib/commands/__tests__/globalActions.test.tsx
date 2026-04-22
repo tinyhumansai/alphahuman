@@ -10,20 +10,15 @@ beforeEach(() => {
 });
 
 describe('registerGlobalActions', () => {
-  it('registers all 6 seed actions into the global frame', () => {
+  it('registers the 5 seed nav actions into the global frame', () => {
     const frame = hotkeyManager.pushFrame('global', 'root');
     const navigate = vi.fn() as unknown as NavigateFunction;
     const openHelp = vi.fn();
     registerGlobalActions(navigate, openHelp, frame);
-    const ids = [
-      'nav.home',
-      'nav.chat',
-      'nav.intelligence',
-      'nav.skills',
-      'nav.settings',
-      'help.show',
-    ];
+    const ids = ['nav.home', 'nav.chat', 'nav.intelligence', 'nav.skills', 'nav.settings'];
     for (const id of ids) expect(registry.getAction(id)?.id).toBe(id);
+    // help action intentionally disabled — re-enable when help overlay returns.
+    expect(registry.getAction('help.show')).toBeUndefined();
   });
 
   it('nav.home handler calls navigate("/home")', () => {
@@ -35,16 +30,7 @@ describe('registerGlobalActions', () => {
     expect(navigate).toHaveBeenCalledWith('/home');
   });
 
-  it('help.show handler calls openHelp', () => {
-    const frame = hotkeyManager.pushFrame('global', 'root');
-    const openHelp = vi.fn();
-    registerGlobalActions(vi.fn() as unknown as NavigateFunction, openHelp, frame);
-    registry.setActiveStack([frame]);
-    registry.runAction('help.show');
-    expect(openHelp).toHaveBeenCalled();
-  });
-
   it('exports GROUP_ORDER', () => {
-    expect(GROUP_ORDER).toEqual(['Navigation', 'Help']);
+    expect(GROUP_ORDER).toEqual(['Navigation']);
   });
 });
