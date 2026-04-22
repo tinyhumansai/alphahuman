@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 
-use super::{bootstrap_engine, bootstrap_engine_with_opts, init_quiet_logging, is_help, parse_opts};
+use super::{
+    bootstrap_engine, bootstrap_engine_with_opts, init_quiet_logging, is_help, parse_opts,
+};
 
 /// `openhuman screen-intelligence status` — print current engine status as JSON.
 pub(super) fn run_status(args: &[String]) -> Result<()> {

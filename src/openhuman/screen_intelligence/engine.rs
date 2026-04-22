@@ -492,14 +492,8 @@ impl AccessibilityEngine {
         let frame = CaptureFrame {
             captured_at_ms: chrono::Utc::now().timestamp_millis(),
             reason: reason.to_string(),
-            app_name: result
-                .context
-                .as_ref()
-                .and_then(|c| c.app_name.clone()),
-            window_title: result
-                .context
-                .as_ref()
-                .and_then(|c| c.window_title.clone()),
+            app_name: result.context.as_ref().and_then(|c| c.app_name.clone()),
+            window_title: result.context.as_ref().and_then(|c| c.window_title.clone()),
             image_ref: Some(image_ref),
         };
         Some(Self::save_screenshot_to_disk(workspace_dir, &frame))

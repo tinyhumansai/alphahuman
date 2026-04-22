@@ -63,9 +63,7 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         "screen-intelligence" => {
             crate::openhuman::screen_intelligence::cli::run_screen_intelligence_command(&args[1..])
         }
-        "voice" | "dictate" => {
-            crate::openhuman::voice::cli::run_standalone_subcommand(&args[1..])
-        }
+        "voice" | "dictate" => crate::openhuman::voice::cli::run_standalone_subcommand(&args[1..]),
         "text-input" => crate::openhuman::text_input::cli::run_text_input_command(&args[1..]),
         "tree-summarizer" => {
             crate::openhuman::tree_summarizer::cli::run_tree_summarizer_command(&args[1..])

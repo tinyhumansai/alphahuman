@@ -108,9 +108,7 @@ fn print_help() {
     println!("Usage: openhuman voice [--hotkey <combo>] [--mode <tap|push>] [--skip-cleanup] [-v]");
     println!();
     println!("  --hotkey <combo>   Key combination (default: fn)");
-    println!(
-        "  --mode <tap|push>  Activation: tap to toggle, push to hold (default: push)"
-    );
+    println!("  --mode <tap|push>  Activation: tap to toggle, push to hold (default: push)");
     println!("  --skip-cleanup     Skip LLM post-processing on transcriptions");
     println!("  -v, --verbose      Enable debug logging");
     println!();
