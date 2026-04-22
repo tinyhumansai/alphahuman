@@ -91,13 +91,21 @@ Move `openhuman.security_policy_info` from `src/rpc/dispatch.rs` into whichever 
 
 ### Phase 4 — Enforce the rule
 
-Add a build-time check or CI grep:
+Add a build-time check or CI grep. The rule must forbid domain **imports/types** in the transport layer while still allowing the dispatcher to call the generic `::cli::run_*` entrypoints that live inside each domain:
 
-```
-! grep -rE 'openhuman::[a-z_]+::' src/core/cli.rs src/core/jsonrpc.rs src/rpc/dispatch.rs
+```bash
+# Forbid `use crate::openhuman::<domain>::…` imports in transport files.
+! grep -rE '^\s*use\s+crate::openhuman::[a-z_]+::' \
+    src/core/cli.rs src/core/jsonrpc.rs src/rpc/dispatch.rs
+
+# Forbid any other domain reference that is NOT a call into ::cli::run_*(…).
+# (The dispatcher is allowed to invoke `crate::openhuman::<domain>::cli::run_<x>(...)`.)
+! grep -rE 'crate::openhuman::[a-z_]+::' \
+    src/core/cli.rs src/core/jsonrpc.rs src/rpc/dispatch.rs \
+  | grep -vE 'crate::openhuman::[a-z_]+::cli::run_[a-z_]+\('
 ```
 
-Fails if any domain-specific import creeps back in. Commit as `chore(core): fence domain imports out of transport layer`.
+Fails if any domain-specific import or non-dispatcher reference creeps back in. Commit as `chore(core): fence domain imports out of transport layer`.
 
 ### Phase 5 — Document unregistered modules
 

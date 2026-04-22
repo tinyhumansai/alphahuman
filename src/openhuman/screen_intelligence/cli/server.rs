@@ -43,10 +43,12 @@ pub(super) fn run_server(args: &[String]) -> Result<()> {
             config.screen_intelligence.use_vision_model = false;
         }
 
+        let keep_screenshots = opts.keep || config.screen_intelligence.keep_screenshots;
+
         let server_config = crate::openhuman::screen_intelligence::server::SiServerConfig {
             ttl_secs: opts.ttl_secs,
             log_interval_secs: 5,
-            keep_screenshots: opts.keep,
+            keep_screenshots,
         };
 
         let mode_label = if config.screen_intelligence.use_vision_model {
@@ -64,10 +66,7 @@ pub(super) fn run_server(args: &[String]) -> Result<()> {
             "  FPS:              {}",
             config.screen_intelligence.baseline_fps
         );
-        eprintln!(
-            "  Keep screenshots: {}",
-            opts.keep || config.screen_intelligence.keep_screenshots
-        );
+        eprintln!("  Keep screenshots: {}", keep_screenshots);
         eprintln!();
         eprintln!("  Capturing → Vision → Log. Press Ctrl+C to stop.");
         eprintln!();

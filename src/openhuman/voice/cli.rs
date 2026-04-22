@@ -76,14 +76,21 @@ pub(crate) fn run_standalone_subcommand(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let mut config = crate::openhuman::config::Config::load_or_init()
-            .await
-            .unwrap_or_default();
+        let mut config = match crate::openhuman::config::Config::load_or_init().await {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                log::warn!("[voice-cli] config load failed, using defaults: {e}");
+                crate::openhuman::config::Config::default()
+            }
+        };
         config.apply_env_overrides();
 
         let activation_mode = match mode.as_deref() {
             Some("tap") => ActivationMode::Tap,
-            _ => ActivationMode::Push,
+            Some("push") | None => ActivationMode::Push,
+            Some(other) => {
+                return Err(anyhow!("invalid --mode '{other}', expected tap|push"))
+            }
         };
 
         let server_config = VoiceServerConfig {
