@@ -134,9 +134,9 @@ function handleNotificationClick(payload: NotificationClickPayload) {
 // the web API so future platform prompts slot in without UI change.
 async function ensureNotificationPermission(): Promise<void> {
   if (permissionChecked) return;
-  permissionChecked = true;
   try {
     const state = await invoke<string>('webview_notification_permission_state');
+    permissionChecked = true;
     log('notification permission state=%s', state);
     if (state === 'granted') return;
     const next = await invoke<string>('webview_notification_permission_request');

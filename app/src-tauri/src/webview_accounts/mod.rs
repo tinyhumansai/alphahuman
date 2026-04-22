@@ -299,14 +299,15 @@ fn forward_native_notification<R: Runtime>(
     };
     let body = payload.body.as_deref().unwrap_or("");
     log::info!(
-        "[notify-cef][{}] source={:?} tag={:?} silent={} title={:?} body_chars={}",
+        "[notify-cef][{}] source={:?} tag={:?} silent={} title_chars={} body_chars={}",
         account_id,
         payload.source,
         payload.tag,
         payload.silent,
-        raw_title,
+        raw_title.chars().count(),
         body.chars().count()
     );
+    log::debug!("[notify-cef][{}] raw_title={:?}", account_id, raw_title);
 
     // Mirror to the frontend BEFORE firing the OS toast so the Redux
     // store has the routing context ready by the time the user clicks.
