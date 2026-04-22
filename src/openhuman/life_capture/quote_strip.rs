@@ -6,9 +6,8 @@ static ON_DATE_WROTE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?m)^On .{1,200}\bwrote:\s*$").unwrap()
 });
 
-static OUTLOOK_SEP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^-{3,}\s*Original Message\s*-{3,}\s*$").unwrap()
-});
+static OUTLOOK_SEP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^-{3,}\s*Original Message\s*-{3,}\s*$").unwrap());
 
 /// Returns only the new content of an email body — drops everything from the
 /// first quoted-reply marker onward, plus any line that begins with '>'.
@@ -20,10 +19,17 @@ pub fn strip_quoted_reply(body: &str) -> String {
             cut = Some(cut.map_or(m.start(), |c| c.min(m.start())));
         }
     }
-    let head = if let Some(idx) = cut { &body[..idx] } else { body };
+    let head = if let Some(idx) = cut {
+        &body[..idx]
+    } else {
+        body
+    };
 
     // Drop any line starting with '>'.
-    let kept: Vec<&str> = head.lines().filter(|l| !l.trim_start().starts_with('>')).collect();
+    let kept: Vec<&str> = head
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('>'))
+        .collect();
     kept.join("\n").trim().to_string()
 }
 
@@ -45,7 +51,8 @@ mod tests {
 
     #[test]
     fn strips_outlook_original_message_separator() {
-        let input = "reply text\n\n-----Original Message-----\nFrom: a@b\nTo: c@d\nSubject: ...\nbody";
+        let input =
+            "reply text\n\n-----Original Message-----\nFrom: a@b\nTo: c@d\nSubject: ...\nbody";
         assert_eq!(strip_quoted_reply(input), "reply text");
     }
 

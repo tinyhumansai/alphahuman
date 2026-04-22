@@ -17,7 +17,11 @@ impl MemoryStore {
         if !file_path.exists() {
             std::fs::write(&file_path, "")?;
         }
-        Ok(Self { file_path, char_limit, write_lock: Mutex::new(()) })
+        Ok(Self {
+            file_path,
+            char_limit,
+            write_lock: Mutex::new(()),
+        })
     }
 
     pub async fn read(&self) -> std::io::Result<String> {
@@ -26,7 +30,9 @@ impl MemoryStore {
 
     pub async fn add(&self, entry: &str) -> std::io::Result<()> {
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path).await.unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path)
+            .await
+            .unwrap_or_default();
         let next = if current.is_empty() {
             entry.to_string()
         } else {
@@ -43,20 +49,21 @@ impl MemoryStore {
 
     pub async fn replace(&self, needle: &str, replacement: &str) -> std::io::Result<()> {
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path).await.unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path)
+            .await
+            .unwrap_or_default();
         let next = current.replace(needle, replacement);
         if next.chars().count() > self.char_limit {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "char limit",
-            ));
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "char limit"));
         }
         atomic_write(&self.file_path, &next).await
     }
 
     pub async fn remove(&self, needle: &str) -> std::io::Result<()> {
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path).await.unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path)
+            .await
+            .unwrap_or_default();
         // Drop any entry containing `needle`.
         let kept: Vec<&str> = current
             .split(ENTRY_SEP)
@@ -104,7 +111,10 @@ mod tests {
         assert!(s.contains("terse replies"));
         assert!(s.contains("openhuman"));
 
-        store.replace("user prefers terse", "user prefers concise").await.unwrap();
+        store
+            .replace("user prefers terse", "user prefers concise")
+            .await
+            .unwrap();
         let s = store.read().await.unwrap();
         assert!(s.contains("concise"));
         assert!(!s.contains("terse"));

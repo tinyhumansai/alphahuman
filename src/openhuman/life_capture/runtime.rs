@@ -24,13 +24,17 @@ static EMBEDDER: OnceCell<Arc<dyn Embedder>> = OnceCell::const_new();
 /// Initialise the index handle. Call once at startup, immediately after
 /// `PersonalIndex::open` succeeds. Returns Err on double-init.
 pub async fn init_index(idx: Arc<PersonalIndex>) -> Result<(), &'static str> {
-    INDEX.set(idx).map_err(|_| "life_capture index already initialised")
+    INDEX
+        .set(idx)
+        .map_err(|_| "life_capture index already initialised")
 }
 
 /// Initialise the embedder handle. Optional — called only when an embeddings
 /// API key is available (e.g. `OPENAI_API_KEY` or `OPENHUMAN_EMBEDDINGS_KEY`).
 pub async fn init_embedder(embedder: Arc<dyn Embedder>) -> Result<(), &'static str> {
-    EMBEDDER.set(embedder).map_err(|_| "life_capture embedder already initialised")
+    EMBEDDER
+        .set(embedder)
+        .map_err(|_| "life_capture embedder already initialised")
 }
 
 /// Fetch the index, or return a structured error if startup hasn't run yet.

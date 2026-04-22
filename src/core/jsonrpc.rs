@@ -918,10 +918,12 @@ async fn bootstrap_curated_memory(workspace_dir: &std::path::Path) {
     );
     match (memory_store, user_store) {
         (Ok(memory), Ok(user)) => {
-            let rt = Arc::new(crate::openhuman::curated_memory::runtime::CuratedMemoryRuntime {
-                memory: Arc::new(memory),
-                user: Arc::new(user),
-            });
+            let rt = Arc::new(
+                crate::openhuman::curated_memory::runtime::CuratedMemoryRuntime {
+                    memory: Arc::new(memory),
+                    user: Arc::new(user),
+                },
+            );
             match crate::openhuman::curated_memory::runtime::init(rt).await {
                 Ok(()) => log::info!(
                     "[curated_memory] runtime initialised at {}",
@@ -980,7 +982,11 @@ async fn bootstrap_life_capture(workspace_dir: &std::path::Path) {
     let model = std::env::var("OPENHUMAN_EMBEDDINGS_MODEL")
         .unwrap_or_else(|_| "text-embedding-3-small".into());
     let embedder: Arc<dyn crate::openhuman::life_capture::embedder::Embedder> = Arc::new(
-        crate::openhuman::life_capture::embedder::HostedEmbedder::new(base_url, api_key, model.clone()),
+        crate::openhuman::life_capture::embedder::HostedEmbedder::new(
+            base_url,
+            api_key,
+            model.clone(),
+        ),
     );
     if let Err(e) = crate::openhuman::life_capture::runtime::init_embedder(embedder).await {
         log::debug!("[life_capture] embedder init skipped: {e}");
