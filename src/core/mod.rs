@@ -19,7 +19,6 @@ pub mod rpc_log;
 pub mod screen_intelligence_cli;
 pub mod shutdown;
 pub mod socketio;
-pub mod text_input_cli;
 pub mod tree_summarizer_cli;
 pub mod types;
 
