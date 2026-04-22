@@ -13,18 +13,18 @@ This file orients contributors and coding agents. Authoritative narrative archit
 | **`app/`**              | Yarn workspace **`openhuman-app`**: Vite + React (`app/src/`), Tauri desktop host (`app/src-tauri/`), Vitest tests                                                                                          |
 | **Repo root `src/`**    | Rust library **`openhuman_core`** and **`openhuman`** CLI binary entrypoint (`src/main.rs`) — `core_server`, `openhuman::*` domains, skills runtime (QuickJS / `rquickjs`), MCP routing in the core process |
 | **Skills registry**     | **[`tinyhumansai/openhuman-skills`](https://github.com/tinyhumansai/openhuman-skills)** on GitHub — canonical skill packages and TS build; not vendored in this tree (see blurb below).                     |
-| **`Cargo.toml`** (root) | Core crate; `cargo build --bin openhuman` produces the sidecar the UI stages via `app`’s `core:stage`                                                                                                       |
+| **`Cargo.toml`** (root) | Core crate; `cargo build --bin openhuman` produces the sidecar the UI stages via `app`'s `core:stage`                                                                                                       |
 | **`docs/`**             | Architecture and module guides (numbered pages under `docs/src/`, `docs/src-tauri/`)                                                                                                                        |
 
 Commands in documentation assume the **repo root** unless noted: `yarn dev` runs the `app` workspace.
 
-**Skills registry:** Skill sources and the bundler live in **[github.com/tinyhumansai/openhuman-skills](https://github.com/tinyhumansai/openhuman-skills)**. Clone that repository to author or change skills (`yarn install`, `yarn build`). The desktop app’s skills catalog defaults to that GitHub slug; override with `VITE_SKILLS_GITHUB_REPO` (see [`app/src/utils/config.ts`](app/src/utils/config.ts)).
+**Skills registry:** Skill sources and the bundler live in **[github.com/tinyhumansai/openhuman-skills](https://github.com/tinyhumansai/openhuman-skills)**. Clone that repository to author or change skills (`yarn install`, `yarn build`). The desktop app's skills catalog defaults to that GitHub slug; override with `VITE_SKILLS_GITHUB_REPO` (see [`app/src/utils/config.ts`](app/src/utils/config.ts)).
 
 ---
 
 ## Runtime scope
 
-- **Shipped product**: desktop — Windows, macOS, Linux (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) “Platform reach”).
+- **Shipped product**: desktop — Windows, macOS, Linux (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) "Platform reach").
 - **Tauri host** (`app/src-tauri`): **desktop-only** (`compile_error!` for non-desktop targets). Do not add Android/iOS branches inside `app/src-tauri`.
 - **Core binary** (`openhuman`): spawned/staged as a **sidecar**; the Web UI talks to it over HTTP (`core_rpc_relay` + `core_rpc` client), not by re-implementing domain logic in the shell.
 
@@ -294,7 +294,7 @@ A typed pub/sub event bus for **decoupled cross-module communication** plus a **
 **When to use which surface:**
 
 - **Broadcast events** (`publish_global` / `subscribe_global`) — fire-and-forget notification. One publisher, many subscribers, no return value. Use when a module needs to _announce_ something happened and other modules may react independently.
-- **Native request/response** (`register_native_global` / `request_native_global`) — one-to-one typed Rust dispatch keyed by a method string. **Zero serialization**: trait objects (`Arc<dyn Provider>`), streaming channels (`mpsc::Sender<T>`), oneshot senders, and anything else `Send + 'static` all pass through unchanged. Use when a module needs a typed return value from another module in-process. This is **internal-only** — anything that needs to be callable over JSON-RPC should register against `src/core/all.rs` instead.
+- **Native request/response** (`register_native_global` / `request_native_global`) — one-to-one typed Rust dispatch keyed by a method string. **Zero serialization**: trait objects (`Arc<dyn Provider>`), streaming channels (`mpsc::Sender<T>`), oneshot senders, and anything else `Send + 'static' all pass through unchanged. Use when a module needs a typed return value from another module in-process. This is **internal-only** — anything that needs to be callable over JSON-RPC should register against `src/core/all.rs` instead.
 
 **Core types** (all in `src/core/event_bus/`):
 
@@ -424,9 +424,9 @@ In the parent **OpenHuman** desktop app, **Tauri / Rust is a delivery vehicle**:
 
 ## Git workflow
 
-- **GitHub issues on upstream** — File and track issues on **[tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman/)** ([Issues](https://github.com/tinyhumansai/openhuman/issues)), not only a fork’s tracker, unless the workflow explicitly says otherwise.
+- **GitHub issues on upstream** — File and track issues on **[tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman/)** ([Issues](https://github.com/tinyhumansai/openhuman/issues)), not only a fork's tracker, unless the workflow explicitly says otherwise.
 - **GitHub issue templates** — Use **[`.github/ISSUE_TEMPLATE/feature.md`](.github/ISSUE_TEMPLATE/feature.md)** for new features and **[`.github/ISSUE_TEMPLATE/bug.md`](.github/ISSUE_TEMPLATE/bug.md)** for bugs; keep the same section structure and fill every required part. AI-authored issues should follow those templates verbatim.
-- **Open pull requests on upstream** — Always create PRs against **[tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman)** ([pull requests](https://github.com/tinyhumansai/openhuman/pulls)), not only a fork’s default remote, unless the workflow explicitly says otherwise.
+- **Open pull requests on upstream** — Always create PRs against **[tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman)** ([pull requests](https://github.com/tinyhumansai/openhuman/pulls)), not only a fork's default remote, unless the workflow explicitly says otherwise.
 - **Public repo**; push to your working branch; PRs target **`main`**.
 - Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md); AI-generated PR text should follow its sections and checklist.
 
@@ -476,7 +476,8 @@ Follow this order so behavior is **specified**, **proven in Rust**, **proven ove
 - **`src/openhuman/`**: New features go in a **folder/module**, not new root-level `src/openhuman/*.rs` files (see Rust core section).
 - **File size**: Prefer ≤ ~500 lines per source file; split modules when growing.
 - **Pre-merge checks** (when touching code): Prettier, ESLint, `tsc --noEmit` in `app/`; `cargo fmt` + `cargo check` for changed Rust (`Cargo.toml` at root and/or `app/src-tauri/Cargo.toml` as appropriate).
-- **No dynamic imports** in production **`app/src`** code — use **static** `import` / `import type` at the top of the module. Do **not** use `import()` (async dynamic import), `React.lazy(() => import(...))`, or `await import('…')` to load app modules, Tauri APIs, or RPC clients. **Why:** predictable chunk graph, simpler static analysis, fewer surprises in Tauri + Vite, and easier code review. **If a module must not run at load time** (e.g. heavy optional path), use a static import and **guard the call site** with `try/catch` or an explicit runtime check instead of deferring module load via dynamic import. **Exceptions:** Vitest harness patterns (`vi.importActual`, dynamic imports **only** inside `*.test.ts` / `__tests__` / `test/setup.ts` when required by the runner); ambient `typeof import('…')` in `.d.ts`; config files (e.g. `tailwind.config.js` JSDoc).- **Type-only imports**: `import type` where appropriate.
+- **No dynamic imports** in production **`app/src`** code — use **static** `import` / `import type` at the top of the module. Do **not** use `import()` (async dynamic import), `React.lazy(() => import(...))`, or `await import('…')` to load app modules, Tauri APIs, or RPC clients. **Why:** predictable chunk graph, simpler static analysis, fewer surprises in Tauri + Vite, and easier code review. **If a module must not run at load time** (e.g. heavy optional path), use a static import and **guard the call site** with `try/catch` or an explicit runtime check instead of deferring module load via dynamic import. **Exceptions:** Vitest harness patterns (`vi.importActual`, dynamic imports **only** inside `*.test.ts` / `__tests__` / `test/setup.ts` when required by the runner); ambient `typeof import('…')` in `.d.ts`; config files (e.g. `tailwind.config.js` JSDoc).
+- **Type-only imports**: `import type` where appropriate.
 - **Dual socket / tool sync**: If you change realtime protocol, keep **frontend** (`socketService` / MCP transport) and **core** socket behavior aligned (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dual-socket section).
 
 ---
