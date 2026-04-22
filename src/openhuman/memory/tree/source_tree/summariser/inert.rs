@@ -10,7 +10,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::openhuman::memory::tree::source_tree::summariser::{
-    SummaryContext, SummaryInput, SummaryOutput, Summariser,
+    Summariser, SummaryContext, SummaryInput, SummaryOutput,
 };
 use crate::openhuman::memory::tree::types::approx_token_count;
 

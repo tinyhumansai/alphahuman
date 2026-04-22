@@ -87,9 +87,7 @@ mod tests {
     use crate::openhuman::memory::tree::source_tree::registry::get_or_create_source_tree;
     use crate::openhuman::memory::tree::source_tree::summariser::inert::InertSummariser;
     use crate::openhuman::memory::tree::store::upsert_chunks;
-    use crate::openhuman::memory::tree::types::{
-        chunk_id, Chunk, Metadata, SourceKind, SourceRef,
-    };
+    use crate::openhuman::memory::tree::types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef};
     use tempfile::TempDir;
 
     fn test_config() -> (TempDir, Config) {

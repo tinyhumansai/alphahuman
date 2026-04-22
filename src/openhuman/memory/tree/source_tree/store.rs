@@ -60,11 +60,7 @@ pub(crate) fn insert_tree_conn(conn: &Connection, tree: &Tree) -> Result<()> {
 }
 
 /// Fetch a tree by `(kind, scope)`. Returns `None` if no such tree exists.
-pub fn get_tree_by_scope(
-    config: &Config,
-    kind: TreeKind,
-    scope: &str,
-) -> Result<Option<Tree>> {
+pub fn get_tree_by_scope(config: &Config, kind: TreeKind, scope: &str) -> Result<Option<Tree>> {
     with_connection(config, |conn| get_tree_by_scope_conn(conn, kind, scope))
 }
 
@@ -114,12 +110,7 @@ pub(crate) fn update_tree_after_seal_tx(
                 max_level = ?2,
                 last_sealed_at_ms = ?3
           WHERE id = ?4",
-        params![
-            root_id,
-            max_level,
-            sealed_at.timestamp_millis(),
-            tree_id,
-        ],
+        params![root_id, max_level, sealed_at.timestamp_millis(), tree_id,],
     )
     .with_context(|| format!("Failed to update tree {tree_id} after seal"))?;
     Ok(())
@@ -306,11 +297,7 @@ pub fn get_buffer(config: &Config, tree_id: &str, level: u32) -> Result<Buffer> 
     with_connection(config, |conn| get_buffer_conn(conn, tree_id, level))
 }
 
-pub(crate) fn get_buffer_conn(
-    conn: &Connection,
-    tree_id: &str,
-    level: u32,
-) -> Result<Buffer> {
+pub(crate) fn get_buffer_conn(conn: &Connection, tree_id: &str, level: u32) -> Result<Buffer> {
     let mut stmt = conn.prepare(
         "SELECT tree_id, level, item_ids_json, token_sum, oldest_at_ms
            FROM mem_tree_buffers WHERE tree_id = ?1 AND level = ?2",
@@ -361,10 +348,7 @@ pub(crate) fn clear_buffer_tx(tx: &Transaction<'_>, tree_id: &str, level: u32) -
 
 /// List all non-empty buffers ordered by `oldest_at_ms ASC`. Used by the
 /// time-based flush pass.
-pub fn list_stale_buffers(
-    config: &Config,
-    older_than: DateTime<Utc>,
-) -> Result<Vec<Buffer>> {
+pub fn list_stale_buffers(config: &Config, older_than: DateTime<Utc>) -> Result<Vec<Buffer>> {
     with_connection(config, |conn| {
         let mut stmt = conn.prepare(
             "SELECT tree_id, level, item_ids_json, token_sum, oldest_at_ms

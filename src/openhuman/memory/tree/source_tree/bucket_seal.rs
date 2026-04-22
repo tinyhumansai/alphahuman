@@ -25,7 +25,7 @@ use crate::openhuman::config::Config;
 use crate::openhuman::memory::tree::source_tree::registry::new_summary_id;
 use crate::openhuman::memory::tree::source_tree::store;
 use crate::openhuman::memory::tree::source_tree::summariser::{
-    SummaryContext, SummaryInput, Summariser,
+    Summariser, SummaryContext, SummaryInput,
 };
 use crate::openhuman::memory::tree::source_tree::types::{
     Buffer, SummaryNode, Tree, TreeKind, TOKEN_BUDGET,
@@ -333,11 +333,7 @@ fn refresh_last_sealed_tx(
 /// Fetch contributions for `item_ids`. At level 0 we pull from
 /// `mem_tree_chunks` + `mem_tree_score`; at ≥1 we pull from
 /// `mem_tree_summaries`.
-fn hydrate_inputs(
-    config: &Config,
-    level: u32,
-    item_ids: &[String],
-) -> Result<Vec<SummaryInput>> {
+fn hydrate_inputs(config: &Config, level: u32, item_ids: &[String]) -> Result<Vec<SummaryInput>> {
     if level == 0 {
         hydrate_leaf_inputs(config, item_ids)
     } else {
