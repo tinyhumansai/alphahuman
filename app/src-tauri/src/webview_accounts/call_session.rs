@@ -47,7 +47,11 @@ pub struct CallSession {
     pub provider: String,
     /// Channel / contact name at call start (best-effort).
     pub channel_name: Option<String>,
-    /// Wall-clock time when the call started.
+    /// Wall-clock time when the call started (Unix milliseconds).
+    /// Captured in `new()` before any async work so the timestamp is
+    /// accurate regardless of how long transcription takes.
+    pub started_at_ms: i64,
+    /// Monotonic clock for measuring duration.
     pub started_at: Instant,
     /// CEF browser id so we can snapshot the ring buffer at call end.
     pub browser_id: i32,
@@ -63,18 +67,21 @@ impl CallSession {
         browser_id: i32,
         source_sample_rate: u32,
     ) -> Self {
+        let started_at_ms = chrono_now_millis();
         log::info!(
-            "[call_session] new session account={} provider={} channel={:?} browser_id={} sr={}Hz",
+            "[call_session] new session account={} provider={} channel={:?} browser_id={} sr={}Hz started_at_ms={}",
             account_id,
             provider,
             channel_name,
             browser_id,
             source_sample_rate,
+            started_at_ms,
         );
         Self {
             account_id,
             provider,
             channel_name,
+            started_at_ms,
             started_at: Instant::now(),
             browser_id,
             source_sample_rate,
@@ -161,15 +168,22 @@ impl CallSessionManager {
             }
         };
 
+        // Capture the wall-clock end time BEFORE any async work (audio
+        // processing, Whisper RPC) so the timestamp accurately reflects when
+        // the call actually ended, not when transcription finished.
+        let ended_at_ms = chrono_now_millis();
+
         let dur = session.duration();
         log::info!(
-            "[call_session] ended account={} provider={} channel={:?} duration={:.1}s reason={} browser_id={}",
+            "[call_session] ended account={} provider={} channel={:?} duration={:.1}s reason={} browser_id={} started_at_ms={} ended_at_ms={}",
             account_id,
             session.provider,
             session.channel_name,
             dur.as_secs_f32(),
             reason,
             session.browser_id,
+            session.started_at_ms,
+            ended_at_ms,
         );
 
         if dur.as_secs() < MIN_CALL_DURATION_SECS {
@@ -257,7 +271,6 @@ impl CallSessionManager {
                     account_id,
                     text.len()
                 );
-                let now_ms = chrono_now_millis();
                 let transcript_evt = json!({
                     "account_id": account_id,
                     "provider": session.provider,
@@ -268,10 +281,12 @@ impl CallSessionManager {
                         "transcript": text,
                         "durationSecs": dur.as_secs(),
                         "reason": reason,
-                        "startedAt": now_ms - dur.as_millis() as i64,
-                        "endedAt": now_ms,
+                        // Use pre-captured timestamps — not derived from post-transcription now()
+                        // so the values accurately reflect when the call started and ended.
+                        "startedAt": session.started_at_ms,
+                        "endedAt": ended_at_ms,
                     },
-                    "ts": now_ms,
+                    "ts": ended_at_ms,
                 });
                 if let Err(e) = app.emit("webview:event", &transcript_evt) {
                     log::warn!(

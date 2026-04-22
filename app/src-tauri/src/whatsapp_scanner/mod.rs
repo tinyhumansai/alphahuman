@@ -126,20 +126,22 @@ pub fn spawn_scanner<R: Runtime>(app: AppHandle<R>, account_id: String, url_pref
                             emit_dom_only(&app, &account_id, &dom.dom_messages);
                             last_dom_hash = Some(dom.hash);
                         }
-                        // Check call state on every fast tick alongside the message scan.
-                        call_active = emit_call_lifecycle_events(
-                            &app,
-                            &account_id,
-                            &url_prefix,
-                            &fragment,
-                            call_active,
-                        )
-                        .await;
                     }
                     Err(e) => {
                         log::debug!("[wa][{}] dom-scan failed: {}", account_id, e);
                     }
                 }
+                // Check call state on every fast tick regardless of whether the DOM
+                // scan succeeded — a transient DOM failure must not suppress call
+                // lifecycle events (e.g. the ended event for an ongoing call).
+                call_active = emit_call_lifecycle_events(
+                    &app,
+                    &account_id,
+                    &url_prefix,
+                    &fragment,
+                    call_active,
+                )
+                .await;
                 sleep(FAST_SCAN_INTERVAL).await;
                 continue;
             }

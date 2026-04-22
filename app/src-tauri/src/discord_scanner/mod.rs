@@ -594,6 +594,11 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
         sleep(Duration::from_secs(6)).await;
         let mut last_hash: Option<u64> = None;
         let mut voice_active = false;
+        // Track the last known voice channel / guild so we can detect
+        // channel-switching (the user moves between voice channels while
+        // staying connected) and emit the correct end/start pair.
+        let mut last_voice_channel: Option<String> = None;
+        let mut last_voice_guild: Option<String> = None;
         loop {
             match dom_scan_once(&url_prefix, &fragment).await {
                 Ok(scan) => {
@@ -621,18 +626,55 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
 
                     // Emit voice call lifecycle events on state transitions.
                     let now_active = scan.voice.active;
+                    let now_channel = scan.voice.channel_name.clone();
+                    let now_guild = scan.voice.guild_name.clone();
+
+                    // Detect channel-switch: voice stays active but the channel
+                    // (or guild) identity changed. Emit an end for the old
+                    // channel, then fall through to emit a start for the new one.
+                    let channel_changed = voice_active
+                        && now_active
+                        && (now_channel != last_voice_channel || now_guild != last_voice_guild);
+
+                    if channel_changed {
+                        let ended_at = chrono_now_millis();
+                        let old_channel = last_voice_channel
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string());
+                        log::info!(
+                            "[discord][{}] voice channel changed old={:?} new={:?} guild={:?}",
+                            account_id,
+                            old_channel,
+                            now_channel,
+                            now_guild,
+                        );
+                        let end_evt = json!({
+                            "account_id": account_id,
+                            "provider": "discord",
+                            "kind": "discord_call_ended",
+                            "payload": {
+                                "channelId": old_channel,
+                                "endedAt": ended_at,
+                                "reason": "channel-switch",
+                            },
+                            "ts": ended_at,
+                        });
+                        if let Err(e) = app.emit("webview:event", &end_evt) {
+                            log::warn!(
+                                "[discord][{}] discord_call_ended (channel-switch) emit failed: {}",
+                                account_id,
+                                e
+                            );
+                        }
+                        // Treat as if voice was just stopped so the start branch below fires.
+                        voice_active = false;
+                    }
+
                     if now_active && !voice_active {
-                        let channel_id = scan
-                            .voice
-                            .channel_name
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_string());
+                        let channel_id =
+                            now_channel.clone().unwrap_or_else(|| "unknown".to_string());
                         let channel_name = channel_id.clone();
-                        let guild_name = scan
-                            .voice
-                            .guild_name
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_string());
+                        let guild_name = now_guild.clone().unwrap_or_else(|| "unknown".to_string());
                         let started_at = chrono_now_millis();
                         log::info!(
                             "[discord][{}] voice call started channel={:?} guild={:?}",
@@ -662,13 +704,20 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
                         }
                     } else if !now_active && voice_active {
                         let ended_at = chrono_now_millis();
-                        log::info!("[discord][{}] voice call ended", account_id);
+                        let old_channel = last_voice_channel
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string());
+                        log::info!(
+                            "[discord][{}] voice call ended channel={:?}",
+                            account_id,
+                            old_channel,
+                        );
                         let end_evt = json!({
                             "account_id": account_id,
                             "provider": "discord",
                             "kind": "discord_call_ended",
                             "payload": {
-                                "channelId": "unknown",
+                                "channelId": old_channel,
                                 "endedAt": ended_at,
                                 "reason": "disconnected",
                             },
@@ -683,6 +732,13 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
                         }
                     }
                     voice_active = now_active;
+                    if now_active {
+                        last_voice_channel = now_channel;
+                        last_voice_guild = now_guild;
+                    } else {
+                        last_voice_channel = None;
+                        last_voice_guild = None;
+                    }
                 }
                 Err(e) => log::debug!("[discord][{}] dom scan: {}", account_id, e),
             }

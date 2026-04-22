@@ -152,12 +152,56 @@ fn detect_call_state(snap: &CaptureSnapshot) -> CallState {
 /// Walk the call container looking for the contact name text. WhatsApp
 /// renders the name in a dedicated text node — we pick the first non-empty
 /// text child whose length is plausible for a name (< 80 chars).
+///
+/// Excluded strings:
+///   * Call-control button labels: "mute", "unmute", "camera", "video",
+///     "end", "leave", "participants", "add", "speaker", "hold", "chat",
+///     "microphone"
+///   * Call-status words: "calling", "connecting", "ringing"
+///   * Timer-like strings (e.g. "0:42", "1:23", "01:23")
 fn find_call_contact_name(
     nodes: &NodeTreeSnap,
     strings: &[String],
     children: &[Vec<usize>],
     root: usize,
 ) -> Option<String> {
+    /// Returns `true` if the trimmed lower-cased text looks like a call
+    /// control label or timer rather than a contact name.
+    fn is_excluded(lower: &str) -> bool {
+        // Common call-control button labels.
+        const CONTROL_WORDS: &[&str] = &[
+            "mute",
+            "unmute",
+            "camera",
+            "video",
+            "end",
+            "leave",
+            "participants",
+            "add",
+            "speaker",
+            "hold",
+            "chat",
+            "microphone",
+            "calling",
+            "connecting",
+            "ringing",
+        ];
+        if CONTROL_WORDS.iter().any(|&w| lower == w) {
+            return true;
+        }
+        // Timer pattern: one or two digit groups separated by colon(s),
+        // e.g. "0:42", "1:23", "01:23:45". Allow at most 3 groups.
+        let parts: Vec<&str> = lower.split(':').collect();
+        if (2..=3).contains(&parts.len())
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        {
+            return true;
+        }
+        false
+    }
+
     let mut stack = vec![root];
     while let Some(idx) = stack.pop() {
         if nodes.node_type.get(idx).copied().unwrap_or(0) == NODE_TYPE_ELEMENT {
@@ -166,14 +210,10 @@ fn find_call_contact_name(
             if name.eq_ignore_ascii_case("SPAN") || name.eq_ignore_ascii_case("DIV") {
                 let text = collect_text(nodes, strings, children, idx);
                 let trimmed = text.trim().to_string();
+                let lower = trimmed.to_lowercase();
                 // Heuristic: a contact name is a short, non-empty string that
-                // doesn't look like a button label or status indicator.
-                if !trimmed.is_empty()
-                    && trimmed.len() < 80
-                    && !trimmed.to_lowercase().contains("calling")
-                    && !trimmed.to_lowercase().contains("connecting")
-                    && !trimmed.to_lowercase().contains("ringing")
-                {
+                // doesn't look like a button label, status indicator, or timer.
+                if !trimmed.is_empty() && trimmed.len() < 80 && !is_excluded(&lower) {
                     return Some(trimmed);
                 }
             }

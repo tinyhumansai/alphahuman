@@ -656,6 +656,11 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
         sleep(Duration::from_secs(8)).await;
         let mut last_hash: Option<u64> = None;
         let mut huddle_active = false;
+        // Track the last known huddle channel so we can detect
+        // channel-switching (user moves to a different Huddle without
+        // leaving the previous one explicitly) and emit the correct
+        // end/start boundary pair.
+        let mut last_huddle_channel: Option<String> = None;
         loop {
             match dom_scan_once(&url_prefix, &fragment).await {
                 Ok(scan) => {
@@ -682,13 +687,50 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
                     }
                     // Emit call lifecycle events when Huddle state transitions.
                     let now_active = scan.huddle.active;
-                    if now_active && !huddle_active {
-                        // Huddle just started.
-                        let channel = scan
-                            .huddle
-                            .channel_name
+                    let now_channel = scan.huddle.channel_name.clone();
+
+                    // Detect channel-switch: huddle stays active but the channel
+                    // identity changed. Emit end for the old channel then fall
+                    // through to emit start for the new channel.
+                    let channel_changed =
+                        huddle_active && now_active && now_channel != last_huddle_channel;
+
+                    if channel_changed {
+                        let ended_at = chrono_now_millis();
+                        let old_channel = last_huddle_channel
                             .clone()
                             .unwrap_or_else(|| "unknown".to_string());
+                        log::info!(
+                            "[sl][{}] huddle channel changed old={:?} new={:?}",
+                            account_id,
+                            old_channel,
+                            now_channel,
+                        );
+                        let end_evt = json!({
+                            "account_id": account_id,
+                            "provider": "slack",
+                            "kind": "slack_call_ended",
+                            "payload": {
+                                "channel": old_channel,
+                                "endedAt": ended_at,
+                                "reason": "channel-switch",
+                            },
+                            "ts": ended_at,
+                        });
+                        if let Err(e) = app.emit("webview:event", &end_evt) {
+                            log::warn!(
+                                "[sl][{}] slack_call_ended (channel-switch) emit failed: {}",
+                                account_id,
+                                e
+                            );
+                        }
+                        // Treat as if huddle just stopped so the start branch below fires.
+                        huddle_active = false;
+                    }
+
+                    if now_active && !huddle_active {
+                        // Huddle just started (or channel just switched).
+                        let channel = now_channel.clone().unwrap_or_else(|| "unknown".to_string());
                         let started_at = chrono_now_millis();
                         log::info!("[sl][{}] huddle started channel={:?}", account_id, channel);
                         let call_evt = json!({
@@ -712,13 +754,20 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
                     } else if !now_active && huddle_active {
                         // Huddle just ended.
                         let ended_at = chrono_now_millis();
-                        log::info!("[sl][{}] huddle ended", account_id);
+                        let old_channel = last_huddle_channel
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string());
+                        log::info!(
+                            "[sl][{}] huddle ended channel={:?}",
+                            account_id,
+                            old_channel,
+                        );
                         let end_evt = json!({
                             "account_id": account_id,
                             "provider": "slack",
                             "kind": "slack_call_ended",
                             "payload": {
-                                "channel": "unknown",
+                                "channel": old_channel,
                                 "endedAt": ended_at,
                                 "reason": "left",
                             },
@@ -729,6 +778,11 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
                         }
                     }
                     huddle_active = now_active;
+                    if now_active {
+                        last_huddle_channel = now_channel;
+                    } else {
+                        last_huddle_channel = None;
+                    }
                 }
                 Err(e) => log::debug!("[sl][{}] dom scan: {}", account_id, e),
             }

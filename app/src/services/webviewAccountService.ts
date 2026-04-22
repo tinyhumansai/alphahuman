@@ -757,8 +757,9 @@ function isCallTranscriptionEnabled(provider: string): boolean {
     const providerKey = provider === 'google-meet' ? 'google_meet' : provider.replace(/-/g, '_');
     if (settings.providers && settings.providers[providerKey] === false) return false;
     return true;
-  } catch {
-    return true;
+  } catch (err) {
+    errLog('call transcription settings unreadable; defaulting to disabled: %o', err);
+    return false;
   }
 }
 
@@ -907,11 +908,12 @@ async function handleCallTranscript(
         tags: [provider, 'call-transcript', 'voice'],
         metadata: {
           provider,
-          accountId,
-          channelName: channelLabel,
-          durationSecs,
-          startedAt,
-          endedAt,
+          account_id: accountId,
+          channel_name: channelLabel,
+          duration_s: durationSecs,
+          started_at: startedAt,
+          ended_at: endedAt,
+          end_reason: reason ?? 'ended',
         },
         category: 'core',
       },

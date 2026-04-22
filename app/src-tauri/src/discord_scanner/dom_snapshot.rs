@@ -156,16 +156,38 @@ fn find_badge(snap: &Snapshot, root: usize) -> Option<u32> {
 /// Detect whether a Discord voice channel session is active.
 ///
 /// Discord uses hashed CSS class names, so we match by prefix:
-///   - `voiceConnected_` — the bottom panel shown when connected to a VC
-///   - `activityPanel_`  — activity panel that appears during VC
+///   - `voiceConnected_` — the bottom panel shown when connected to a VC (primary signal)
+///   - `activityPanel_`  — activity panel; only treated as active if a `voiceConnected_`
+///                         descendant is also present (avoids false positives when the panel
+///                         is shown for other reasons, e.g. screen-share without VC)
 ///   - `connection_` with "Voice Connected" text inside
 fn detect_voice(snap: &Snapshot) -> VoiceState {
-    // 1. Voice-connected indicator panel.
-    let voice_nodes = snap.find_all(|s, i| {
-        s.is_element(i)
-            && (s.class_starts_with(i, "voiceConnected_")
-                || s.class_starts_with(i, "activityPanel_"))
-    });
+    // 1. Primary: `voiceConnected_` panel — authoritative signal.
+    let voice_connected_nodes =
+        snap.find_all(|s, i| s.is_element(i) && s.class_starts_with(i, "voiceConnected_"));
+
+    // 2. Secondary: `activityPanel_` — only counts if it contains a `voiceConnected_`
+    //    descendant. Standing alone it can appear in non-call contexts (screen share,
+    //    activities), so we require the stronger signal inside it.
+    let activity_panel_nodes: Vec<usize> = if voice_connected_nodes.is_empty() {
+        snap.find_all(|s, i| s.is_element(i) && s.class_starts_with(i, "activityPanel_"))
+            .into_iter()
+            .filter(|&root| {
+                snap.find_descendant(root, |s, i| {
+                    s.is_element(i) && s.class_starts_with(i, "voiceConnected_")
+                })
+                .is_some()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let voice_nodes: Vec<usize> = if !voice_connected_nodes.is_empty() {
+        voice_connected_nodes
+    } else {
+        activity_panel_nodes
+    };
 
     if !voice_nodes.is_empty() {
         // Try to find the channel name from a nearby element.
