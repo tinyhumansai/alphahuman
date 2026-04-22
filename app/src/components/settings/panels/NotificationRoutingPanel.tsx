@@ -7,6 +7,8 @@ import {
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
+const PROVIDERS = ['gmail', 'slack', 'discord', 'whatsapp'];
+
 /**
  * Settings panel for the notification intelligence / routing pipeline.
  *
@@ -15,7 +17,7 @@ import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
  */
 const NotificationRoutingPanel = () => {
   const { navigateBack, breadcrumbs } = useSettingsNavigation();
-  const providers = ['gmail', 'slack', 'discord', 'whatsapp'];
+  const providers = PROVIDERS;
   const [settings, setSettings] = useState<
     Record<
       string,
@@ -45,7 +47,7 @@ const NotificationRoutingPanel = () => {
         setSettings(next);
       })
       .catch(() => {});
-  }, []);
+  }, [providers]);
 
   const updateSetting = async (
     provider: string,

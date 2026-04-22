@@ -96,7 +96,8 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 FieldSchema {
                     name: "skipped",
                     ty: TypeSchema::Bool,
-                    comment: "True when the provider is disabled and the notification was not stored.",
+                    comment:
+                        "True when the provider is disabled and the notification was not stored.",
                     required: true,
                 },
             ],

@@ -41,7 +41,9 @@ const NotificationCenter = () => {
       } catch (err) {
         if (!cancelled) {
           dispatch(
-            setNotificationsError(err instanceof Error ? err.message : 'Failed to load notifications')
+            setNotificationsError(
+              err instanceof Error ? err.message : 'Failed to load notifications'
+            )
           );
         }
       }
