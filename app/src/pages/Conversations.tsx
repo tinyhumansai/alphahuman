@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
@@ -7,6 +7,7 @@ import TokenUsagePill from '../components/chat/TokenUsagePill';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
+import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useUsageState } from '../hooks/useUsageState';
 import { chatCancel, chatSend, useRustChat } from '../services/chatService';
 import {
@@ -127,8 +128,6 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   } = useUsageState();
   const [showLimitModal, setShowLimitModal] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -197,38 +196,11 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   }, [selectedThreadId, messages.length, dispatch]);
 
   const location = useLocation();
-  const didInitialScrollRef = useRef(false);
-  const lastScrolledThreadRef = useRef<string | null>(null);
-  useEffect(() => {
-    didInitialScrollRef.current = false;
-  }, [location.pathname]);
-  // useLayoutEffect fires synchronously after DOM mutations but before paint,
-  // so the user never sees the un-scrolled state. Using a direct ref on the
-  // scroll container avoids the parent-walk which silently failed when
-  // scrollHeight===0 (container not yet laid out on repeated /chat entries).
-  useLayoutEffect(() => {
-    if (messages.length === 0) return;
-    const container = messagesContainerRef.current;
-    const threadChanged = lastScrolledThreadRef.current !== selectedThreadId;
-    const firstScroll = !didInitialScrollRef.current;
-    const instant = firstScroll || threadChanged;
-    console.debug('[scroll]', {
-      instant,
-      threadChanged,
-      firstScroll,
-      foundContainer: !!container,
-      containerScrollHeight: container?.scrollHeight ?? 0,
-    });
-    if (instant) {
-      if (container) {
-        container.scrollTop = container.scrollHeight;
-      }
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-    lastScrolledThreadRef.current = selectedThreadId ?? null;
-    didInitialScrollRef.current = true;
-  }, [messages, selectedThreadId]);
+  const { containerRef: messagesContainerRef, endRef: messagesEndRef } = useStickToBottom(
+    messages,
+    selectedThreadId,
+    location.pathname,
+  );
 
   useEffect(() => {
     const onDictationInsert = (event: Event) => {
