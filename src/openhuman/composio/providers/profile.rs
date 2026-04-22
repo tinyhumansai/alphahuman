@@ -15,6 +15,7 @@
 
 use super::ProviderUserProfile;
 use crate::openhuman::memory::store::profile::{self, FacetType};
+use rusqlite::params;
 use std::collections::BTreeMap;
 
 /// Confidence level assigned to provider-sourced profile data.
@@ -113,11 +114,22 @@ pub struct ConnectedIdentity {
 /// group them by `source + identifier`.
 pub fn load_connected_identities() -> Vec<ConnectedIdentity> {
     let Some(client) = crate::openhuman::memory::global::client_if_ready() else {
+        tracing::debug!(
+            "[composio:profile] load_connected_identities: memory client not ready"
+        );
         return Vec::new();
     };
     let conn = client.profile_conn();
-    let Ok(facets) = profile::profile_facets_by_type(&conn, &FacetType::Skill) else {
-        return Vec::new();
+    let facets = match profile::profile_facets_by_type(&conn, &FacetType::Skill) {
+        Ok(facets) => facets,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                facet_type = ?FacetType::Skill,
+                "[composio:profile] load_connected_identities: profile_facets_by_type failed"
+            );
+            return Vec::new();
+        }
     };
 
     let mut grouped: BTreeMap<(String, String), ConnectedIdentity> = BTreeMap::new();
@@ -155,24 +167,37 @@ pub fn render_connected_identities_section(identities: &[ConnectedIdentity]) -> 
     for identity in identities {
         let mut fields = Vec::new();
         if let Some(display_name) = identity.display_name.as_deref() {
-            fields.push(display_name.to_string());
+            let cleaned = sanitize_prompt_value(display_name);
+            if !cleaned.is_empty() {
+                fields.push(cleaned);
+            }
         }
         if let Some(email) = identity.email.as_deref() {
-            fields.push(email.to_string());
+            let cleaned = sanitize_prompt_value(email);
+            if !cleaned.is_empty() {
+                fields.push(cleaned);
+            }
         }
         if let Some(username) = identity.username.as_deref() {
-            fields.push(format!("@{username}"));
+            let cleaned = sanitize_prompt_value(username);
+            if !cleaned.is_empty() {
+                fields.push(format!("@{cleaned}"));
+            }
         }
         if let Some(profile_url) = identity.profile_url.as_deref() {
-            fields.push(profile_url.to_string());
+            let cleaned = sanitize_prompt_value(profile_url);
+            if !cleaned.is_empty() {
+                fields.push(cleaned);
+            }
         }
         if fields.is_empty() {
             continue;
         }
+        let identifier = sanitize_prompt_value(&identity.identifier);
         out.push_str(&format!(
             "- {} ({}): {}\n",
             title_case(&identity.source),
-            identity.identifier,
+            identifier,
             fields.join(" | ")
         ));
     }
@@ -217,6 +242,48 @@ fn title_case(raw: &str) -> String {
         Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
         None => String::new(),
     }
+}
+
+fn sanitize_prompt_value(raw: &str) -> String {
+    let replaced = raw.replace(['\n', '\r', '\t'], " ").replace('|', "/");
+    replaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Delete provider-sourced skill facets for one connection identifier.
+pub fn delete_connected_identity_facets(source: &str, identifier: &str) -> usize {
+    let Some(client) = crate::openhuman::memory::global::client_if_ready() else {
+        tracing::debug!(
+            source = %source,
+            identifier = %identifier,
+            "[composio:profile] delete_connected_identity_facets: memory client not ready"
+        );
+        return 0;
+    };
+    let conn = client.profile_conn();
+    let Ok(facets) = profile::profile_facets_by_type(&conn, &FacetType::Skill) else {
+        return 0;
+    };
+    let mut deleted = 0usize;
+    for facet in facets {
+        let Some((facet_source, facet_identifier, _field)) = parse_skill_identity_key(&facet.key)
+        else {
+            continue;
+        };
+        if facet_source == source && facet_identifier == identifier {
+            let conn_guard = conn.lock();
+            if conn_guard
+                .execute(
+                    "DELETE FROM user_profile WHERE facet_id = ?1",
+                    params![facet.facet_id],
+                )
+                .unwrap_or(0)
+                > 0
+            {
+                deleted += 1;
+            }
+        }
+    }
+    deleted
 }
 
 fn now_secs() -> f64 {

@@ -15,8 +15,8 @@
 //! isn't a branch on `agent_id` somewhere else.
 
 use crate::openhuman::context::prompt::{
-    render_connected_identities, render_safety, render_tools, render_user_files, render_workspace,
-    ConnectedIntegration, PromptContext,
+    render_safety, render_tools, render_user_files, render_workspace, ConnectedIntegration,
+    PromptContext,
 };
 use crate::openhuman::skills::Skill;
 use anyhow::Result;
@@ -36,7 +36,7 @@ pub fn build(ctx: &PromptContext<'_>) -> Result<String> {
         out.push_str("\n\n");
     }
 
-    let identities = render_connected_identities();
+    let identities = ctx.connected_identities_md.as_str();
     if !identities.trim().is_empty() {
         out.push_str(identities.trim_end());
         out.push_str("\n\n");
@@ -165,6 +165,7 @@ mod tests {
             visible_tool_names: EMPTY_VISIBLE.get_or_init(HashSet::new),
             tool_call_format: ToolCallFormat::PFormat,
             connected_integrations: integrations,
+            connected_identities_md: String::new(),
             include_profile: false,
             include_memory_md: false,
         }
