@@ -30,11 +30,15 @@ use std::path::{Component, Path, PathBuf};
 // All access goes through `active_memory_client()` below.
 
 /// Generates a unique request ID for memory operations.
+///
+/// This ID is used for tracing and logging purposes in the API response metadata.
 fn memory_request_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
 /// Converts an iterator of memory counts into a BTreeMap.
+///
+/// This is a convenience helper for populating the `counts` field in the API metadata.
 fn memory_counts(
     entries: impl IntoIterator<Item = (&'static str, usize)>,
 ) -> BTreeMap<String, usize> {
@@ -45,6 +49,8 @@ fn memory_counts(
 }
 
 /// Wraps data in an RPC API envelope.
+///
+/// This standardises the response format for memory-related RPC methods.
 fn envelope<T: Serialize>(
     data: T,
     counts: Option<BTreeMap<String, usize>>,
@@ -67,6 +73,8 @@ fn envelope<T: Serialize>(
 }
 
 /// Wraps an error in an RPC API envelope.
+///
+/// This provides a consistent error reporting format for the memory system.
 fn error_envelope<T: Serialize>(code: &str, message: String) -> RpcOutcome<ApiEnvelope<T>> {
     RpcOutcome::new(
         ApiEnvelope {
@@ -89,6 +97,8 @@ fn error_envelope<T: Serialize>(code: &str, message: String) -> RpcOutcome<ApiEn
 }
 
 /// Formats a floating-point timestamp as an RFC3339 string.
+///
+/// Returns `None` if the timestamp is invalid (NaN, infinite, or negative).
 fn timestamp_to_rfc3339(timestamp: f64) -> Option<String> {
     if !timestamp.is_finite() || timestamp < 0.0 {
         return None;
@@ -113,6 +123,8 @@ fn memory_kind_label(kind: &MemoryItemKind) -> &'static str {
 }
 
 /// Generates a unique string identity for a graph relation.
+///
+/// The identity is composed of the namespace, subject, predicate, and object.
 fn relation_identity(relation: &GraphRelationRecord) -> String {
     format!(
         "{}|{}|{}|{}",
@@ -482,127 +494,188 @@ async fn query_limit_for_request(
     Ok(requested.max(total_documents))
 }
 
+/// Parameters for the `doc_put` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct PutDocParams {
+    /// Namespace to store the document in.
     pub namespace: String,
+    /// Unique key for the document within the namespace.
     pub key: String,
+    /// Human-readable title for the document.
     pub title: String,
+    /// The raw text content of the document.
     pub content: String,
+    /// The source type of the document (e.g., "doc", "web").
     #[serde(default = "default_source_type")]
     pub source_type: String,
+    /// Priority level for retrieval (e.g., "high", "medium", "low").
     #[serde(default = "default_priority")]
     pub priority: String,
+    /// Optional tags for categorization and filtering.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Additional unstructured metadata.
     #[serde(default)]
     pub metadata: serde_json::Value,
+    /// Core category for the document (e.g., "core", "user").
     #[serde(default = "default_category")]
     pub category: String,
+    /// Optional session ID associated with the document.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Optional explicit document ID.
     #[serde(default)]
     pub document_id: Option<String>,
 }
 
+/// Parameters for the `doc_ingest` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct IngestDocParams {
+    /// Namespace to store the document in.
     pub namespace: String,
+    /// Unique key for the document within the namespace.
     pub key: String,
+    /// Human-readable title for the document.
     pub title: String,
+    /// The raw text content of the document.
     pub content: String,
+    /// The source type of the document.
     #[serde(default = "default_source_type")]
     pub source_type: String,
+    /// Priority level for retrieval.
     #[serde(default = "default_priority")]
     pub priority: String,
+    /// Optional tags for the document.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Additional unstructured metadata.
     #[serde(default)]
     pub metadata: serde_json::Value,
+    /// Core category for the document.
     #[serde(default = "default_category")]
     pub category: String,
+    /// Optional session ID.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Optional explicit document ID.
     #[serde(default)]
     pub document_id: Option<String>,
+    /// Configuration for the ingestion process (chunking, etc.).
     #[serde(default)]
     pub config: Option<MemoryIngestionConfig>,
 }
 
+/// Parameters for RPC methods that only require a namespace.
 #[derive(Debug, Deserialize)]
 pub struct NamespaceOnlyParams {
+    /// The target namespace.
     pub namespace: String,
 }
 
+/// Parameters for the `clear_namespace` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct ClearNamespaceParams {
+    /// The namespace to clear.
     pub namespace: String,
 }
 
+/// Result returned by the `clear_namespace` RPC method.
 #[derive(Debug, Serialize)]
 pub struct ClearNamespaceResult {
+    /// Whether the namespace was successfully cleared.
     pub cleared: bool,
+    /// The namespace that was cleared.
     pub namespace: String,
 }
 
+/// Parameters for the `doc_delete` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct DeleteDocParams {
+    /// The namespace containing the document.
     pub namespace: String,
+    /// The unique ID of the document to delete.
     pub document_id: String,
 }
 
+/// Parameters for the `context_query` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct QueryNamespaceParams {
+    /// The namespace to query.
     pub namespace: String,
+    /// The natural language query string.
     pub query: String,
+    /// Maximum number of results to return.
     #[serde(default)]
     pub limit: Option<u32>,
 }
 
+/// Parameters for the `context_recall` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct RecallNamespaceParams {
+    /// The namespace to recall from.
     pub namespace: String,
+    /// Maximum number of results to return.
     #[serde(default)]
     pub limit: Option<u32>,
 }
 
+/// Parameters for the `kv_set` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct KvSetParams {
+    /// The namespace for the key-value pair.
     #[serde(default)]
     pub namespace: Option<String>,
+    /// The unique key.
     pub key: String,
+    /// The value to store.
     pub value: serde_json::Value,
 }
 
+/// Parameters for `kv_get` and `kv_delete` RPC methods.
 #[derive(Debug, Deserialize)]
 pub struct KvGetDeleteParams {
+    /// The namespace containing the key.
     #[serde(default)]
     pub namespace: Option<String>,
+    /// The unique key.
     pub key: String,
 }
 
+/// Parameters for the `graph_upsert` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct GraphUpsertParams {
+    /// The namespace for the relation.
     #[serde(default)]
     pub namespace: Option<String>,
+    /// The subject of the relation triple.
     pub subject: String,
+    /// The predicate (relationship) of the triple.
     pub predicate: String,
+    /// The object of the triple.
     pub object: String,
+    /// Additional attributes for the relation.
     #[serde(default)]
     pub attrs: serde_json::Value,
 }
 
+/// Parameters for the `graph_query` RPC method.
 #[derive(Debug, Deserialize)]
 pub struct GraphQueryParams {
+    /// The namespace to query.
     #[serde(default)]
     pub namespace: Option<String>,
+    /// Optional subject filter.
     #[serde(default)]
     pub subject: Option<String>,
+    /// Optional predicate filter.
     #[serde(default)]
     pub predicate: Option<String>,
 }
 
+/// Result returned by the `doc_put` RPC method.
 #[derive(Debug, Serialize)]
 pub struct PutDocResult {
+    /// The unique ID of the upserted document.
     pub document_id: String,
 }
 
@@ -1225,5 +1298,184 @@ mod tests {
             message.contains("Alice (PERSON) -[OWNS]-> Atlas (PROJECT)"),
             "expected entity types in relation text, got: {message}"
         );
+    }
+
+    // ── Pure-helper coverage ───────────────────────────────────────
+
+    use super::{
+        chunk_metadata, default_category, default_priority, default_source_type, error_envelope,
+        extract_entity_type, maybe_retrieval_context, memory_counts, memory_kind_label,
+        memory_request_id, relation_identity, relation_metadata, timestamp_to_rfc3339,
+        validate_memory_relative_path,
+    };
+    use crate::openhuman::memory::{ApiEnvelope, MemoryRetrievalContext};
+    use crate::rpc::RpcOutcome;
+
+    #[test]
+    fn memory_request_id_is_nonempty_and_unique() {
+        let a = memory_request_id();
+        let b = memory_request_id();
+        assert!(!a.is_empty());
+        assert!(!b.is_empty());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn memory_counts_builds_btreemap_from_entries() {
+        let m = memory_counts([("documents", 3), ("kv", 1)]);
+        assert_eq!(m.get("documents"), Some(&3));
+        assert_eq!(m.get("kv"), Some(&1));
+        assert_eq!(m.len(), 2);
+    }
+
+    #[test]
+    fn memory_counts_is_empty_for_empty_input() {
+        let m: std::collections::BTreeMap<String, usize> = memory_counts(std::iter::empty());
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn timestamp_to_rfc3339_valid_seconds_and_fractional() {
+        let s = timestamp_to_rfc3339(1_700_000_000.0).unwrap();
+        assert!(s.contains("2023"));
+        // Fractional seconds should preserve nanoseconds within range.
+        let s = timestamp_to_rfc3339(1_700_000_000.5).unwrap();
+        assert!(s.contains("2023"));
+    }
+
+    #[test]
+    fn timestamp_to_rfc3339_rejects_non_finite_and_negative() {
+        assert!(timestamp_to_rfc3339(f64::NAN).is_none());
+        assert!(timestamp_to_rfc3339(f64::INFINITY).is_none());
+        assert!(timestamp_to_rfc3339(-1.0).is_none());
+    }
+
+    #[test]
+    fn memory_kind_label_maps_each_variant() {
+        assert_eq!(memory_kind_label(&MemoryItemKind::Document), "document");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Kv), "kv");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Episodic), "episodic");
+        assert_eq!(memory_kind_label(&MemoryItemKind::Event), "event");
+    }
+
+    fn relation_fixture(namespace: Option<&str>) -> GraphRelationRecord {
+        GraphRelationRecord {
+            namespace: namespace.map(str::to_string),
+            subject: "Alice".into(),
+            predicate: "OWNS".into(),
+            object: "Atlas".into(),
+            attrs: json!({"entity_types":{"subject":"PERSON","object":"PROJECT"}}),
+            updated_at: 1_700_000_000.0,
+            evidence_count: 2,
+            order_index: Some(1),
+            document_ids: vec!["doc-1".into()],
+            chunk_ids: vec!["doc-1#c1".into()],
+        }
+    }
+
+    #[test]
+    fn relation_identity_uses_global_for_missing_namespace() {
+        let rel = relation_fixture(None);
+        assert_eq!(relation_identity(&rel), "global|Alice|OWNS|Atlas");
+        let rel = relation_fixture(Some("team"));
+        assert_eq!(relation_identity(&rel), "team|Alice|OWNS|Atlas");
+    }
+
+    #[test]
+    fn relation_metadata_includes_expected_keys() {
+        let rel = relation_fixture(Some("team"));
+        let m = relation_metadata(&rel);
+        assert_eq!(m["namespace"], "team");
+        assert_eq!(m["order_index"], 1);
+        assert!(m["document_ids"].is_array());
+        assert!(m["updated_at"].is_string());
+    }
+
+    #[test]
+    fn chunk_metadata_exposes_score_breakdown() {
+        let m = chunk_metadata(&sample_hit());
+        assert_eq!(m["kind"], "document");
+        assert_eq!(m["namespace"], "team");
+        assert!(m["score_breakdown"]["final_score"].is_number());
+    }
+
+    #[test]
+    fn extract_entity_type_returns_nonempty_or_none() {
+        let attrs = json!({"entity_types":{"subject":"PERSON","object":""}});
+        assert_eq!(
+            extract_entity_type(&attrs, "subject"),
+            Some("PERSON".into())
+        );
+        // Empty string → None.
+        assert_eq!(extract_entity_type(&attrs, "object"), None);
+        // Missing role → None.
+        assert_eq!(extract_entity_type(&attrs, "missing"), None);
+        // Empty attrs → None.
+        assert_eq!(extract_entity_type(&json!({}), "subject"), None);
+    }
+
+    #[test]
+    fn format_llm_context_message_returns_none_for_empty_hits() {
+        assert!(format_llm_context_message(None, &[]).is_none());
+        assert!(format_llm_context_message(Some("query"), &[]).is_none());
+    }
+
+    #[test]
+    fn filter_hits_by_document_ids_passes_through_when_filter_is_none() {
+        let hits = vec![sample_hit()];
+        let filtered = filter_hits_by_document_ids(hits.clone(), None);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn filter_hits_by_document_ids_retains_matching_ids() {
+        let hits = vec![sample_hit()];
+        let filtered = filter_hits_by_document_ids(hits, Some(&["doc-1".to_string()]));
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn maybe_retrieval_context_respects_include_flag() {
+        let empty = MemoryRetrievalContext {
+            entities: vec![],
+            relations: vec![],
+            chunks: vec![],
+        };
+        // include=false → always None
+        assert!(maybe_retrieval_context(false, empty.clone()).is_none());
+        // include=true but context empty → None
+        assert!(maybe_retrieval_context(true, empty).is_none());
+        // include=true + non-empty context → Some
+        let ctx = build_retrieval_context(&[sample_hit()]);
+        assert!(maybe_retrieval_context(true, ctx).is_some());
+    }
+
+    #[test]
+    fn default_constants_are_stable() {
+        assert!(!default_source_type().is_empty());
+        assert!(!default_priority().is_empty());
+        assert!(!default_category().is_empty());
+    }
+
+    #[test]
+    fn validate_memory_relative_path_rejects_empty_absolute_and_traversal() {
+        assert!(validate_memory_relative_path("").is_err());
+        assert!(validate_memory_relative_path("/etc/passwd").is_err());
+        assert!(validate_memory_relative_path("../secrets").is_err());
+        assert!(validate_memory_relative_path("ok/subdir/file.md").is_ok());
+        assert!(validate_memory_relative_path("simple.txt").is_ok());
+    }
+
+    #[test]
+    fn error_envelope_produces_api_error_with_code_and_message() {
+        let envelope: RpcOutcome<ApiEnvelope<serde_json::Value>> =
+            error_envelope::<serde_json::Value>("NOT_FOUND", "missing".into());
+        let api = &envelope.value;
+        assert!(api.data.is_none());
+        let err = api.error.as_ref().expect("error set");
+        assert_eq!(err.code, "NOT_FOUND");
+        assert_eq!(err.message, "missing");
+        // Meta must carry a request id.
+        assert!(!api.meta.request_id.is_empty());
     }
 }

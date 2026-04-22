@@ -7,21 +7,20 @@ mod agent;
 mod autocomplete;
 mod autonomy;
 mod channels;
+mod context;
 mod defaults;
-pub(crate) use defaults::default_true;
 mod dictation;
-mod hardware;
 mod heartbeat_cron;
 mod identity_cost;
 mod learning;
 mod load;
 pub use load::{
-    clear_active_user, default_root_openhuman_dir, read_active_user_id, user_openhuman_dir,
-    write_active_user_id,
+    clear_active_user, default_root_openhuman_dir, pre_login_user_dir, read_active_user_id,
+    user_openhuman_dir, write_active_user_id, PRE_LOGIN_USER_ID,
 };
 mod local_ai;
+mod node;
 mod observability;
-mod orchestrator;
 mod proxy;
 mod routes;
 mod runtime;
@@ -39,31 +38,28 @@ pub use channels::{
     SandboxBackend, SandboxConfig, SecurityConfig, SignalConfig, SlackConfig, StreamMode,
     TelegramConfig, WebhookConfig, WhatsAppConfig,
 };
+pub use context::ContextConfig;
 pub use dictation::{DictationActivationMode, DictationConfig};
-pub use hardware::{HardwareConfig, HardwareTransport};
 pub use heartbeat_cron::{CronConfig, HeartbeatConfig};
-pub use identity_cost::{
-    CostConfig, IdentityConfig, ModelPricing, PeripheralBoardConfig, PeripheralsConfig,
-};
+pub use identity_cost::{CostConfig, ModelPricing};
 pub use learning::{LearningConfig, ReflectionSource};
 pub use local_ai::LocalAiConfig;
+pub use node::NodeConfig;
 pub use observability::ObservabilityConfig;
-pub use orchestrator::{ArchetypeConfig, OrchestratorConfig};
 pub use proxy::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,
     build_runtime_proxy_client_with_timeouts, runtime_proxy_config, set_runtime_proxy_config,
     ProxyConfig, ProxyScope,
 };
-pub use routes::{
-    ClassificationRule, EmbeddingRouteConfig, ModelRouteConfig, QueryClassificationConfig,
-};
+pub use routes::{EmbeddingRouteConfig, ModelRouteConfig};
 pub use runtime::{DockerRuntimeConfig, ReliabilityConfig, RuntimeConfig, SchedulerConfig};
 pub use storage_memory::{
     MemoryConfig, StorageConfig, StorageProviderConfig, StorageProviderSection,
 };
 pub use tools::{
-    BrowserComputerUseConfig, BrowserConfig, ComposioConfig, HttpRequestConfig, IntegrationToggle,
-    IntegrationsConfig, MultimodalConfig, SecretsConfig, WebSearchConfig,
+    BrowserComputerUseConfig, BrowserConfig, ComposioConfig, ComputerControlConfig,
+    HttpRequestConfig, IntegrationToggle, IntegrationsConfig, MultimodalConfig, SecretsConfig,
+    WebSearchConfig,
 };
 pub use update::UpdateConfig;
 mod voice_server;

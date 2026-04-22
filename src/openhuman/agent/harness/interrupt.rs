@@ -101,39 +101,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fence_starts_clear() {
+    fn new_fence_is_not_interrupted() {
         let fence = InterruptFence::new();
         assert!(!fence.is_interrupted());
     }
 
     #[test]
-    fn trigger_sets_flag() {
+    fn trigger_sets_interrupted() {
         let fence = InterruptFence::new();
         fence.trigger();
         assert!(fence.is_interrupted());
     }
 
     #[test]
-    fn reset_clears_flag() {
+    fn reset_clears_interrupted() {
         let fence = InterruptFence::new();
         fence.trigger();
+        assert!(fence.is_interrupted());
         fence.reset();
         assert!(!fence.is_interrupted());
     }
 
     #[test]
-    fn check_interrupt_returns_err_when_triggered() {
+    fn flag_handle_shares_state() {
         let fence = InterruptFence::new();
-        assert!(check_interrupt(&fence).is_ok());
-        fence.trigger();
-        assert!(check_interrupt(&fence).is_err());
+        let handle = fence.flag_handle();
+        handle.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(fence.is_interrupted());
     }
 
     #[test]
-    fn clone_shares_flag() {
+    fn clone_shares_state() {
         let fence = InterruptFence::new();
         let clone = fence.clone();
         fence.trigger();
         assert!(clone.is_interrupted());
+    }
+
+    #[test]
+    fn default_is_not_interrupted() {
+        let fence = InterruptFence::default();
+        assert!(!fence.is_interrupted());
+    }
+
+    #[test]
+    fn check_interrupt_ok_when_not_triggered() {
+        let fence = InterruptFence::new();
+        assert!(check_interrupt(&fence).is_ok());
+    }
+
+    #[test]
+    fn check_interrupt_err_when_triggered() {
+        let fence = InterruptFence::new();
+        fence.trigger();
+        let err = check_interrupt(&fence).unwrap_err();
+        assert_eq!(err.to_string(), "operation interrupted by user");
+    }
+
+    #[test]
+    fn interrupted_error_display() {
+        let err = InterruptedError;
+        assert_eq!(format!("{err}"), "operation interrupted by user");
     }
 }

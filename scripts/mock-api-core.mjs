@@ -13,7 +13,8 @@ let mockTunnels = [];
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, x-device-fingerprint",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -309,12 +310,13 @@ async function handleRequest(req, res) {
       data: {
         cycleBudgetUsd: 10,
         remainingUsd: 10,
-        dailyUsage: 0,
-        totalInputTokensThisCycle: 0,
-        totalOutputTokensThisCycle: 0,
-        spentThisCycleUsd: 0,
-        spentTodayUsd: 0,
+        cycleLimit5hr: 0,
+        cycleLimit7day: 0,
+        fiveHourCapUsd: 5,
+        fiveHourResetsAt: null,
         cycleStartDate: new Date().toISOString(),
+        cycleEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        bypassCycleLimit: false,
       },
     });
     return;
@@ -716,6 +718,49 @@ async function handleRequest(req, res) {
   }
   if (method === "GET" && /^\/invite\/status/.test(url)) {
     json(res, 200, { success: true, data: { valid: true } });
+    return;
+  }
+
+  if (method === "GET" && /^\/referral\/stats\/?(\?.*)?$/.test(url)) {
+    const origin = requestOrigin(req);
+    json(res, 200, {
+      success: true,
+      data: {
+        referralCode: "MOCKREF1",
+        referralLink: `${origin}/#/rewards?ref=MOCKREF1`,
+        totals: {
+          totalRewardUsd: 10,
+          pendingCount: 1,
+          convertedCount: 2,
+        },
+        referrals: [
+          {
+            id: "ref-row-1",
+            referredUserId: "user-456",
+            status: "pending",
+            createdAt: new Date(Date.now() - 86400000).toISOString(),
+          },
+          {
+            id: "ref-row-2",
+            referredUserId: "user-789",
+            status: "converted",
+            createdAt: new Date(Date.now() - 172800000).toISOString(),
+            convertedAt: new Date().toISOString(),
+            rewardUsd: 5,
+          },
+        ],
+        appliedReferralCode: null,
+        canApplyReferral: true,
+      },
+    });
+    return;
+  }
+
+  if (method === "POST" && /^\/referral\/claim\/?$/.test(url)) {
+    json(res, 200, {
+      success: true,
+      data: { ok: true, message: "Referral claimed" },
+    });
     return;
   }
   if (

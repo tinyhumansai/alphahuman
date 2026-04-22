@@ -8,15 +8,16 @@
 use crate::openhuman::config::ScreenIntelligenceConfig;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::capture::now_ms;
 use super::helpers::push_ephemeral_frame;
-use super::state::{AccessibilityEngine, EngineState, SessionRuntime};
+use super::state::{AccessibilityEngine, SessionRuntime};
 use super::types::{
     AccessibilityStatus, AppContextInfo, CaptureFrame, CaptureImageRefResult, CaptureNowResult,
-    CaptureTestResult, SessionStatus, StartSessionParams,
+    CaptureTestResult, CoreProcessStatus, SessionStatus, StartSessionParams,
 };
+use crate::openhuman::accessibility::request_microphone_access;
 use crate::openhuman::accessibility::{
     capture_screen_image_ref_for_context, detect_permissions, foreground_context,
     permission_to_str, AppContext, PermissionKind, PermissionState, PermissionStatus,
@@ -25,9 +26,6 @@ use crate::openhuman::accessibility::{
 use crate::openhuman::accessibility::{
     open_macos_privacy_pane, request_accessibility_access, request_screen_recording_access,
 };
-
-// Re-export for backward compat.
-pub use super::state::{global_engine, AccessibilityEngine as _AccessibilityEngineAlias};
 
 impl AccessibilityEngine {
     // ── Config ───────────────────────────────────────────────────────
@@ -39,7 +37,6 @@ impl AccessibilityEngine {
         {
             let mut state = self.inner.lock().await;
             state.config = config.clone();
-            state.features.predictive_input = state.config.autocomplete_enabled;
         }
 
         if config.enabled {
@@ -73,7 +70,6 @@ impl AccessibilityEngine {
 
                 let now = now_ms();
                 state.features.screen_monitoring = true;
-                state.features.predictive_input = state.config.autocomplete_enabled;
                 state.session = Some(new_session_runtime(&state.config, now, i64::MAX, 0));
                 state.last_event = Some("screen_intelligence_enabled".to_string());
                 state.last_error = None;
@@ -126,10 +122,6 @@ impl AccessibilityEngine {
             let now = now_ms();
             let expires_at_ms = now + (ttl_secs as i64 * 1000);
             state.features.screen_monitoring = screen_monitoring_requested;
-            state.features.device_control = params.device_control.unwrap_or(true);
-            state.features.predictive_input = params
-                .predictive_input
-                .unwrap_or(state.config.autocomplete_enabled);
 
             state.session = Some(new_session_runtime(
                 &state.config,
@@ -211,6 +203,7 @@ impl AccessibilityEngine {
                 screen_recording: PermissionState::Unsupported,
                 accessibility: PermissionState::Unsupported,
                 input_monitoring: PermissionState::Unsupported,
+                microphone: PermissionState::Unsupported,
             });
         }
 
@@ -229,27 +222,32 @@ impl AccessibilityEngine {
         &self,
         permission: PermissionKind,
     ) -> Result<PermissionStatus, String> {
-        if !cfg!(target_os = "macos") {
+        // Microphone permission is cross-platform; other permissions are macOS-only.
+        if matches!(permission, PermissionKind::Microphone) {
+            request_microphone_access();
+        } else if !cfg!(target_os = "macos") {
             return Ok(PermissionStatus {
                 screen_recording: PermissionState::Unsupported,
                 accessibility: PermissionState::Unsupported,
                 input_monitoring: PermissionState::Unsupported,
+                microphone: PermissionState::Unsupported,
             });
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            match permission {
-                PermissionKind::ScreenRecording => {
-                    request_screen_recording_access();
-                    open_macos_privacy_pane("Privacy_ScreenCapture");
-                }
-                PermissionKind::Accessibility => {
-                    request_accessibility_access();
-                    open_macos_privacy_pane("Privacy_Accessibility");
-                }
-                PermissionKind::InputMonitoring => {
-                    open_macos_privacy_pane("Privacy_ListenEvent");
+        } else {
+            #[cfg(target_os = "macos")]
+            {
+                match permission {
+                    PermissionKind::ScreenRecording => {
+                        request_screen_recording_access();
+                        open_macos_privacy_pane("Privacy_ScreenCapture");
+                    }
+                    PermissionKind::Accessibility => {
+                        request_accessibility_access();
+                        open_macos_privacy_pane("Privacy_Accessibility");
+                    }
+                    PermissionKind::InputMonitoring => {
+                        open_macos_privacy_pane("Privacy_ListenEvent");
+                    }
+                    PermissionKind::Microphone => unreachable!(),
                 }
             }
         }
@@ -343,6 +341,10 @@ impl AccessibilityEngine {
             permission_check_process_path: std::env::current_exe()
                 .ok()
                 .map(|p| p.display().to_string()),
+            core_process: Some(CoreProcessStatus {
+                pid: std::process::id(),
+                started_at_ms: core_process_started_at_ms(),
+            }),
         }
     }
 
@@ -476,6 +478,27 @@ impl AccessibilityEngine {
         }
     }
 
+    /// Save the image payload from a [`CaptureTestResult`] to disk, reconstructing
+    /// the minimum [`CaptureFrame`] needed by [`save_screenshot_to_disk`].
+    ///
+    /// Returns `None` when the result carries no `image_ref` (nothing to save).
+    /// Callers supply a `reason` string to label the frame (e.g. `"cli_capture"`).
+    pub(crate) fn save_capture_test_result(
+        workspace_dir: &std::path::Path,
+        result: &CaptureTestResult,
+        reason: &str,
+    ) -> Option<Result<PathBuf, String>> {
+        let image_ref = result.image_ref.as_ref()?.clone();
+        let frame = CaptureFrame {
+            captured_at_ms: chrono::Utc::now().timestamp_millis(),
+            reason: reason.to_string(),
+            app_name: result.context.as_ref().and_then(|c| c.app_name.clone()),
+            window_title: result.context.as_ref().and_then(|c| c.window_title.clone()),
+            image_ref: Some(image_ref),
+        };
+        Some(Self::save_screenshot_to_disk(workspace_dir, &frame))
+    }
+
     /// Save a screenshot PNG to `{workspace_dir}/screenshots/{timestamp}_{app}.png`.
     pub fn save_screenshot_to_disk(
         workspace_dir: &std::path::Path,
@@ -553,6 +576,11 @@ impl AccessibilityEngine {
     }
 }
 
+fn core_process_started_at_ms() -> i64 {
+    static CORE_PROCESS_STARTED_AT_MS: OnceLock<i64> = OnceLock::new();
+    *CORE_PROCESS_STARTED_AT_MS.get_or_init(now_ms)
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 fn new_session_runtime(
@@ -588,8 +616,13 @@ fn new_session_runtime(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
     use super::*;
+    #[cfg(target_os = "macos")]
+    use crate::openhuman::screen_intelligence::state::EngineState;
+    #[cfg(target_os = "macos")]
     use tokio::sync::Mutex;
+    #[cfg(target_os = "macos")]
     use tokio::time::Duration;
 
     #[cfg(target_os = "macos")]

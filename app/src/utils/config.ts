@@ -1,3 +1,12 @@
+import packageJson from '../../package.json';
+
+const APP_ENV = (import.meta.env.VITE_OPENHUMAN_APP_ENV as string | undefined)
+  ?.trim()
+  .toLowerCase();
+
+const DEFAULT_BACKEND_URL =
+  APP_ENV === 'staging' ? 'https://staging-api.tinyhumans.ai' : 'https://api.tinyhumans.ai';
+
 export const CORE_RPC_URL =
   import.meta.env.VITE_OPENHUMAN_CORE_RPC_URL || 'http://127.0.0.1:7788/rpc';
 
@@ -30,7 +39,8 @@ export const SKILLS_GITHUB_REPO =
 export const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
 /** Backend API URL (web fallback when core RPC is unavailable). */
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL as string | undefined;
+export const BACKEND_URL =
+  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() || DEFAULT_BACKEND_URL;
 
 /** Telegram bot username used for managed DM linking when backend does not return a launch URL. */
 export const TELEGRAM_BOT_USERNAME =
@@ -41,7 +51,52 @@ export const DEV_JWT_TOKEN = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_JWT_TOKEN as string | undefined)
   : undefined;
 
-/** URL for the latest app release download page. Can be overridden via VITE_LATEST_APP_DOWNLOAD_URL for deployment-specific download pages. */
+export const APP_VERSION = packageJson.version;
+
+/**
+ * Deployment environment reported to Sentry and other observability surfaces.
+ *
+ * Derived from `VITE_OPENHUMAN_APP_ENV` (set by CI for production / staging
+ * bundles). Falls back to `development` in non-production builds so local
+ * debugging never mingles with real user events.
+ */
+export const APP_ENVIRONMENT: 'production' | 'staging' | 'development' = IS_DEV
+  ? 'development'
+  : APP_ENV === 'staging'
+    ? 'staging'
+    : 'production';
+
+/** Short git SHA baked in at build time (`VITE_BUILD_SHA`). Empty locally. */
+export const BUILD_SHA = ((import.meta.env.VITE_BUILD_SHA as string | undefined) ?? '')
+  .trim()
+  .slice(0, 12);
+
+/**
+ * Canonical Sentry release identifier: `openhuman@<version>[+<short_sha>]`.
+ *
+ * Matches the tag the Rust core sidecar reports (see `src/main.rs`) so events
+ * from the frontend, the core, and source-map uploads all group under the
+ * same release in the Sentry dashboard.
+ */
+export const SENTRY_RELEASE = BUILD_SHA
+  ? `openhuman@${APP_VERSION}+${BUILD_SHA}`
+  : `openhuman@${APP_VERSION}`;
+
+/**
+ * Minimum **desktop app** semver required for OAuth deep-link completion (`openhuman://oauth/success`).
+ *
+ * **Build-time embedding:** This value is baked into each shipped installer. Raising the floor for
+ * users already on an older build requires them to install a **new** release (or use in-app update
+ * when available)—changing CI vars alone does not retrofit existing binaries. For a fleet-wide
+ * minimum that can move without a new app build, add a runtime policy endpoint later and consult it
+ * here with this constant as fallback only.
+ *
+ * Set in production builds (e.g. GitHub Actions `vars`). Empty = no gate (default for local dev).
+ */
+export const MINIMUM_SUPPORTED_APP_VERSION =
+  (import.meta.env.VITE_MINIMUM_SUPPORTED_APP_VERSION as string | undefined)?.trim() ?? '';
+
+/** URL for the latest app release download page. Used for OAuth version-gate recovery and crash-recovery prompts. Override via VITE_LATEST_APP_DOWNLOAD_URL for deployment-specific download pages. */
 export const LATEST_APP_DOWNLOAD_URL =
   (import.meta.env.VITE_LATEST_APP_DOWNLOAD_URL as string | undefined)?.trim() ||
   'https://github.com/tinyhumansai/openhuman/releases/latest';

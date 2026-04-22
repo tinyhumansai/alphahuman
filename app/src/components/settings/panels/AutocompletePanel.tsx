@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 import {
-  type AcceptedCompletion,
   type AutocompleteConfig,
   type AutocompleteStatus,
   isTauri,
-  openhumanAutocompleteAccept,
-  openhumanAutocompleteClearHistory,
-  openhumanAutocompleteCurrent,
-  openhumanAutocompleteDebugFocus,
-  openhumanAutocompleteHistory,
   openhumanAutocompleteSetStyle,
   openhumanAutocompleteStart,
   openhumanAutocompleteStatus,
@@ -20,7 +14,7 @@ import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
 const DEFAULT_CONFIG: AutocompleteConfig = {
-  enabled: true,
+  enabled: false,
   debounce_ms: 120,
   max_chars: 384,
   style_preset: 'balanced',
@@ -30,8 +24,6 @@ const DEFAULT_CONFIG: AutocompleteConfig = {
   accept_with_tab: true,
   overlay_ttl_ms: 1100,
 };
-
-const MAX_LOG_ENTRIES = 200;
 
 const parseAutocompleteConfig = (raw: unknown): AutocompleteConfig => {
   if (!raw || typeof raw !== 'object') {
@@ -65,80 +57,26 @@ const parseAutocompleteConfig = (raw: unknown): AutocompleteConfig => {
 };
 
 const AutocompletePanel = () => {
-  const { navigateBack } = useSettingsNavigation();
+  const { navigateBack, navigateToSettings, breadcrumbs } = useSettingsNavigation();
   const [status, setStatus] = useState<AutocompleteStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const [enabled, setEnabled] = useState<boolean>(DEFAULT_CONFIG.enabled);
-  const [debounceMs, setDebounceMs] = useState<string>(String(DEFAULT_CONFIG.debounce_ms));
-  const [maxChars, setMaxChars] = useState<string>(String(DEFAULT_CONFIG.max_chars));
   const [stylePreset, setStylePreset] = useState<string>(DEFAULT_CONFIG.style_preset);
-  const [styleInstructions, setStyleInstructions] = useState<string>('');
-  const [styleExamplesText, setStyleExamplesText] = useState<string>('');
   const [disabledAppsText, setDisabledAppsText] = useState<string>(
     DEFAULT_CONFIG.disabled_apps.join('\n')
   );
   const [acceptWithTab, setAcceptWithTab] = useState<boolean>(DEFAULT_CONFIG.accept_with_tab);
-  const [overlayTtlMs, setOverlayTtlMs] = useState<string>(String(DEFAULT_CONFIG.overlay_ttl_ms));
-  const [contextOverride, setContextOverride] = useState<string>('');
-  const [focusDebug, setFocusDebug] = useState<string>('');
-  const [logs, setLogs] = useState<string[]>([]);
-  const previousStatusRef = useRef<AutocompleteStatus | null>(null);
 
-  // Personalization history state
-  const [historyEntries, setHistoryEntries] = useState<AcceptedCompletion[]>([]);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
-  const [isClearingHistory, setIsClearingHistory] = useState(false);
-
-  const appendLogs = (entries: string[]) => {
-    if (entries.length === 0) return;
-    const now = new Date();
-    const stamp = `${now.toLocaleTimeString()}.${String(now.getMilliseconds()).padStart(3, '0')}`;
-    setLogs(current =>
-      [...current, ...entries.map(entry => `${stamp}  ${entry}`)].slice(-MAX_LOG_ENTRIES)
-    );
-  };
-
-  const appendUiLog = (entry: string) => {
-    appendLogs([`[ui-flow] ${entry}`]);
-  };
-
-  const trackStatusChanges = (next: AutocompleteStatus) => {
-    const previous = previousStatusRef.current;
-    if (!previous) {
-      previousStatusRef.current = next;
-      appendLogs([
-        `[runtime] phase=${next.phase} running=${next.running ? 'yes' : 'no'} enabled=${next.enabled ? 'yes' : 'no'}`,
-      ]);
-      return;
-    }
-
-    const nextEntries: string[] = [];
-    if (next.phase !== previous.phase) {
-      nextEntries.push(`phase ${previous.phase} -> ${next.phase}`);
-    }
-    if ((next.last_error ?? '') !== (previous.last_error ?? '') && next.last_error) {
-      nextEntries.push(`error: ${next.last_error}`);
-    }
-    if (
-      (next.suggestion?.value ?? '') !== (previous.suggestion?.value ?? '') &&
-      next.suggestion?.value
-    ) {
-      nextEntries.push(`suggestion ready: "${next.suggestion.value}"`);
-    }
-
-    if (nextEntries.length > 0) {
-      appendLogs(nextEntries);
-    }
-    previousStatusRef.current = next;
-  };
+  // Hold full config so we can pass through unchanged advanced values on save.
+  // configLoaded tracks whether we've received real config from the backend.
+  const fullConfigRef = useRef<AutocompleteConfig>(DEFAULT_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   const load = async () => {
     if (!isTauri()) return;
-    setIsLoading(true);
     setError(null);
     try {
       const [statusResponse, configResponse] = await Promise.all([
@@ -146,110 +84,41 @@ const AutocompletePanel = () => {
         openhumanGetConfig(),
       ]);
       setStatus(statusResponse.result);
-      trackStatusChanges(statusResponse.result);
-      appendLogs(statusResponse.logs);
       const config = parseAutocompleteConfig(
         (configResponse.result.config as Record<string, unknown> | undefined)?.autocomplete
       );
+      fullConfigRef.current = config;
+      setConfigLoaded(true);
       setEnabled(config.enabled);
-      setDebounceMs(String(config.debounce_ms));
-      setMaxChars(String(config.max_chars));
       setStylePreset(config.style_preset);
-      setStyleInstructions(config.style_instructions ?? '');
-      setStyleExamplesText(config.style_examples.join('\n'));
       setDisabledAppsText(config.disabled_apps.join('\n'));
       setAcceptWithTab(config.accept_with_tab);
-      setOverlayTtlMs(String(config.overlay_ttl_ms));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load autocomplete settings');
-    } finally {
-      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     void load();
-    void loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadHistory = async (): Promise<AcceptedCompletion[]> => {
-    if (!isTauri()) return [];
-    setIsHistoryLoading(true);
-    try {
-      const response = await openhumanAutocompleteHistory({ limit: 20 });
-      setHistoryEntries(response.result.entries);
-      return response.result.entries;
-    } catch {
-      // Non-critical — silently ignore
-      return [];
-    } finally {
-      setIsHistoryLoading(false);
-    }
-  };
-
-  const waitForAcceptedHistoryEntry = async (acceptedValue?: string | null) => {
-    if (!acceptedValue) {
-      await loadHistory();
-      return;
-    }
-    const normalized = acceptedValue.trim();
-    if (!normalized) {
-      await loadHistory();
-      return;
-    }
-
-    const maxAttempts = 6;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const entries = await loadHistory();
-      const found = entries.some(entry => entry.suggestion.trim() === normalized);
-      if (found) {
-        return;
-      }
-      if (attempt < maxAttempts - 1) {
-        await new Promise(resolve => window.setTimeout(resolve, 180));
-      }
-    }
-  };
-
-  const clearHistory = async () => {
+  const refreshStatus = async () => {
     if (!isTauri()) return;
-    setIsClearingHistory(true);
-    try {
-      await openhumanAutocompleteClearHistory();
-      setHistoryEntries([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear history');
-    } finally {
-      setIsClearingHistory(false);
-    }
-  };
-
-  const refreshStatus = async (showSpinner = false) => {
-    if (!isTauri()) return;
-    if (showSpinner) {
-      setIsLoading(true);
-      setError(null);
-    }
     try {
       const response = await openhumanAutocompleteStatus();
       setStatus(response.result);
-      trackStatusChanges(response.result);
-      if (showSpinner) {
-        appendLogs(response.logs);
-      }
-      return response.result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to refresh autocomplete status';
-      appendUiLog(`refresh status failed: ${message}`);
-      setError(message);
-      return null;
-    } finally {
-      if (showSpinner) {
-        setIsLoading(false);
-      }
+    } catch {
+      // Non-critical
     }
   };
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const intervalId = window.setInterval(() => {
+      void refreshStatus();
+    }, 1200);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const saveConfig = async () => {
     if (!isTauri()) return;
@@ -257,44 +126,31 @@ const AutocompletePanel = () => {
     setError(null);
     setMessage(null);
     try {
-      appendUiLog('saving autocomplete settings');
-      const debounce = Number(debounceMs);
-      const max = Number(maxChars);
-      const ttl = Number(overlayTtlMs);
+      const prev = fullConfigRef.current;
       const response = await openhumanAutocompleteSetStyle({
         enabled,
-        debounce_ms: Number.isFinite(debounce) ? Math.min(Math.max(debounce, 50), 2000) : 120,
-        max_chars: Number.isFinite(max) ? Math.min(Math.max(max, 32), 1200) : 384,
+        debounce_ms: prev.debounce_ms,
+        max_chars: prev.max_chars,
         style_preset: stylePreset.trim() || 'balanced',
-        style_instructions: styleInstructions.trim() || undefined,
-        style_examples: styleExamplesText
-          .split('\n')
-          .map(entry => entry.trim())
-          .filter(Boolean),
+        style_instructions: prev.style_instructions ?? undefined,
+        style_examples: prev.style_examples,
         disabled_apps: disabledAppsText
           .split('\n')
           .map(entry => entry.trim())
           .filter(Boolean),
         accept_with_tab: acceptWithTab,
-        overlay_ttl_ms: Number.isFinite(ttl) ? Math.min(Math.max(ttl, 300), 10000) : 1100,
+        overlay_ttl_ms: prev.overlay_ttl_ms,
       });
 
+      fullConfigRef.current = response.result.config;
       setEnabled(response.result.config.enabled);
-      setDebounceMs(String(response.result.config.debounce_ms));
-      setMaxChars(String(response.result.config.max_chars));
       setStylePreset(response.result.config.style_preset);
-      setStyleInstructions(response.result.config.style_instructions ?? '');
-      setStyleExamplesText(response.result.config.style_examples.join('\n'));
       setDisabledAppsText(response.result.config.disabled_apps.join('\n'));
       setAcceptWithTab(response.result.config.accept_with_tab);
-      setOverlayTtlMs(String(response.result.config.overlay_ttl_ms));
-      appendLogs(response.logs);
       setMessage('Autocomplete settings saved.');
       await refreshStatus();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save autocomplete settings';
-      appendUiLog(`save settings failed: ${message}`);
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to save autocomplete settings');
     } finally {
       setIsSaving(false);
     }
@@ -305,26 +161,17 @@ const AutocompletePanel = () => {
     setError(null);
     setMessage(null);
     try {
-      const debounce = Number(debounceMs);
-      appendUiLog(`start requested (debounce=${String(debounce)}ms)`);
       const response = await openhumanAutocompleteStart({
-        debounce_ms: Number.isFinite(debounce) ? Math.min(Math.max(debounce, 50), 2000) : 120,
+        debounce_ms: fullConfigRef.current.debounce_ms,
       });
-      appendLogs(response.logs);
-      const latestStatus = await refreshStatus();
+      await refreshStatus();
       if (response.result.started) {
         setMessage('Autocomplete started.');
-      } else if (latestStatus?.enabled === false) {
-        setMessage('Autocomplete is disabled in settings. Enable it and save first.');
-      } else if (latestStatus?.running) {
-        setMessage('Autocomplete is already running.');
       } else {
-        setMessage('Autocomplete did not start.');
+        setMessage('Autocomplete did not start. Check if it is enabled.');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to start autocomplete';
-      appendUiLog(`start failed: ${message}`);
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to start autocomplete');
     }
   };
 
@@ -333,150 +180,27 @@ const AutocompletePanel = () => {
     setError(null);
     setMessage(null);
     try {
-      appendUiLog('stop requested');
-      const response = await openhumanAutocompleteStop({ reason: 'manual_stop_from_settings' });
-      appendLogs(response.logs);
-      const latestStatus = await refreshStatus();
+      await openhumanAutocompleteStop({ reason: 'manual_stop_from_settings' });
+      await refreshStatus();
       setMessage('Autocomplete stopped.');
-      if (latestStatus?.running) {
-        appendUiLog('runtime still reports running after stop');
-      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to stop autocomplete';
-      appendUiLog(`stop failed: ${message}`);
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to stop autocomplete');
     }
-  };
-
-  const testCurrent = async () => {
-    if (!isTauri()) return;
-    setError(null);
-    setMessage(null);
-    try {
-      appendUiLog(
-        contextOverride.trim()
-          ? `get suggestion requested (override chars=${String(contextOverride.trim().length)})`
-          : 'get suggestion requested (focused app context)'
-      );
-      const response = await openhumanAutocompleteCurrent({
-        context: contextOverride.trim() || undefined,
-      });
-      appendLogs(response.logs);
-      setMessage(
-        response.result.suggestion?.value
-          ? `Suggestion: ${response.result.suggestion.value}`
-          : 'No suggestion returned.'
-      );
-      await refreshStatus();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch current suggestion';
-      appendUiLog(`get suggestion failed: ${message}`);
-      setError(message);
-    }
-  };
-
-  const acceptSuggestion = async () => {
-    if (!isTauri()) return;
-    setError(null);
-    setMessage(null);
-    try {
-      appendUiLog('accept suggestion requested');
-      const response = await openhumanAutocompleteAccept({
-        suggestion: status?.suggestion?.value ?? undefined,
-        skip_apply: true,
-      });
-      appendLogs(response.logs);
-      if (response.result.accepted && response.result.value) {
-        setMessage(`Accepted: ${response.result.value}`);
-      } else {
-        setMessage(response.result.reason ?? 'No suggestion was applied.');
-      }
-      await refreshStatus();
-      await waitForAcceptedHistoryEntry(response.result.value);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to accept suggestion';
-      appendUiLog(`accept failed: ${message}`);
-      setError(message);
-    }
-  };
-
-  const debugFocus = async () => {
-    if (!isTauri()) return;
-    setError(null);
-    try {
-      appendUiLog('debug focus requested');
-      const response = await openhumanAutocompleteDebugFocus();
-      appendLogs(response.logs);
-      setFocusDebug(JSON.stringify(response.result, null, 2));
-      appendUiLog(
-        `focus app=${response.result.app_name ?? 'n/a'} role=${response.result.role ?? 'n/a'} chars=${String(response.result.context.length)}`
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to inspect focused element';
-      appendUiLog(`debug focus failed: ${message}`);
-      setError(message);
-    }
-  };
-
-  useEffect(() => {
-    if (!isTauri()) return;
-    const intervalId = window.setInterval(() => {
-      void refreshStatus();
-    }, 1200);
-    return () => window.clearInterval(intervalId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const clearLogs = () => {
-    setLogs([]);
-    previousStatusRef.current = status;
   };
 
   return (
     <div className="z-10 relative">
-      <SettingsHeader title="Inline Autocomplete" showBackButton={true} onBack={navigateBack} />
+      <SettingsHeader
+        title="Autocomplete"
+        showBackButton={true}
+        onBack={navigateBack}
+        breadcrumbs={breadcrumbs}
+      />
 
       <div className="max-w-2xl mx-auto w-full p-4 space-y-4">
         <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-stone-900">Runtime</h3>
-          <div className="text-sm text-stone-700 space-y-1">
-            <div>Platform supported: {status?.platform_supported ? 'yes' : 'no'}</div>
-            <div>Enabled: {status?.enabled ? 'yes' : 'no'}</div>
-            <div>Running: {status?.running ? 'yes' : 'no'}</div>
-            <div>Phase: {status?.phase ?? 'unknown'}</div>
-            <div>Debounce: {status?.debounce_ms ?? 0}ms</div>
-            <div>Model: {status?.model_id ?? 'n/a'}</div>
-            <div>App: {status?.app_name ?? 'n/a'}</div>
-            <div>Last error: {status?.last_error ?? 'none'}</div>
-            <div>Current suggestion: {status?.suggestion?.value ?? 'none'}</div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void refreshStatus(true)}
-              disabled={isLoading}
-              className="rounded-lg border border-stone-300 bg-stone-100 px-3 py-2 text-sm text-stone-700 disabled:opacity-50">
-              {isLoading ? 'Refreshing…' : 'Refresh Status'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void start()}
-              disabled={!status?.platform_supported || Boolean(status?.running)}
-              className="rounded-lg border border-green-500/60 bg-green-50 px-3 py-2 text-sm text-green-700 disabled:opacity-50">
-              Start
-            </button>
-            <button
-              type="button"
-              onClick={() => void stop()}
-              disabled={!status?.running}
-              className="rounded-lg border border-red-500/60 bg-red-50 px-3 py-2 text-sm text-red-600 disabled:opacity-50">
-              Stop
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
           <h3 className="text-sm font-semibold text-stone-900">Settings</h3>
+
           <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
             <span className="text-sm text-stone-700">Enabled</span>
             <input
@@ -485,6 +209,7 @@ const AutocompletePanel = () => {
               onChange={event => setEnabled(event.target.checked)}
             />
           </label>
+
           <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
             <span className="text-sm text-stone-700">Accept With Tab</span>
             <input
@@ -493,42 +218,7 @@ const AutocompletePanel = () => {
               onChange={event => setAcceptWithTab(event.target.checked)}
             />
           </label>
-          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-            <span className="text-sm text-stone-700">Debounce (ms)</span>
-            <input
-              type="number"
-              min={50}
-              max={2000}
-              step={10}
-              value={debounceMs}
-              onChange={event => setDebounceMs(event.target.value)}
-              className="w-28 rounded border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
-            />
-          </label>
-          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-            <span className="text-sm text-stone-700">Max Chars</span>
-            <input
-              type="number"
-              min={32}
-              max={1200}
-              step={8}
-              value={maxChars}
-              onChange={event => setMaxChars(event.target.value)}
-              className="w-28 rounded border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
-            />
-          </label>
-          <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-            <span className="text-sm text-stone-700">Overlay TTL (ms)</span>
-            <input
-              type="number"
-              min={300}
-              max={10000}
-              step={100}
-              value={overlayTtlMs}
-              onChange={event => setOverlayTtlMs(event.target.value)}
-              className="w-28 rounded border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
-            />
-          </label>
+
           <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
             <span className="text-sm text-stone-700">Style Preset</span>
             <select
@@ -542,24 +232,7 @@ const AutocompletePanel = () => {
               <option value="custom">Custom</option>
             </select>
           </label>
-          <div className="space-y-1">
-            <div className="text-xs text-stone-600">Style Instructions</div>
-            <textarea
-              value={styleInstructions}
-              onChange={event => setStyleInstructions(event.target.value)}
-              rows={3}
-              className="w-full rounded border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700"
-            />
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs text-stone-600">Style Examples (one per line)</div>
-            <textarea
-              value={styleExamplesText}
-              onChange={event => setStyleExamplesText(event.target.value)}
-              rows={3}
-              className="w-full rounded border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700"
-            />
-          </div>
+
           <div className="space-y-1">
             <div className="text-xs text-stone-600">
               Disabled Apps (one bundle/app token per line)
@@ -571,118 +244,52 @@ const AutocompletePanel = () => {
               className="w-full rounded border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700"
             />
           </div>
+
           <button
             type="button"
             onClick={() => void saveConfig()}
-            disabled={isSaving}
+            disabled={isSaving || !configLoaded}
             className="rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600 disabled:opacity-50">
-            {isSaving ? 'Saving…' : 'Save Autocomplete Settings'}
+            {isSaving ? 'Saving…' : 'Save Settings'}
           </button>
         </section>
 
         <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-stone-900">Personalization History</h3>
-            <button
-              type="button"
-              onClick={() => void clearHistory()}
-              disabled={isClearingHistory || historyEntries.length === 0}
-              className="rounded-lg border border-red-500/60 bg-red-50 px-3 py-1.5 text-xs text-red-600 disabled:opacity-40">
-              {isClearingHistory ? 'Clearing…' : 'Clear History'}
-            </button>
-          </div>
-          <p className="text-xs text-stone-500">
-            {isHistoryLoading
-              ? 'Loading…'
-              : historyEntries.length === 0
-                ? 'No accepted completions yet. Accept suggestions with Tab to start personalising.'
-                : `${String(historyEntries.length)} accepted completion${historyEntries.length === 1 ? '' : 's'} stored — used to personalise future suggestions.`}
-          </p>
-          {historyEntries.length > 0 && (
-            <div className="max-h-48 overflow-y-auto rounded-xl border border-stone-200 bg-stone-50 p-2 space-y-1">
-              {historyEntries.map((entry, idx) => (
-                <div
-                  key={`${String(entry.timestamp_ms)}-${String(idx)}`}
-                  className="flex flex-col gap-0.5 rounded-lg bg-white px-2 py-1.5 text-xs border border-stone-100 text-xs">
-                  <div className="flex items-center gap-2 text-stone-500">
-                    <span className="shrink-0">
-                      {new Date(entry.timestamp_ms).toLocaleString()}
-                    </span>
-                    {entry.app_name && (
-                      <span className="rounded bg-stone-100 px-1 text-stone-600">
-                        {entry.app_name}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-baseline gap-1 text-stone-700 truncate">
-                    <span className="shrink-0 text-stone-400">…</span>
-                    <span className="truncate text-stone-500">{entry.context.slice(-40)}</span>
-                    <span className="shrink-0 text-stone-400">→</span>
-                    <span className="font-medium text-primary-500 truncate">
-                      {entry.suggestion}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-stone-900">Test</h3>
-          <div className="space-y-1">
-            <div className="text-xs text-stone-600">Context Override (optional)</div>
-            <textarea
-              value={contextOverride}
-              onChange={event => setContextOverride(event.target.value)}
-              rows={3}
-              className="w-full rounded border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700"
-            />
+          <h3 className="text-sm font-semibold text-stone-900">Runtime</h3>
+          <div className="text-sm text-stone-600 space-y-1">
+            <div>Running: {status?.running ? 'yes' : 'no'}</div>
+            <div>Enabled: {status?.enabled ? 'yes' : 'no'}</div>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => void testCurrent()}
-              className="rounded-lg border border-primary-500/60 bg-primary-50 px-3 py-2 text-sm text-primary-600">
-              Get Suggestion
+              onClick={() => void start()}
+              disabled={!configLoaded || !status?.platform_supported || Boolean(status?.running)}
+              className="rounded-lg border border-green-500/60 bg-green-50 px-3 py-2 text-sm text-green-700 disabled:opacity-50">
+              Start
             </button>
             <button
               type="button"
-              onClick={() => void acceptSuggestion()}
-              className="rounded-lg border border-emerald-500/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              Accept Suggestion
-            </button>
-            <button
-              type="button"
-              onClick={() => void debugFocus()}
-              className="rounded-lg border border-amber-500/60 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              Debug Focus
+              onClick={() => void stop()}
+              disabled={!status?.running}
+              className="rounded-lg border border-red-500/60 bg-red-50 px-3 py-2 text-sm text-red-600 disabled:opacity-50">
+              Stop
             </button>
           </div>
-          {focusDebug && (
-            <pre className="max-h-48 overflow-auto rounded-xl border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700">
-              {focusDebug}
-            </pre>
-          )}
-        </section>
-
-        <section className="rounded-2xl border border-stone-200 bg-white p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-stone-900">Live Logs</h3>
-            <button
-              type="button"
-              onClick={clearLogs}
-              className="rounded-lg border border-stone-300 bg-stone-100 px-3 py-1.5 text-xs text-stone-700">
-              Clear
-            </button>
-          </div>
-          <pre className="max-h-56 overflow-auto rounded-xl border border-stone-200 bg-stone-50 p-2 text-xs text-stone-700">
-            {logs.length > 0 ? logs.join('\n') : 'No logs yet.'}
-          </pre>
         </section>
 
         {message && <div className="text-xs text-green-700">{message}</div>}
         {error && <div className="text-xs text-red-600">{error}</div>}
+
+        <button
+          type="button"
+          onClick={() => navigateToSettings('autocomplete-debug')}
+          className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-600 transition-colors">
+          Advanced settings
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
       </div>
     </div>
   );

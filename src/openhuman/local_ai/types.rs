@@ -4,6 +4,7 @@ use crate::openhuman::config::Config;
 use serde::{Deserialize, Serialize};
 
 use super::model_ids;
+use super::presets;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAiStatus {
@@ -16,6 +17,7 @@ pub struct LocalAiStatus {
     pub tts_voice_id: String,
     pub quantization: String,
     pub vision_state: String,
+    pub vision_mode: String,
     pub embedding_state: String,
     pub stt_state: String,
     pub tts_state: String,
@@ -40,6 +42,7 @@ pub struct LocalAiStatus {
 
 impl LocalAiStatus {
     pub(crate) fn disabled(config: &Config) -> Self {
+        let vision_mode = presets::vision_mode_for_config(&config.local_ai);
         Self {
             state: "disabled".to_string(),
             model_id: model_ids::effective_chat_model_id(config),
@@ -50,6 +53,7 @@ impl LocalAiStatus {
             tts_voice_id: model_ids::effective_tts_voice_id(config),
             quantization: model_ids::effective_quantization(config),
             vision_state: "disabled".to_string(),
+            vision_mode: format!("{vision_mode:?}").to_ascii_lowercase(),
             embedding_state: "disabled".to_string(),
             stt_state: "disabled".to_string(),
             tts_state: "disabled".to_string(),
@@ -162,5 +166,16 @@ mod tests {
         assert_eq!(status.tts_state, "disabled");
         assert_eq!(status.provider, "ollama");
         assert_eq!(status.active_backend, "ollama");
+    }
+
+    #[test]
+    fn disabled_status_uses_config_vision_mode() {
+        let mut config = Config::default();
+        config.local_ai.chat_model_id = "gemma3:1b-it-qat".to_string();
+        config.local_ai.vision_model_id.clear();
+        config.local_ai.embedding_model_id = "all-minilm:latest".to_string();
+
+        let status = LocalAiStatus::disabled(&config);
+        assert_eq!(status.vision_mode, "disabled");
     }
 }

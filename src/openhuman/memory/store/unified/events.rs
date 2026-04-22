@@ -88,7 +88,7 @@ impl EventType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_or_default(s: &str) -> Self {
         match s {
             "decision" => Self::Decision,
             "commitment" => Self::Commitment,
@@ -197,7 +197,7 @@ pub fn events_for_segment(
          ORDER BY created_at ASC",
     )?;
     let rows = stmt
-        .query_map(params![segment_id], |row| row_to_event(row))?
+        .query_map(params![segment_id], row_to_event)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -318,7 +318,7 @@ pub fn extract_events_heuristic(text: &str) -> Vec<(EventType, String)> {
 
     // Split into sentences (rough heuristic).
     let sentences: Vec<&str> = text
-        .split(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
+        .split(['.', '!', '?', '\n'])
         .map(str::trim)
         .filter(|s| s.len() > 5)
         .collect();
@@ -373,7 +373,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventRecord> {
         segment_id: row.get(1)?,
         session_id: row.get(2)?,
         namespace: row.get(3)?,
-        event_type: EventType::from_str(&event_type_str),
+        event_type: EventType::parse_or_default(&event_type_str),
         content: row.get(5)?,
         subject: row.get(6)?,
         timestamp_ref: row.get(7)?,

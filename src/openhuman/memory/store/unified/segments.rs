@@ -57,7 +57,7 @@ impl SegmentStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_or_default(s: &str) -> Self {
         match s {
             "closed" => Self::Closed,
             "summarised" => Self::Summarised,
@@ -285,7 +285,7 @@ pub fn open_segment_for_session(
              ORDER BY created_at DESC
              LIMIT 1",
             params![session_id],
-            |row| row_to_segment(row),
+            row_to_segment,
         )
         .optional()?;
     Ok(row)
@@ -308,7 +308,7 @@ pub fn segments_by_namespace(
          LIMIT ?2",
     )?;
     let rows = stmt
-        .query_map(params![namespace, limit as i64], |row| row_to_segment(row))?
+        .query_map(params![namespace, limit as i64], row_to_segment)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -327,7 +327,7 @@ pub fn segment_get(
              FROM conversation_segments
              WHERE segment_id = ?1",
             params![segment_id],
-            |row| row_to_segment(row),
+            row_to_segment,
         )
         .optional()?;
     Ok(row)
@@ -349,7 +349,7 @@ pub fn segments_pending_summary(
          LIMIT ?1",
     )?;
     let rows = stmt
-        .query_map(params![limit as i64], |row| row_to_segment(row))?
+        .query_map(params![limit as i64], row_to_segment)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -464,7 +464,7 @@ fn row_to_segment(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationSegme
         summary: row.get(8)?,
         embedding: embedding_blob.as_deref().map(bytes_to_vec),
         topic_keywords: row.get(10)?,
-        status: SegmentStatus::from_str(&status_str),
+        status: SegmentStatus::parse_or_default(&status_str),
         created_at: row.get(12)?,
         updated_at: row.get(13)?,
     })

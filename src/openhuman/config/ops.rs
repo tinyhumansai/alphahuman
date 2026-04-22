@@ -9,6 +9,7 @@ use crate::openhuman::config::Config;
 use crate::openhuman::screen_intelligence;
 use crate::rpc::RpcOutcome;
 
+/// Checks if an environment variable flag is enabled (e.g., "1", "true", "yes").
 fn env_flag_enabled(key: &str) -> bool {
     matches!(
         std::env::var(key).ok().as_deref(),
@@ -16,6 +17,7 @@ fn env_flag_enabled(key: &str) -> bool {
     )
 }
 
+/// Returns the core RPC URL from environment variables or a default value.
 pub fn core_rpc_url_from_env() -> String {
     std::env::var("OPENHUMAN_CORE_RPC_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:7788/rpc".to_string())
@@ -23,7 +25,10 @@ pub fn core_rpc_url_from_env() -> String {
 
 const CONFIG_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Loads persisted config with the same 30s timeout used by JSON-RPC and the core CLI.
+/// Loads persisted config with a 30s timeout.
+///
+/// This is used by JSON-RPC and CLI handlers to ensure they don't hang
+/// indefinitely if disk I/O is blocked.
 pub async fn load_config_with_timeout() -> Result<Config, String> {
     match tokio::time::timeout(CONFIG_LOAD_TIMEOUT, Config::load_or_init()).await {
         Ok(Ok(config)) => Ok(config),
@@ -32,23 +37,36 @@ pub async fn load_config_with_timeout() -> Result<Config, String> {
     }
 }
 
+/// Returns the default workspace directory fallback (~/.openhuman/workspace).
 fn fallback_workspace_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".openhuman")
+    crate::openhuman::config::default_root_openhuman_dir()
+        .unwrap_or_else(|_| env_scoped_fallback_root_dir())
         .join("workspace")
 }
 
+/// Returns the default OpenHuman configuration directory (~/.openhuman).
 fn default_openhuman_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".openhuman")
+    crate::openhuman::config::default_root_openhuman_dir()
+        .unwrap_or_else(|_| env_scoped_fallback_root_dir())
 }
 
+fn env_scoped_fallback_root_dir() -> PathBuf {
+    let suffix = if crate::api::config::is_staging_app_env(
+        crate::api::config::app_env_from_env().as_deref(),
+    ) {
+        "-staging"
+    } else {
+        ""
+    };
+    PathBuf::from(format!(".openhuman{suffix}"))
+}
+
+/// Returns the path to the active workspace marker file.
 fn active_workspace_marker_path(default_openhuman_dir: &Path) -> PathBuf {
     default_openhuman_dir.join("active_workspace.toml")
 }
 
+/// Returns the parent directory of the config file.
 fn config_openhuman_dir(config: &Config) -> PathBuf {
     config
         .config_path
@@ -56,6 +74,7 @@ fn config_openhuman_dir(config: &Config) -> PathBuf {
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
+/// Internal helper to reset local data by removing specific directories and markers.
 async fn reset_local_data_for_paths(
     current_openhuman_dir: &Path,
     default_openhuman_dir: &Path,
@@ -119,6 +138,7 @@ async fn reset_local_data_for_paths(
     ))
 }
 
+/// Serializes the current configuration into a JSON snapshot for the UI.
 pub fn snapshot_config_json(config: &Config) -> Result<serde_json::Value, String> {
     let value = serde_json::to_value(config).map_err(|e| e.to_string())?;
     Ok(json!({
@@ -130,7 +150,6 @@ pub fn snapshot_config_json(config: &Config) -> Result<serde_json::Value, String
 
 #[derive(Debug, Clone, Default)]
 pub struct ModelSettingsPatch {
-    pub api_key: Option<String>,
     pub api_url: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: Option<f64>,
@@ -164,6 +183,7 @@ pub struct ScreenIntelligenceSettingsPatch {
     pub baseline_fps: Option<f32>,
     pub vision_enabled: Option<bool>,
     pub autocomplete_enabled: Option<bool>,
+    pub use_vision_model: Option<bool>,
     pub keep_screenshots: Option<bool>,
     pub allowlist: Option<Vec<String>>,
     pub denylist: Option<Vec<String>>,
@@ -180,6 +200,7 @@ pub struct RuntimeFlagsOut {
     pub log_prompts: bool,
 }
 
+/// Returns a full configuration snapshot for the UI.
 pub async fn get_config_snapshot(config: &Config) -> Result<RpcOutcome<serde_json::Value>, String> {
     let snapshot = snapshot_config_json(config)?;
     Ok(RpcOutcome::new(
@@ -191,17 +212,11 @@ pub async fn get_config_snapshot(config: &Config) -> Result<RpcOutcome<serde_jso
     ))
 }
 
+/// Updates the model-related settings in the configuration.
 pub async fn apply_model_settings(
     config: &mut Config,
     update: ModelSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
-    if let Some(api_key) = update.api_key {
-        config.api_key = if api_key.trim().is_empty() {
-            None
-        } else {
-            Some(api_key)
-        };
-    }
     if let Some(api_url) = update.api_url {
         config.api_url = if api_url.trim().is_empty() {
             None
@@ -230,6 +245,7 @@ pub async fn apply_model_settings(
     ))
 }
 
+/// Updates the memory-related settings in the configuration.
 pub async fn apply_memory_settings(
     config: &mut Config,
     update: MemorySettingsPatch,
@@ -260,6 +276,7 @@ pub async fn apply_memory_settings(
     ))
 }
 
+/// Updates the screen intelligence settings in the configuration.
 pub async fn apply_screen_intelligence_settings(
     config: &mut Config,
     update: ScreenIntelligenceSettingsPatch,
@@ -281,6 +298,9 @@ pub async fn apply_screen_intelligence_settings(
     }
     if let Some(autocomplete_enabled) = update.autocomplete_enabled {
         config.screen_intelligence.autocomplete_enabled = autocomplete_enabled;
+    }
+    if let Some(use_vision_model) = update.use_vision_model {
+        config.screen_intelligence.use_vision_model = use_vision_model;
     }
     if let Some(keep_screenshots) = update.keep_screenshots {
         config.screen_intelligence.keep_screenshots = keep_screenshots;
@@ -307,6 +327,7 @@ pub async fn apply_screen_intelligence_settings(
     ))
 }
 
+/// Updates the runtime-related settings in the configuration.
 pub async fn apply_runtime_settings(
     config: &mut Config,
     update: RuntimeSettingsPatch,
@@ -328,6 +349,7 @@ pub async fn apply_runtime_settings(
     ))
 }
 
+/// Updates the browser-related settings in the configuration.
 pub async fn apply_browser_settings(
     config: &mut Config,
     update: BrowserSettingsPatch,
@@ -346,11 +368,13 @@ pub async fn apply_browser_settings(
     ))
 }
 
+/// Loads the configuration from disk and returns a snapshot.
 pub async fn load_and_get_config_snapshot() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = load_config_with_timeout().await?;
     get_config_snapshot(&config).await
 }
 
+/// Loads the configuration, applies model settings updates, and saves it.
 pub async fn load_and_apply_model_settings(
     update: ModelSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -358,6 +382,7 @@ pub async fn load_and_apply_model_settings(
     apply_model_settings(&mut config, update).await
 }
 
+/// Loads the configuration, applies memory settings updates, and saves it.
 pub async fn load_and_apply_memory_settings(
     update: MemorySettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -365,6 +390,7 @@ pub async fn load_and_apply_memory_settings(
     apply_memory_settings(&mut config, update).await
 }
 
+/// Loads the configuration, applies screen intelligence settings updates, and saves it.
 pub async fn load_and_apply_screen_intelligence_settings(
     update: ScreenIntelligenceSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -372,6 +398,7 @@ pub async fn load_and_apply_screen_intelligence_settings(
     apply_screen_intelligence_settings(&mut config, update).await
 }
 
+/// Loads the configuration, applies runtime settings updates, and saves it.
 pub async fn load_and_apply_runtime_settings(
     update: RuntimeSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -379,6 +406,7 @@ pub async fn load_and_apply_runtime_settings(
     apply_runtime_settings(&mut config, update).await
 }
 
+/// Updates the analytics-related settings in the configuration.
 pub async fn apply_analytics_settings(
     config: &mut Config,
     update: AnalyticsSettingsPatch,
@@ -397,6 +425,7 @@ pub async fn apply_analytics_settings(
     ))
 }
 
+/// Loads the configuration, applies analytics settings updates, and saves it.
 pub async fn load_and_apply_analytics_settings(
     update: AnalyticsSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -404,6 +433,7 @@ pub async fn load_and_apply_analytics_settings(
     apply_analytics_settings(&mut config, update).await
 }
 
+/// Loads the configuration, applies browser settings updates, and saves it.
 pub async fn load_and_apply_browser_settings(
     update: BrowserSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -411,13 +441,14 @@ pub async fn load_and_apply_browser_settings(
     apply_browser_settings(&mut config, update).await
 }
 
+/// Resolves the effective API URL from configuration or defaults.
 pub async fn load_and_resolve_api_url() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = load_config_with_timeout().await?;
     let resolved = crate::api::config::effective_api_url(&config.api_url);
     Ok(RpcOutcome::new(json!({ "api_url": resolved }), Vec::new()))
 }
 
-/// Resolves workspace (load config or fallback), validates flag name, returns whether the flag file exists.
+/// Resolves a workspace onboarding flag, creating or checking its existence.
 pub async fn workspace_onboarding_flag_resolve(
     flag_name: Option<String>,
     default_name: &str,
@@ -438,6 +469,7 @@ pub async fn workspace_onboarding_flag_resolve(
     workspace_onboarding_flag_exists(workspace_dir, trimmed)
 }
 
+/// Returns the current state of runtime-only flags.
 pub fn get_runtime_flags() -> RpcOutcome<RuntimeFlagsOut> {
     RpcOutcome::single_log(
         RuntimeFlagsOut {
@@ -448,6 +480,7 @@ pub fn get_runtime_flags() -> RpcOutcome<RuntimeFlagsOut> {
     )
 }
 
+/// Updates the `OPENHUMAN_BROWSER_ALLOW_ALL` environment flag.
 pub fn set_browser_allow_all(enabled: bool) -> RpcOutcome<RuntimeFlagsOut> {
     if enabled {
         std::env::set_var("OPENHUMAN_BROWSER_ALLOW_ALL", "1");
@@ -461,6 +494,7 @@ pub fn set_browser_allow_all(enabled: bool) -> RpcOutcome<RuntimeFlagsOut> {
     RpcOutcome::single_log(flags, "browser allow-all flag updated")
 }
 
+/// Checks if a specific onboarding flag file exists in the workspace.
 pub fn workspace_onboarding_flag_exists(
     workspace_dir: PathBuf,
     flag_name: &str,
@@ -479,7 +513,7 @@ pub fn workspace_onboarding_flag_exists(
     ))
 }
 
-/// Creates or removes the workspace onboarding flag file.
+/// Creates or removes an onboarding flag file in the workspace.
 pub async fn workspace_onboarding_flag_set(
     flag_name: Option<String>,
     default_name: &str,
@@ -516,6 +550,7 @@ pub async fn workspace_onboarding_flag_set(
     ))
 }
 
+/// Returns whether the onboarding process has been marked as completed.
 pub async fn get_onboarding_completed() -> Result<RpcOutcome<bool>, String> {
     let config = load_config_with_timeout().await?;
     Ok(RpcOutcome::single_log(
@@ -524,10 +559,61 @@ pub async fn get_onboarding_completed() -> Result<RpcOutcome<bool>, String> {
     ))
 }
 
+/// Updates and persists the onboarding completion status.
+///
+/// On a false→true transition this does two things before returning:
+///
+/// 1. Seeds the recurring morning-briefing cron job via
+///    [`crate::openhuman::cron::seed::seed_proactive_agents`].
+///
+/// 2. Spawns the welcome agent immediately via
+///    [`crate::openhuman::agent::welcome_proactive::spawn_proactive_welcome`],
+///    so the first welcome message arrives the moment the user
+///    finishes the wizard instead of waiting for them to type.
+///
+/// **`chat_onboarding_completed` is NOT flipped here.** That flag is
+/// the exclusive responsibility of the welcome agent: it is set to
+/// `true` only after the user has had a meaningful onboarding
+/// conversation (via `complete_onboarding(action="complete")`). See
+/// [`crate::openhuman::tools::impl::agent::complete_onboarding`] for
+/// the guard criteria.
+///
+/// All side-effects are fire-and-forget so the RPC response lands
+/// before any agent work completes.
 pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, String> {
+    tracing::debug!(value, "[onboarding] set_onboarding_completed called");
     let mut config = load_config_with_timeout().await?;
+    let was_completed = config.onboarding_completed;
     config.onboarding_completed = value;
     config.save().await.map_err(|e| e.to_string())?;
+
+    if value && !was_completed {
+        tracing::debug!(
+            "[onboarding] false→true transition detected — seeding morning briefing and firing proactive welcome"
+        );
+        let seed_config = config.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = crate::openhuman::cron::seed::seed_proactive_agents(&seed_config) {
+                tracing::warn!("[onboarding] failed to seed proactive agent cron jobs: {e}");
+            }
+        });
+
+        if !config.chat_onboarding_completed {
+            tracing::debug!("[onboarding] chat flow not yet completed — firing proactive welcome");
+            crate::openhuman::agent::welcome_proactive::spawn_proactive_welcome(config.clone());
+        } else {
+            tracing::debug!(
+                "[onboarding] chat_onboarding_completed already true — skipping proactive welcome"
+            );
+        }
+    } else {
+        tracing::debug!(
+            was_completed,
+            value,
+            "[onboarding] no transition — skipping proactive seeding and welcome"
+        );
+    }
+
     Ok(RpcOutcome::single_log(
         config.onboarding_completed,
         "onboarding_completed saved to config",
@@ -536,6 +622,7 @@ pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, S
 
 // ── Dictation settings ───────────────────────────────────────────────
 
+/// Represents a partial update to dictation-related settings.
 pub struct DictationSettingsPatch {
     pub enabled: Option<bool>,
     pub hotkey: Option<String>,
@@ -545,6 +632,7 @@ pub struct DictationSettingsPatch {
     pub streaming_interval_ms: Option<u64>,
 }
 
+/// Returns the current dictation settings as a JSON object.
 pub async fn get_dictation_settings() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = load_config_with_timeout().await?;
     let result = json!({
@@ -561,6 +649,7 @@ pub async fn get_dictation_settings() -> Result<RpcOutcome<serde_json::Value>, S
     ))
 }
 
+/// Loads configuration, applies dictation settings updates, and saves it.
 pub async fn load_and_apply_dictation_settings(
     update: DictationSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -610,6 +699,7 @@ pub async fn load_and_apply_dictation_settings(
 
 // ── Voice server settings ───────────────────────────────────────────
 
+/// Represents a partial update to voice server related settings.
 pub struct VoiceServerSettingsPatch {
     pub auto_start: Option<bool>,
     pub hotkey: Option<String>,
@@ -620,6 +710,7 @@ pub struct VoiceServerSettingsPatch {
     pub custom_dictionary: Option<Vec<String>>,
 }
 
+/// Returns the current voice server settings as a JSON object.
 pub async fn get_voice_server_settings() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = load_config_with_timeout().await?;
     let result = json!({
@@ -637,6 +728,7 @@ pub async fn get_voice_server_settings() -> Result<RpcOutcome<serde_json::Value>
     ))
 }
 
+/// Loads configuration, applies voice server settings updates, and saves it.
 pub async fn load_and_apply_voice_server_settings(
     update: VoiceServerSettingsPatch,
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
@@ -687,6 +779,7 @@ pub async fn load_and_apply_voice_server_settings(
     ))
 }
 
+/// Returns the operational status of the agent server.
 pub fn agent_server_status() -> RpcOutcome<serde_json::Value> {
     let running = crate::openhuman::service::mock::mock_agent_running().unwrap_or(true);
     log::info!("[config] agent_server_status requested: running={running}");
@@ -697,6 +790,7 @@ pub fn agent_server_status() -> RpcOutcome<serde_json::Value> {
     RpcOutcome::single_log(payload, "agent server status checked")
 }
 
+/// Deletes all local data directories and workspace markers.
 pub async fn reset_local_data() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = load_config_with_timeout().await?;
     let current_openhuman_dir = config_openhuman_dir(&config);
@@ -737,5 +831,532 @@ mod tests {
             .get("removed_paths")
             .and_then(|value| value.as_array())
             .is_some_and(|paths| !paths.is_empty()));
+    }
+
+    // ── env_flag_enabled ────────────────────────────────────────────
+
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
+
+    #[test]
+    fn env_flag_enabled_recognizes_truthy_forms() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let key = "OPENHUMAN_TEST_FLAG_A";
+        for truthy in ["1", "true", "TRUE", "yes", "YES"] {
+            unsafe {
+                std::env::set_var(key, truthy);
+            }
+            assert!(env_flag_enabled(key), "{truthy} should be truthy");
+        }
+        for falsy in ["0", "false", "off", "", "No"] {
+            unsafe {
+                std::env::set_var(key, falsy);
+            }
+            assert!(!env_flag_enabled(key), "{falsy} should be falsy");
+        }
+        unsafe {
+            std::env::remove_var(key);
+        }
+        assert!(!env_flag_enabled(key), "unset must be falsy");
+    }
+
+    // ── core_rpc_url_from_env ───────────────────────────────────────
+
+    #[test]
+    fn core_rpc_url_from_env_returns_default_when_unset() {
+        let _g = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_CORE_RPC_URL");
+        }
+        assert_eq!(core_rpc_url_from_env(), "http://127.0.0.1:7788/rpc");
+    }
+
+    #[test]
+    fn core_rpc_url_from_env_uses_override_when_set() {
+        let _g = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_CORE_RPC_URL", "http://1.2.3.4:9999/rpc");
+        }
+        assert_eq!(core_rpc_url_from_env(), "http://1.2.3.4:9999/rpc");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_CORE_RPC_URL");
+        }
+    }
+
+    // ── Pure path helpers ──────────────────────────────────────────
+
+    #[test]
+    fn fallback_workspace_dir_ends_in_workspace_under_openhuman() {
+        let p = fallback_workspace_dir();
+        assert!(p.ends_with("workspace"));
+        assert!(p
+            .parent()
+            .map(|d| d.ends_with(".openhuman"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn default_openhuman_dir_ends_in_dot_openhuman() {
+        let p = default_openhuman_dir();
+        assert!(p.ends_with(".openhuman"));
+    }
+
+    #[test]
+    fn active_workspace_marker_path_is_under_default_dir() {
+        let default_dir = std::path::Path::new("/tmp/openhuman-test");
+        let marker = active_workspace_marker_path(default_dir);
+        assert_eq!(marker, default_dir.join("active_workspace.toml"));
+    }
+
+    #[test]
+    fn config_openhuman_dir_returns_config_path_parent() {
+        let mut cfg = Config::default();
+        cfg.config_path = PathBuf::from("/tmp/xyz/config.toml");
+        assert_eq!(config_openhuman_dir(&cfg), PathBuf::from("/tmp/xyz"));
+    }
+
+    // ── get_runtime_flags / set_browser_allow_all ─────────────────
+
+    #[test]
+    fn get_runtime_flags_reads_env_overrides() {
+        let _g = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_BROWSER_ALLOW_ALL");
+        }
+        let flags = get_runtime_flags();
+        // Just exercise the path — we don't assume anything about
+        // what other tests in the suite may have set.
+        let _ = flags.value;
+    }
+
+    #[test]
+    fn set_browser_allow_all_toggles_env_var() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let before = std::env::var("OPENHUMAN_BROWSER_ALLOW_ALL").ok();
+
+        let _ = set_browser_allow_all(true);
+        assert!(env_flag_enabled("OPENHUMAN_BROWSER_ALLOW_ALL"));
+
+        let _ = set_browser_allow_all(false);
+        assert!(!env_flag_enabled("OPENHUMAN_BROWSER_ALLOW_ALL"));
+
+        unsafe {
+            match before {
+                Some(v) => std::env::set_var("OPENHUMAN_BROWSER_ALLOW_ALL", v),
+                None => std::env::remove_var("OPENHUMAN_BROWSER_ALLOW_ALL"),
+            }
+        }
+    }
+
+    // ── snapshot_config_json ───────────────────────────────────────
+
+    #[test]
+    fn snapshot_config_json_emits_config_and_workspace_and_config_path() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.workspace_dir = tmp.path().join("workspace");
+        cfg.config_path = tmp.path().join("config.toml");
+
+        let snap = snapshot_config_json(&cfg).expect("snapshot should succeed");
+        assert!(snap.get("config").is_some());
+        assert!(snap.get("workspace_dir").is_some());
+        assert!(snap.get("config_path").is_some());
+        // Workspace + config paths must point at our tempdir.
+        let ws = snap["workspace_dir"].as_str().unwrap_or("");
+        assert!(ws.contains(tmp.path().to_str().unwrap_or("")));
+    }
+
+    // ── agent_server_status ────────────────────────────────────────
+
+    #[test]
+    fn agent_server_status_exposes_running_and_url() {
+        let outcome = agent_server_status();
+        assert!(outcome.value.get("running").is_some());
+        assert!(outcome.value.get("url").is_some());
+    }
+
+    // ── workspace_onboarding_flag_exists ───────────────────────────
+
+    #[test]
+    fn workspace_onboarding_flag_exists_returns_false_for_fresh_workspace() {
+        let tmp = tempdir().unwrap();
+        let res = workspace_onboarding_flag_exists(tmp.path().join("workspace"), "onboarding.done")
+            .expect("flag check ok");
+        assert_eq!(res.value, false);
+    }
+
+    #[test]
+    fn workspace_onboarding_flag_exists_rejects_invalid_flag_names() {
+        let tmp = tempdir().unwrap();
+        for bad in ["", "   ", "a/b", "a\\b", "..", "foo/.."] {
+            let err =
+                workspace_onboarding_flag_exists(tmp.path().join("workspace"), bad).unwrap_err();
+            assert!(
+                err.contains("Invalid onboarding flag"),
+                "name `{bad}`: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn workspace_onboarding_flag_exists_true_when_file_present() {
+        let tmp = tempdir().unwrap();
+        let ws = tmp.path().join("workspace");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("onboarding.done"), "").unwrap();
+        let res = workspace_onboarding_flag_exists(ws, "onboarding.done").expect("flag check ok");
+        assert_eq!(res.value, true);
+    }
+
+    // ── apply_*_settings ─────────────────────────────────────────
+
+    fn tmp_config(tmp: &tempfile::TempDir) -> Config {
+        let mut cfg = Config::default();
+        cfg.workspace_dir = tmp.path().join("workspace");
+        cfg.config_path = tmp.path().join("config.toml");
+        std::fs::create_dir_all(&cfg.workspace_dir).unwrap();
+        cfg
+    }
+
+    #[tokio::test]
+    async fn apply_model_settings_updates_fields_and_persists_snapshot() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = ModelSettingsPatch {
+            api_url: Some("https://api.example.test".into()),
+            default_model: Some("gpt-4o".into()),
+            default_temperature: Some(0.25),
+        };
+        let outcome = apply_model_settings(&mut cfg, patch).await.expect("apply");
+        assert_eq!(cfg.api_url.as_deref(), Some("https://api.example.test"));
+        assert_eq!(cfg.default_model.as_deref(), Some("gpt-4o"));
+        assert!((cfg.default_temperature - 0.25).abs() < f64::EPSILON);
+        assert_eq!(
+            outcome.value["config"]["api_url"],
+            "https://api.example.test"
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_model_settings_empty_strings_clear_optional_fields() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        cfg.default_model = Some("prev-model".into());
+        let patch = ModelSettingsPatch {
+            api_url: Some("".into()),
+            default_model: Some("".into()),
+            default_temperature: None,
+        };
+        let _ = apply_model_settings(&mut cfg, patch).await.expect("apply");
+        assert!(cfg.api_url.is_none());
+        assert!(cfg.default_model.is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_memory_settings_updates_all_provided_fields() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = MemorySettingsPatch {
+            backend: Some("sqlite".into()),
+            auto_save: Some(true),
+            embedding_provider: Some("ollama".into()),
+            embedding_model: Some("nomic".into()),
+            embedding_dimensions: Some(768),
+        };
+        let _ = apply_memory_settings(&mut cfg, patch).await.expect("apply");
+        assert_eq!(cfg.memory.backend, "sqlite");
+        assert!(cfg.memory.auto_save);
+        assert_eq!(cfg.memory.embedding_provider, "ollama");
+        assert_eq!(cfg.memory.embedding_model, "nomic");
+        assert_eq!(cfg.memory.embedding_dimensions, 768);
+    }
+
+    #[tokio::test]
+    async fn apply_runtime_settings_updates_kind_and_reasoning() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let patch = RuntimeSettingsPatch {
+            kind: Some("desktop".into()),
+            reasoning_enabled: Some(true),
+        };
+        let _ = apply_runtime_settings(&mut cfg, patch)
+            .await
+            .expect("apply");
+        assert_eq!(cfg.runtime.kind, "desktop");
+        assert_eq!(cfg.runtime.reasoning_enabled, Some(true));
+    }
+
+    #[tokio::test]
+    async fn apply_browser_settings_updates_enabled_flag() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        cfg.browser.enabled = false;
+        let _ = apply_browser_settings(
+            &mut cfg,
+            BrowserSettingsPatch {
+                enabled: Some(true),
+            },
+        )
+        .await
+        .expect("apply");
+        assert!(cfg.browser.enabled);
+    }
+
+    #[tokio::test]
+    async fn apply_analytics_settings_updates_enabled() {
+        let tmp = tempdir().unwrap();
+        let mut cfg = tmp_config(&tmp);
+        let _ = apply_analytics_settings(
+            &mut cfg,
+            AnalyticsSettingsPatch {
+                enabled: Some(false),
+            },
+        )
+        .await
+        .expect("apply");
+        assert!(!cfg.observability.analytics_enabled);
+    }
+
+    #[tokio::test]
+    async fn get_config_snapshot_wraps_snapshot_in_rpc_outcome() {
+        let tmp = tempdir().unwrap();
+        let cfg = tmp_config(&tmp);
+        let outcome = get_config_snapshot(&cfg).await.expect("snapshot");
+        assert!(outcome.value.get("config").is_some());
+        assert!(outcome
+            .logs
+            .iter()
+            .any(|l| l.contains("config loaded from")));
+    }
+
+    // ── Dictation / voice_server settings patches ─────────────────
+
+    #[tokio::test]
+    async fn load_and_apply_dictation_settings_rejects_invalid_activation_mode() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let patch = DictationSettingsPatch {
+            enabled: None,
+            hotkey: None,
+            activation_mode: Some("not-a-mode".into()),
+            llm_refinement: None,
+            streaming: None,
+            streaming_interval_ms: None,
+        };
+        let err = load_and_apply_dictation_settings(patch).await.unwrap_err();
+        assert!(err.contains("invalid activation_mode"));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_voice_server_settings_rejects_invalid_activation_mode() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let patch = VoiceServerSettingsPatch {
+            auto_start: None,
+            hotkey: None,
+            activation_mode: Some("hold".into()),
+            skip_cleanup: None,
+            min_duration_secs: None,
+            silence_threshold: None,
+            custom_dictionary: None,
+        };
+        let err = load_and_apply_voice_server_settings(patch)
+            .await
+            .unwrap_err();
+        assert!(err.contains("invalid activation_mode"));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_dictation_settings_accepts_valid_modes() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        for mode in ["toggle", "push"] {
+            let patch = DictationSettingsPatch {
+                enabled: Some(true),
+                hotkey: Some("cmd+d".into()),
+                activation_mode: Some(mode.into()),
+                llm_refinement: Some(false),
+                streaming: Some(false),
+                streaming_interval_ms: Some(500),
+            };
+            assert!(
+                load_and_apply_dictation_settings(patch).await.is_ok(),
+                "mode `{mode}` should be accepted"
+            );
+        }
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_apply_voice_server_settings_accepts_valid_modes_and_clamps() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        // Negative min_duration_secs and silence_threshold should be clamped to 0.
+        let patch = VoiceServerSettingsPatch {
+            auto_start: Some(true),
+            hotkey: Some("fn".into()),
+            activation_mode: Some("tap".into()),
+            skip_cleanup: Some(false),
+            min_duration_secs: Some(-5.0),
+            silence_threshold: Some(-1.0),
+            custom_dictionary: Some(vec!["term".into()]),
+        };
+        let outcome = load_and_apply_voice_server_settings(patch)
+            .await
+            .expect("ok");
+        assert!(
+            outcome.value["config"]["voice_server"]["min_duration_secs"]
+                .as_f64()
+                .unwrap_or(-1.0)
+                >= 0.0
+        );
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    // ── get_* via env override ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_dictation_settings_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_dictation_settings().await.expect("ok");
+        assert!(outcome.value.get("enabled").is_some());
+        assert!(outcome.value.get("hotkey").is_some());
+        assert!(outcome.value.get("streaming_interval_ms").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_voice_server_settings_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_voice_server_settings().await.expect("ok");
+        assert!(outcome.value.get("auto_start").is_some());
+        assert!(outcome.value.get("custom_dictionary").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_onboarding_completed_reads_from_loaded_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = get_onboarding_completed().await.expect("ok");
+        // Default value — either true or false is fine; we just verify the call path.
+        let _ = outcome.value;
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_and_resolve_api_url_returns_api_url_in_response() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let outcome = load_and_resolve_api_url().await.expect("ok");
+        assert!(outcome.value.get("api_url").is_some());
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_resolve_rejects_invalid_and_defaults() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let err = workspace_onboarding_flag_resolve(Some("a/b".into()), "done")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid onboarding flag"));
+
+        // Happy path: default name on a fresh workspace → file doesn't exist.
+        let outcome = workspace_onboarding_flag_resolve(None, "onboarding.done")
+            .await
+            .expect("ok");
+        let _ = outcome.value;
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_set_rejects_invalid_names() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        for bad in ["", "   ", "a/b", "a\\b", ".."] {
+            let err = workspace_onboarding_flag_set(Some(bad.into()), "default", true)
+                .await
+                .unwrap_err();
+            assert!(err.contains("Invalid onboarding flag"), "name {bad}: {err}");
+        }
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_onboarding_flag_set_round_trip() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        // Create flag
+        let created =
+            workspace_onboarding_flag_set(Some("onboarding.done".into()), "default", true)
+                .await
+                .expect("create");
+        assert!(created.value);
+        // Remove flag
+        let removed =
+            workspace_onboarding_flag_set(Some("onboarding.done".into()), "default", false)
+                .await
+                .expect("remove");
+        assert!(!removed.value);
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
     }
 }

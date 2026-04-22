@@ -1,559 +1,358 @@
-//! JSON-RPC schemas and handlers for the OpenHuman Skills system.
+//! JSON-RPC / CLI controller surface for the skills domain.
 //!
-//! This module defines the interface between the frontend/RPC clients and the
-//! skills registry and runtime: skill installation, and runtime control
-//! (start, stop, tool calls, etc.).
+//! Exposes:
+//! * `skills.list` — enumerate SKILL.md / legacy skills discovered in the
+//!   current user home and workspace.
+//! * `skills.read_resource` — read a single bundled resource file, with path
+//!   traversal, symlink, size and UTF-8 guards.
+//! * `skills.create` — scaffold a new SKILL.md skill under the user or
+//!   workspace scope.
+//! * `skills.install_from_url` — install a remote skill by fetching its
+//!   `SKILL.md` over HTTPS (size-capped, timeout-clamped) and writing it into
+//!   the user-scope skills directory. Rejects non-https, private-IP, and
+//!   non-SKILL.md URLs; normalises `github.com/.../blob/...` → raw.
+//!
+//! All controllers resolve the active workspace via the persisted config
+//! layer (`config::load_config_with_timeout`) so the CLI and UI see the same
+//! skills catalog without the caller having to thread a workspace path.
 
-use serde::Deserialize;
+use std::path::{Path, PathBuf};
+
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::core::all::{ControllerFuture, RegisteredController};
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
-use crate::openhuman::config::rpc as config_rpc;
+use crate::openhuman::config::Config;
+use crate::openhuman::skills::ops::{
+    create_skill, discover_skills, install_skill_from_url, is_workspace_trusted,
+    read_skill_resource, CreateSkillParams, InstallSkillFromUrlParams, Skill, SkillScope,
+};
+use crate::rpc::RpcOutcome;
 
-use super::qjs_engine::require_engine;
-use super::registry_ops;
+#[derive(Debug, Deserialize, Default)]
+struct SkillsListParams {
+    // No params today. Kept as an empty struct so future filters (scope,
+    // search, etc.) can slot in without breaking older clients.
+}
 
-/// Returns all controller schemas defined in this module.
-pub fn all_controller_schemas() -> Vec<ControllerSchema> {
+#[derive(Debug, Deserialize)]
+struct SkillsReadResourceParams {
+    skill_id: String,
+    relative_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillsCreateParams {
+    name: String,
+    description: String,
+    #[serde(default)]
+    scope: SkillScope,
+    #[serde(default)]
+    license: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default, rename = "allowed-tools", alias = "allowed_tools")]
+    allowed_tools: Vec<String>,
+}
+
+impl From<SkillsCreateParams> for CreateSkillParams {
+    fn from(p: SkillsCreateParams) -> Self {
+        CreateSkillParams {
+            name: p.name,
+            description: p.description,
+            scope: p.scope,
+            license: p.license,
+            author: p.author,
+            tags: p.tags,
+            allowed_tools: p.allowed_tools,
+        }
+    }
+}
+
+/// Wire-format representation of a discovered skill. Mirrors the fields in
+/// [`Skill`] that are useful to the UI while hiding the
+/// `frontmatter` blob (which includes a flatten'd forward-compat hatch and
+/// can balloon with arbitrary YAML).
+#[derive(Debug, Serialize)]
+struct SkillSummary {
+    id: String,
+    name: String,
+    description: String,
+    version: String,
+    author: Option<String>,
+    tags: Vec<String>,
+    tools: Vec<String>,
+    prompts: Vec<String>,
+    location: Option<String>,
+    resources: Vec<String>,
+    scope: SkillScope,
+    legacy: bool,
+    warnings: Vec<String>,
+}
+
+impl From<Skill> for SkillSummary {
+    fn from(s: Skill) -> Self {
+        SkillSummary {
+            id: s.name.clone(),
+            name: s.name,
+            description: s.description,
+            version: s.version,
+            author: s.author,
+            tags: s.tags,
+            tools: s.tools,
+            prompts: s.prompts,
+            location: s.location.as_ref().map(|p| p.display().to_string()),
+            resources: s
+                .resources
+                .into_iter()
+                .map(|p| p.display().to_string())
+                .collect(),
+            scope: s.scope,
+            legacy: s.legacy,
+            warnings: s.warnings,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SkillsListResult {
+    skills: Vec<SkillSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct SkillsReadResourceResult {
+    skill_id: String,
+    relative_path: String,
+    content: String,
+    bytes: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SkillsCreateResult {
+    skill: SkillSummary,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillsInstallFromUrlParamsWire {
+    url: String,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+}
+
+impl From<SkillsInstallFromUrlParamsWire> for InstallSkillFromUrlParams {
+    fn from(p: SkillsInstallFromUrlParamsWire) -> Self {
+        InstallSkillFromUrlParams {
+            url: p.url,
+            timeout_secs: p.timeout_secs,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SkillsInstallFromUrlResult {
+    url: String,
+    stdout: String,
+    stderr: String,
+    new_skills: Vec<String>,
+}
+
+pub fn all_skills_controller_schemas() -> Vec<ControllerSchema> {
     vec![
-        skills_schema("registry_fetch"),
-        skills_schema("search"),
-        skills_schema("install"),
-        skills_schema("uninstall"),
-        skills_schema("list_installed"),
-        skills_schema("list_available"),
-        skills_schema("start"),
-        skills_schema("stop"),
-        // Runtime controllers
-        skills_schema("status"),
-        skills_schema("setup_start"),
-        skills_schema("list_tools"),
-        skills_schema("sync"),
-        skills_schema("call_tool"),
-        skills_schema("rpc"),
-        skills_schema("discover"),
-        skills_schema("list"),
-        skills_schema("data_read"),
-        skills_schema("data_write"),
-        skills_schema("data_dir"),
-        skills_schema("data_stats"),
-        skills_schema("enable"),
-        skills_schema("disable"),
-        skills_schema("is_enabled"),
-        skills_schema("set_setup_complete"),
-        skills_schema("get_all_snapshots"),
+        skills_schemas("skills_list"),
+        skills_schemas("skills_read_resource"),
+        skills_schemas("skills_create"),
+        skills_schemas("skills_install_from_url"),
     ]
 }
 
-/// Returns all registered controllers (schema + handler) for the skills system.
-pub fn all_registered_controllers() -> Vec<RegisteredController> {
+pub fn all_skills_registered_controllers() -> Vec<RegisteredController> {
     vec![
         RegisteredController {
-            schema: skills_schema("registry_fetch"),
-            handler: handle_skills_registry_fetch,
-        },
-        RegisteredController {
-            schema: skills_schema("search"),
-            handler: handle_skills_search,
-        },
-        RegisteredController {
-            schema: skills_schema("install"),
-            handler: handle_skills_install,
-        },
-        RegisteredController {
-            schema: skills_schema("uninstall"),
-            handler: handle_skills_uninstall,
-        },
-        RegisteredController {
-            schema: skills_schema("list_installed"),
-            handler: handle_skills_list_installed,
-        },
-        RegisteredController {
-            schema: skills_schema("list_available"),
-            handler: handle_skills_list_available,
-        },
-        RegisteredController {
-            schema: skills_schema("start"),
-            handler: handle_skills_start,
-        },
-        RegisteredController {
-            schema: skills_schema("stop"),
-            handler: handle_skills_stop,
-        },
-        // Runtime controllers
-        RegisteredController {
-            schema: skills_schema("status"),
-            handler: handle_skills_status,
-        },
-        RegisteredController {
-            schema: skills_schema("setup_start"),
-            handler: handle_skills_setup_start,
-        },
-        RegisteredController {
-            schema: skills_schema("list_tools"),
-            handler: handle_skills_list_tools,
-        },
-        RegisteredController {
-            schema: skills_schema("sync"),
-            handler: handle_skills_sync,
-        },
-        RegisteredController {
-            schema: skills_schema("call_tool"),
-            handler: handle_skills_call_tool,
-        },
-        RegisteredController {
-            schema: skills_schema("rpc"),
-            handler: handle_skills_rpc,
-        },
-        RegisteredController {
-            schema: skills_schema("discover"),
-            handler: handle_skills_discover,
-        },
-        RegisteredController {
-            schema: skills_schema("list"),
+            schema: skills_schemas("skills_list"),
             handler: handle_skills_list,
         },
         RegisteredController {
-            schema: skills_schema("data_read"),
-            handler: handle_skills_data_read,
+            schema: skills_schemas("skills_read_resource"),
+            handler: handle_skills_read_resource,
         },
         RegisteredController {
-            schema: skills_schema("data_write"),
-            handler: handle_skills_data_write,
+            schema: skills_schemas("skills_create"),
+            handler: handle_skills_create,
         },
         RegisteredController {
-            schema: skills_schema("data_dir"),
-            handler: handle_skills_data_dir,
-        },
-        RegisteredController {
-            schema: skills_schema("data_stats"),
-            handler: handle_skills_data_stats,
-        },
-        RegisteredController {
-            schema: skills_schema("enable"),
-            handler: handle_skills_enable,
-        },
-        RegisteredController {
-            schema: skills_schema("disable"),
-            handler: handle_skills_disable,
-        },
-        RegisteredController {
-            schema: skills_schema("is_enabled"),
-            handler: handle_skills_is_enabled,
-        },
-        RegisteredController {
-            schema: skills_schema("set_setup_complete"),
-            handler: handle_skills_set_setup_complete,
-        },
-        RegisteredController {
-            schema: skills_schema("get_all_snapshots"),
-            handler: handle_skills_get_all_snapshots,
+            schema: skills_schemas("skills_install_from_url"),
+            handler: handle_skills_install_from_url,
         },
     ]
 }
 
-// --- Skills registry schemas ---
-
-/// Helper to create a schema for skills-related functions.
-fn skills_schema(function: &str) -> ControllerSchema {
+pub fn skills_schemas(function: &str) -> ControllerSchema {
     match function {
-        "registry_fetch" => ControllerSchema {
-            namespace: "skills",
-            function: "registry_fetch",
-            description: "Fetch the remote skill registry (cached with 1h TTL).",
-            inputs: vec![FieldSchema {
-                name: "force",
-                ty: TypeSchema::Option(Box::new(TypeSchema::Bool)),
-                comment: "Force a fresh fetch, bypassing cache.",
-                required: false,
-            }],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "The full registry JSON.",
-                required: true,
-            }],
-        },
-        "search" => ControllerSchema {
-            namespace: "skills",
-            function: "search",
-            description: "Search available skills by name, description, or ID.",
-            inputs: vec![
-                FieldSchema {
-                    name: "query",
-                    ty: TypeSchema::String,
-                    comment: "Search query string.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "category",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
-                    comment: "Filter by category: 'core' or 'third_party'.",
-                    required: false,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of matching skill entries.",
-                required: true,
-            }],
-        },
-        "install" => ControllerSchema {
-            namespace: "skills",
-            function: "install",
-            description: "Download and install a skill from the registry.",
-            inputs: vec![FieldSchema {
-                name: "skill_id",
-                ty: TypeSchema::String,
-                comment: "The skill ID to install.",
-                required: true,
-            }],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Installation result.",
-                required: true,
-            }],
-        },
-        "uninstall" => ControllerSchema {
-            namespace: "skills",
-            function: "uninstall",
-            description: "Remove an installed skill from the workspace.",
-            inputs: vec![FieldSchema {
-                name: "skill_id",
-                ty: TypeSchema::String,
-                comment: "The skill ID to uninstall.",
-                required: true,
-            }],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Uninstallation result.",
-                required: true,
-            }],
-        },
-        "list_installed" => ControllerSchema {
-            namespace: "skills",
-            function: "list_installed",
-            description: "List all locally installed skills.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of installed skill info.",
-                required: true,
-            }],
-        },
-        "list_available" => ControllerSchema {
-            namespace: "skills",
-            function: "list_available",
-            description: "List all available skills with installed status.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of available skill entries with installed flags.",
-                required: true,
-            }],
-        },
-        // --- Runtime controllers ---
-        "start" => ControllerSchema {
-            namespace: "skills",
-            function: "start",
-            description: "Start (load and initialize) a skill by ID.",
-            inputs: vec![skill_id_input("The skill ID to start.")],
-            outputs: vec![FieldSchema {
-                name: "skill",
-                ty: TypeSchema::Json,
-                comment: "Skill snapshot after start (id, name, status, tools, state).",
-                required: true,
-            }],
-        },
-        "stop" => ControllerSchema {
-            namespace: "skills",
-            function: "stop",
-            description: "Stop a running skill by ID.",
-            inputs: vec![skill_id_input("The skill ID to stop.")],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Stop acknowledgment.",
-                required: true,
-            }],
-        },
-        "status" => ControllerSchema {
-            namespace: "skills",
-            function: "status",
-            description: "Get the runtime status and state of a skill.",
-            inputs: vec![skill_id_input("The skill ID to query.")],
-            outputs: vec![FieldSchema {
-                name: "skill",
-                ty: TypeSchema::Json,
-                comment: "Skill snapshot (id, name, status, tools, error, state).",
-                required: true,
-            }],
-        },
-        "setup_start" => ControllerSchema {
-            namespace: "skills",
-            function: "setup_start",
-            description:
-                "Trigger the setup flow for a running skill, returning the first setup step.",
-            inputs: vec![skill_id_input("The skill ID to set up.")],
-            outputs: vec![FieldSchema {
-                name: "step",
-                ty: TypeSchema::Json,
-                comment:
-                    "First setup step definition (fields, labels, etc.) or null if no setup needed.",
-                required: true,
-            }],
-        },
-        "list_tools" => ControllerSchema {
-            namespace: "skills",
-            function: "list_tools",
-            description: "List all tools exposed by a running skill.",
-            inputs: vec![skill_id_input("The skill ID whose tools to list.")],
-            outputs: vec![FieldSchema {
-                name: "tools",
-                ty: TypeSchema::Array(Box::new(TypeSchema::Json)),
-                comment: "Array of tool definitions (name, description, inputSchema).",
-                required: true,
-            }],
-        },
-        "sync" => ControllerSchema {
-            namespace: "skills",
-            function: "sync",
-            description: "Trigger a sync (tick) on a running skill.",
-            inputs: vec![skill_id_input("The skill ID to sync.")],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Sync acknowledgment.",
-                required: true,
-            }],
-        },
-        "call_tool" => ControllerSchema {
-            namespace: "skills",
-            function: "call_tool",
-            description: "Call a specific tool on a running skill.",
-            inputs: vec![
-                skill_id_input("The skill ID that owns the tool."),
-                FieldSchema {
-                    name: "tool_name",
-                    ty: TypeSchema::String,
-                    comment: "Name of the tool to call.",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "arguments",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Json)),
-                    comment: "JSON arguments to pass to the tool.",
-                    required: false,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Tool execution result (content blocks, is_error flag).",
-                required: true,
-            }],
-        },
-        "rpc" => ControllerSchema {
-            namespace: "skills",
-            function: "rpc",
-            description:
-                "Send an arbitrary RPC method to a running skill (e.g. oauth/complete, skill/sync).",
-            inputs: vec![
-                skill_id_input("The target skill ID."),
-                FieldSchema {
-                    name: "method",
-                    ty: TypeSchema::String,
-                    comment: "RPC method name (e.g. oauth/complete, skill/ping).",
-                    required: true,
-                },
-                FieldSchema {
-                    name: "params",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Json)),
-                    comment: "JSON params to pass to the RPC handler.",
-                    required: false,
-                },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "RPC handler result.",
-                required: true,
-            }],
-        },
-        "discover" => ControllerSchema {
-            namespace: "skills",
-            function: "discover",
-            description:
-                "Discover all available skill manifests from source and workspace directories.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of skill manifests.",
-                required: true,
-            }],
-        },
-        "list" => ControllerSchema {
+        "skills_list" => ControllerSchema {
             namespace: "skills",
             function: "list",
-            description: "List all registered (running or stopped) skill snapshots.",
+            description: "List SKILL.md and legacy skills discovered in the user home and workspace.",
             inputs: vec![],
             outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of skill snapshots.",
+                name: "skills",
+                ty: TypeSchema::Array(Box::new(TypeSchema::Ref("SkillSummary"))),
+                comment: "Discovered skills (sorted by name, project-scope shadows user-scope).",
                 required: true,
             }],
         },
-        "data_read" => ControllerSchema {
+        "skills_read_resource" => ControllerSchema {
             namespace: "skills",
-            function: "data_read",
-            description: "Read a file from a skill's data directory.",
+            function: "read_resource",
+            description: "Read a single bundled SKILL resource file, hardened against traversal, symlink escape, and oversized payloads.",
             inputs: vec![
-                skill_id_input("The skill ID."),
                 FieldSchema {
-                    name: "filename",
+                    name: "skill_id",
                     ty: TypeSchema::String,
-                    comment: "Filename to read.",
+                    comment: "Name of the skill (matches SkillSummary.id / Skill.name).",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "relative_path",
+                    ty: TypeSchema::String,
+                    comment: "Path to the resource file, relative to the skill root (e.g. 'scripts/foo.sh').",
                     required: true,
                 },
             ],
-            outputs: vec![FieldSchema {
-                name: "content",
-                ty: TypeSchema::String,
-                comment: "File content.",
-                required: true,
-            }],
-        },
-        "data_write" => ControllerSchema {
-            namespace: "skills",
-            function: "data_write",
-            description: "Write a file to a skill's data directory.",
-            inputs: vec![
-                skill_id_input("The skill ID."),
+            outputs: vec![
                 FieldSchema {
-                    name: "filename",
+                    name: "skill_id",
                     ty: TypeSchema::String,
-                    comment: "Filename to write.",
+                    comment: "Echo of the requested skill id.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "relative_path",
+                    ty: TypeSchema::String,
+                    comment: "Echo of the requested relative path.",
                     required: true,
                 },
                 FieldSchema {
                     name: "content",
                     ty: TypeSchema::String,
-                    comment: "Content to write.",
+                    comment: "File contents (UTF-8, <= 128 KB).",
                     required: true,
                 },
-            ],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Write acknowledgment.",
-                required: true,
-            }],
-        },
-        "data_dir" => ControllerSchema {
-            namespace: "skills",
-            function: "data_dir",
-            description: "Get the data directory path for a skill.",
-            inputs: vec![skill_id_input("The skill ID.")],
-            outputs: vec![FieldSchema {
-                name: "path",
-                ty: TypeSchema::String,
-                comment: "Absolute path to the skill's data directory.",
-                required: true,
-            }],
-        },
-        "data_stats" => ControllerSchema {
-            namespace: "skills",
-            function: "data_stats",
-            description: "Recursive file count and byte size for a skill's data directory.",
-            inputs: vec![skill_id_input("The skill ID.")],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "exists, path, total_bytes, file_count.",
-                required: true,
-            }],
-        },
-        "enable" => ControllerSchema {
-            namespace: "skills",
-            function: "enable",
-            description: "Enable a skill (set preference and start it).",
-            inputs: vec![skill_id_input("The skill ID to enable.")],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Enable acknowledgment.",
-                required: true,
-            }],
-        },
-        "disable" => ControllerSchema {
-            namespace: "skills",
-            function: "disable",
-            description: "Disable a skill (set preference and stop it).",
-            inputs: vec![skill_id_input("The skill ID to disable.")],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Disable acknowledgment.",
-                required: true,
-            }],
-        },
-        "is_enabled" => ControllerSchema {
-            namespace: "skills",
-            function: "is_enabled",
-            description: "Check whether a skill is enabled in user preferences.",
-            inputs: vec![skill_id_input("The skill ID to check.")],
-            outputs: vec![FieldSchema {
-                name: "enabled",
-                ty: TypeSchema::Bool,
-                comment: "Whether the skill is enabled.",
-                required: true,
-            }],
-        },
-        "set_setup_complete" => ControllerSchema {
-            namespace: "skills",
-            function: "set_setup_complete",
-            description: "Persist setup completion flag for a skill.",
-            inputs: vec![
-                skill_id_input("The skill ID."),
                 FieldSchema {
-                    name: "complete",
-                    ty: TypeSchema::Bool,
-                    comment: "Whether setup is complete.",
+                    name: "bytes",
+                    ty: TypeSchema::U64,
+                    comment: "Size of the file on disk, in bytes.",
                     required: true,
                 },
             ],
+        },
+        "skills_create" => ControllerSchema {
+            namespace: "skills",
+            function: "create",
+            description: "Scaffold a new SKILL.md skill under the user or workspace scope.",
+            inputs: vec![
+                FieldSchema {
+                    name: "name",
+                    ty: TypeSchema::String,
+                    comment: "Human-readable name (slugified into the on-disk directory).",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "description",
+                    ty: TypeSchema::String,
+                    comment: "One-line description written into SKILL.md frontmatter.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "scope",
+                    ty: TypeSchema::String,
+                    comment: "Target scope: 'user' (default) or 'project' (requires trust marker).",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "license",
+                    ty: TypeSchema::String,
+                    comment: "Optional SPDX license identifier.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "author",
+                    ty: TypeSchema::String,
+                    comment: "Optional author name (written under frontmatter.metadata.author).",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "tags",
+                    ty: TypeSchema::Array(Box::new(TypeSchema::String)),
+                    comment: "Optional tags for the skill.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "allowed_tools",
+                    ty: TypeSchema::Array(Box::new(TypeSchema::String)),
+                    comment: "Optional tool hints (maps to frontmatter.allowed-tools).",
+                    required: false,
+                },
+            ],
             outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Acknowledgment.",
+                name: "skill",
+                ty: TypeSchema::Ref("SkillSummary"),
+                comment: "The newly created skill, re-discovered through the standard pipeline.",
                 required: true,
             }],
         },
-        "get_all_snapshots" => ControllerSchema {
+        "skills_install_from_url" => ControllerSchema {
             namespace: "skills",
-            function: "get_all_snapshots",
-            description:
-                "Get all skill snapshots enriched with setup_complete and connection_status.",
-            inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "result",
-                ty: TypeSchema::Json,
-                comment: "Array of enriched skill snapshots.",
-                required: true,
-            }],
+            function: "install_from_url",
+            description: "Install a remote skill by fetching its SKILL.md over HTTPS and writing it into the user-scope skills directory. URL must be https, resolve to a public host, and point at a single `.md` file (`github.com/.../blob/...` auto-rewrites to raw). Default 60s timeout, max 600s.",
+            inputs: vec![
+                FieldSchema {
+                    name: "url",
+                    ty: TypeSchema::String,
+                    comment: "Remote skill package URL (https only; loopback / private / link-local hosts rejected).",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "timeout_secs",
+                    ty: TypeSchema::U64,
+                    comment: "Optional wall-clock override in seconds. Default 60, capped at 600.",
+                    required: false,
+                },
+            ],
+            outputs: vec![
+                FieldSchema {
+                    name: "url",
+                    ty: TypeSchema::String,
+                    comment: "Echo of the installed URL.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "stdout",
+                    ty: TypeSchema::String,
+                    comment: "Human-readable diagnostic summary (bytes fetched, target path).",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "stderr",
+                    ty: TypeSchema::String,
+                    comment: "Non-fatal frontmatter parse warnings, joined by newlines.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "new_skills",
+                    ty: TypeSchema::Array(Box::new(TypeSchema::String)),
+                    comment: "Slugs of skills that appeared in the catalog as a result of the install.",
+                    required: true,
+                },
+            ],
         },
         _ => ControllerSchema {
             namespace: "skills",
             function: "unknown",
-            description: "Unknown skills controller function.",
+            description: "Unknown skills controller.",
             inputs: vec![],
             outputs: vec![FieldSchema {
                 name: "error",
@@ -565,400 +364,190 @@ fn skills_schema(function: &str) -> ControllerSchema {
     }
 }
 
-/// Helper to create a standard `skill_id` input field schema.
-fn skill_id_input(comment: &'static str) -> FieldSchema {
-    FieldSchema {
-        name: "skill_id",
-        ty: TypeSchema::String,
-        comment,
-        required: true,
+fn handle_skills_list(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let _ = deserialize_params::<SkillsListParams>(params)?;
+        tracing::debug!("[skills][rpc] list skills");
+        let workspace = resolve_workspace_dir().await;
+        let trusted = is_workspace_trusted(&workspace);
+        let home = dirs::home_dir();
+        let skills = discover_skills(home.as_deref(), Some(workspace.as_path()), trusted);
+        tracing::debug!(
+            count = skills.len(),
+            workspace = %workspace.display(),
+            trusted,
+            "[skills][rpc] list result"
+        );
+        let summaries = skills.into_iter().map(SkillSummary::from).collect();
+        to_json(RpcOutcome::new(
+            SkillsListResult { skills: summaries },
+            Vec::new(),
+        ))
+    })
+}
+
+fn handle_skills_read_resource(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let payload = deserialize_params::<SkillsReadResourceParams>(params)?;
+        tracing::debug!(
+            skill_id = %payload.skill_id,
+            relative_path = %payload.relative_path,
+            "[skills][rpc] read_resource"
+        );
+        let workspace = resolve_workspace_dir().await;
+        let relative = Path::new(&payload.relative_path);
+        match read_skill_resource(workspace.as_path(), &payload.skill_id, relative) {
+            Ok(content) => {
+                let bytes = content.len();
+                to_json(RpcOutcome::new(
+                    SkillsReadResourceResult {
+                        skill_id: payload.skill_id,
+                        relative_path: payload.relative_path,
+                        content,
+                        bytes,
+                    },
+                    Vec::new(),
+                ))
+            }
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    "[skills][rpc] read_resource: rejected"
+                );
+                Err(err)
+            }
+        }
+    })
+}
+
+fn handle_skills_create(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let payload = deserialize_params::<SkillsCreateParams>(params)?;
+        tracing::debug!(
+            name = %payload.name,
+            scope = ?payload.scope,
+            "[skills][rpc] create"
+        );
+        let workspace = resolve_workspace_dir().await;
+        match create_skill(workspace.as_path(), payload.into()) {
+            Ok(skill) => {
+                tracing::debug!(
+                    skill = %skill.name,
+                    location = ?skill.location,
+                    "[skills][rpc] create: ok"
+                );
+                to_json(RpcOutcome::new(
+                    SkillsCreateResult {
+                        skill: SkillSummary::from(skill),
+                    },
+                    Vec::new(),
+                ))
+            }
+            Err(err) => {
+                tracing::debug!(error = %err, "[skills][rpc] create: rejected");
+                Err(err)
+            }
+        }
+    })
+}
+
+fn handle_skills_install_from_url(params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let wire = deserialize_params::<SkillsInstallFromUrlParamsWire>(params)?;
+        tracing::debug!(
+            url = %wire.url,
+            timeout_secs = ?wire.timeout_secs,
+            "[skills][rpc] install_from_url"
+        );
+        let config = resolve_config().await;
+        let workspace = config.workspace_dir.clone();
+        let payload: InstallSkillFromUrlParams = wire.into();
+        match install_skill_from_url(workspace.as_path(), payload).await {
+            Ok(outcome) => {
+                tracing::debug!(
+                    url = %outcome.url,
+                    new_count = outcome.new_skills.len(),
+                    "[skills][rpc] install_from_url: ok"
+                );
+                to_json(RpcOutcome::new(
+                    SkillsInstallFromUrlResult {
+                        url: outcome.url,
+                        stdout: outcome.stdout,
+                        stderr: outcome.stderr,
+                        new_skills: outcome.new_skills,
+                    },
+                    Vec::new(),
+                ))
+            }
+            Err(err) => {
+                tracing::debug!(error = %err, "[skills][rpc] install_from_url: rejected");
+                Err(err)
+            }
+        }
+    })
+}
+
+/// Resolve the active [`Config`]. Falls back to `Config::default()` with a
+/// best-effort workspace directory if the persisted load times out or errors,
+/// so headless diagnostics still work in partially-initialized environments.
+async fn resolve_config() -> Config {
+    match tokio::time::timeout(std::time::Duration::from_secs(30), Config::load_or_init()).await {
+        Ok(Ok(cfg)) => cfg,
+        Ok(Err(err)) => {
+            tracing::debug!(
+                error = %err,
+                "[skills][rpc] config load failed; falling back to default config"
+            );
+            fallback_config()
+        }
+        Err(_) => {
+            tracing::debug!("[skills][rpc] config load timed out; falling back to default config");
+            fallback_config()
+        }
     }
 }
 
-// --- Skills registry handlers ---
-
-/// Parameters for the `skills.registry_fetch` RPC method.
-#[derive(Deserialize)]
-struct RegistryFetchParams {
-    /// If true, bypasses the disk cache and fetches a fresh copy from the remote registry.
-    #[serde(default)]
-    force: Option<bool>,
+fn fallback_config() -> Config {
+    Config {
+        workspace_dir: fallback_workspace_dir(),
+        ..Default::default()
+    }
 }
 
-/// Parameters for the `skills.search` RPC method.
-#[derive(Deserialize)]
-struct SearchParams {
-    /// The search query string (matches ID, name, or description).
-    query: String,
-    /// Optional category filter: "core" or "third_party".
-    category: Option<String>,
+/// Resolve the active workspace directory. Falls back to the runtime default
+/// if the persisted config fails to load so the CLI and headless diagnostics
+/// still work in partially-initialized environments.
+async fn resolve_workspace_dir() -> PathBuf {
+    match tokio::time::timeout(std::time::Duration::from_secs(30), Config::load_or_init()).await {
+        Ok(Ok(cfg)) => cfg.workspace_dir,
+        Ok(Err(err)) => {
+            tracing::debug!(
+                error = %err,
+                "[skills][rpc] config load failed; falling back to default workspace"
+            );
+            fallback_workspace_dir()
+        }
+        Err(_) => {
+            tracing::debug!(
+                "[skills][rpc] config load timed out; falling back to default workspace"
+            );
+            fallback_workspace_dir()
+        }
+    }
 }
 
-/// Common parameters for RPC methods that take a `skill_id`.
-#[derive(Deserialize)]
-struct SkillIdParams {
-    /// The unique identifier of the skill.
-    skill_id: String,
+fn fallback_workspace_dir() -> PathBuf {
+    crate::openhuman::config::default_root_openhuman_dir()
+        .unwrap_or_else(|_| PathBuf::from(".openhuman"))
+        .join("workspace")
 }
 
-/// RPC handler to fetch the remote skill registry.
-fn handle_skills_registry_fetch(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: RegistryFetchParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        let registry =
-            registry_ops::registry_fetch(&config.workspace_dir, p.force.unwrap_or(false)).await?;
-        serde_json::to_value(registry).map_err(|e| e.to_string())
-    })
+fn deserialize_params<T: DeserializeOwned>(params: Map<String, Value>) -> Result<T, String> {
+    serde_json::from_value(Value::Object(params)).map_err(|e| format!("invalid params: {e}"))
 }
 
-/// RPC handler to search for available skills in the registry.
-fn handle_skills_search(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SearchParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        let results =
-            registry_ops::registry_search(&config.workspace_dir, &p.query, p.category.as_deref())
-                .await?;
-        serde_json::to_value(results).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to install a skill by ID.
-fn handle_skills_install(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        registry_ops::skill_install(&config.workspace_dir, &p.skill_id).await?;
-        Ok(serde_json::json!({
-            "success": true,
-            "skill_id": p.skill_id
-        }))
-    })
-}
-
-/// RPC handler to uninstall a skill by ID.
-fn handle_skills_uninstall(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        registry_ops::skill_uninstall(&config.workspace_dir, &p.skill_id).await?;
-        Ok(serde_json::json!({
-            "success": true,
-            "skill_id": p.skill_id
-        }))
-    })
-}
-
-/// RPC handler to list all locally installed skills.
-fn handle_skills_list_installed(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let config = config_rpc::load_config_with_timeout().await?;
-        let installed = registry_ops::skills_list_installed(&config.workspace_dir).await?;
-        serde_json::to_value(installed).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to list all available skills, enriched with installation status.
-fn handle_skills_list_available(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let config = config_rpc::load_config_with_timeout().await?;
-        let available = registry_ops::skills_list_available(&config.workspace_dir).await?;
-        serde_json::to_value(available).map_err(|e| e.to_string())
-    })
-}
-
-// --- Runtime handlers ---
-
-/// Parameters for the `skills.call_tool` RPC method.
-#[derive(Deserialize)]
-struct CallToolParams {
-    /// The ID of the skill that owns the tool.
-    skill_id: String,
-    /// The name of the tool to invoke.
-    tool_name: String,
-    /// Arguments to pass to the tool.
-    #[serde(default)]
-    arguments: Option<serde_json::Value>,
-}
-
-/// RPC handler to start (load and initialize) a skill.
-fn handle_skills_start(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let snapshot = engine.start_skill(&p.skill_id).await?;
-        serde_json::to_value(&snapshot).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to stop a running skill.
-fn handle_skills_stop(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine.stop_skill(&p.skill_id).await?;
-        Ok(serde_json::json!({
-            "success": true,
-            "skill_id": p.skill_id
-        }))
-    })
-}
-
-/// RPC handler to get the current status and state of a skill.
-fn handle_skills_status(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let snapshot = engine
-            .get_skill_state(&p.skill_id)
-            .ok_or_else(|| format!("Skill '{}' not found in runtime", p.skill_id))?;
-        serde_json::to_value(&snapshot).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to initiate the setup flow for a skill.
-fn handle_skills_setup_start(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine
-            .rpc(&p.skill_id, "setup/start", serde_json::json!({}))
-            .await
-    })
-}
-
-/// RPC handler to list all tools exposed by a skill.
-fn handle_skills_list_tools(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine
-            .rpc(&p.skill_id, "tools/list", serde_json::json!({}))
-            .await
-    })
-}
-
-/// RPC handler to trigger a sync (tick) for a skill.
-fn handle_skills_sync(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        log::debug!("[skills] handle_skills_sync: skill_id={}", p.skill_id);
-        let engine = require_engine()?;
-        log::debug!(
-            "[skills] handle_skills_sync: dispatching skill/sync to engine for '{}'",
-            p.skill_id
-        );
-        engine
-            .rpc(&p.skill_id, "skill/sync", serde_json::json!({}))
-            .await
-    })
-}
-
-/// RPC handler to call a specific tool on a running skill.
-fn handle_skills_call_tool(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: CallToolParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let result = engine
-            .call_tool(
-                &p.skill_id,
-                &p.tool_name,
-                p.arguments.unwrap_or(serde_json::json!({})),
-            )
-            .await?;
-        serde_json::to_value(&result).map_err(|e| e.to_string())
-    })
-}
-
-/// Parameters for the arbitrary `skills.rpc` method.
-#[derive(Deserialize)]
-struct SkillRpcParams {
-    /// The target skill ID.
-    skill_id: String,
-    /// The internal RPC method name to call on the skill.
-    method: String,
-    /// Parameters for the internal RPC method.
-    #[serde(default)]
-    params: Option<serde_json::Value>,
-}
-
-/// RPC handler to send an arbitrary RPC method to a running skill.
-fn handle_skills_rpc(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillRpcParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine
-            .rpc(
-                &p.skill_id,
-                &p.method,
-                p.params.unwrap_or(serde_json::json!({})),
-            )
-            .await
-    })
-}
-
-/// RPC handler to discover available skill manifests from the filesystem.
-fn handle_skills_discover(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let engine = require_engine()?;
-        let manifests = engine.discover_skills().await?;
-        serde_json::to_value(&manifests).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to list all currently registered skill snapshots.
-fn handle_skills_list(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let engine = require_engine()?;
-        let skills = engine.list_skills();
-        serde_json::to_value(&skills).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to read a file from a skill's isolated data directory.
-fn handle_skills_data_read(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let skill_id = params
-            .get("skill_id")
-            .and_then(|v| v.as_str())
-            .ok_or("missing skill_id")?
-            .to_string();
-        let filename = params
-            .get("filename")
-            .and_then(|v| v.as_str())
-            .ok_or("missing filename")?
-            .to_string();
-        let engine = require_engine()?;
-        let content = engine.data_read(&skill_id, &filename)?;
-        Ok(serde_json::json!({ "content": content }))
-    })
-}
-
-/// RPC handler to write a file to a skill's isolated data directory.
-fn handle_skills_data_write(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let skill_id = params
-            .get("skill_id")
-            .and_then(|v| v.as_str())
-            .ok_or("missing skill_id")?
-            .to_string();
-        let filename = params
-            .get("filename")
-            .and_then(|v| v.as_str())
-            .ok_or("missing filename")?
-            .to_string();
-        let content = params
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or("missing content")?
-            .to_string();
-        let engine = require_engine()?;
-        engine.data_write(&skill_id, &filename, &content)?;
-        Ok(serde_json::json!({ "ok": true }))
-    })
-}
-
-/// RPC handler to get the absolute path to a skill's data directory.
-fn handle_skills_data_dir(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let path = engine.skill_data_dir(&p.skill_id);
-        Ok(serde_json::json!({ "path": path.display().to_string() }))
-    })
-}
-
-/// RPC handler to get storage statistics for a skill's data directory.
-fn handle_skills_data_stats(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let stats = engine.skill_data_directory_stats(&p.skill_id);
-        serde_json::to_value(&stats).map_err(|e| e.to_string())
-    })
-}
-
-/// RPC handler to enable a skill in user preferences and start it.
-fn handle_skills_enable(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine.enable_skill(&p.skill_id).await?;
-        Ok(serde_json::json!({ "ok": true }))
-    })
-}
-
-/// RPC handler to disable a skill in user preferences and stop it.
-fn handle_skills_disable(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine.disable_skill(&p.skill_id).await?;
-        Ok(serde_json::json!({ "ok": true }))
-    })
-}
-
-/// RPC handler to check if a skill is currently enabled in user preferences.
-fn handle_skills_is_enabled(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SkillIdParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        let enabled = engine.is_skill_enabled(&p.skill_id);
-        Ok(serde_json::json!({ "enabled": enabled }))
-    })
-}
-
-/// Parameters for the `skills.set_setup_complete` RPC method.
-#[derive(Deserialize)]
-struct SetSetupCompleteParams {
-    /// The skill ID.
-    skill_id: String,
-    /// Whether the setup flow is considered complete.
-    complete: bool,
-}
-
-/// RPC handler to persist the setup completion flag for a skill.
-fn handle_skills_set_setup_complete(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p: SetSetupCompleteParams =
-            serde_json::from_value(Value::Object(params)).map_err(|e| e.to_string())?;
-        let engine = require_engine()?;
-        engine
-            .preferences()
-            .set_setup_complete(&p.skill_id, p.complete);
-        Ok(serde_json::json!({
-            "success": true,
-            "skill_id": p.skill_id,
-            "setup_complete": p.complete
-        }))
-    })
-}
-
-/// RPC handler to get all skill snapshots enriched with UI-specific metadata.
-fn handle_skills_get_all_snapshots(_params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let engine = require_engine()?;
-        let snapshots = engine.list_skills();
-        serde_json::to_value(&snapshots).map_err(|e| e.to_string())
-    })
+fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String> {
+    outcome.into_cli_compatible_json()
 }
 
 #[cfg(test)]
@@ -966,103 +555,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_schemas_have_matching_handlers() {
-        let schemas = all_controller_schemas();
-        let controllers = all_registered_controllers();
+    fn schema_names_are_stable() {
+        let list = skills_schemas("skills_list");
+        assert_eq!(list.namespace, "skills");
+        assert_eq!(list.function, "list");
+
+        let read = skills_schemas("skills_read_resource");
+        assert_eq!(read.namespace, "skills");
+        assert_eq!(read.function, "read_resource");
+    }
+
+    #[test]
+    fn controller_lists_match_lengths() {
         assert_eq!(
-            schemas.len(),
-            controllers.len(),
-            "schema count must match handler count"
+            all_skills_controller_schemas().len(),
+            all_skills_registered_controllers().len()
         );
-        for schema in &schemas {
-            let method = format!("{}.{}", schema.namespace, schema.function);
-            assert!(
-                controllers
-                    .iter()
-                    .any(|c| c.schema.namespace == schema.namespace
-                        && c.schema.function == schema.function),
-                "no handler for schema '{method}'"
-            );
-        }
     }
 
     #[test]
-    fn runtime_schemas_exist() {
-        let schemas = all_controller_schemas();
-        let expected = [
-            "start",
-            "stop",
-            "status",
-            "setup_start",
-            "list_tools",
-            "sync",
-            "call_tool",
-        ];
-        for func in &expected {
-            assert!(
-                schemas
-                    .iter()
-                    .any(|s| s.namespace == "skills" && s.function == *func),
-                "missing skills.{func} schema"
-            );
-        }
-    }
-
-    #[test]
-    fn call_tool_schema_has_required_inputs() {
-        let schema = skills_schema("call_tool");
-        let required: Vec<&str> = schema
-            .inputs
-            .iter()
-            .filter(|f| f.required)
-            .map(|f| f.name)
-            .collect();
-        assert!(required.contains(&"skill_id"));
-        assert!(required.contains(&"tool_name"));
-        // arguments is optional
-        let args = schema
-            .inputs
-            .iter()
-            .find(|f| f.name == "arguments")
-            .unwrap();
-        assert!(!args.required);
-    }
-
-    #[tokio::test]
-    async fn runtime_handlers_fail_without_engine() {
-        // When no global engine is set, runtime handlers should return an error
-        let cases = vec![
-            ("start", serde_json::json!({"skill_id": "test"})),
-            ("stop", serde_json::json!({"skill_id": "test"})),
-            ("status", serde_json::json!({"skill_id": "test"})),
-            ("setup_start", serde_json::json!({"skill_id": "test"})),
-            ("list_tools", serde_json::json!({"skill_id": "test"})),
-            ("sync", serde_json::json!({"skill_id": "test"})),
-            (
-                "call_tool",
-                serde_json::json!({"skill_id": "test", "tool_name": "t"}),
-            ),
-        ];
-
-        let controllers = all_registered_controllers();
-        for (func, params) in cases {
-            let controller = controllers
-                .iter()
-                .find(|c| c.schema.namespace == "skills" && c.schema.function == func)
-                .unwrap_or_else(|| panic!("missing controller for skills.{func}"));
-
-            let params_map: Map<String, Value> = params.as_object().unwrap().clone();
-            let result = (controller.handler)(params_map).await;
-            assert!(
-                result.is_err(),
-                "skills.{func} should fail without engine, got: {:?}",
-                result
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.contains("runtime not initialized"),
-                "skills.{func} error should mention runtime: {err}"
-            );
-        }
+    fn skill_summary_round_trip_minimum_fields() {
+        let skill = Skill {
+            name: "demo".to_string(),
+            description: "desc".to_string(),
+            version: "".to_string(),
+            ..Default::default()
+        };
+        let summary: SkillSummary = skill.into();
+        assert_eq!(summary.id, "demo");
+        assert_eq!(summary.name, "demo");
+        assert_eq!(summary.description, "desc");
     }
 }

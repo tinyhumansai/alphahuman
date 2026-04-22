@@ -1,17 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
+import ComposioConnectModal from '../../../components/composio/ComposioConnectModal';
 import {
-  DefaultIcon,
-  SKILL_ICONS,
-  SkillActionButton,
-  type SkillListEntry,
-  STATUS_DISPLAY,
-} from '../../../components/skills/shared';
-import SkillSetupModal from '../../../components/skills/SkillSetupModal';
-import { useAvailableSkills, useSkillConnectionStatus } from '../../../lib/skills/hooks';
-import { installSkill } from '../../../lib/skills/skillsApi';
-import type { SkillConnectionStatus } from '../../../lib/skills/types';
-import { IS_DEV } from '../../../utils/config';
+  composioToolkitMeta,
+  type ComposioToolkitMeta,
+  KNOWN_COMPOSIO_TOOLKITS,
+} from '../../../components/composio/toolkitMeta';
+import { useComposioIntegrations } from '../../../lib/composio/hooks';
+import { canonicalizeComposioToolkitSlug } from '../../../lib/composio/toolkitSlug';
+import { type ComposioConnection, deriveComposioState } from '../../../lib/composio/types';
 import OnboardingNextButton from '../components/OnboardingNextButton';
 
 interface SkillsStepProps {
@@ -19,103 +16,91 @@ interface SkillsStepProps {
   onBack?: () => void;
 }
 
-/** Status dot color for skill connection status */
-function statusDotClass(status: SkillConnectionStatus): string {
-  switch (status) {
+// ── Status helpers (matches Skills page vocabulary) ──────────────────────
+
+function statusDotClass(connection: ComposioConnection | undefined): string {
+  switch (deriveComposioState(connection)) {
     case 'connected':
-      return 'bg-sage-400';
-    case 'connecting':
-      return 'bg-amber-400 animate-pulse';
+      return 'bg-sage-500';
+    case 'pending':
+      return 'bg-amber-500 animate-pulse';
     case 'error':
-      return 'bg-coral-400';
+      return 'bg-coral-500';
     default:
       return 'bg-stone-300';
   }
 }
 
-function SkillRow({ skill, onSetup }: { skill: SkillListEntry; onSetup: () => void }) {
-  const connectionStatus = useSkillConnectionStatus(skill.id);
-  const statusDisplay = STATUS_DISPLAY[connectionStatus] || STATUS_DISPLAY.offline;
+function statusLabel(connection: ComposioConnection | undefined): string {
+  switch (deriveComposioState(connection)) {
+    case 'connected':
+      return 'Connected';
+    case 'pending':
+      return 'Connecting';
+    case 'error':
+      return 'Error';
+    default:
+      return '';
+  }
+}
 
-  return (
-    <div className="flex items-center gap-3 p-3 rounded-xl border border-stone-200 bg-white hover:border-stone-300 transition-colors">
-      <div className="w-6 h-6 flex items-center justify-center text-stone-600 flex-shrink-0">
-        {skill.icon || <DefaultIcon />}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-stone-900 truncate">{skill.name}</span>
-          <div
-            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotClass(connectionStatus)}`}
-          />
-          <span className={`text-xs flex-shrink-0 ${statusDisplay.color}`}>
-            {statusDisplay.text}
-          </span>
-        </div>
-        {skill.description && (
-          <p className="text-xs text-stone-500 mt-0.5 truncate">{skill.description}</p>
-        )}
-      </div>
-      <SkillActionButton skill={skill} connectionStatus={connectionStatus} onOpenModal={onSetup} />
-    </div>
-  );
+function statusColor(connection: ComposioConnection | undefined): string {
+  switch (deriveComposioState(connection)) {
+    case 'connected':
+      return 'text-sage-600';
+    case 'pending':
+      return 'text-amber-600';
+    case 'error':
+      return 'text-coral-600';
+    default:
+      return 'text-stone-400';
+  }
 }
 
 const SkillsStep = ({ onNext, onBack: _onBack }: SkillsStepProps) => {
-  const { skills: availableSkills, loading: skillsLoading } = useAvailableSkills();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [setupModalOpen, setSetupModalOpen] = useState(false);
-  const [activeSkillId, setActiveSkillId] = useState<string | null>(null);
-  const [activeSkillName, setActiveSkillName] = useState('');
-  const [activeSkillDescription, setActiveSkillDescription] = useState('');
-  const [activeSkillHasSetup, setActiveSkillHasSetup] = useState(false);
+  const [activeToolkit, setActiveToolkit] = useState<ComposioToolkitMeta | null>(null);
 
-  const skillsList: SkillListEntry[] = useMemo(() => {
-    return availableSkills
-      .filter(e => {
-        if (e.id.includes('_')) return false;
-        if (!IS_DEV && e.ignore_in_production) return false;
-        return true;
-      })
-      .map(e => ({
-        id: e.id,
-        name: e.name || e.id.charAt(0).toUpperCase() + e.id.slice(1),
-        description: e.description || '',
-        icon: SKILL_ICONS[e.id],
-        ignoreInProduction: e.ignore_in_production,
-        hasSetup: !!(e.setup && e.setup.required),
-      }));
-  }, [availableSkills]);
+  const {
+    toolkits: backendToolkits,
+    connectionByToolkit,
+    loading: composioLoading,
+    error: composioError,
+    refresh: refreshComposio,
+  } = useComposioIntegrations();
 
-  const sortedSkills = useMemo(() => {
-    return [...skillsList].sort((a, b) => a.name.localeCompare(b.name));
-  }, [skillsList]);
+  // Keep onboarding opinionated: show a small curated set of high-value
+  // integrations, but never hide them just because the live Composio allowlist
+  // hasn't loaded yet or temporarily returns an empty list.
+  const ONBOARDING_SLUGS = ['gmail', 'googlecalendar', 'googledrive', 'notion'] as const;
+  const normalizedBackendToolkits = backendToolkits.map(canonicalizeComposioToolkitSlug);
+  const fallbackToolkits = ONBOARDING_SLUGS.filter(slug => KNOWN_COMPOSIO_TOOLKITS.includes(slug));
+  const effectiveToolkits =
+    normalizedBackendToolkits.length > 0
+      ? ONBOARDING_SLUGS.filter(slug => normalizedBackendToolkits.includes(slug))
+      : fallbackToolkits;
+  const displayToolkits: ComposioToolkitMeta[] = effectiveToolkits.map(slug =>
+    composioToolkitMeta(slug)
+  );
 
-  const openSkillSetup = async (skill: SkillListEntry) => {
-    try {
-      setInstalling(skill.id);
-      await installSkill(skill.id);
-    } catch (err) {
-      console.warn(`[SkillsStep] install failed for ${skill.id}, continuing:`, err);
-    } finally {
-      setInstalling(null);
-    }
-
-    setActiveSkillId(skill.id);
-    setActiveSkillName(skill.name);
-    setActiveSkillDescription(skill.description);
-    setActiveSkillHasSetup(skill.hasSetup);
-    setSetupModalOpen(true);
-  };
+  // Only count connections for the displayed toolkits.
+  const connectedCount = displayToolkits.filter(t => {
+    const conn = connectionByToolkit.get(t.slug);
+    return conn && deriveComposioState(conn) === 'connected';
+  }).length;
 
   const handleFinish = async () => {
+    console.debug('[onboarding:skills] handleSkillsNext', { displayToolkits, connectedCount });
     setError(null);
     setLoading(true);
     try {
-      const connectedIds = sortedSkills.map(s => s.id);
-      await onNext(connectedIds);
+      // Only include connections for displayed toolkit slugs.
+      const displaySlugs = new Set(displayToolkits.map(t => t.slug));
+      const connectedSources = Array.from(connectionByToolkit.entries())
+        .filter(([slug, c]) => displaySlugs.has(slug) && deriveComposioState(c) === 'connected')
+        .map(([slug]) => `composio:${slug}`);
+      await onNext(connectedSources);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
     } finally {
@@ -126,45 +111,118 @@ const SkillsStep = ({ onNext, onBack: _onBack }: SkillsStepProps) => {
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-8 shadow-soft animate-fade-up">
       <div className="text-center mb-4">
-        <h1 className="text-xl font-bold mb-2 text-stone-900">Install Skills</h1>
+        <h1 className="text-xl font-bold mb-2 text-stone-900">Connect your tools</h1>
         <p className="text-stone-600 text-sm">
-          Skills give OpenHuman richer context & access to your workflow. All data consumed by
-          skills is saved and processed locally. You can connect as many skills as you want.
+          Connect the tools you already use so OpenHuman can build context for your agent. Your data
+          is saved locally and never leaves your device.
         </p>
       </div>
 
-      <div className="space-y-2 mb-4 max-h-[380px] overflow-y-auto pr-1">
-        {skillsLoading || installing ? (
-          <div className="rounded-2xl p-6 text-center">
-            <p className="text-sm text-stone-500">
-              {installing ? `Installing ${installing}...` : 'Loading skills...'}
-            </p>
+      {/* Integration cards */}
+      <div className="mb-4 space-y-2">
+        {composioError ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+            <p className="text-sm text-amber-700 mb-2">Could not load integrations</p>
+            <button
+              type="button"
+              onClick={() => void refreshComposio()}
+              className="text-xs font-medium text-amber-800 border border-amber-300 rounded-lg px-3 py-1 hover:bg-amber-100 transition-colors">
+              Retry
+            </button>
           </div>
-        ) : sortedSkills.length === 0 ? (
-          <div className="rounded-2xl p-6 text-center">
-            <p className="text-sm text-stone-500">No skills discovered</p>
+        ) : composioLoading && displayToolkits.length === 0 ? (
+          <div className="rounded-xl border border-stone-100 bg-stone-50 p-4 text-center">
+            <p className="text-sm text-stone-400 animate-pulse">Loading integrations…</p>
           </div>
         ) : (
-          sortedSkills.map(skill => (
-            <SkillRow key={skill.id} skill={skill} onSetup={() => openSkillSetup(skill)} />
-          ))
+          <>
+            {displayToolkits.map(meta => {
+              const connection = connectionByToolkit.get(meta.slug);
+              const state = deriveComposioState(connection);
+              const isConnected = state === 'connected';
+              const isPending = state === 'pending';
+              const label = statusLabel(connection);
+
+              return (
+                <button
+                  key={meta.slug}
+                  type="button"
+                  onClick={() => setActiveToolkit(meta)}
+                  className="w-full flex items-center gap-3 rounded-xl border border-stone-100 bg-white p-3 transition-colors hover:bg-stone-50 text-left">
+                  {/* Icon */}
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center text-lg">
+                    {meta.icon}
+                  </div>
+
+                  {/* Text */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-stone-900">
+                        {meta.name}
+                      </span>
+                      {label && (
+                        <>
+                          <div
+                            className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${statusDotClass(connection)}`}
+                          />
+                          <span className={`flex-shrink-0 text-xs ${statusColor(connection)}`}>
+                            {label}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <p className="mt-0.5 line-clamp-1 text-xs leading-relaxed text-stone-500">
+                      {meta.description}
+                    </p>
+                  </div>
+
+                  {/* CTA badge */}
+                  <span
+                    className={`flex-shrink-0 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                      isConnected
+                        ? 'border-sage-200 bg-sage-50 text-sage-700'
+                        : isPending
+                          ? 'border-amber-200 bg-amber-50 text-amber-700'
+                          : 'border-primary-200 bg-primary-50 text-primary-700'
+                    }`}>
+                    {isConnected ? 'Manage' : isPending ? 'Waiting' : 'Connect'}
+                  </span>
+                </button>
+              );
+            })}
+
+            {/* More integrations hint */}
+            <div className="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-center">
+              <p className="text-xs text-stone-400">
+                Notion, Slack, GitHub, and more available after setup
+              </p>
+            </div>
+          </>
         )}
       </div>
 
+      {connectedCount > 0 && (
+        <p className="text-xs text-sage-600 text-center mb-3">
+          {connectedCount} integration{connectedCount > 1 ? 's' : ''} connected
+        </p>
+      )}
+
       {error && <p className="text-coral-400 text-sm mb-3 text-center">{error}</p>}
 
-      <OnboardingNextButton onClick={handleFinish} loading={loading} loadingLabel="Loading..." />
+      <OnboardingNextButton
+        onClick={handleFinish}
+        loading={loading}
+        loadingLabel="Loading..."
+        label={connectedCount > 0 ? 'Continue' : 'Skip for Now'}
+      />
 
-      {setupModalOpen && activeSkillId && (
-        <SkillSetupModal
-          skillId={activeSkillId}
-          skillName={activeSkillName}
-          skillDescription={activeSkillDescription}
-          hasSetup={activeSkillHasSetup}
-          onClose={() => {
-            setSetupModalOpen(false);
-            setActiveSkillId(null);
-          }}
+      {/* Composio OAuth modal */}
+      {activeToolkit && (
+        <ComposioConnectModal
+          toolkit={activeToolkit}
+          connection={connectionByToolkit.get(activeToolkit.slug)}
+          onChanged={() => void refreshComposio()}
+          onClose={() => setActiveToolkit(null)}
         />
       )}
     </div>

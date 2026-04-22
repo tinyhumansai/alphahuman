@@ -7,6 +7,7 @@ vi.mock('../../coreCommandClient', () => ({
 }));
 
 const { billingApi } = await import('../billingApi');
+const { creditsApi } = await import('../creditsApi');
 
 describe('billingApi', () => {
   beforeEach(() => {
@@ -43,9 +44,9 @@ describe('billingApi', () => {
         hasActiveSubscription: false,
         planExpiry: null,
         subscription: null,
-        monthlyBudgetUsd: 1,
-        weeklyBudgetUsd: 0.5,
-        fiveHourCapUsd: 0.15,
+        monthlyBudgetUsd: 0,
+        weeklyBudgetUsd: 0,
+        fiveHourCapUsd: 0,
       };
       mockCallCoreCommand.mockResolvedValue(planData);
 
@@ -54,7 +55,7 @@ describe('billingApi', () => {
       expect(result.plan).toBe('FREE');
       expect(result.hasActiveSubscription).toBe(false);
       expect(result.subscription).toBeNull();
-      expect(result.weeklyBudgetUsd).toBe(0.5);
+      expect(result.weeklyBudgetUsd).toBe(0);
     });
 
     it('should propagate errors', async () => {
@@ -197,5 +198,38 @@ describe('billingApi', () => {
         'Crypto payments are only available for annual plans'
       );
     });
+  });
+});
+
+describe('creditsApi.getBalance', () => {
+  beforeEach(() => {
+    mockCallCoreCommand.mockReset();
+  });
+
+  it('normalizes missing numeric fields so billing UI does not crash', async () => {
+    mockCallCoreCommand.mockResolvedValue({ teamTopupUsd: 3 });
+
+    const result = await creditsApi.getBalance();
+
+    expect(mockCallCoreCommand).toHaveBeenCalledWith('openhuman.billing_get_balance');
+    expect(result).toEqual({ promotionBalanceUsd: 0, teamTopupUsd: 3 });
+  });
+
+  it('accepts snake_case balance fields from the backend', async () => {
+    mockCallCoreCommand.mockResolvedValue({ promotion_balance_usd: '12.5', team_topup_usd: 4 });
+
+    const result = await creditsApi.getBalance();
+
+    expect(result).toEqual({ promotionBalanceUsd: 12.5, teamTopupUsd: 4 });
+  });
+
+  it('accepts nested balance payloads used by some adapters', async () => {
+    mockCallCoreCommand.mockResolvedValue({
+      data: { promotional_balance_usd: 6, team_topup_balance_usd: '9.25' },
+    });
+
+    const result = await creditsApi.getBalance();
+
+    expect(result).toEqual({ promotionBalanceUsd: 6, teamTopupUsd: 9.25 });
   });
 });

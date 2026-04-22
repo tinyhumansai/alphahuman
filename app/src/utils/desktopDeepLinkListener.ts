@@ -2,12 +2,19 @@ import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
-import { getCoreStateSnapshot } from '../lib/coreState/store';
-import { skillManager } from '../lib/skills/manager';
-import { emitSkillStateChange } from '../lib/skills/skillEvents';
-import { startSkill } from '../lib/skills/skillsApi';
+import { getCoreStateSnapshot, patchCoreStateSnapshot } from '../lib/coreState/store';
 import { consumeLoginToken } from '../services/api/authApi';
+import { buildManualSentryEvent, enqueueError } from '../services/errorReportQueue';
+import {
+  beginDeepLinkAuthProcessing,
+  completeDeepLinkAuthProcessing,
+  failDeepLinkAuthProcessing,
+} from '../store/deepLinkAuthState';
+import { evaluateOAuthAppVersionGate } from './oauthAppVersionGate';
+import { openUrl } from './openUrl';
 import { storeSession } from './tauriCommands';
+
+const SESSION_TOKEN_UPDATED_EVENT = 'core-state:session-token-updated';
 
 const focusMainWindow = async () => {
   try {
@@ -36,6 +43,12 @@ const waitForAuthReadiness = async (maxAttempts = 10, delayMs = 150) => {
   console.warn('[DeepLink][auth] readiness timeout; continuing');
 };
 
+const applySessionToken = async (sessionToken: string): Promise<void> => {
+  await storeSession(sessionToken, {});
+  patchCoreStateSnapshot({ snapshot: { sessionToken } });
+  window.dispatchEvent(new CustomEvent(SESSION_TOKEN_UPDATED_EVENT, { detail: { sessionToken } }));
+};
+
 /**
  * Handle an `openhuman://auth?token=...` deep link for login.
  */
@@ -44,26 +57,24 @@ const handleAuthDeepLink = async (parsed: URL) => {
   const key = parsed.searchParams.get('key');
   if (!token) {
     console.warn('[DeepLink] URL did not contain a token query parameter');
+    failDeepLinkAuthProcessing('Sign-in callback was missing a token. Please try again.');
     return;
   }
 
-  console.log('[DeepLink][auth] received', {
-    tokenLength: token.length,
-    keyMode: parsed.searchParams.get('key') ?? 'consume',
-  });
+  beginDeepLinkAuthProcessing();
 
-  await focusMainWindow();
-  await waitForAuthReadiness();
+  try {
+    await focusMainWindow();
+    await waitForAuthReadiness();
 
-  if (key === 'auth') {
-    await storeSession(token, {});
-    console.log('[DeepLink][auth] bypass token applied');
+    const sessionToken = key === 'auth' ? token : await consumeLoginToken(token);
+    await applySessionToken(sessionToken);
+
     window.location.hash = '/home';
-  } else {
-    const jwtToken = await consumeLoginToken(token);
-    await storeSession(jwtToken, {});
-    console.log('[DeepLink][auth] login token consumed');
-    window.location.hash = '/home';
+    completeDeepLinkAuthProcessing();
+  } catch (error) {
+    console.error('[DeepLink][auth] failed to complete login:', error);
+    failDeepLinkAuthProcessing('Sign-in failed. Please try again.');
   }
 };
 
@@ -102,7 +113,7 @@ const handlePaymentDeepLink = async (parsed: URL) => {
 };
 
 /**
- * Handle `openhuman://oauth/success?integrationId=...&skillId=...`
+ * Handle `openhuman://oauth/success?...`
  * and `openhuman://oauth/error?error=...&provider=...` deep links.
  */
 const handleOAuthDeepLink = async (parsed: URL) => {
@@ -113,40 +124,68 @@ const handleOAuthDeepLink = async (parsed: URL) => {
 
   if (path === 'success') {
     const integrationId = parsed.searchParams.get('integrationId');
-    const skillId = parsed.searchParams.get('skillId');
+    const toolkit =
+      parsed.searchParams.get('toolkit') ||
+      parsed.searchParams.get('provider') ||
+      parsed.searchParams.get('skillId');
 
-    if (!integrationId || !skillId) {
-      console.error('[DeepLink] OAuth success missing integrationId or skillId', parsed.href);
+    if (!integrationId) {
+      // Do not log full URL — query can contain secrets.
+      console.error('[DeepLink] OAuth success missing integrationId');
       return;
     }
 
-    // Extract client key share from URL params (returned directly by backend in OAuth callback).
-    const clientKeyShare = parsed.searchParams.get('clientKey') || undefined;
+    let versionGate: Awaited<ReturnType<typeof evaluateOAuthAppVersionGate>>;
+    try {
+      versionGate = await evaluateOAuthAppVersionGate();
+    } catch (gateErr) {
+      // Avoid bubbling: outer handler logs the raw URL and would leak query secrets.
+      console.warn('[DeepLink] OAuth version gate failed; continuing OAuth', gateErr);
+      versionGate = { ok: true };
+    }
 
+    if (!versionGate.ok) {
+      const msg =
+        versionGate.current === 'unknown'
+          ? `OpenHuman could not verify this build against the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`
+          : `This OpenHuman build (${versionGate.current}) is older than the minimum required for OAuth (${versionGate.minimum}). Install the latest release, then try connecting again.`;
+      try {
+        await openUrl(versionGate.downloadUrl);
+      } catch (e) {
+        console.warn('[DeepLink] Could not open latest release URL', e);
+      }
+      enqueueError({
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        source: 'manual',
+        title: 'Update OpenHuman to finish OAuth',
+        message: msg,
+        sentryEvent: buildManualSentryEvent(
+          { type: 'OAuthStaleAppVersion', value: `${versionGate.current}<${versionGate.minimum}` },
+          {
+            component: 'desktopDeepLinkListener',
+            current: versionGate.current,
+            minimum: versionGate.minimum,
+          }
+        ),
+      });
+      window.dispatchEvent(
+        new CustomEvent('oauth:stale-app', {
+          detail: {
+            current: versionGate.current,
+            minimum: versionGate.minimum,
+            downloadUrl: versionGate.downloadUrl,
+            integrationId,
+          },
+        })
+      );
+      return;
+    }
     console.log(
-      `[DeepLink] OAuth success for skill=${skillId} integration=${integrationId} encrypted=${!!clientKeyShare}`
+      `[DeepLink] OAuth success for integration=${integrationId}${toolkit ? ` toolkit=${toolkit}` : ''}`
     );
-
-    // 2. Start the skill in the core QuickJS runtime (if not already running).
-    //    This also sets enabled=true via the preferences store.
-    try {
-      await startSkill(skillId);
-      console.log(`[DeepLink] Skill '${skillId}' started in core runtime`);
-    } catch (startErr) {
-      console.warn(`[DeepLink] Could not start skill '${skillId}' in runtime:`, startErr);
-    }
-
-    // 3. Notify the running skill of the OAuth credential, mark setup_complete,
-    //    and activate (list tools, sync to backend).
-    //    The Rust runtime automatically triggers an initial sync after auth succeeds.
-    try {
-      await skillManager.notifyOAuthComplete(skillId, integrationId, undefined, { clientKeyShare });
-      console.log(`[DeepLink] OAuth complete sent to skill '${skillId}'`);
-    } catch (runtimeErr) {
-      console.warn('[DeepLink] Runtime notify failed:', runtimeErr);
-    }
-
-    emitSkillStateChange(skillId);
+    window.dispatchEvent(new CustomEvent('oauth:success', { detail: { integrationId, toolkit } }));
+    window.location.hash = '/skills';
   } else if (path === 'error') {
     const error = parsed.searchParams.get('error') ?? 'Unknown error';
     const provider = parsed.searchParams.get('provider') ?? 'unknown';
@@ -194,7 +233,8 @@ const handleDeepLinkUrls = async (urls: string[] | null | undefined) => {
         break;
     }
   } catch (error) {
-    console.error('[DeepLink] Failed to handle deep link URL:', url, error);
+    // Avoid logging full `url` — OAuth callbacks can include sensitive query params.
+    console.error('[DeepLink] Failed to handle deep link:', error);
   }
 };
 
@@ -221,7 +261,8 @@ export const setupDesktopDeepLinkListener = async () => {
 
     if (typeof window !== 'undefined') {
       // window.__simulateDeepLink('openhuman://auth?token=1234567890')
-      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69cafd0b103bd070232d3223&skillId=notion')
+      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69cafd0b103bd070232d3223&provider=notion')
+      // window.__simulateDeepLink('openhuman://oauth/success?integrationId=69cafd0b103bd070232d3223&skillId=discord')
       const win = window as Window & { __simulateDeepLink?: (url: string) => Promise<void> };
       win.__simulateDeepLink = (url: string) => handleDeepLinkUrls([url]);
     }

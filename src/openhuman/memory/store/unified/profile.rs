@@ -53,7 +53,7 @@ impl FacetType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_or_default(s: &str) -> Self {
         match s {
             "skill" => Self::Skill,
             "role" => Self::Role,
@@ -83,6 +83,7 @@ pub struct ProfileFacet {
 /// - Updates last_seen_at
 /// - Appends segment_id to source_segment_ids
 /// - Only overwrites value if new confidence > existing confidence
+#[allow(clippy::too_many_arguments)]
 pub fn profile_upsert(
     conn: &Arc<Mutex<Connection>>,
     facet_id: &str,
@@ -119,8 +120,8 @@ pub fn profile_upsert(
             (None, None) => String::new(),
         };
 
-        if confidence > existing_confidence {
-            // Higher confidence: overwrite value + update metadata.
+        if confidence >= existing_confidence {
+            // Higher or equal confidence: overwrite value + update metadata.
             conn.execute(
                 "UPDATE user_profile
                  SET value = ?2, confidence = ?3, evidence_count = ?4,
@@ -189,7 +190,7 @@ pub fn profile_load_all(conn: &Arc<Mutex<Connection>>) -> anyhow::Result<Vec<Pro
          ORDER BY facet_type, evidence_count DESC",
     )?;
     let rows = stmt
-        .query_map([], |row| row_to_facet(row))?
+        .query_map([], row_to_facet)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -208,7 +209,7 @@ pub fn profile_facets_by_type(
          ORDER BY evidence_count DESC",
     )?;
     let rows = stmt
-        .query_map(params![facet_type.as_str()], |row| row_to_facet(row))?
+        .query_map(params![facet_type.as_str()], row_to_facet)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -255,7 +256,7 @@ fn row_to_facet(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProfileFacet> {
     let facet_type_str: String = row.get(1)?;
     Ok(ProfileFacet {
         facet_id: row.get(0)?,
-        facet_type: FacetType::from_str(&facet_type_str),
+        facet_type: FacetType::parse_or_default(&facet_type_str),
         key: row.get(2)?,
         value: row.get(3)?,
         confidence: row.get(4)?,

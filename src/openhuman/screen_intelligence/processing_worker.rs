@@ -171,10 +171,19 @@ pub(crate) async fn run(
 
 // ── Analysis pipeline ───────────────────────────────────────────────────
 
-/// Run the full 3-pass analysis pipeline on a captured frame.
+/// Run the analysis pipeline on a captured frame.
+///
+/// When `use_vision_model` is `true` (default), the full 3-pass pipeline runs:
+///   1. Apple Vision OCR → raw text
+///   2. Vision LLM (Ollama) → visual context from screenshot
+///   3. Synthesis LLM → final document combining OCR + vision context
+///
+/// When `use_vision_model` is `false`, Pass 2 is skipped and the synthesis LLM
+/// works from OCR text + app metadata only — no vision-capable model required.
+///
 /// Public within the crate so `engine.rs` can call it for flush/diagnostics.
 pub(crate) async fn analyze_frame(
-    _engine: &AccessibilityEngine,
+    engine: &AccessibilityEngine,
     frame: CaptureFrame,
 ) -> Result<VisionSummary, String> {
     let image_ref = frame
@@ -192,6 +201,12 @@ pub(crate) async fn analyze_frame(
         }
     }
 
+    // ── Read use_vision_model from the engine's runtime config ─────
+    // The CLI `--no-vision-model` flag overrides this at runtime without
+    // persisting to disk, so we read from the engine state, not from the
+    // persisted config file.
+    let use_vision_model = engine.inner.lock().await.config.use_vision_model;
+
     // ── Validate config before doing any work ─────────────────────────
     let config = Config::load_or_init()
         .await
@@ -208,6 +223,15 @@ pub(crate) async fn analyze_frame(
         ));
     }
 
+    tracing::debug!(
+        "[processing_worker] use_vision_model={} (from engine runtime config)",
+        use_vision_model,
+    );
+
+    // ── Image compression (always runs — used by vision LLM and/or storage) ──
+    let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
+        .map_err(|e| format!("image compression failed: {e}"))?;
+
     // ── Pass 1: OCR via Apple Vision ────────────────────────────────
     tracing::debug!("[processing_worker] pass 1/3: Apple Vision OCR");
     let ocr_text = tokio::time::timeout(
@@ -218,17 +242,16 @@ pub(crate) async fn analyze_frame(
     .map_err(|_| "Apple Vision OCR timed out after 30s".to_string())??;
     tracing::debug!("[processing_worker] OCR extracted {} chars", ocr_text.len());
 
-    // ── Pass 2: Vision LLM for context ──────────────────────────────
-    let compressed = super::image_processing::compress_screenshot(&image_ref, None, None)
-        .map_err(|e| format!("image compression failed: {e}"))?;
-    let vision_image_ref = compressed.data_uri;
+    // ── Pass 2: Vision LLM for context (skipped when use_vision_model=false) ──
+    let vision_context = if use_vision_model {
+        let vision_image_ref = compressed.data_uri;
 
-    tracing::debug!(
-        "[processing_worker] pass 2/3: vision LLM (model={})",
-        config.local_ai.vision_model_id,
-    );
-    let service = local_ai::global(&config);
-    let vision_prompt = r#"Describe this screenshot briefly. Answer each on its own line:
+        tracing::debug!(
+            "[processing_worker] pass 2/3: vision LLM (model={})",
+            config.local_ai.vision_model_id,
+        );
+        let service = local_ai::global(&config);
+        let vision_prompt = r#"Describe this screenshot briefly. Answer each on its own line:
 
 APP: Name the application and the specific page/view/tab shown.
 DOING: What is the user actively doing? (e.g. writing code, reading email, browsing, chatting)
@@ -236,31 +259,42 @@ FOCUS: What's the main content area about? (e.g. a PR review for auth refactor, 
 MOOD: Is anything urgent, broken, or notable? (errors, notifications, warnings — or "nothing notable")
 
 One line per answer. No text extraction. Be specific and concise."#;
-    let vision_context = service
-        .vision_prompt(&config, vision_prompt, &[vision_image_ref], Some(150))
-        .await?
-        .trim()
-        .to_string();
+        Some(
+            service
+                .vision_prompt(&config, vision_prompt, &[vision_image_ref], Some(150))
+                .await?
+                .trim()
+                .to_string(),
+        )
+    } else {
+        tracing::debug!("[processing_worker] pass 2/3: SKIPPED (use_vision_model=false)");
+        None
+    };
 
     // ── Pass 3: Synthesis LLM — final document ──────────────────────
     let app_label = frame.app_name.as_deref().unwrap_or("Unknown");
     let window_label = frame.window_title.as_deref().unwrap_or("");
     let ocr_truncated = truncate_tail(&ocr_text, 4000);
 
+    let pass_label = if use_vision_model { "3/3" } else { "2/2" };
     tracing::debug!(
-        "[processing_worker] pass 3/3: synthesis LLM (ocr={} chars, vision={} chars)",
+        "[processing_worker] pass {}: synthesis LLM (ocr={} chars, vision={} chars)",
+        pass_label,
         ocr_truncated.len(),
-        vision_context.len(),
+        vision_context.as_ref().map_or(0, |s| s.len()),
     );
 
-    let synthesis_prompt = format!(
-        r#"You are summarizing what a user is doing on their computer right now.
+    let service = local_ai::global(&config);
+
+    let synthesis_prompt = if let Some(ref vc) = vision_context {
+        format!(
+            r#"You are summarizing what a user is doing on their computer right now.
 
 Application: {app_label}
 Window: {window_label}
 
 Visual context from the screenshot:
-{vision_context}
+{vc}
 
 Extracted text from screen (OCR):
 {ocr_truncated}
@@ -273,14 +307,36 @@ Write a clear, informative summary in plain text. Include:
 - Brief context that would help someone understand this moment later
 
 Be specific and informative. Write in present tense. ~300-500 words."#
-    );
+        )
+    } else {
+        format!(
+            r#"You are summarizing what a user is doing on their computer right now.
+You only have the application name, window title, and OCR-extracted text to work with.
 
+Application: {app_label}
+Window: {window_label}
+
+Extracted text from screen (OCR):
+{ocr_truncated}
+
+Write a clear, informative summary in plain text. Include:
+- What application and specific view/page the user has open (infer from window title and OCR text)
+- What they are actively doing (coding, reading, chatting, browsing, etc.)
+- Key content visible — synthesize the OCR text into a coherent description
+- Any notable items: errors, notifications, deadlines, action items
+- Brief context that would help someone understand this moment later
+
+Be specific and informative. Write in present tense. ~300-500 words."#
+        )
+    };
+
+    let fallback_text = vision_context.as_deref().unwrap_or("");
     let synthesis = service
         .prompt(&config, &synthesis_prompt, Some(700), true)
         .await
         .unwrap_or_else(|e| {
             tracing::debug!("[processing_worker] synthesis failed, using fallback: {e}");
-            format!("{}\n\n{}", vision_context, ocr_truncated)
+            format!("{}\n\n{}", fallback_text, ocr_truncated)
         });
 
     tracing::debug!(
@@ -293,10 +349,10 @@ Be specific and informative. Write in present tense. ~300-500 words."#
         captured_at_ms: frame.captured_at_ms,
         app_name: frame.app_name,
         window_title: frame.window_title,
-        ui_state: truncate_tail(&vision_context, 500),
+        ui_state: truncate_tail(vision_context.as_deref().unwrap_or(&ocr_truncated), 500),
         key_text: truncate_tail(&synthesis, 4000),
         actionable_notes: String::new(),
-        confidence: 0.9,
+        confidence: if use_vision_model { 0.9 } else { 0.75 },
     })
 }
 

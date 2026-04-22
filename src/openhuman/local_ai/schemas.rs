@@ -15,21 +15,6 @@ struct AgentChatParams {
 }
 
 #[derive(Debug, Deserialize)]
-struct AgentReplSessionStartParams {
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    model_override: Option<String>,
-    #[serde(default)]
-    temperature: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AgentReplSessionControlParams {
-    session_id: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct LocalAiDownloadParams {
     force: Option<bool>,
 }
@@ -138,9 +123,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         schemas("agent_chat"),
         schemas("agent_chat_simple"),
-        schemas("agent_repl_session_start"),
-        schemas("agent_repl_session_reset"),
-        schemas("agent_repl_session_end"),
         schemas("local_ai_status"),
         schemas("local_ai_download"),
         schemas("local_ai_download_all_assets"),
@@ -177,18 +159,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("agent_chat_simple"),
             handler: handle_agent_chat_simple,
-        },
-        RegisteredController {
-            schema: schemas("agent_repl_session_start"),
-            handler: handle_agent_repl_session_start,
-        },
-        RegisteredController {
-            schema: schemas("agent_repl_session_reset"),
-            handler: handle_agent_repl_session_reset,
-        },
-        RegisteredController {
-            schema: schemas("agent_repl_session_end"),
-            handler: handle_agent_repl_session_end,
         },
         RegisteredController {
             schema: schemas("local_ai_status"),
@@ -312,31 +282,6 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 optional_f64("temperature", "Optional temperature override."),
             ],
             outputs: vec![json_output("response", "Agent response payload.")],
-        },
-        "agent_repl_session_start" => ControllerSchema {
-            namespace: "local_ai",
-            function: "agent_repl_session_start",
-            description: "Create a persistent REPL agent session.",
-            inputs: vec![
-                optional_string("session_id", "Optional session id."),
-                optional_string("model_override", "Optional model override."),
-                optional_f64("temperature", "Optional temperature override."),
-            ],
-            outputs: vec![json_output("result", "Session creation result.")],
-        },
-        "agent_repl_session_reset" => ControllerSchema {
-            namespace: "local_ai",
-            function: "agent_repl_session_reset",
-            description: "Clear REPL session history.",
-            inputs: vec![required_string("session_id", "REPL session id.")],
-            outputs: vec![json_output("result", "Session reset result.")],
-        },
-        "agent_repl_session_end" => ControllerSchema {
-            namespace: "local_ai",
-            function: "agent_repl_session_end",
-            description: "Terminate REPL session.",
-            inputs: vec![required_string("session_id", "REPL session id.")],
-            outputs: vec![json_output("result", "Session end result.")],
         },
         "local_ai_status" => ControllerSchema {
             namespace: "local_ai",
@@ -492,14 +437,21 @@ pub fn schemas(function: &str) -> ControllerSchema {
             inputs: vec![],
             outputs: vec![json_output(
                 "presets",
-                "Presets, recommended tier, current tier.",
+                "Object containing: presets (array of ModelPreset), recommended_tier (string), \
+                 current_tier (string), selected_tier (string | null), device (DeviceProfile), \
+                 recommend_disabled (boolean — true when the device is below the RAM floor and \
+                 cloud fallback is the recommended default), local_ai_enabled (boolean — mirrors \
+                 config.local_ai.enabled so the UI can render the active state when disabled).",
             )],
         },
         "local_ai_apply_preset" => ControllerSchema {
             namespace: "local_ai",
             function: "apply_preset",
             description: "Apply a model tier preset to local AI config and persist.",
-            inputs: vec![required_string("tier", "Tier to apply: low, medium, high.")],
+            inputs: vec![required_string(
+                "tier",
+                "Tier to apply: ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb.",
+            )],
             outputs: vec![json_output("result", "Applied tier status.")],
         },
         "local_ai_diagnostics" => ControllerSchema {
@@ -614,38 +566,6 @@ fn handle_agent_chat_simple(params: Map<String, Value>) -> ControllerFuture {
             )
             .await?,
         )
-    })
-}
-
-fn handle_agent_repl_session_start(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p = deserialize_params::<AgentReplSessionStartParams>(params)?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        to_json(
-            crate::openhuman::local_ai::rpc::agent_repl_session_start(
-                &config,
-                p.session_id,
-                p.model_override,
-                p.temperature,
-            )
-            .await?,
-        )
-    })
-}
-
-fn handle_agent_repl_session_reset(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p = deserialize_params::<AgentReplSessionControlParams>(params)?;
-        to_json(
-            crate::openhuman::local_ai::rpc::agent_repl_session_reset(p.session_id.trim()).await?,
-        )
-    })
-}
-
-fn handle_agent_repl_session_end(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p = deserialize_params::<AgentReplSessionControlParams>(params)?;
-        to_json(crate::openhuman::local_ai::rpc::agent_repl_session_end(p.session_id.trim()).await?)
     })
 }
 
@@ -829,12 +749,12 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
         let recommended = crate::openhuman::local_ai::presets::recommend_tier(&device);
         let current =
             crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
-        let selected_tier = config
-            .local_ai
-            .selected_tier
-            .as_ref()
-            .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| !value.is_empty());
+        let selected_tier = config.local_ai.selected_tier.as_ref().and_then(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            crate::openhuman::local_ai::presets::ModelTier::from_str_opt(&normalized)
+                .map(|tier| tier.as_str().to_string())
+                .or_else(|| (!normalized.is_empty()).then_some(normalized))
+        });
         let presets = crate::openhuman::local_ai::presets::all_presets();
         tracing::debug!(
             ?recommended,
@@ -843,12 +763,16 @@ fn handle_local_ai_presets(_params: Map<String, Value>) -> ControllerFuture {
             preset_count = presets.len(),
             "[local_ai] presets: returning"
         );
+        let recommend_disabled =
+            crate::openhuman::local_ai::presets::should_default_to_cloud_fallback(&device);
         let value = serde_json::json!({
             "presets": presets,
             "recommended_tier": recommended,
             "current_tier": current,
             "selected_tier": selected_tier,
             "device": device,
+            "recommend_disabled": recommend_disabled,
+            "local_ai_enabled": config.local_ai.enabled,
         });
         Ok(value)
     })
@@ -860,10 +784,29 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         let tier_str = p.tier.trim().to_ascii_lowercase();
         tracing::debug!(tier = %tier_str, "[local_ai] apply_preset: parsing tier");
 
+        // Special "disabled" tier: turn local_ai off and route AI to cloud.
+        if tier_str == "disabled" {
+            let mut config = config_rpc::load_config_with_timeout().await?;
+            config.local_ai.enabled = false;
+            config.local_ai.selected_tier = Some("disabled".to_string());
+            // Explicit opt-out also clears the MVP opt-in marker so bootstrap
+            // keeps local AI off across restarts.
+            config.local_ai.opt_in_confirmed = false;
+            config
+                .save()
+                .await
+                .map_err(|e| format!("save config: {e}"))?;
+            tracing::debug!("[local_ai] apply_preset: local_ai disabled (cloud fallback)");
+            return Ok(serde_json::json!({
+                "applied_tier": "disabled",
+                "local_ai_enabled": false,
+            }));
+        }
+
         let tier = crate::openhuman::local_ai::presets::ModelTier::from_str_opt(&tier_str)
             .ok_or_else(|| {
                 format!(
-                    "invalid tier '{}': expected one of low, medium, high",
+                    "invalid tier '{}': expected one of disabled, ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb",
                     tier_str
                 )
             })?;
@@ -873,6 +816,13 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
         }
 
         let mut config = config_rpc::load_config_with_timeout().await?;
+        // Re-enable local AI in case it was previously disabled via the
+        // "disabled" tier, so the user can switch back to local inference.
+        config.local_ai.enabled = true;
+        // Explicit tier selection is the MVP opt-in — flip the marker so
+        // `config_with_recommended_tier_if_unselected` stops hard-overriding
+        // to disabled on subsequent boots.
+        config.local_ai.opt_in_confirmed = true;
         crate::openhuman::local_ai::presets::apply_preset_to_config(&mut config.local_ai, tier);
         config
             .save()
@@ -886,6 +836,8 @@ fn handle_local_ai_apply_preset(params: Map<String, Value>) -> ControllerFuture 
             "vision_model_id": config.local_ai.vision_model_id,
             "embedding_model_id": config.local_ai.embedding_model_id,
             "quantization": config.local_ai.quantization,
+            "vision_mode": crate::openhuman::local_ai::presets::vision_mode_for_config(&config.local_ai),
+            "local_ai_enabled": true,
         }))
     })
 }
@@ -1072,4 +1024,254 @@ fn json_output(name: &'static str, comment: &'static str) -> FieldSchema {
 
 fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String> {
     outcome.into_cli_compatible_json()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_counts_match_and_nonempty() {
+        let s = all_controller_schemas();
+        let h = all_registered_controllers();
+        assert_eq!(s.len(), h.len());
+        assert!(s.len() >= 20, "local_ai should expose >=20 controller fns");
+    }
+
+    #[test]
+    fn all_schemas_use_local_ai_namespace_and_have_descriptions() {
+        for s in all_controller_schemas() {
+            assert_eq!(s.namespace, "local_ai", "function {}", s.function);
+            assert!(!s.description.is_empty(), "function {} desc", s.function);
+            assert!(!s.outputs.is_empty(), "function {} outputs", s.function);
+        }
+    }
+
+    #[test]
+    fn unknown_function_returns_unknown_schema() {
+        let s = schemas("no_such_fn");
+        assert_eq!(s.function, "unknown");
+        assert_eq!(s.namespace, "local_ai");
+    }
+
+    #[test]
+    fn every_registered_key_resolves_to_non_unknown_schema() {
+        let keys = [
+            "agent_chat",
+            "agent_chat_simple",
+            "local_ai_status",
+            "local_ai_download",
+            "local_ai_download_all_assets",
+            "local_ai_summarize",
+            "local_ai_suggest_questions",
+            "local_ai_prompt",
+            "local_ai_vision_prompt",
+            "local_ai_embed",
+            "local_ai_transcribe",
+            "local_ai_transcribe_bytes",
+            "local_ai_tts",
+            "local_ai_assets_status",
+            "local_ai_downloads_progress",
+            "local_ai_download_asset",
+            "local_ai_device_profile",
+            "local_ai_presets",
+            "local_ai_apply_preset",
+            "local_ai_set_ollama_path",
+            "local_ai_diagnostics",
+            "local_ai_chat",
+            "local_ai_should_react",
+            "local_ai_analyze_sentiment",
+            "local_ai_should_send_gif",
+            "local_ai_tenor_search",
+        ];
+        for k in keys {
+            let s = schemas(k);
+            assert_eq!(s.namespace, "local_ai");
+            assert_ne!(s.function, "unknown", "key `{k}` fell through");
+        }
+    }
+
+    #[test]
+    fn registered_controllers_all_in_local_ai_namespace() {
+        for h in all_registered_controllers() {
+            assert_eq!(h.schema.namespace, "local_ai");
+            assert!(!h.schema.function.is_empty());
+        }
+    }
+
+    #[test]
+    fn field_builder_helpers_are_correct_shape() {
+        let r = required_string("k", "c");
+        assert!(r.required);
+        assert!(matches!(r.ty, TypeSchema::String));
+
+        let o = optional_string("k", "c");
+        assert!(!o.required);
+
+        let ou = optional_u64("k", "c");
+        assert!(!ou.required);
+
+        let j = json_output("result", "c");
+        assert!(j.required);
+        assert!(matches!(j.ty, TypeSchema::Json));
+    }
+
+    #[test]
+    fn to_json_wraps_rpc_outcome() {
+        let v = to_json(RpcOutcome::single_log(serde_json::json!({"ok": true}), "l"))
+            .expect("serialize");
+        assert!(v.get("logs").is_some() || v.get("result").is_some() || v.get("ok").is_some());
+    }
+
+    #[test]
+    fn deserialize_params_parses_valid_object() {
+        let mut m = Map::new();
+        m.insert("message".into(), Value::String("hi".into()));
+        let p: AgentChatParams = deserialize_params(m).expect("parse");
+        assert_eq!(p.message, "hi");
+    }
+
+    #[test]
+    fn deserialize_params_errors_on_invalid_shape() {
+        let mut m = Map::new();
+        m.insert("message".into(), Value::Bool(true));
+        let err = deserialize_params::<AgentChatParams>(m).unwrap_err();
+        assert!(err.contains("invalid params"));
+    }
+
+    #[test]
+    fn prompt_schema_has_inputs() {
+        let s = schemas("local_ai_prompt");
+        assert!(!s.inputs.is_empty());
+    }
+
+    #[test]
+    fn apply_preset_schema_has_inputs() {
+        let s = schemas("local_ai_apply_preset");
+        assert!(!s.inputs.is_empty());
+    }
+
+    #[test]
+    fn download_schema_optional_force_flag() {
+        let s = schemas("local_ai_download");
+        let force = s.inputs.iter().find(|f| f.name == "force");
+        assert!(force.is_some_and(|f| !f.required));
+    }
+
+    #[test]
+    fn summarize_schema_requires_text_or_equivalent() {
+        let s = schemas("local_ai_summarize");
+        assert!(s.inputs.iter().any(|f| f.required));
+    }
+
+    // ── Handler-level tests that don't need Ollama ────────────────
+
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn handle_device_profile_returns_device_shape() {
+        let v = handle_local_ai_device_profile(Map::new())
+            .await
+            .expect("ok");
+        // device profile exposes at least a few expected fields.
+        assert!(v.is_object());
+    }
+
+    #[tokio::test]
+    async fn handle_presets_returns_presets_list_and_recommended_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let v = handle_local_ai_presets(Map::new()).await.expect("ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(v.get("presets").is_some());
+        assert!(v.get("recommended_tier").is_some());
+        assert!(v.get("device").is_some());
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_rejects_invalid_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_bogus"))]);
+        let err = handle_local_ai_apply_preset(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("invalid tier"));
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_rejects_custom_tier() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("custom"))]);
+        let err = handle_local_ai_apply_preset(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("cannot apply 'custom'"));
+    }
+
+    #[tokio::test]
+    async fn handle_apply_preset_accepts_valid_tier_and_persists() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("tier".to_string(), serde_json::json!("ram_2_4gb"))]);
+        let result = handle_local_ai_apply_preset(params)
+            .await
+            .expect("apply ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(result.get("applied_tier").is_some());
+        assert!(result.get("chat_model_id").is_some());
+    }
+
+    #[tokio::test]
+    async fn handle_set_ollama_path_rejects_nonexistent_path() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([(
+            "path".to_string(),
+            serde_json::json!("/this/path/should/not/exist/ollama"),
+        )]);
+        let err = handle_local_ai_set_ollama_path(params).await.unwrap_err();
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+        assert!(err.contains("Ollama binary not found"));
+    }
+
+    #[tokio::test]
+    async fn handle_set_ollama_path_accepts_empty_string_to_clear() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let tmp = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+        let params = Map::from_iter([("path".to_string(), serde_json::json!(""))]);
+        // Empty path clears the setting — must not error.
+        let _ = handle_local_ai_set_ollama_path(params).await.expect("ok");
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
 }

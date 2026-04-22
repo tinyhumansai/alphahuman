@@ -67,6 +67,34 @@ pub fn add_agent_job(
     delivery: Option<DeliveryConfig>,
     delete_after_run: bool,
 ) -> Result<CronJob> {
+    add_agent_job_with_definition(
+        config,
+        name,
+        schedule,
+        prompt,
+        session_target,
+        model,
+        delivery,
+        delete_after_run,
+        None,
+    )
+}
+
+/// Like [`add_agent_job`] but accepts an optional built-in agent definition
+/// ID. When set, the scheduler resolves the agent definition from the
+/// registry and runs with its prompt, tool allowlist, and iteration cap.
+#[allow(clippy::too_many_arguments)]
+pub fn add_agent_job_with_definition(
+    config: &Config,
+    name: Option<String>,
+    schedule: Schedule,
+    prompt: &str,
+    session_target: SessionTarget,
+    model: Option<String>,
+    delivery: Option<DeliveryConfig>,
+    delete_after_run: bool,
+    agent_id: Option<String>,
+) -> Result<CronJob> {
     let now = Utc::now();
     validate_schedule(&schedule, now)?;
     let next_run = next_run_for_schedule(&schedule, now)?;
@@ -79,8 +107,8 @@ pub fn add_agent_job(
         conn.execute(
             "INSERT INTO cron_jobs (
                 id, expression, command, schedule, job_type, prompt, name, session_target, model,
-                enabled, delivery, delete_after_run, created_at, next_run
-             ) VALUES (?1, ?2, '', ?3, 'agent', ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11)",
+                enabled, delivery, delete_after_run, created_at, next_run, agent_id
+             ) VALUES (?1, ?2, '', ?3, 'agent', ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12)",
             params![
                 id,
                 expression,
@@ -93,6 +121,7 @@ pub fn add_agent_job(
                 if delete_after_run { 1 } else { 0 },
                 now.to_rfc3339(),
                 next_run.to_rfc3339(),
+                agent_id,
             ],
         )
         .context("Failed to insert cron agent job")?;
@@ -106,7 +135,8 @@ pub fn list_jobs(config: &Config) -> Result<Vec<CronJob>> {
     with_connection(config, |conn| {
         let mut stmt = conn.prepare(
             "SELECT id, expression, command, schedule, job_type, prompt, name, session_target, model,
-                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output
+                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output,
+                    agent_id
              FROM cron_jobs ORDER BY next_run ASC",
         )?;
 
@@ -124,7 +154,8 @@ pub fn get_job(config: &Config, job_id: &str) -> Result<CronJob> {
     with_connection(config, |conn| {
         let mut stmt = conn.prepare(
             "SELECT id, expression, command, schedule, job_type, prompt, name, session_target, model,
-                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output
+                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output,
+                    agent_id
              FROM cron_jobs WHERE id = ?1",
         )?;
 
@@ -157,7 +188,8 @@ pub fn due_jobs(config: &Config, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
     with_connection(config, |conn| {
         let mut stmt = conn.prepare(
             "SELECT id, expression, command, schedule, job_type, prompt, name, session_target, model,
-                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output
+                    enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output,
+                    agent_id
              FROM cron_jobs
              WHERE enabled = 1 AND next_run <= ?1
              ORDER BY next_run ASC
@@ -208,6 +240,9 @@ pub fn update_job(config: &Config, job_id: &str, patch: CronJobPatch) -> Result<
     if let Some(delete_after_run) = patch.delete_after_run {
         job.delete_after_run = delete_after_run;
     }
+    if let Some(agent_id) = patch.agent_id {
+        job.agent_id = agent_id;
+    }
 
     if schedule_changed {
         job.next_run = next_run_for_schedule(&job.schedule, Utc::now())?;
@@ -218,7 +253,7 @@ pub fn update_job(config: &Config, job_id: &str, patch: CronJobPatch) -> Result<
             "UPDATE cron_jobs
              SET expression = ?1, command = ?2, schedule = ?3, job_type = ?4, prompt = ?5, name = ?6,
                  session_target = ?7, model = ?8, enabled = ?9, delivery = ?10, delete_after_run = ?11,
-                 next_run = ?12
+                 next_run = ?12, agent_id = ?14
              WHERE id = ?13",
             params![
                 job.expression,
@@ -234,6 +269,7 @@ pub fn update_job(config: &Config, job_id: &str, patch: CronJobPatch) -> Result<
                 if job.delete_after_run { 1 } else { 0 },
                 job.next_run.to_rfc3339(),
                 job.id,
+                job.agent_id,
             ],
         )
         .context("Failed to update cron job")?;
@@ -428,6 +464,7 @@ fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronJob> {
         name: row.get(6)?,
         session_target: SessionTarget::parse(&row.get::<_, String>(7)?),
         model: row.get(8)?,
+        agent_id: row.get(17)?,
         enabled: row.get::<_, i64>(9)? != 0,
         delivery,
         delete_after_run: row.get::<_, i64>(11)? != 0,
@@ -560,6 +597,7 @@ fn with_connection<T>(config: &Config, f: impl FnOnce(&Connection) -> Result<T>)
     add_column_if_missing(&conn, "enabled", "INTEGER NOT NULL DEFAULT 1")?;
     add_column_if_missing(&conn, "delivery", "TEXT")?;
     add_column_if_missing(&conn, "delete_after_run", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column_if_missing(&conn, "agent_id", "TEXT")?;
 
     f(&conn)
 }

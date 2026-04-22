@@ -2,7 +2,7 @@
 //!
 //! Processes documents through the entity/relation extraction pipeline on a
 //! dedicated worker thread. This ensures that `doc_put` callers never block
-//! on the resource-intensive GLiNER model.
+//! on the heavier parsing and graph-write path.
 //!
 //! The queue uses a `tokio::sync::mpsc` channel to decouple document submission
 //! from the actual extraction process.
@@ -75,8 +75,7 @@ impl IngestionQueue {
 ///
 /// Returns an [`IngestionQueue`] handle that can be cloned and shared with
 /// any number of producers. The worker runs on a dedicated tokio task,
-/// processing jobs sequentially so the GLiNER model is never loaded in
-/// parallel (it is heavyweight).
+/// processing jobs sequentially so ingestion work stays serialized.
 pub fn start_worker(memory: Arc<UnifiedMemory>) -> IngestionQueue {
     // Create an unbounded channel for the ingestion jobs.
     let (tx, rx) = mpsc::unbounded_channel::<IngestionJob>();

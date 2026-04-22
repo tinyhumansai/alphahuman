@@ -17,6 +17,12 @@
 brew install tinyhumansai/openhuman/openhuman
 ```
 
+This is the current official Homebrew distribution channel and is backed by the
+custom tap at
+[tinyhumansai/homebrew-openhuman](https://github.com/tinyhumansai/homebrew-openhuman).
+The repository also now tracks a `homebrew/core` source-formula candidate for a
+future upstream submission; see [Homebrew Core Submission](./homebrew-core.md).
+
 **Update:**
 ```bash
 brew upgrade openhuman
@@ -28,8 +34,7 @@ brew uninstall openhuman
 brew untap tinyhumansai/openhuman   # optional: remove tap
 ```
 
-Homebrew installs the binary as `openhuman`. The tap lives at
-[tinyhumansai/homebrew-openhuman](https://github.com/tinyhumansai/homebrew-openhuman).
+Homebrew installs the binary as `openhuman`.
 
 ---
 
@@ -177,6 +182,22 @@ TARGET=x86_64-unknown-linux-gnu
 curl -fsSLO "https://github.com/tinyhumansai/openhuman/releases/download/v${VERSION}/openhuman-core-${VERSION}-${TARGET}.tar.gz"
 curl -fsSLO "https://github.com/tinyhumansai/openhuman/releases/download/v${VERSION}/openhuman-core-${VERSION}-${TARGET}.tar.gz.sha256"
 echo "$(cat openhuman-core-${VERSION}-${TARGET}.tar.gz.sha256)  openhuman-core-${VERSION}-${TARGET}.tar.gz" | sha256sum --check
+```
+
+---
+
+## Running from source
+
+The default runtime is **CEF** (bundled Chromium), which requires the **vendored CEF-aware `tauri-cli`** at `app/src-tauri/vendor/tauri-cef/crates/tauri-cli`. The stock `@tauri-apps/cli` does **not** know how to bundle the Chromium Embedded Framework into `OpenHuman.app/Contents/Frameworks/`, so a bundle produced by it panics at startup inside `cef::library_loader::LibraryLoader::new` with `No such file or directory`.
+
+All `cargo tauri` scripts in `app/package.json` (`yarn dev:app`, `yarn macos:build:*`, etc.) run [`scripts/ensure-tauri-cli.sh`](../scripts/ensure-tauri-cli.sh) first, which installs the vendored CLI into `~/.cargo/bin/cargo-tauri` on first use. Those scripts also `export CEF_PATH="$HOME/Library/Caches/tauri-cef"` so that **every** `cef-dll-sys` invocation — the main app's and the inner `cargo build` that `tauri-bundler`'s `build.rs` runs to produce the embedded `cef-helper` — resolves to the same CEF binary distribution. Without this, the embedded helper ends up with bindings from a *different* downloaded CEF than the framework loaded at runtime, and helper processes abort with `FATAL: CefApp_0_CToCpp called with invalid version -1`.
+
+If you ever overwrite `cargo-tauri` (e.g. `npm i -g @tauri-apps/cli` or `cargo install tauri-cli`), or switch CEF versions, reinstall with `CEF_PATH` set and force a bundler rebuild (touch forces `tauri-bundler/build.rs` to recompile the embedded cef-helper):
+
+```bash
+export CEF_PATH="$HOME/Library/Caches/tauri-cef"
+touch app/src-tauri/vendor/tauri-cef/cef-helper/src/*.rs
+cargo install --force --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli
 ```
 
 ---

@@ -50,8 +50,6 @@ impl Default for MultimodalConfig {
 pub struct BrowserComputerUseConfig {
     #[serde(default = "default_browser_computer_use_endpoint")]
     pub endpoint: String,
-    #[serde(default)]
-    pub api_key: Option<String>,
     #[serde(default = "default_browser_computer_use_timeout_ms")]
     pub timeout_ms: u64,
     #[serde(default)]
@@ -76,7 +74,6 @@ impl Default for BrowserComputerUseConfig {
     fn default() -> Self {
         Self {
             endpoint: default_browser_computer_use_endpoint(),
-            api_key: None,
             timeout_ms: default_browser_computer_use_timeout_ms(),
             allow_remote_endpoint: false,
             window_allowlist: Vec::new(),
@@ -136,8 +133,6 @@ impl Default for BrowserConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct HttpRequestConfig {
     #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
     pub allowed_domains: Vec<String>,
     #[serde(default = "default_http_max_response_size")]
     pub max_response_size: usize,
@@ -155,27 +150,10 @@ fn default_http_timeout_secs() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WebSearchConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Search provider. Valid values: `duckduckgo` (default, free), `brave` (requires `brave_api_key`),
-    /// `parallel` (requires `parallel_api_key`).
-    #[serde(default = "default_web_search_provider")]
-    pub provider: String,
-    /// API key for the Brave Search API. Set via `OPENHUMAN_BRAVE_API_KEY` / `BRAVE_API_KEY`.
-    #[serde(default)]
-    pub brave_api_key: Option<String>,
-    /// API key for the Parallel Search API (<https://docs.parallel.ai>).
-    /// Set via `OPENHUMAN_PARALLEL_API_KEY` / `PARALLEL_API_KEY`.
-    #[serde(default)]
-    pub parallel_api_key: Option<String>,
     #[serde(default = "default_web_search_max_results")]
     pub max_results: usize,
     #[serde(default = "default_web_search_timeout_secs")]
     pub timeout_secs: u64,
-}
-
-fn default_web_search_provider() -> String {
-    "duckduckgo".into()
 }
 
 fn default_web_search_max_results() -> usize {
@@ -189,10 +167,6 @@ fn default_web_search_timeout_secs() -> u64 {
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            provider: default_web_search_provider(),
-            brave_api_key: None,
-            parallel_api_key: None,
             max_results: default_web_search_max_results(),
             timeout_secs: default_web_search_timeout_secs(),
         }
@@ -203,8 +177,6 @@ impl Default for WebSearchConfig {
 pub struct ComposioConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
-    pub api_key: Option<String>,
     #[serde(default = "default_entity_id")]
     pub entity_id: String,
 }
@@ -217,7 +189,6 @@ impl Default for ComposioConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            api_key: None,
             entity_id: default_entity_id(),
         }
     }
@@ -235,6 +206,16 @@ impl Default for SecretsConfig {
             encrypt: defaults::default_true(),
         }
     }
+}
+
+// ── Native computer control (mouse + keyboard) ─────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ComputerControlConfig {
+    /// Master toggle for mouse and keyboard tools. Disabled by default —
+    /// the user must explicitly opt in.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 // ── Agent integration tools (backend-proxied) ───────────────────────
@@ -256,23 +237,22 @@ impl Default for IntegrationToggle {
 
 /// Agent integration tools that proxy through the backend API.
 ///
-/// When enabled, the agent gains access to tools like web search (Parallel),
-/// location search (Google Places), and phone calls (Twilio). The backend
-/// handles external API calls, billing, and rate limiting; the client only
-/// forwards requests and displays results.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The backend URL and auth token are **not** configurable here —
+/// they're always resolved from the core `config.api_url` plus the
+/// app-session JWT.
+/// Composio in particular is unconditionally enabled and has no toggle:
+/// as long as the user is signed in, composio tools are available.
+///
+/// The per-tool `apify`, `twilio`, `google_places`, and `parallel`
+/// flags below are preserved because those integrations incur per-call
+/// costs that the user may legitimately want to turn off; composio
+/// costs are metered server-side, so there is no client-side toggle
+/// for it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct IntegrationsConfig {
-    /// Master switch — set to `true` to register integration tools.
+    /// Apify actor execution and scraper integration.
     #[serde(default)]
-    pub enabled: bool,
-
-    /// Backend API base URL (e.g. "https://api.openhuman.ai").
-    #[serde(default)]
-    pub backend_url: Option<String>,
-
-    /// JWT Bearer token for authenticating with the backend.
-    #[serde(default)]
-    pub auth_token: Option<String>,
+    pub apify: IntegrationToggle,
 
     /// Twilio phone-call integration.
     #[serde(default)]
@@ -285,17 +265,4 @@ pub struct IntegrationsConfig {
     /// Parallel web search & content extraction integration.
     #[serde(default)]
     pub parallel: IntegrationToggle,
-}
-
-impl Default for IntegrationsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            backend_url: None,
-            auth_token: None,
-            twilio: IntegrationToggle::default(),
-            google_places: IntegrationToggle::default(),
-            parallel: IntegrationToggle::default(),
-        }
-    }
 }

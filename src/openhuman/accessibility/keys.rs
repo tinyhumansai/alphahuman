@@ -91,10 +91,28 @@ pub fn is_escape_key_down() -> bool {
 // macOS FFI declarations
 // ---------------------------------------------------------------------------
 
+/// Returns true if any meaningful modifier (Shift/Control/Option/Command) is currently held.
+/// Used to avoid treating shortcut chords (e.g. Ctrl+Tab app-switch) as autocomplete accept.
+#[cfg(target_os = "macos")]
+pub fn any_modifier_down() -> bool {
+    refresh_input_monitoring_cache();
+    if !INPUT_MONITORING_GRANTED.load(Ordering::Relaxed) {
+        return false;
+    }
+    let flags = unsafe { CGEventSourceFlagsState(KCG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE) };
+    (flags & CG_MODIFIER_MASK) != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn any_modifier_down() -> bool {
+    false
+}
+
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn CGEventSourceKeyState(state_id: i32, key: u16) -> bool;
+    fn CGEventSourceFlagsState(state_id: i32) -> u64;
 }
 
 #[cfg(target_os = "macos")]
@@ -103,3 +121,35 @@ const KCG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE: i32 = 0;
 const KVK_TAB: u16 = 48;
 #[cfg(target_os = "macos")]
 const KVK_ESCAPE: u16 = 53;
+// CGEventFlags bits: Shift | Control | Option(Alt) | Command. Excludes caps-lock and fn.
+#[cfg(target_os = "macos")]
+const CG_MODIFIER_MASK: u64 = 0x0002_0000 | 0x0004_0000 | 0x0008_0000 | 0x0010_0000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_tab_key_down_returns_bool() {
+        // Just verify it doesn't panic and returns a bool.
+        let _result: bool = is_tab_key_down();
+    }
+
+    #[test]
+    fn is_escape_key_down_returns_bool() {
+        let _result: bool = is_escape_key_down();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn input_monitoring_recheck_interval_is_positive() {
+        assert!(INPUT_MONITORING_RECHECK_MS > 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kvk_constants_are_correct() {
+        assert_eq!(KVK_TAB, 48);
+        assert_eq!(KVK_ESCAPE, 53);
+    }
+}

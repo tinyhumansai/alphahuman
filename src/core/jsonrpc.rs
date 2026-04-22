@@ -24,40 +24,60 @@ use crate::core::types::{AppState, RpcError, RpcFailure, RpcRequest, RpcSuccess}
 
 /// Axum handler for JSON-RPC POST requests.
 ///
-/// It parses the request, invokes the requested method, and returns a
-/// JSON-RPC 2.0 compliant success or failure response.
+/// This function:
+/// 1. Receives a JSON-RPC request body.
+/// 2. Extracts the method name and parameters.
+/// 3. Invokes the corresponding handler via [`invoke_method`].
+/// 4. Wraps the result or error in a JSON-RPC 2.0 compliant response.
+///
+/// # Arguments
+///
+/// * `state` - The application state, injected by Axum.
+/// * `req` - The parsed [`RpcRequest`].
 pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcRequest>) -> Response {
     let id = req.id.clone();
-    match invoke_method(state, req.method.as_str(), req.params).await {
-        Ok(value) => (
-            StatusCode::OK,
-            Json(RpcSuccess {
-                jsonrpc: "2.0",
-                id,
-                result: value,
-            }),
-        )
-            .into_response(),
-        Err(message) => (
-            StatusCode::OK,
-            Json(RpcFailure {
-                jsonrpc: "2.0",
-                id,
-                error: RpcError {
-                    code: -32000,
-                    message,
-                    data: None,
-                },
-            }),
-        )
-            .into_response(),
+    let method = req.method.clone();
+    let started = std::time::Instant::now();
+    let result = invoke_method(state, method.as_str(), req.params).await;
+    let ms = started.elapsed().as_millis();
+
+    match result {
+        Ok(value) => {
+            tracing::info!("[rpc] {} -> ok ({}ms)", method, ms);
+            (
+                StatusCode::OK,
+                Json(RpcSuccess {
+                    jsonrpc: "2.0",
+                    id,
+                    result: value,
+                }),
+            )
+                .into_response()
+        }
+        Err(message) => {
+            tracing::info!("[rpc] {} -> err ({}ms): {}", method, ms, message);
+            (
+                StatusCode::OK,
+                Json(RpcFailure {
+                    jsonrpc: "2.0",
+                    id,
+                    error: RpcError {
+                        code: -32000,
+                        message,
+                        data: None,
+                    },
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
 /// Invokes a JSON-RPC method by name.
 ///
-/// It first checks if the method is registered in the static schema registry.
-/// If not, it falls back to the dynamic dispatch system.
+/// This is a high-level wrapper around [`invoke_method_inner`] that adds
+/// automatic session management logic. If a call fails with a 401 Unauthorized
+/// error from the backend, it will automatically clear the local session.
 ///
 /// # Arguments
 ///
@@ -67,9 +87,8 @@ pub async fn rpc_handler(State(state): State<AppState>, Json(req): Json<RpcReque
 pub async fn invoke_method(state: AppState, method: &str, params: Value) -> Result<Value, String> {
     let result = invoke_method_inner(state, method, params).await;
 
-    // If the RPC call failed due to an expired/invalid session token (401 from
-    // the backend), automatically clear the stored session so the frontend
-    // detects the logged-out state and redirects to login.
+    // Session auto-cleanup: If the backend says we're unauthorized,
+    // we should reflect that locally by clearing the stored token.
     if let Err(ref msg) = result {
         if is_session_expired_error(msg) {
             log::warn!(
@@ -85,6 +104,7 @@ pub async fn invoke_method(state: AppState, method: &str, params: Value) -> Resu
     result
 }
 
+/// Helper to determine if an error message indicates an expired or invalid session.
 fn is_session_expired_error(msg: &str) -> bool {
     let lower = msg.to_lowercase();
     (lower.contains("401") && lower.contains("unauthorized"))
@@ -92,13 +112,21 @@ fn is_session_expired_error(msg: &str) -> bool {
         || msg.contains("SESSION_EXPIRED")
 }
 
+/// Internal method invocation logic.
+///
+/// It first attempts to match the method name against the static controller
+/// registry (schemas). If a schema is found, it validates the input parameters
+/// before execution. If no schema matches, it falls back to the dynamic
+/// [`crate::core::dispatch::dispatch`] system.
 async fn invoke_method_inner(
     state: AppState,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
+    // Phase 1: Check static controller registry.
     if let Some(schema) = all::schema_for_rpc_method(method) {
         let params_obj = params_to_object(params)?;
+        // Validate inputs against the schema before calling the handler.
         all::validate_params(&schema, &params_obj)?;
         if let Some(result) = all::try_invoke_registered_rpc(method, params_obj).await {
             return result;
@@ -106,10 +134,14 @@ async fn invoke_method_inner(
         return Err(format!("registered schema has no handler: {method}"));
     }
 
+    // Phase 2: Fall back to dynamic dispatch (internal core methods or legacy paths).
     crate::core::dispatch::dispatch(state, method, params).await
 }
 
 /// Converts JSON parameters into a map, ensuring they are in object format.
+///
+/// JSON-RPC allows parameters to be an Object, an Array, or Null. This implementation
+/// primarily supports Object parameters for named-argument style calls.
 fn params_to_object(params: Value) -> Result<Map<String, Value>, String> {
     match params {
         Value::Object(map) => Ok(map),
@@ -374,6 +406,9 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
 }
 
 /// Middleware for logging incoming HTTP requests.
+///
+/// The `/rpc` path is logged inside [`rpc_handler`] instead (with the
+/// JSON-RPC method name), so we skip it here to avoid a redundant line.
 async fn http_request_log_middleware(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -382,16 +417,18 @@ async fn http_request_log_middleware(req: Request, next: Next) -> Response {
 
     let response = next.run(req).await;
 
-    let status = response.status().as_u16();
-    let ms = started.elapsed().as_millis();
-    log::info!(
-        "[http] {} {}{} -> {} ({}ms)",
-        method,
-        path,
-        if query_len > 0 { "?…" } else { "" },
-        status,
-        ms
-    );
+    if path != "/rpc" {
+        let status = response.status().as_u16();
+        let ms = started.elapsed().as_millis();
+        tracing::info!(
+            "[http] {} {}{} -> {} ({}ms)",
+            method,
+            path,
+            if query_len > 0 { "?…" } else { "" },
+            status,
+            ms
+        );
+    }
 
     response
 }
@@ -473,32 +510,11 @@ async fn events_handler(
 
 /// Handler for the webhook debug events SSE endpoint.
 async fn webhook_events_handler() -> Response {
-    let Some(engine) = crate::openhuman::skills::global_engine() else {
-        let stream = tokio_stream::once(Ok::<Event, std::convert::Infallible>(
-            Event::default()
-                .event("webhooks_debug")
-                .data("{\"event_type\":\"runtime_unavailable\"}"),
-        ));
-        return Sse::new(stream)
-            .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(10)))
-            .into_response();
-    };
-
-    let rx = engine.webhook_router().subscribe_debug_events();
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |item| {
-        let event = match item {
-            Ok(ev) => ev,
-            Err(_) => return None,
-        };
-        let data = match serde_json::to_string(&event) {
-            Ok(data) => data,
-            Err(_) => return None,
-        };
-        Some(Ok::<Event, std::convert::Infallible>(
-            Event::default().event("webhooks_debug").data(data),
-        ))
-    });
-
+    let stream = tokio_stream::once(Ok::<Event, std::convert::Infallible>(
+        Event::default()
+            .event("webhooks_debug")
+            .data("{\"event_type\":\"runtime_removed\"}"),
+    ));
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(10)))
         .into_response()
@@ -565,7 +581,7 @@ fn core_host() -> String {
 /// Runs the HTTP/JSON-RPC server.
 ///
 /// This function binds to the specified host and port, initializes the router,
-/// bootstraps the skill runtime, and starts serving requests.
+/// bootstraps long-lived runtime infrastructure, and starts serving requests.
 pub async fn run_server(
     host: Option<&str>,
     port: Option<u16>,
@@ -574,8 +590,7 @@ pub async fn run_server(
     run_server_inner(host, port, socketio_enabled, false).await
 }
 
-/// Like [`run_server`] but marks the instance as embedded — the overlay will
-/// **not** be auto-spawned, preventing recursive overlay launches.
+/// Like [`run_server`] but marks the instance as embedded.
 pub async fn run_server_embedded(
     host: Option<&str>,
     port: Option<u16>,
@@ -585,9 +600,6 @@ pub async fn run_server_embedded(
 }
 
 /// Internal server entrypoint.
-///
-/// When `embedded_core` is `true` the server skips auto-spawning the overlay
-/// (useful when the overlay itself hosts an embedded core to avoid recursion).
 async fn run_server_inner(
     host: Option<&str>,
     port: Option<u16>,
@@ -654,57 +666,69 @@ async fn run_server_inner(
         log::info!("[rpc:socketio] disabled (--jsonrpc-only)");
     }
 
-    // Derive the real bound address from the listener so ephemeral port 0,
-    // wildcard binds, and IPv6 are handled correctly.
-    let bound_addr = listener.local_addr()?;
-    let parent_core_rpc_url = {
-        let (h, p) = (bound_addr.ip(), bound_addr.port());
-        let effective_ip = if h.is_unspecified() {
-            if h.is_ipv6() {
-                std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
-            } else {
-                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
-            }
-        } else {
-            h
-        };
-        if effective_ip.is_ipv6() {
-            format!("http://[{effective_ip}]:{p}/rpc")
-        } else {
-            format!("http://{effective_ip}:{p}/rpc")
-        }
-    };
-    log::debug!("[core] parent_core_rpc_url = {parent_core_rpc_url}");
-
-    // Optional background bootstrap for local AI services.
-    let is_embedded = embedded_core;
+    // Background bootstrap for services — gated on login state.
+    //
+    // Heavy services (local AI, voice, screen intelligence, autocomplete)
+    // are only started when a user is logged in. If no user session exists
+    // on disk, startup is deferred until the login handler in
+    // `credentials::ops::store_session()` triggers it.
     tokio::spawn(async move {
         match crate::openhuman::config::Config::load_or_init().await {
             Ok(config) => {
-                if config.local_ai.enabled {
-                    let service = crate::openhuman::local_ai::global(&config);
-                    service.bootstrap(&config).await;
-                }
-
-                // Launch the overlay Tauri app (transparent debug/voice panel) as a child process.
-                // Skip when running as an embedded core inside the overlay itself.
-                if is_embedded {
-                    log::info!("[overlay] embedded core — skipping overlay auto-spawn");
-                } else if config.overlay_enabled {
-                    crate::openhuman::overlay::spawn_overlay(parent_core_rpc_url.as_str());
+                if embedded_core {
+                    log::debug!("[core] embedded core startup");
                 } else {
-                    log::info!("[overlay] overlay disabled by config (overlay_enabled = false)");
+                    log::debug!("[core] desktop core startup");
                 }
 
-                // Start the global dictation hotkey listener (rdev-based, core-side).
-                crate::openhuman::voice::server::start_if_enabled(&config).await;
-                crate::openhuman::voice::dictation_listener::start_if_enabled(&config).await;
+                // Register autocomplete shutdown hook so the engine (and its
+                // Swift overlay helper) are stopped cleanly on process exit.
+                // This is unconditional — the hook should fire regardless of
+                // whether the user is currently logged in.
+                crate::core::shutdown::register(|| async {
+                    let engine = crate::openhuman::autocomplete::global_engine();
+                    let status = engine.status().await;
+                    if status.running {
+                        log::info!(
+                            "[core] stopping autocomplete engine (phase={})",
+                            status.phase
+                        );
+                        engine.stop(None).await;
+                        log::info!("[core] autocomplete engine stopped");
+                    }
+                });
 
-                // Initialize screen intelligence engine if enabled in config.
-                crate::openhuman::screen_intelligence::server::start_if_enabled(&config).await;
+                // Check if a user is already logged in from a previous session.
+                let already_logged_in = crate::openhuman::config::default_root_openhuman_dir()
+                    .ok()
+                    .and_then(|root| crate::openhuman::config::read_active_user_id(&root))
+                    .is_some();
+
+                if already_logged_in {
+                    // User has an active session — start all services now.
+                    log::info!("[services] existing session found, starting services");
+                    crate::openhuman::credentials::ops::start_login_gated_services(&config).await;
+
+                    // Subconscious engine + heartbeat.
+                    if !config.heartbeat.enabled {
+                        log::info!("[subconscious] disabled by config (heartbeat.enabled = false)");
+                    } else {
+                        match crate::openhuman::subconscious::global::bootstrap_after_login().await
+                        {
+                            Ok(()) => log::info!(
+                                "[subconscious] bootstrapped on startup (existing session)"
+                            ),
+                            Err(e) => log::warn!("[subconscious] startup bootstrap failed: {e}"),
+                        }
+                    }
+                } else {
+                    log::info!(
+                        "[services] no active session — deferring service startup until login"
+                    );
+                }
             }
             Err(err) => {
-                log::warn!("[core] config load failed, skipping local-ai and overlay: {err}");
+                log::warn!("[core] config load failed, skipping service startup: {err}");
             }
         }
     });
@@ -721,85 +745,140 @@ async fn run_server_inner(
         }
     });
 
-    axum::serve(listener, app).await?;
+    // Realtime channel listeners (Telegram getUpdates, Discord gateway, etc.) live in
+    // `start_channels`. Without this task, `openhuman run` would only expose RPC while
+    // inbound bot messages are never polled.
+    if std::env::var("OPENHUMAN_DISABLE_CHANNEL_LISTENERS")
+        .ok()
+        .filter(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .is_none()
+    {
+        tokio::spawn(async move {
+            let config = match crate::openhuman::config::Config::load_or_init().await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!("[channels] could not load config for listeners: {e}");
+                    return;
+                }
+            };
+            if !config.channels_config.has_listening_integrations() {
+                log::debug!(
+                    "[channels] no channel integrations configured; not spawning listeners"
+                );
+                return;
+            }
+            log::info!("[channels] spawning in-process realtime listeners (Telegram, Discord, …)");
+            if let Err(e) = crate::openhuman::channels::start_channels(config).await {
+                log::error!("[channels] start_channels ended with error: {e}");
+            }
+        });
+    } else {
+        log::info!("[channels] OPENHUMAN_DISABLE_CHANNEL_LISTENERS set — skipping start_channels");
+    }
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(crate::core::shutdown::signal())
+        .await?;
     Ok(())
 }
 
-/// Initializes the QuickJS skill runtime, socket manager, and registers them
-/// globally so RPC handlers (`openhuman.skills_*`, `openhuman.socket_*`) can
-/// reach them.
+/// Registers all long-lived domain event-bus subscribers exactly once.
+///
+/// Guarded by `std::sync::Once` so repeated calls to `bootstrap_skill_runtime`
+/// are safe and idempotent.
+fn register_domain_subscribers(workspace_dir: std::path::PathBuf) {
+    use std::sync::{Arc, Once};
+
+    static REGISTERED: Once = Once::new();
+    REGISTERED.call_once(|| {
+        // Leak the SubscriptionHandle so the background tasks live for the
+        // entire process — SubscriptionHandle::drop aborts the task.
+        if let Some(handle) = crate::core::event_bus::subscribe_global(Arc::new(
+            crate::openhuman::webhooks::bus::WebhookRequestSubscriber::new(),
+        )) {
+            std::mem::forget(handle);
+        } else {
+            log::warn!("[event_bus] failed to register webhook subscriber — bus not initialized");
+        }
+
+        if let Some(handle) = crate::core::event_bus::subscribe_global(Arc::new(
+            crate::openhuman::channels::bus::ChannelInboundSubscriber::new(),
+        )) {
+            std::mem::forget(handle);
+        } else {
+            log::warn!("[event_bus] failed to register channel subscriber — bus not initialized");
+        }
+
+        crate::openhuman::health::bus::register_health_subscriber();
+        crate::openhuman::memory::conversations::register_conversation_persistence_subscriber(
+            workspace_dir.clone(),
+        );
+        if let Err(error) = crate::openhuman::composio::init_composio_trigger_history(
+            workspace_dir.clone(),
+        ) {
+            log::warn!("[composio][history] failed to initialize trigger archive: {error}");
+        }
+        crate::openhuman::composio::register_composio_trigger_subscriber();
+        crate::openhuman::composio::start_periodic_sync();
+
+        // Restart requests go through a subscriber so every trigger path shares
+        // the same respawn logic.
+        crate::openhuman::service::bus::register_restart_subscriber();
+
+        // Proactive message subscriber (web-only in the desktop runtime —
+        // no external channel instances are registered here). Uses a
+        // Once-guarded registrar so domain-level startup can't duplicate it.
+        crate::openhuman::channels::proactive::register_web_only_proactive_subscriber();
+
+        // Native request handlers — typed in-process request/response.
+        // The agent `agent.run_turn` handler is what channel dispatch
+        // calls instead of importing `run_tool_call_loop` directly.
+        crate::openhuman::agent::bus::register_agent_handlers();
+
+        log::info!(
+            "[event_bus] domain subscribers registered (webhook, channel, health, conversation, composio, restart, proactive, agent)"
+        );
+    });
+}
+
+/// Initializes long-lived socket/event-bus infrastructure.
 pub async fn bootstrap_skill_runtime() {
-    use crate::openhuman::skills::qjs_engine::{set_global_engine, RuntimeEngine};
     use crate::openhuman::socket::{set_global_socket_manager, SocketManager};
     use std::sync::Arc;
-
-    // Resolve the base directory (~/.openhuman or $OPENHUMAN_WORKSPACE).
-    let base_dir = std::env::var("OPENHUMAN_WORKSPACE")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".openhuman")
-        });
-
-    let skills_data_dir = base_dir.join("skills_data");
-    if let Err(e) = std::fs::create_dir_all(&skills_data_dir) {
-        log::error!("[runtime] Failed to create skills data dir: {e}");
-        return;
-    }
-
-    let engine = match RuntimeEngine::new(skills_data_dir) {
-        Ok(e) => Arc::new(e),
+    let cfg = match crate::openhuman::config::Config::load_or_init().await {
+        Ok(cfg) => cfg,
         Err(e) => {
-            log::error!("[runtime] Failed to create RuntimeEngine: {e}");
+            log::error!("[runtime] Failed to load config for socket manager: {e}");
             return;
         }
     };
-
-    // Point the engine at the workspace directory for user-installed skills.
-    let workspace_dir = base_dir.join("workspace");
-    let _ = std::fs::create_dir_all(&workspace_dir);
-    engine.set_workspace_dir(workspace_dir);
+    let workspace_dir = cfg.workspace_dir.clone();
 
     // --- Event bus bootstrap ---
     // Ensure the global event bus is initialized (no-op if already done by start_channels).
-    let bus =
-        crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
+    crate::core::event_bus::init_global(crate::core::event_bus::DEFAULT_CAPACITY);
     // Register domain subscribers for cross-module event handling.
-    // Leak the handles so the background tasks live for the entire process —
-    // SubscriptionHandle::drop aborts the task, and bootstrap_skill_runtime()
-    // returns immediately after setup.
-    std::mem::forget(bus.subscribe(Arc::new(
-        crate::openhuman::webhooks::bus::WebhookRequestSubscriber::new(),
-    )));
-    std::mem::forget(bus.subscribe(Arc::new(
-        crate::openhuman::channels::bus::ChannelInboundSubscriber::new(),
-    )));
-    log::info!("[event_bus] webhook and channel subscribers registered");
+    // Uses a Once guard so repeated calls to bootstrap_skill_runtime()
+    // cannot double-subscribe.
+    register_domain_subscribers(workspace_dir.clone());
+
+    // --- Sub-agent definition registry bootstrap ---
+    // Loads built-in archetype definitions plus any custom TOML files
+    // under `<workspace>/agents/*.toml`. Idempotent — safe to call
+    // multiple times. Uses the per-user scoped workspace_dir.
+    if let Err(err) =
+        crate::openhuman::agent::harness::AgentDefinitionRegistry::init_global(&workspace_dir)
+    {
+        log::warn!(
+            "[runtime] AgentDefinitionRegistry::init_global failed: {err} — \
+             spawn_subagent will be unavailable until restart"
+        );
+    }
 
     // --- Socket manager bootstrap ---
     let socket_mgr = Arc::new(SocketManager::new());
     set_global_socket_manager(socket_mgr.clone());
     log::info!("[socket] SocketManager initialized and registered globally");
-
-    // Register engine globally so RPC handlers can access it.
-    set_global_engine(engine.clone());
-
-    // Start the ping scheduler (background health checks).
-    engine.ping_scheduler().start();
-
-    // Start the cron scheduler.
-    engine.cron_scheduler().start();
-
-    log::info!("[runtime] Skill runtime initialized");
-
-    // Auto-start skills in the background so it doesn't block server startup.
-    let engine_for_skills = engine.clone();
-    tokio::spawn(async move {
-        engine_for_skills.auto_start_skills().await;
-    });
 
     // Auto-connect socket to backend if a session token is already stored.
     // This runs in the background so it doesn't block server startup.

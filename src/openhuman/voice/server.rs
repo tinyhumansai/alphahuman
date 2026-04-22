@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
 use crate::openhuman::accessibility;
@@ -94,9 +95,12 @@ impl Default for VoiceServerConfig {
 /// The voice server runtime.
 pub struct VoiceServer {
     state: Arc<Mutex<ServerState>>,
-    cancel: CancellationToken,
+    /// Wrapped in a Mutex so `run()` can replace it with a fresh token after
+    /// `stop()` — a `CancellationToken` cannot be un-cancelled.
+    cancel: Mutex<CancellationToken>,
     config: VoiceServerConfig,
     transcription_count: Arc<std::sync::atomic::AtomicU64>,
+    session_generation: Arc<std::sync::atomic::AtomicU64>,
     last_error: Arc<Mutex<Option<String>>>,
     /// Rolling buffer of recent transcriptions used as whisper context for
     /// better continuity across consecutive recordings.
@@ -107,9 +111,10 @@ impl VoiceServer {
     pub fn new(config: VoiceServerConfig) -> Self {
         Self {
             state: Arc::new(Mutex::new(ServerState::Stopped)),
-            cancel: CancellationToken::new(),
+            cancel: Mutex::new(CancellationToken::new()),
             config,
             transcription_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            session_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_error: Arc::new(Mutex::new(None)),
             recent_transcripts: Arc::new(Mutex::new(Vec::new())),
         }
@@ -130,16 +135,47 @@ impl VoiceServer {
     ///
     /// This is the main entry point for both embedded and standalone modes.
     pub async fn run(&self, app_config: &Config) -> Result<(), String> {
+        // Atomically transition Stopped → Idle to prevent concurrent run() calls.
+        // The globe listener compilation can take several seconds; without this
+        // guard the RPC handler sees "Stopped" and spawns a duplicate run().
+        //
+        // Also replace the cancellation token with a fresh one — a cancelled
+        // token cannot be reused (stop() cancels it permanently).
+        let cancel = {
+            // Lock cancel FIRST, then state — same order as stop() — to
+            // prevent a race where stop() cancels the old token between
+            // setting Idle and swapping the token.
+            let mut cancel_guard = self.cancel.lock().await;
+            let mut state = self.state.lock().await;
+            if *state != ServerState::Stopped {
+                return Err(format!("voice server already running (state={:?})", *state));
+            }
+
+            let fresh = CancellationToken::new();
+            *cancel_guard = fresh.clone();
+            *state = ServerState::Idle;
+            fresh
+        };
+
         info!(
             "{LOG_PREFIX} starting voice server: hotkey={} mode={:?}",
             self.config.hotkey, self.config.activation_mode
         );
 
-        let combo = hotkey::parse_hotkey(&self.config.hotkey)?;
-        let (listener_handle, mut hotkey_rx) =
-            hotkey::start_listener(combo, self.config.activation_mode)?;
-
-        *self.state.lock().await = ServerState::Idle;
+        // On macOS, the Fn/Globe key is intercepted by the system before
+        // rdev's CGEventTap can see it. Use the Swift-based globe listener
+        // instead, which monitors NSEvent.flagsChanged for the .function flag.
+        let (listener_handle, mut hotkey_rx) = match start_hotkey_listener(
+            &self.config.hotkey,
+            self.config.activation_mode,
+            &cancel,
+        ) {
+            Ok(pair) => pair,
+            Err(e) => {
+                *self.state.lock().await = ServerState::Stopped;
+                return Err(e);
+            }
+        };
 
         info!("{LOG_PREFIX} voice server ready, listening for hotkey");
 
@@ -153,6 +189,8 @@ impl VoiceServer {
             tokio::sync::oneshot::Receiver<Result<RecordingHandle, String>>,
         > = None;
         let mut pending_expected_app: Option<String> = None;
+        let mut pending_generation: Option<u64> = None;
+        let mut recording_generation: Option<u64> = None;
         // Set when a stop-intent event (Release/Pressed toggle) arrives before
         // recording has started.
         let mut pending_stop = false;
@@ -191,6 +229,27 @@ impl VoiceServer {
                         }
                     };
 
+                    // Forward hotkey event to the dictation bus so Socket.IO
+                    // clients receive dictation:toggle events even when the
+                    // dictation_listener is not running (single rdev listener).
+                    {
+                        use super::dictation_listener;
+                        let event_type = match event {
+                            HotkeyEvent::Pressed => "pressed",
+                            HotkeyEvent::Released => "released",
+                        };
+                        dictation_listener::publish_dictation_event(
+                            dictation_listener::DictationEvent {
+                                event_type: event_type.to_string(),
+                                hotkey: self.config.hotkey.clone(),
+                                activation_mode: match self.config.activation_mode {
+                                    ActivationMode::Tap => "toggle".to_string(),
+                                    ActivationMode::Push => "push".to_string(),
+                                },
+                            },
+                        );
+                    }
+
                     match event {
                         HotkeyEvent::Pressed => {
                             let current_state = *self.state.lock().await;
@@ -208,6 +267,7 @@ impl VoiceServer {
                                     self.spawn_process_recording(
                                         handle,
                                         app_config,
+                                        recording_generation.take().unwrap_or_default(),
                                         recording_expected_app.take(),
                                     );
                                 }
@@ -216,7 +276,13 @@ impl VoiceServer {
                                 pending_stop = true;
                             } else {
                                 let expected_app = capture_expected_app_name();
+                                let generation =
+                                    self.session_generation.fetch_add(1, Ordering::Relaxed) + 1;
                                 debug!("{LOG_PREFIX} hotkey pressed → starting recording (non-blocking)");
+                                debug!(
+                                    "{LOG_PREFIX} assigned recording generation={} for new session",
+                                    generation
+                                );
 
                                 // Start recording on a blocking thread so the
                                 // event loop remains responsive to Release.
@@ -227,6 +293,7 @@ impl VoiceServer {
                                 });
                                 recording_pending_rx = Some(rx);
                                 pending_expected_app = expected_app;
+                                pending_generation = Some(generation);
                                 pending_stop = false;
                                 deferred_stop_deadline = None;
                                 *self.state.lock().await = ServerState::Recording;
@@ -244,6 +311,7 @@ impl VoiceServer {
                                 self.spawn_process_recording(
                                     handle,
                                     app_config,
+                                    recording_generation.take().unwrap_or_default(),
                                     recording_expected_app.take(),
                                 );
                             } else if recording_pending_rx.is_some() {
@@ -263,13 +331,46 @@ impl VoiceServer {
                     recording_pending_rx = None;
                     match result {
                         Ok(Ok(handle)) => {
-                            info!("{LOG_PREFIX} recording handle ready (pending_stop={pending_stop})");
+                            // Check for a buffered stop event that lost the
+                            // select! race against pending_ready. On warm CPAL
+                            // init both branches may be ready simultaneously;
+                            // select! picks one pseudo-randomly, so a Released
+                            // event can sit unprocessed in hotkey_rx.
+                            let had_pending_stop = pending_stop;
+                            if !pending_stop {
+                                if let Ok(buffered) = hotkey_rx.try_recv() {
+                                    match buffered {
+                                        HotkeyEvent::Released => {
+                                            info!(
+                                                "{LOG_PREFIX} recording handle ready — found buffered Released in hotkey_rx (select! race recovered)"
+                                            );
+                                            pending_stop = true;
+                                        }
+                                        HotkeyEvent::Pressed => {
+                                            // A second Pressed while pending means
+                                            // user wants to stop (tap-style). Treat
+                                            // the same as a stop intent.
+                                            info!(
+                                                "{LOG_PREFIX} recording handle ready — found buffered Pressed in hotkey_rx (treating as stop intent)"
+                                            );
+                                            pending_stop = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            info!(
+                                "{LOG_PREFIX} recording handle ready (pending_stop={pending_stop}, was_buffered={})",
+                                !had_pending_stop && pending_stop
+                            );
+
                             if pending_stop {
                                 // A stop intent arrived while cpal was initialising.
                                 // Keep recording for a minimum duration, then stop
                                 // via non-blocking deferred deadline branch.
                                 pending_stop = false;
                                 recording = Some(handle);
+                                recording_generation = pending_generation.take();
                                 recording_expected_app = pending_expected_app.take();
 
                                 info!(
@@ -281,6 +382,7 @@ impl VoiceServer {
                                 );
                             } else {
                                 recording = Some(handle);
+                                recording_generation = pending_generation.take();
                                 recording_expected_app = pending_expected_app.take();
                                 deferred_stop_deadline = None;
 
@@ -291,6 +393,7 @@ impl VoiceServer {
                             pending_stop = false;
                             deferred_stop_deadline = None;
                             pending_expected_app = None;
+                            pending_generation = None;
                             error!("{LOG_PREFIX} failed to start recording: {e}");
                             *self.state.lock().await = ServerState::Idle;
                             *self.last_error.lock().await = Some(e);
@@ -299,6 +402,7 @@ impl VoiceServer {
                             pending_stop = false;
                             deferred_stop_deadline = None;
                             pending_expected_app = None;
+                            pending_generation = None;
                             error!("{LOG_PREFIX} recording setup task dropped");
                             *self.state.lock().await = ServerState::Idle;
                         }
@@ -315,12 +419,13 @@ impl VoiceServer {
                         self.spawn_process_recording(
                             handle,
                             app_config,
+                            recording_generation.take().unwrap_or_default(),
                             recording_expected_app.take(),
                         );
                     }
                 }
 
-                _ = self.cancel.cancelled() => {
+                _ = cancel.cancelled() => {
                     debug!("{LOG_PREFIX} cancellation received");
                     break;
                 }
@@ -334,10 +439,29 @@ impl VoiceServer {
         Ok(())
     }
 
-    /// Stop the voice server.
+    /// Stop the voice server and wait for it to reach `Stopped` state.
+    ///
+    /// Cancels the run-loop token and polls until the state transitions to
+    /// `Stopped` (or a 5-second timeout expires). This prevents a fast
+    /// logout → login cycle from seeing a stale `Idle`/`Recording` state
+    /// and skipping the restart.
     pub async fn stop(&self) {
         info!("{LOG_PREFIX} stopping voice server");
-        self.cancel.cancel();
+        self.cancel.lock().await.cancel();
+
+        // Wait for the run-loop to observe cancellation and set Stopped.
+        for _ in 0..50 {
+            if *self.state.lock().await == ServerState::Stopped {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        warn!("{LOG_PREFIX} stop timed out after 5s — state may not be Stopped");
+    }
+
+    /// Record an error message so it can be surfaced via status().
+    pub async fn set_last_error(&self, msg: &str) {
+        *self.last_error.lock().await = Some(msg.to_string());
     }
 
     /// Spawn `process_recording` as a background task so the hotkey event
@@ -347,22 +471,32 @@ impl VoiceServer {
         &self,
         handle: RecordingHandle,
         config: &Config,
+        generation: u64,
         expected_app: Option<String>,
     ) {
+        let pipeline_id = Uuid::new_v4().to_string()[..8].to_string();
         let state = self.state.clone();
         let server_config = self.config.clone();
         let transcription_count = self.transcription_count.clone();
+        let session_generation = self.session_generation.clone();
         let last_error = self.last_error.clone();
         let recent_transcripts = self.recent_transcripts.clone();
         let app_config = config.clone();
 
+        info!(
+            "{LOG_PREFIX} [pipeline={pipeline_id}] spawning process_recording (generation={generation})"
+        );
+
         tokio::spawn(async move {
             process_recording_bg(
+                &pipeline_id,
                 handle,
                 &app_config,
                 &server_config,
                 state,
                 transcription_count,
+                session_generation,
+                generation,
                 last_error,
                 recent_transcripts,
                 expected_app,
@@ -370,6 +504,152 @@ impl VoiceServer {
             .await;
         });
     }
+}
+
+// ── Hotkey listener dispatch (rdev vs macOS globe helper) ─────────────
+
+/// Opaque handle that keeps the hotkey listener alive. Drop to stop.
+enum HotkeyListenerKind {
+    Rdev(hotkey::HotkeyListenerHandle),
+    #[cfg(target_os = "macos")]
+    Globe(CancellationToken),
+}
+
+impl HotkeyListenerKind {
+    fn stop(&self) {
+        match self {
+            HotkeyListenerKind::Rdev(handle) => handle.stop(),
+            #[cfg(target_os = "macos")]
+            HotkeyListenerKind::Globe(cancel) => cancel.cancel(),
+        }
+    }
+}
+
+/// Start the appropriate hotkey listener for the current platform and key.
+///
+/// On macOS, the Fn/Globe key cannot be detected by `rdev`'s CGEventTap.
+/// When the configured hotkey is `"fn"` we fall back to the Swift-based
+/// globe listener (`accessibility::globe`) which monitors
+/// `NSEvent.flagsChanged` for the `.function` modifier flag.
+fn start_hotkey_listener(
+    hotkey_str: &str,
+    mode: hotkey::ActivationMode,
+    server_cancel: &CancellationToken,
+) -> Result<
+    (
+        HotkeyListenerKind,
+        tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>,
+    ),
+    String,
+> {
+    #[cfg(target_os = "macos")]
+    {
+        if hotkey_str.trim().eq_ignore_ascii_case("fn") {
+            return start_globe_hotkey_listener(mode, server_cancel);
+        }
+    }
+
+    // Default path: rdev-based listener for all other keys.
+    let combo = hotkey::parse_hotkey(hotkey_str)?;
+    let (handle, rx) = hotkey::start_listener(combo, mode)?;
+    Ok((HotkeyListenerKind::Rdev(handle), rx))
+}
+
+/// macOS-only: start the Swift globe listener and bridge FN_DOWN / FN_UP
+/// events into `HotkeyEvent::Pressed` / `HotkeyEvent::Released`.
+#[cfg(target_os = "macos")]
+fn start_globe_hotkey_listener(
+    mode: hotkey::ActivationMode,
+    server_cancel: &CancellationToken,
+) -> Result<
+    (
+        HotkeyListenerKind,
+        tokio::sync::mpsc::UnboundedReceiver<hotkey::HotkeyEvent>,
+    ),
+    String,
+> {
+    use crate::openhuman::accessibility::{globe_listener_poll, globe_listener_start};
+
+    info!("{LOG_PREFIX} hotkey is Fn on macOS — using Swift globe listener instead of rdev");
+
+    let status = globe_listener_start()?;
+    if !status.running {
+        let err_msg = status
+            .last_error
+            .unwrap_or_else(|| "globe listener failed to start".to_string());
+        return Err(format!("globe listener: {err_msg}"));
+    }
+    info!(
+        "{LOG_PREFIX} globe listener started, permission={:?}",
+        status.input_monitoring_permission
+    );
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let cancel = server_cancel.child_token();
+    let cancel_clone = cancel.clone();
+
+    // Tap mode state: track whether we're currently active.
+    let is_active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    tokio::spawn(async move {
+        let mut poll_interval = tokio::time::interval(Duration::from_millis(50));
+        poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => {
+                    debug!("{LOG_PREFIX} globe poller cancelled");
+                    break;
+                }
+                _ = poll_interval.tick() => {
+                    let poll_result = match globe_listener_poll() {
+                        Ok(r) => r,
+                        Err(e) => {
+                            warn!("{LOG_PREFIX} globe poll error: {e}");
+                            continue;
+                        }
+                    };
+
+                    for event_str in &poll_result.events {
+                        let hotkey_event = match event_str.as_str() {
+                            "FN_DOWN" => match mode {
+                                hotkey::ActivationMode::Push => {
+                                    Some(hotkey::HotkeyEvent::Pressed)
+                                }
+                                hotkey::ActivationMode::Tap => {
+                                    let was_active = is_active.load(std::sync::atomic::Ordering::SeqCst);
+                                    if was_active {
+                                        is_active.store(false, std::sync::atomic::Ordering::SeqCst);
+                                        Some(hotkey::HotkeyEvent::Released)
+                                    } else {
+                                        is_active.store(true, std::sync::atomic::Ordering::SeqCst);
+                                        Some(hotkey::HotkeyEvent::Pressed)
+                                    }
+                                }
+                            },
+                            "FN_UP" => match mode {
+                                hotkey::ActivationMode::Push => {
+                                    Some(hotkey::HotkeyEvent::Released)
+                                }
+                                hotkey::ActivationMode::Tap => None, // tap ignores release
+                            },
+                            _ => None, // ignore modifier events
+                        };
+
+                        if let Some(ev) = hotkey_event {
+                            debug!("{LOG_PREFIX} globe event {event_str} → {ev:?}");
+                            if tx.send(ev).is_err() {
+                                debug!("{LOG_PREFIX} globe poller: receiver dropped, stopping");
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((HotkeyListenerKind::Globe(cancel), rx))
 }
 
 // ── Background processing (free functions, spawnable) ─────────────────
@@ -425,8 +705,8 @@ async fn build_initial_prompt(
     }
 
     let mut prompt = parts.join(". ");
-    if prompt.len() > MAX_INITIAL_PROMPT_CHARS {
-        prompt.truncate(MAX_INITIAL_PROMPT_CHARS);
+    if prompt.chars().count() > MAX_INITIAL_PROMPT_CHARS {
+        prompt = prompt.chars().take(MAX_INITIAL_PROMPT_CHARS).collect();
         if let Some(last_space) = prompt.rfind(' ') {
             prompt.truncate(last_space);
         }
@@ -459,24 +739,35 @@ async fn push_recent_transcript(recent_transcripts: &Mutex<Vec<String>>, text: &
 /// state is passed as `Arc` handles.
 #[allow(clippy::too_many_arguments)]
 async fn process_recording_bg(
+    pipeline_id: &str,
     handle: RecordingHandle,
     config: &Config,
     server_config: &VoiceServerConfig,
     state: Arc<Mutex<ServerState>>,
     transcription_count: Arc<std::sync::atomic::AtomicU64>,
+    session_generation: Arc<std::sync::atomic::AtomicU64>,
+    generation: u64,
     last_error: Arc<Mutex<Option<String>>>,
     recent_transcripts: Arc<Mutex<Vec<String>>>,
     expected_app: Option<String>,
 ) {
     let pipeline_started = Instant::now();
-    *state.lock().await = ServerState::Transcribing;
+    info!("{LOG_PREFIX} [pipeline={pipeline_id}] stage=start generation={generation}");
+    update_state_if_current(
+        &state,
+        &session_generation,
+        generation,
+        ServerState::Transcribing,
+        "transcribing",
+    )
+    .await;
 
     let stop_started = Instant::now();
     match handle.stop().await {
         Ok(result) => {
             let stop_elapsed = stop_started.elapsed();
             info!(
-                "{LOG_PREFIX} recording stopped: {:.1}s, {} bytes, peak_rms={:.6} (stop_elapsed_ms={})",
+                "{LOG_PREFIX} [pipeline={pipeline_id}] stage=stop_recording duration={:.1}s bytes={} peak_rms={:.6} stop_elapsed_ms={}",
                 result.duration_secs,
                 result.wav_bytes.len(),
                 result.peak_rms,
@@ -486,21 +777,36 @@ async fn process_recording_bg(
             // Gate 1: minimum duration.
             if result.duration_secs < server_config.min_duration_secs {
                 warn!(
-                    "{LOG_PREFIX} recording too short ({:.1}s), skipping",
-                    result.duration_secs
+                    "{LOG_PREFIX} [pipeline={pipeline_id}] stage=gate_duration DROPPED ({:.1}s < {:.1}s min)",
+                    result.duration_secs,
+                    server_config.min_duration_secs
                 );
-                *state.lock().await = ServerState::Idle;
+                update_state_if_current(
+                    &state,
+                    &session_generation,
+                    generation,
+                    ServerState::Idle,
+                    "idle_after_short_recording",
+                )
+                .await;
                 return;
             }
 
             // Gate 2: silence detection.
             if result.peak_rms < server_config.silence_threshold {
                 warn!(
-                    "{LOG_PREFIX} audio is silence (peak_rms={:.6} < threshold={:.6}), skipping transcription",
+                    "{LOG_PREFIX} [pipeline={pipeline_id}] stage=gate_silence DROPPED (peak_rms={:.6} < threshold={:.6})",
                     result.peak_rms,
                     server_config.silence_threshold
                 );
-                *state.lock().await = ServerState::Idle;
+                update_state_if_current(
+                    &state,
+                    &session_generation,
+                    generation,
+                    ServerState::Idle,
+                    "idle_after_silence",
+                )
+                .await;
                 return;
             }
 
@@ -510,13 +816,13 @@ async fn process_recording_bg(
                 .as_deref()
                 .or(server_config.context.as_deref());
             if let Some(app) = expected_app.as_deref() {
-                debug!("{LOG_PREFIX} insertion target captured on hotkey press: app='{app}'");
+                debug!("{LOG_PREFIX} [pipeline={pipeline_id}] insertion target: app='{app}'");
             } else {
-                debug!("{LOG_PREFIX} insertion target unknown at hotkey press");
+                debug!("{LOG_PREFIX} [pipeline={pipeline_id}] insertion target unknown");
             }
 
             info!(
-                "{LOG_PREFIX} transcribing: skip_cleanup={} context={}",
+                "{LOG_PREFIX} [pipeline={pipeline_id}] stage=transcribe skip_cleanup={} context={}",
                 server_config.skip_cleanup,
                 context.map_or("none".to_string(), |c| format!("{}chars", c.len()))
             );
@@ -535,59 +841,117 @@ async fn process_recording_bg(
                     let transcribe_elapsed = transcribe_started.elapsed();
                     let text = &outcome.value.text;
                     info!(
-                        "{LOG_PREFIX} transcription: '{}' ({} chars, transcribe_elapsed_ms={})",
+                        "{LOG_PREFIX} [pipeline={pipeline_id}] stage=transcription_result text='{}' chars={} elapsed_ms={}",
                         truncate_for_log(text, 80),
                         text.len(),
                         transcribe_elapsed.as_millis()
                     );
 
                     // Gate 3: filter hallucinated/blank output.
-                    if is_hallucinated_output(text) {
+                    if is_hallucinated_output(text, HallucinationMode::Dictation) {
                         warn!(
-                            "{LOG_PREFIX} detected hallucinated output, discarding: '{}'",
+                            "{LOG_PREFIX} [pipeline={pipeline_id}] stage=gate_hallucination DROPPED text='{}'",
                             truncate_for_log(text, 60)
                         );
-                        *state.lock().await = ServerState::Idle;
+                        update_state_if_current(
+                            &state,
+                            &session_generation,
+                            generation,
+                            ServerState::Idle,
+                            "idle_after_hallucination",
+                        )
+                        .await;
                         return;
                     }
 
                     if !text.trim().is_empty() {
                         push_recent_transcript(&recent_transcripts, text).await;
 
-                        let insert_started = Instant::now();
-                        if let Err(e) = text_input::insert_text(text, expected_app.as_deref()) {
-                            error!("{LOG_PREFIX} failed to insert text: {e}");
-                            *last_error.lock().await = Some(e);
-                        } else {
-                            let insert_elapsed = insert_started.elapsed();
+                        // When the Tauri app itself is focused, deliver via
+                        // Socket.IO so the frontend inserts into the chat.
+                        // Otherwise paste via OS-level Cmd+V into the
+                        // external app.
+                        let is_self = expected_app
+                            .as_deref()
+                            .map(|app| app.to_lowercase().contains("openhuman"))
+                            .unwrap_or(false);
+
+                        if is_self {
+                            let receivers =
+                                super::dictation_listener::publish_transcription(text.to_string());
                             transcription_count.fetch_add(1, Ordering::Relaxed);
                             info!(
-                                "{LOG_PREFIX} text inserted into active field (insert_elapsed_ms={}, total_pipeline_ms={})",
-                                insert_elapsed.as_millis(),
+                                "{LOG_PREFIX} [pipeline={pipeline_id}] stage=deliver_socketio receivers={receivers} total_pipeline_ms={}",
                                 pipeline_started.elapsed().as_millis()
                             );
+                        } else {
+                            let insert_started = Instant::now();
+                            if let Err(e) = text_input::insert_text(text, expected_app.as_deref()) {
+                                error!("{LOG_PREFIX} [pipeline={pipeline_id}] stage=deliver_paste FAILED: {e}");
+                                *last_error.lock().await = Some(e);
+                            } else {
+                                let insert_elapsed = insert_started.elapsed();
+                                transcription_count.fetch_add(1, Ordering::Relaxed);
+                                info!(
+                                    "{LOG_PREFIX} [pipeline={pipeline_id}] stage=deliver_paste insert_ms={} total_pipeline_ms={}",
+                                    insert_elapsed.as_millis(),
+                                    pipeline_started.elapsed().as_millis()
+                                );
+                            }
                         }
                     } else {
-                        debug!("{LOG_PREFIX} transcription was empty, nothing to insert");
+                        warn!("{LOG_PREFIX} [pipeline={pipeline_id}] stage=gate_empty DROPPED (transcription was blank)");
                     }
                 }
                 Err(e) => {
-                    error!("{LOG_PREFIX} transcription failed: {e}");
+                    error!("{LOG_PREFIX} [pipeline={pipeline_id}] stage=transcribe FAILED: {e}");
                     *last_error.lock().await = Some(e);
                 }
             }
         }
         Err(e) => {
-            error!("{LOG_PREFIX} failed to stop recording: {e}");
+            error!("{LOG_PREFIX} [pipeline={pipeline_id}] stage=stop_recording FAILED: {e}");
             *last_error.lock().await = Some(e);
         }
     }
 
-    debug!(
-        "{LOG_PREFIX} process_recording finished (total_pipeline_ms={})",
+    info!(
+        "{LOG_PREFIX} [pipeline={pipeline_id}] stage=done total_pipeline_ms={}",
         pipeline_started.elapsed().as_millis()
     );
-    *state.lock().await = ServerState::Idle;
+    update_state_if_current(
+        &state,
+        &session_generation,
+        generation,
+        ServerState::Idle,
+        "idle_after_processing",
+    )
+    .await;
+}
+
+async fn update_state_if_current(
+    state: &Arc<Mutex<ServerState>>,
+    session_generation: &Arc<std::sync::atomic::AtomicU64>,
+    generation: u64,
+    next_state: ServerState,
+    reason: &str,
+) {
+    let latest_generation = session_generation.load(Ordering::Relaxed);
+    if latest_generation != generation {
+        debug!(
+            "{LOG_PREFIX} skipped stale state update reason={} generation={} latest_generation={} next_state={next_state:?}",
+            reason,
+            generation,
+            latest_generation
+        );
+        return;
+    }
+
+    debug!(
+        "{LOG_PREFIX} state update reason={} generation={} next_state={next_state:?}",
+        reason, generation
+    );
+    *state.lock().await = next_state;
 }
 
 /// Global voice server instance, lazily initialized.
@@ -647,9 +1011,11 @@ pub async fn start_if_enabled(app_config: &Config) {
 
     let server = global_server(server_config);
     let config_for_run = app_config.clone();
+    let server_for_err = server.clone();
     tokio::spawn(async move {
         if let Err(e) = server.run(&config_for_run).await {
             error!("{LOG_PREFIX} embedded voice server exited with error: {e}");
+            server_for_err.set_last_error(&e).await;
         }
     });
 }
@@ -686,86 +1052,8 @@ pub async fn run_standalone(
     server_arc.run(&app_config).await
 }
 
-/// Known whisper hallucination patterns. These are common outputs when
-/// whisper processes near-silent audio or audio with background noise.
-/// Sourced from community lists and OpenWhispr's filtering behavior.
-const HALLUCINATION_PATTERNS: &[&str] = &[
-    // whisper.cpp blank markers
-    "[blank_audio]",
-    "[ blank_audio ]",
-    "[blank audio]",
-    "(blank audio)",
-    // Common hallucinations from YouTube-trained models
-    "thank you",
-    "thank you.",
-    "thanks.",
-    "thank you for watching",
-    "thanks for watching",
-    "thank you for listening",
-    "thanks for listening",
-    "thank you so much",
-    "please subscribe",
-    "like and subscribe",
-    "see you next time",
-    "see you in the next video",
-    "bye bye",
-    "bye.",
-    "goodbye.",
-    // Single-word noise artifacts
-    "you",
-    "the",
-    "i",
-    "a",
-    "so",
-    "okay",
-    "ok",
-    "yeah",
-    "yes",
-    "no",
-    "oh",
-    "hmm",
-    "huh",
-    "ah",
-    // Punctuation-only
-    "...",
-    ".",
-    ",",
-    "!",
-    "?",
-];
-
-/// Check if whisper output is a known hallucination pattern.
-///
-/// Whisper.cpp famously outputs "[BLANK_AUDIO]" for silence and various
-/// stock phrases ("Thank you for watching", etc.) when fed noisy or
-/// near-empty audio. Filtering these prevents inserting garbage text.
-fn is_hallucinated_output(text: &str) -> bool {
-    let normalized = text.trim().to_lowercase();
-    if normalized.is_empty() {
-        return false; // handled separately as "empty"
-    }
-
-    // Strip trailing punctuation for matching (whisper often appends periods).
-    let stripped = normalized.trim_end_matches(|c: char| c.is_ascii_punctuation());
-
-    // Exact match against known hallucination phrases.
-    for pattern in HALLUCINATION_PATTERNS {
-        if normalized == *pattern || stripped == *pattern {
-            return true;
-        }
-    }
-
-    // Detect repeated short phrases (e.g. "you you you you").
-    let words: Vec<&str> = normalized.split_whitespace().collect();
-    if words.len() >= 3 {
-        let first = words[0];
-        if words.iter().all(|w| *w == first) {
-            return true;
-        }
-    }
-
-    false
-}
+// Hallucination detection is now in the shared `hallucination` module.
+use super::hallucination::{is_hallucinated_output, HallucinationMode};
 
 fn truncate_for_log(s: &str, max: usize) -> String {
     let truncated: String = s.chars().take(max).collect();
@@ -779,6 +1067,7 @@ fn truncate_for_log(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::voice::audio_capture::RecordingResult;
 
     #[test]
     fn default_server_config() {
@@ -793,37 +1082,41 @@ mod tests {
 
     #[test]
     fn hallucination_detection() {
+        use super::HallucinationMode;
+        let mode = HallucinationMode::Dictation;
+
         // Blank audio markers.
-        assert!(is_hallucinated_output("[BLANK_AUDIO]"));
-        assert!(is_hallucinated_output("  [blank_audio]  "));
-        assert!(is_hallucinated_output("[ BLANK_AUDIO ]"));
+        assert!(is_hallucinated_output("[BLANK_AUDIO]", mode));
+        assert!(is_hallucinated_output("  [blank_audio]  ", mode));
+        assert!(is_hallucinated_output("[ BLANK_AUDIO ]", mode));
         // Common hallucinated phrases.
-        assert!(is_hallucinated_output("Thank you for watching"));
-        assert!(is_hallucinated_output("thanks for listening"));
-        assert!(is_hallucinated_output("Thank you."));
-        assert!(is_hallucinated_output("Thank you"));
-        assert!(is_hallucinated_output("Thanks."));
-        assert!(is_hallucinated_output("Bye."));
-        assert!(is_hallucinated_output("Goodbye."));
+        assert!(is_hallucinated_output("Thank you for watching", mode));
+        assert!(is_hallucinated_output("thanks for listening", mode));
+        assert!(is_hallucinated_output("Thank you.", mode));
+        assert!(is_hallucinated_output("Thank you", mode));
+        assert!(is_hallucinated_output("Thanks.", mode));
+        assert!(is_hallucinated_output("Bye.", mode));
+        assert!(is_hallucinated_output("Goodbye.", mode));
         // Repeated words.
-        assert!(is_hallucinated_output("you you you you"));
-        assert!(is_hallucinated_output("the the the the"));
+        assert!(is_hallucinated_output("you you you you", mode));
+        assert!(is_hallucinated_output("the the the the", mode));
         // Punctuation-only.
-        assert!(is_hallucinated_output("..."));
-        assert!(is_hallucinated_output("."));
-        // Single noise words.
-        assert!(is_hallucinated_output("you"));
-        assert!(is_hallucinated_output("Yeah"));
-        assert!(is_hallucinated_output("Hmm"));
-        assert!(is_hallucinated_output("Oh."));
+        assert!(is_hallucinated_output("...", mode));
+        assert!(is_hallucinated_output(".", mode));
+        // Single noise words (dictation mode drops these).
+        assert!(is_hallucinated_output("you", mode));
+        assert!(is_hallucinated_output("Yeah", mode));
+        assert!(is_hallucinated_output("Hmm", mode));
+        assert!(is_hallucinated_output("Oh.", mode));
         // Should NOT flag real speech.
-        assert!(!is_hallucinated_output("Hello, how are you?"));
-        assert!(!is_hallucinated_output("the quick brown fox"));
-        assert!(!is_hallucinated_output("I want to order pizza"));
+        assert!(!is_hallucinated_output("Hello, how are you?", mode));
+        assert!(!is_hallucinated_output("the quick brown fox", mode));
+        assert!(!is_hallucinated_output("I want to order pizza", mode));
         assert!(!is_hallucinated_output(
-            "thank you for your help with the project"
+            "thank you for your help with the project",
+            mode
         ));
-        assert!(!is_hallucinated_output(""));
+        assert!(!is_hallucinated_output("", mode));
     }
 
     #[tokio::test]
@@ -833,6 +1126,40 @@ mod tests {
         assert_eq!(status.state, ServerState::Stopped);
         assert_eq!(status.transcription_count, 0);
         assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn stale_processing_cannot_reset_newer_recording_state() {
+        let state = Arc::new(Mutex::new(ServerState::Recording));
+        let session_generation = Arc::new(std::sync::atomic::AtomicU64::new(2));
+
+        update_state_if_current(
+            &state,
+            &session_generation,
+            1,
+            ServerState::Idle,
+            "stale_test",
+        )
+        .await;
+
+        assert_eq!(*state.lock().await, ServerState::Recording);
+    }
+
+    #[tokio::test]
+    async fn current_processing_can_update_state() {
+        let state = Arc::new(Mutex::new(ServerState::Recording));
+        let session_generation = Arc::new(std::sync::atomic::AtomicU64::new(2));
+
+        update_state_if_current(
+            &state,
+            &session_generation,
+            2,
+            ServerState::Idle,
+            "current_test",
+        )
+        .await;
+
+        assert_eq!(*state.lock().await, ServerState::Idle);
     }
 
     #[test]
@@ -865,5 +1192,207 @@ mod tests {
         let result = truncate_for_log("hello world this is long", 10);
         assert!(result.ends_with("..."));
         assert!(result.len() <= 14); // 10 + "..."
+    }
+
+    #[tokio::test]
+    async fn build_initial_prompt_combines_dictionary_and_recent_transcripts() {
+        let config = VoiceServerConfig {
+            custom_dictionary: vec!["OpenHuman".into(), "QuickJS".into()],
+            ..VoiceServerConfig::default()
+        };
+        let recent = Mutex::new(vec!["first note".into(), "second note".into()]);
+
+        let prompt = build_initial_prompt(&config, &recent)
+            .await
+            .expect("prompt should be built");
+
+        assert!(prompt.contains("OpenHuman, QuickJS"));
+        assert!(prompt.contains("first note second note"));
+    }
+
+    #[tokio::test]
+    async fn build_initial_prompt_truncates_on_char_boundary() {
+        let repeated = "é".repeat(MAX_INITIAL_PROMPT_CHARS + 25);
+        let config = VoiceServerConfig {
+            custom_dictionary: vec![repeated],
+            ..VoiceServerConfig::default()
+        };
+        let recent = Mutex::new(Vec::new());
+
+        let prompt = build_initial_prompt(&config, &recent)
+            .await
+            .expect("prompt should be built");
+
+        assert!(prompt.chars().count() <= MAX_INITIAL_PROMPT_CHARS);
+        assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn push_recent_transcript_ignores_blank_and_caps_history() {
+        let recent = Mutex::new(Vec::new());
+        push_recent_transcript(&recent, "   ").await;
+        assert!(recent.lock().await.is_empty());
+
+        for idx in 0..(MAX_RECENT_TRANSCRIPTS + 2) {
+            push_recent_transcript(&recent, &format!("line {idx}")).await;
+        }
+
+        let values = recent.lock().await.clone();
+        assert_eq!(values.len(), MAX_RECENT_TRANSCRIPTS);
+        assert_eq!(values.first().unwrap(), "line 2");
+        assert_eq!(values.last().unwrap(), "line 6");
+    }
+
+    #[test]
+    fn capture_expected_app_name_is_none_off_macos() {
+        if !cfg!(target_os = "macos") {
+            assert_eq!(capture_expected_app_name(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn process_recording_sets_last_error_when_stop_fails() {
+        let handle = RecordingHandle::from_test_result(Err("stop failed".to_string()));
+
+        let state = Arc::new(Mutex::new(ServerState::Recording));
+        let last_error = Arc::new(Mutex::new(None));
+        let generation = 1;
+        let session_generation = Arc::new(std::sync::atomic::AtomicU64::new(generation));
+
+        process_recording_bg(
+            "test",
+            handle,
+            &Config::default(),
+            &VoiceServerConfig::default(),
+            state.clone(),
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            session_generation,
+            generation,
+            last_error.clone(),
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+        )
+        .await;
+
+        assert_eq!(*state.lock().await, ServerState::Idle);
+        assert_eq!(last_error.lock().await.as_deref(), Some("stop failed"));
+    }
+
+    #[tokio::test]
+    async fn process_recording_short_audio_returns_to_idle_without_error() {
+        let handle = RecordingHandle::from_test_result(Ok(RecordingResult {
+            wav_bytes: vec![1, 2, 3],
+            duration_secs: 0.1,
+            sample_count: 3,
+            peak_rms: 0.5,
+        }));
+
+        let state = Arc::new(Mutex::new(ServerState::Recording));
+        let last_error = Arc::new(Mutex::new(None));
+        let generation = 1;
+        let session_generation = Arc::new(std::sync::atomic::AtomicU64::new(generation));
+
+        process_recording_bg(
+            "test",
+            handle,
+            &Config::default(),
+            &VoiceServerConfig::default(),
+            state.clone(),
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            session_generation,
+            generation,
+            last_error.clone(),
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+        )
+        .await;
+
+        assert_eq!(*state.lock().await, ServerState::Idle);
+        assert!(last_error.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn process_recording_silence_skips_transcription() {
+        let handle = RecordingHandle::from_test_result(Ok(RecordingResult {
+            wav_bytes: vec![1, 2, 3],
+            duration_secs: 1.0,
+            sample_count: 3,
+            peak_rms: 0.0,
+        }));
+
+        let state = Arc::new(Mutex::new(ServerState::Recording));
+        let last_error = Arc::new(Mutex::new(None));
+        let generation = 1;
+        let session_generation = Arc::new(std::sync::atomic::AtomicU64::new(generation));
+
+        process_recording_bg(
+            "test",
+            handle,
+            &Config::default(),
+            &VoiceServerConfig::default(),
+            state.clone(),
+            Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            session_generation,
+            generation,
+            last_error.clone(),
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+        )
+        .await;
+
+        assert_eq!(*state.lock().await, ServerState::Idle);
+        assert!(last_error.lock().await.is_none());
+    }
+
+    // ── truncate_for_log ───────────────────────────────────────────
+
+    #[test]
+    fn truncate_for_log_passes_through_short_strings() {
+        assert_eq!(truncate_for_log("hi", 10), "hi");
+        assert_eq!(truncate_for_log("", 10), "");
+    }
+
+    #[test]
+    fn truncate_for_log_appends_ellipsis_when_truncated() {
+        assert_eq!(truncate_for_log("abcdefghij", 5), "abcde...");
+    }
+
+    #[test]
+    fn truncate_for_log_handles_multibyte_chars() {
+        // Each "日" is multi-byte but one `char` — truncate by char count.
+        let out = truncate_for_log("日本語テスト", 3);
+        assert_eq!(out, "日本語...");
+    }
+
+    // ── try_global_server / global_server ─────────────────────────
+
+    #[tokio::test]
+    async fn try_global_server_returns_some_after_global_server_initialized() {
+        // `global_server` is OnceCell-backed; first call initialises it.
+        let _ = global_server(VoiceServerConfig::default());
+        assert!(try_global_server().is_some());
+    }
+
+    // ── ServerState transitions ───────────────────────────────────
+    // Initial-status coverage lives in `server_status_initial` above.
+
+    #[test]
+    fn hallucination_detection_longer_real_phrase_is_not_flagged() {
+        // Real multi-word speech should not be classified as hallucination.
+        let mode = HallucinationMode::Dictation;
+        assert!(!is_hallucinated_output(
+            "please summarise the meeting",
+            mode
+        ));
+        assert!(!is_hallucinated_output("open the browser", mode));
+    }
+
+    #[test]
+    fn hallucination_detection_trailing_exclamation_still_flags_known_pattern() {
+        // Periods are stripped in normalisation; other punctuation behaviour
+        // depends on the pattern list — we just lock in that exclamation
+        // after "Thank you" does not accidentally un-flag it.
+        let mode = HallucinationMode::Dictation;
+        assert!(is_hallucinated_output("Thank you!", mode));
     }
 }

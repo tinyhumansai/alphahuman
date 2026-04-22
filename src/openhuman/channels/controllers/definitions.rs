@@ -4,15 +4,18 @@ use serde::{Deserialize, Serialize};
 
 /// Which authentication mode a channel connection uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum ChannelAuthMode {
     /// User provides an API key or access token.
+    #[serde(rename = "api_key")]
     ApiKey,
     /// User provides a bot token (e.g. Telegram BotFather token).
+    #[serde(rename = "bot_token")]
     BotToken,
     /// User authenticates via OAuth (server-side flow).
+    #[serde(rename = "oauth")]
     OAuth,
     /// User messages the platform's managed bot directly.
+    #[serde(rename = "managed_dm")]
     ManagedDm,
 }
 
@@ -154,6 +157,7 @@ pub fn all_channel_definitions() -> Vec<ChannelDefinition> {
         telegram_definition(),
         discord_definition(),
         web_definition(),
+        imessage_definition(),
     ]
 }
 
@@ -249,6 +253,12 @@ fn discord_definition() -> ChannelDefinition {
                 fields: vec![],
                 auth_action: Some("discord_oauth"),
             },
+            AuthModeSpec {
+                mode: ChannelAuthMode::ManagedDm,
+                description: "Link your personal Discord account to the OpenHuman bot.",
+                fields: vec![],
+                auth_action: Some("discord_managed_link"),
+            },
         ],
         capabilities: vec![
             ChannelCapability::SendText,
@@ -276,6 +286,28 @@ fn web_definition() -> ChannelDefinition {
             ChannelCapability::SendRichText,
             ChannelCapability::ReceiveText,
         ],
+    }
+}
+
+fn imessage_definition() -> ChannelDefinition {
+    ChannelDefinition {
+        id: "imessage",
+        display_name: "iMessage",
+        description: "Send and receive via macOS Messages (local, AppleScript bridge).",
+        icon: "imessage",
+        auth_modes: vec![AuthModeSpec {
+            mode: ChannelAuthMode::ManagedDm,
+            description: "Local-only — no credentials. Grant Full Disk Access to OpenHuman.",
+            fields: vec![FieldRequirement {
+                key: "allowed_contacts",
+                label: "Allowed Contacts",
+                field_type: "string",
+                required: false,
+                placeholder: "Comma-separated phone numbers or emails; * to allow any",
+            }],
+            auth_action: None,
+        }],
+        capabilities: vec![ChannelCapability::SendText, ChannelCapability::ReceiveText],
     }
 }
 
@@ -354,6 +386,10 @@ mod tests {
 
         let oauth = def.auth_mode_spec(ChannelAuthMode::OAuth).unwrap();
         assert_eq!(oauth.auth_action, Some("discord_oauth"));
+
+        let managed = def.auth_mode_spec(ChannelAuthMode::ManagedDm);
+        assert!(managed.is_some());
+        assert_eq!(managed.unwrap().auth_action, Some("discord_managed_link"));
     }
 
     #[test]
@@ -426,5 +462,53 @@ mod tests {
             let parsed: ChannelAuthMode = s.parse().expect("parse failed");
             assert_eq!(parsed, mode);
         }
+    }
+
+    #[test]
+    fn auth_mode_serializes_to_expected_wire_values() {
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::ApiKey).expect("serialize"),
+            serde_json::Value::String("api_key".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "api_key".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::ApiKey
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::BotToken).expect("serialize"),
+            serde_json::Value::String("bot_token".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "bot_token".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::BotToken
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::OAuth).expect("serialize"),
+            serde_json::Value::String("oauth".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "oauth".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::OAuth
+        );
+        assert_eq!(
+            serde_json::to_value(ChannelAuthMode::ManagedDm).expect("serialize"),
+            serde_json::Value::String("managed_dm".to_string())
+        );
+        assert_eq!(
+            serde_json::from_value::<ChannelAuthMode>(serde_json::Value::String(
+                "managed_dm".to_string()
+            ))
+            .expect("deserialize"),
+            ChannelAuthMode::ManagedDm
+        );
     }
 }

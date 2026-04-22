@@ -2,7 +2,7 @@
  * Error Report Queue
  *
  * Module-level error queue with zero React/Redux/Sentry dependencies.
- * Captures errors from all sources (React, global JS, skill runtime) and
+ * Captures errors from all sources (React, global JS, core/runtime services) and
  * lets the notification UI subscribe to display them for user opt-in reporting.
  */
 import * as Sentry from '@sentry/react';
@@ -45,7 +45,7 @@ export interface SanitizedSentryEvent {
 export interface PendingErrorReport {
   id: string;
   timestamp: number;
-  source: 'react' | 'global' | 'skill' | 'manual';
+  source: 'react' | 'global' | 'manual';
   title: string;
   message: string;
   componentStack?: string;

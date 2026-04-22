@@ -118,6 +118,39 @@ pub struct Capability {
     pub description: &'static str,
     pub how_to: &'static str,
     pub status: CapabilityStatus,
+    /// Optional privacy disclosure metadata. `None` means the capability has not
+    /// been annotated yet — UI should treat absence as "unknown", not "safe".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<CapabilityPrivacy>,
+}
+
+/// Per-capability privacy disclosure consumed by the in-app Privacy surface.
+///
+/// Source of truth for "what leaves my computer" — kept narrow on purpose so
+/// every field is something the UI can render directly without further mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct CapabilityPrivacy {
+    /// True when invoking this capability sends *some* data off the device.
+    pub leaves_device: bool,
+    /// Classifies what kind of data leaves (or stays).
+    pub data_kind: PrivacyDataKind,
+    /// Stable, human-readable destinations data may flow to (empty when local-only).
+    pub destinations: &'static [&'static str],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivacyDataKind {
+    /// Raw user content (messages, screen frames, audio) — kept local.
+    Raw,
+    /// Derived signals (embeddings, summaries, prompts) — may be sent to backends.
+    Derived,
+    /// OAuth tokens, API keys, wallet connections — stored locally, never logged.
+    Credentials,
+    /// Anonymous analytics, crash reports, version pings.
+    Diagnostics,
+    /// Non-sensitive metadata (capability ids, feature flags, settings shape).
+    Metadata,
 }
 
 #[cfg(test)]
@@ -143,5 +176,93 @@ mod tests {
             serde_json::to_string(&CapabilityStatus::ComingSoon).expect("serialize ComingSoon"),
             "\"coming_soon\""
         );
+    }
+
+    #[test]
+    fn category_all_has_10_variants() {
+        assert_eq!(CapabilityCategory::ALL.len(), 10);
+    }
+
+    #[test]
+    fn category_as_str_roundtrips_through_from_str() {
+        for cat in CapabilityCategory::ALL {
+            let s = cat.as_str();
+            let parsed: CapabilityCategory = s.parse().unwrap();
+            assert_eq!(parsed, cat);
+        }
+    }
+
+    #[test]
+    fn category_from_str_accepts_aliases() {
+        assert_eq!(
+            "local-ai".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::LocalAI
+        );
+        assert_eq!(
+            "local ai".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::LocalAI
+        );
+        assert_eq!(
+            "localai".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::LocalAI
+        );
+        assert_eq!(
+            "screen-intelligence".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::ScreenIntelligence
+        );
+        assert_eq!(
+            "screen intelligence".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::ScreenIntelligence
+        );
+    }
+
+    #[test]
+    fn category_from_str_is_case_insensitive() {
+        assert_eq!(
+            "CONVERSATION".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::Conversation
+        );
+        assert_eq!(
+            "  Team  ".parse::<CapabilityCategory>().unwrap(),
+            CapabilityCategory::Team
+        );
+    }
+
+    #[test]
+    fn category_from_str_rejects_unknown() {
+        let err = "bogus".parse::<CapabilityCategory>().unwrap_err();
+        assert!(err.contains("unknown capability category"));
+        assert!(err.contains("bogus"));
+    }
+
+    #[test]
+    fn status_as_str_covers_all_variants() {
+        assert_eq!(CapabilityStatus::Stable.as_str(), "stable");
+        assert_eq!(CapabilityStatus::Beta.as_str(), "beta");
+        assert_eq!(CapabilityStatus::ComingSoon.as_str(), "coming_soon");
+        assert_eq!(CapabilityStatus::Deprecated.as_str(), "deprecated");
+    }
+
+    #[test]
+    fn status_serde_roundtrip() {
+        for status in [
+            CapabilityStatus::Stable,
+            CapabilityStatus::Beta,
+            CapabilityStatus::ComingSoon,
+            CapabilityStatus::Deprecated,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let back: CapabilityStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, status);
+        }
+    }
+
+    #[test]
+    fn category_serde_roundtrip_all() {
+        for cat in CapabilityCategory::ALL {
+            let json = serde_json::to_string(&cat).unwrap();
+            let back: CapabilityCategory = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, cat);
+        }
     }
 }

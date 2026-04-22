@@ -1,18 +1,10 @@
-import { useState } from 'react';
-
 import OAuthProviderButton from '../components/oauth/OAuthProviderButton';
 import { oauthProviderConfigs } from '../components/oauth/providerConfigs';
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
+import { useDeepLinkAuthState } from '../store/deepLinkAuthState';
 
 const Welcome = () => {
-  const [email, setEmail] = useState('');
-
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    // TODO: implement email auth flow
-    console.log('[Welcome] email submit:', email);
-  };
+  const { isProcessing, errorMessage } = useDeepLinkAuthState();
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center p-4">
@@ -36,32 +28,41 @@ const Welcome = () => {
             AI Super Intelligence. Private, Simple and extremely powerful.
           </p>
 
-          {/* OAuth buttons — horizontal row */}
-          <div className="flex items-center justify-center gap-3 mb-5">
-            {oauthProviderConfigs
-              .filter(p => ['google', 'github', 'twitter'].includes(p.id))
-              .map(provider => (
-                <OAuthProviderButton
-                  key={provider.id}
-                  provider={provider}
-                  className="!rounded-full !px-4 !py-2 !text-xs"
-                />
-              ))}
-          </div>
+          {errorMessage ? (
+            <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {errorMessage}
+            </div>
+          ) : null}
 
-          {/* Divider */}
+          {isProcessing ? (
+            <div className="mb-5 flex flex-col items-center justify-center gap-3 py-2">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-stone-300 border-t-primary-500" />
+              <p className="text-sm font-medium text-stone-700">Signing you in...</p>
+            </div>
+          ) : (
+            /* OAuth buttons — horizontal row */
+            <div className="flex items-center justify-center gap-3 mb-5">
+              {oauthProviderConfigs
+                .filter(p => ['google', 'github', 'twitter'].includes(p.id))
+                .map(provider => (
+                  <OAuthProviderButton
+                    key={provider.id}
+                    provider={provider}
+                    className="!rounded-full !px-4 !py-2"
+                  />
+                ))}
+            </div>
+          )}
+
+          {/* Email login — disabled until backend auth flow is implemented
           <div className="flex items-center gap-3 mb-5">
             <div className="flex-1 h-px bg-stone-200" />
             <span className="text-xs text-stone-400">Or</span>
             <div className="flex-1 h-px bg-stone-200" />
           </div>
-
-          {/* Email input + CTA */}
-          <form onSubmit={handleEmailSubmit} className="space-y-3">
+          <form className="space-y-3">
             <input
               type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
               placeholder="Enter your email"
               className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-900 placeholder:text-stone-400 outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors"
             />
@@ -71,6 +72,7 @@ const Welcome = () => {
               Continue with email
             </button>
           </form>
+          */}
         </div>
       </div>
     </div>

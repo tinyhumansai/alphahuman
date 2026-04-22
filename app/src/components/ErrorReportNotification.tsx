@@ -110,11 +110,6 @@ function NotificationCard({
                 DEV
               </span>
             )}
-            {report.source === 'skill' && (
-              <span className="flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 bg-primary-500/20 text-primary-400 rounded">
-                SKILL
-              </span>
-            )}
           </div>
           <p className="text-xs text-stone-400 mt-0.5 line-clamp-2">{report.message}</p>
         </div>

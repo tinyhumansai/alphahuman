@@ -1,3 +1,4 @@
+import debugFactory from 'debug';
 import {
   createContext,
   type ReactNode,
@@ -32,7 +33,26 @@ import {
   logout as tauriLogout,
 } from '../utils/tauriCommands';
 
-const POLL_MS = 3000;
+const log = debugFactory('core-state');
+
+const POLL_MS = 2000;
+const MAX_BOOTSTRAP_RETRIES = 5;
+
+/** Extract only non-sensitive fields from an RPC/fetch error. */
+function sanitizeError(error: unknown): { message?: string; code?: string; status?: number } {
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    return {
+      message: typeof e.message === 'string' ? e.message : undefined,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      status: typeof e.status === 'number' ? e.status : undefined,
+    };
+  }
+  return { message: String(error) };
+}
 
 interface CoreStateContextValue extends CoreState {
   refresh: () => Promise<void>;
@@ -68,6 +88,22 @@ function normalizeSnapshot(
       primaryWalletAddress: result.localState.primaryWalletAddress ?? null,
       onboardingTasks: result.localState.onboardingTasks ?? null,
     },
+    runtime: {
+      screenIntelligence: result.runtime?.screenIntelligence ?? null,
+      localAi: result.runtime?.localAi ?? null,
+      autocomplete: result.runtime?.autocomplete ?? null,
+      service: result.runtime?.service ?? null,
+    },
+  };
+}
+
+function toSignedOutSnapshot(snapshot: CoreAppSnapshot): CoreAppSnapshot {
+  return {
+    ...snapshot,
+    auth: { isAuthenticated: false, userId: null, user: null, profileId: null },
+    sessionToken: null,
+    currentUser: null,
+    onboardingCompleted: false,
   };
 }
 
@@ -76,6 +112,9 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
   const snapshotRequestIdRef = useRef(0);
   const teamsRequestIdRef = useRef(0);
   const memoryTokenRef = useRef<string | null>(state.snapshot.sessionToken);
+  const logoutGuardUntilRef = useRef(0);
+  const bootstrapFailCountRef = useRef(0);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   const commitState = useCallback((updater: (previous: CoreState) => CoreState) => {
     setState(previous => {
@@ -85,25 +124,34 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
     });
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshCore = useCallback(async () => {
     const requestId = ++snapshotRequestIdRef.current;
     const snapshot = normalizeSnapshot(await fetchCoreAppSnapshot());
+    if (!snapshot.sessionToken) {
+      logoutGuardUntilRef.current = 0;
+    }
     commitState(previous => {
       if (requestId !== snapshotRequestIdRef.current) {
         return previous;
       }
 
+      const shouldIgnoreTokenDuringLogout =
+        Date.now() < logoutGuardUntilRef.current &&
+        !previous.snapshot.sessionToken &&
+        Boolean(snapshot.sessionToken);
+      const nextSnapshot = shouldIgnoreTokenDuringLogout ? toSignedOutSnapshot(snapshot) : snapshot;
+
       const previousIdentity = snapshotIdentity(previous.snapshot);
-      const nextIdentity = snapshotIdentity(snapshot);
+      const nextIdentity = snapshotIdentity(nextSnapshot);
       const shouldClearScopedCaches =
         previousIdentity !== nextIdentity ||
-        (previous.snapshot.auth.isAuthenticated && !snapshot.auth.isAuthenticated);
+        (previous.snapshot.auth.isAuthenticated && !nextSnapshot.auth.isAuthenticated);
 
       return {
         ...previous,
         isBootstrapping: false,
         isReady: true,
-        snapshot,
+        snapshot: nextSnapshot,
         teams: shouldClearScopedCaches ? [] : previous.teams,
         teamMembersById: shouldClearScopedCaches ? {} : previous.teamMembersById,
         teamInvitesById: shouldClearScopedCaches ? {} : previous.teamInvitesById,
@@ -125,6 +173,18 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
       }
     }
   }, [commitState]);
+
+  /** Serialized refresh — all callers share the same in-flight promise. */
+  const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current;
+    }
+    const promise = refreshCore().finally(() => {
+      refreshInFlightRef.current = null;
+    });
+    refreshInFlightRef.current = promise;
+    return promise;
+  }, [refreshCore]);
 
   const refreshTeams = useCallback(async () => {
     const requestId = ++teamsRequestIdRef.current;
@@ -167,55 +227,139 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    const doRefresh = async () => {
       try {
         await refresh();
-        const next = getCoreStateSnapshot();
-        if (next.snapshot.auth.isAuthenticated) {
-          await refreshTeams().catch(() => {});
-        }
+        bootstrapFailCountRef.current = 0;
       } catch (error) {
         if (!cancelled) {
-          console.warn('[core-state] initial refresh failed:', error);
-          commitState(previous => ({ ...previous, isBootstrapping: false }));
+          bootstrapFailCountRef.current += 1;
+          const safe = sanitizeError(error);
+          log(
+            'refresh failed attempt=%d/%d error=%O',
+            bootstrapFailCountRef.current,
+            MAX_BOOTSTRAP_RETRIES,
+            safe
+          );
+          console.warn(
+            `[core-state] poll failed (attempt ${bootstrapFailCountRef.current}/${MAX_BOOTSTRAP_RETRIES}):`,
+            safe
+          );
+          if (bootstrapFailCountRef.current >= MAX_BOOTSTRAP_RETRIES) {
+            commitState(previous => {
+              if (previous.isBootstrapping) {
+                return { ...previous, isBootstrapping: false };
+              }
+              return previous;
+            });
+          }
+        }
+      }
+    };
+
+    const load = async () => {
+      await doRefresh();
+      if (!cancelled) {
+        const next = getCoreStateSnapshot();
+        if (next.snapshot.auth.isAuthenticated) {
+          await refreshTeams().catch(err => {
+            log('refreshTeams failed during bootstrap: %O', sanitizeError(err));
+          });
         }
       }
     };
 
     void load();
-    const interval = window.setInterval(() => {
-      void refresh().catch(error => {
-        console.warn('[core-state] poll failed:', error);
-      });
-    }, POLL_MS);
+    let timeoutId: number | null = null;
+    const scheduleNext = () => {
+      timeoutId = window.setTimeout(async () => {
+        await doRefresh();
+        if (!cancelled) {
+          scheduleNext();
+        }
+      }, POLL_MS);
+    };
+    scheduleNext();
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [commitState, refresh, refreshTeams]);
+
+  useEffect(() => {
+    const onSessionTokenUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ sessionToken?: string | null }>;
+      const token = customEvent.detail?.sessionToken;
+      if (!token) {
+        return;
+      }
+
+      snapshotRequestIdRef.current += 1;
+      logoutGuardUntilRef.current = 0;
+
+      memoryTokenRef.current = token;
+      commitState(previous => ({
+        ...previous,
+        isBootstrapping: false,
+        isReady: true,
+        snapshot: {
+          ...previous.snapshot,
+          auth: { ...previous.snapshot.auth, isAuthenticated: true },
+          sessionToken: token,
+        },
+      }));
+
+      void refresh().catch(err => {
+        log('refresh failed after deep-link session update: %O', sanitizeError(err));
+      });
+    };
+
+    window.addEventListener(
+      'core-state:session-token-updated',
+      onSessionTokenUpdated as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        'core-state:session-token-updated',
+        onSessionTokenUpdated as EventListener
+      );
+    };
+  }, [commitState, refresh]);
 
   const setAnalyticsEnabled = useCallback(
     async (enabled: boolean) => {
       await openhumanUpdateAnalyticsSettings({ enabled });
+      // Optimistic local commit for instant UI feedback, then re-pull the
+      // authoritative snapshot so the frontend cache matches the core.
       commitState(previous => ({
         ...previous,
         snapshot: { ...previous.snapshot, analyticsEnabled: enabled },
       }));
       syncAnalyticsConsent(enabled);
+      await refresh().catch(err => {
+        log('refresh failed after setAnalyticsEnabled: %O', sanitizeError(err));
+      });
     },
-    [commitState]
+    [commitState, refresh]
   );
 
   const setOnboardingCompletedFlag = useCallback(
     async (value: boolean) => {
       await setOnboardingCompleted(value);
+      // Optimistic local commit for instant UI feedback, then re-pull the
+      // authoritative snapshot so the frontend cache matches the core.
       commitState(previous => ({
         ...previous,
         snapshot: { ...previous.snapshot, onboardingCompleted: value },
       }));
+      await refresh().catch(err => {
+        log('refresh failed after setOnboardingCompletedFlag: %O', sanitizeError(err));
+      });
     },
-    [commitState]
+    [commitState, refresh]
   );
 
   const updateLocalState = useCallback(
@@ -228,6 +372,7 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
 
   const storeSessionToken = useCallback(
     async (token: string, user?: object) => {
+      logoutGuardUntilRef.current = 0;
       await storeSession(token, user ?? {});
       try {
         await syncMemoryClientToken(token);
@@ -236,28 +381,29 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
         console.warn('[core-state] memory client sync failed after session store:', error);
       }
       await refresh();
-      await refreshTeams().catch(() => {});
+      await refreshTeams().catch(err => {
+        log('refreshTeams failed after session store: %O', sanitizeError(err));
+      });
     },
     [refresh, refreshTeams]
   );
 
   const clearSession = useCallback(async () => {
-    await tauriLogout();
+    logoutGuardUntilRef.current = Date.now() + 5_000;
+    snapshotRequestIdRef.current += 1;
     commitState(previous => ({
       ...previous,
       teams: [],
       teamMembersById: {},
       teamInvitesById: {},
-      snapshot: {
-        ...previous.snapshot,
-        auth: { isAuthenticated: false, userId: null, user: null, profileId: null },
-        sessionToken: null,
-        currentUser: null,
-        onboardingCompleted: false,
-      },
+      snapshot: toSignedOutSnapshot(previous.snapshot),
     }));
     memoryTokenRef.current = null;
-  }, [commitState]);
+    await tauriLogout();
+    await refresh().catch(err => {
+      log('refresh failed after clearSession: %O', sanitizeError(err));
+    });
+  }, [commitState, refresh]);
 
   const value = useMemo<CoreStateContextValue>(
     () => ({

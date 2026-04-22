@@ -58,6 +58,14 @@ pub struct UsageInfo {
     pub output_tokens: u64,
     /// Total context window size for the model (0 if unknown).
     pub context_window: u64,
+    /// Number of input tokens that were served from the KV cache
+    /// (returned by backends that support prompt caching, e.g. via
+    /// `openhuman.usage.cached_input_tokens` or
+    /// `prompt_tokens_details.cached_tokens`).
+    pub cached_input_tokens: u64,
+    /// Amount billed for this request in USD (from
+    /// `openhuman.billing.charged_amount_usd`). Zero when unavailable.
+    pub charged_amount_usd: f64,
 }
 
 /// An LLM response that may contain text, tool calls, or both.
@@ -83,16 +91,44 @@ impl ChatResponse {
     }
 }
 
+/// A fine-grained streaming event emitted by a provider while serving a
+/// `chat()` call. Providers that support SSE/streaming forward these to
+/// the optional sender on [`ChatRequest::stream`]; the final aggregated
+/// response is still returned from `chat()` so callers that ignore the
+/// stream keep working unchanged.
+#[derive(Debug, Clone)]
+pub enum ProviderDelta {
+    /// A chunk of the assistant's visible text output.
+    TextDelta { delta: String },
+    /// A chunk of the model's reasoning/thinking output (for models
+    /// that emit `reasoning_content` or an equivalent). Consumers should
+    /// render this in a separate UI affordance from the visible output.
+    ThinkingDelta { delta: String },
+    /// The start of a new native tool call. `call_id` is the
+    /// provider-assigned id that later appears on the result message.
+    ToolCallStart { call_id: String, tool_name: String },
+    /// A chunk of argument JSON text for an in-flight tool call.
+    /// Streamed verbatim; may arrive as partial JSON that only becomes
+    /// valid once the stream completes.
+    ToolCallArgsDelta { call_id: String, delta: String },
+}
+
 /// Request payload for provider chat calls.
+///
+/// The system prompt is built once at session start and frozen for the
+/// rest of the session — the inference backend's automatic prefix
+/// cache covers the whole thing, so there is no explicit cache-boundary
+/// to thread through the request.
 #[derive(Debug, Clone, Copy)]
 pub struct ChatRequest<'a> {
     pub messages: &'a [ChatMessage],
     pub tools: Option<&'a [ToolSpec]>,
-    /// Byte offset in the system prompt where static (cacheable) content ends
-    /// and dynamic content begins. Providers that support prompt caching can
-    /// apply `cache_control` to the prefix before this boundary.
-    /// `None` means no cache boundary is known.
-    pub system_prompt_cache_boundary: Option<usize>,
+    /// Optional sink for `ProviderDelta` events. When `Some`, providers
+    /// that support streaming will ask the upstream API for SSE and
+    /// forward fine-grained events here. Providers without a streaming
+    /// implementation ignore the sender and return only the aggregated
+    /// response.
+    pub stream: Option<&'a tokio::sync::mpsc::Sender<ProviderDelta>>,
 }
 
 /// A tool result to feed back to the LLM.
@@ -789,7 +825,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
+            stream: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -807,7 +843,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: None,
-            system_prompt_cache_boundary: None,
+            stream: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -908,7 +944,7 @@ mod tests {
                 ChatMessage::system("BASE_SYSTEM_PROMPT"),
             ],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
+            stream: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -931,7 +967,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::system("BASE"), ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
+            stream: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -954,7 +990,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
-            system_prompt_cache_boundary: None,
+            stream: None,
         };
 
         let err = provider.chat(request, "model", 0.7).await.unwrap_err();

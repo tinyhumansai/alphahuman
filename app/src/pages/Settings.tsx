@@ -1,50 +1,38 @@
-import { Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
 
-import AccessibilityPanel from '../components/settings/panels/AccessibilityPanel';
-import AdvancedPanel from '../components/settings/panels/AdvancedPanel';
 import AgentChatPanel from '../components/settings/panels/AgentChatPanel';
 import AIPanel from '../components/settings/panels/AIPanel';
+import AutocompleteDebugPanel from '../components/settings/panels/AutocompleteDebugPanel';
 import AutocompletePanel from '../components/settings/panels/AutocompletePanel';
 import BillingPanel from '../components/settings/panels/BillingPanel';
 import ConnectionsPanel from '../components/settings/panels/ConnectionsPanel';
 import CronJobsPanel from '../components/settings/panels/CronJobsPanel';
 import DeveloperOptionsPanel from '../components/settings/panels/DeveloperOptionsPanel';
+import LocalModelDebugPanel from '../components/settings/panels/LocalModelDebugPanel';
 import LocalModelPanel from '../components/settings/panels/LocalModelPanel';
 import MemoryDataPanel from '../components/settings/panels/MemoryDataPanel';
 import MemoryDebugPanel from '../components/settings/panels/MemoryDebugPanel';
 import MessagingPanel from '../components/settings/panels/MessagingPanel';
+import NotificationRoutingPanel from '../components/settings/panels/NotificationRoutingPanel';
+import NotificationsPanel from '../components/settings/panels/NotificationsPanel';
 import PrivacyPanel from '../components/settings/panels/PrivacyPanel';
-import ProfilePanel from '../components/settings/panels/ProfilePanel';
 import RecoveryPhrasePanel from '../components/settings/panels/RecoveryPhrasePanel';
+import ScreenAwarenessDebugPanel from '../components/settings/panels/ScreenAwarenessDebugPanel';
 import ScreenIntelligencePanel from '../components/settings/panels/ScreenIntelligencePanel';
-import SkillsPanel from '../components/settings/panels/SkillsPanel';
 import TeamInvitesPanel from '../components/settings/panels/TeamInvitesPanel';
 import TeamManagementPanel from '../components/settings/panels/TeamManagementPanel';
 import TeamMembersPanel from '../components/settings/panels/TeamMembersPanel';
 import TeamPanel from '../components/settings/panels/TeamPanel';
 import ToolsPanel from '../components/settings/panels/ToolsPanel';
+import VoiceDebugPanel from '../components/settings/panels/VoiceDebugPanel';
 import VoicePanel from '../components/settings/panels/VoicePanel';
 import WebhooksDebugPanel from '../components/settings/panels/WebhooksDebugPanel';
 import SettingsHome from '../components/settings/SettingsHome';
 import SettingsSectionPage from '../components/settings/SettingsSectionPage';
+import { APP_VERSION } from '../utils/config';
 
 const accountSettingsItems = [
-  {
-    id: 'billing',
-    title: 'Billing & Usage',
-    description: 'Manage your subscription, credits, and payment methods',
-    route: 'billing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3 3v8a3 3 0 003 3z"
-        />
-      </svg>
-    ),
-  },
   {
     id: 'recovery-phrase',
     title: 'Recovery Phrase',
@@ -93,29 +81,29 @@ const accountSettingsItems = [
       </svg>
     ),
   },
-];
-
-const automationSettingsItems = [
   {
-    id: 'accessibility',
-    title: 'Accessibility Automation',
-    description: 'Desktop permissions, assisted controls, and safety-bound sessions',
-    route: 'accessibility',
+    id: 'privacy',
+    title: 'Privacy',
+    description: 'Manage data sharing and anonymized usage preferences',
+    route: 'privacy',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2}
-          d="M9 12h6m-7 9h8a2 2 0 002-2V7a2 2 0 00-2-2h-1l-.707-.707A1 1 0 0013.586 4h-3.172a1 1 0 00-.707.293L9 5H8a2 2 0 00-2 2v12a2 2 0 002 2z"
+          d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
         />
       </svg>
     ),
   },
+];
+
+const featuresSettingsItems = [
   {
     id: 'screen-intelligence',
-    title: 'Screen Intelligence',
-    description: 'Window capture policy, vision summaries, and memory ingestion',
+    title: 'Screen Awareness',
+    description: 'Screen capture permissions, monitoring policy, and session controls',
     route: 'screen-intelligence',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,22 +116,7 @@ const automationSettingsItems = [
       </svg>
     ),
   },
-  {
-    id: 'autocomplete',
-    title: 'Inline Autocomplete',
-    description: 'Manage predictive text style, app filters, and live completion controls',
-    route: 'autocomplete',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M4 7h16M4 12h10m-10 5h7m10 0l3 3m0 0l3-3m-3 3v-8"
-        />
-      </svg>
-    ),
-  },
+  // Autocomplete + Voice Dictation hidden per #717 (routes retained for re-enable).
   {
     id: 'messaging',
     title: 'Messaging Channels',
@@ -156,73 +129,6 @@ const automationSettingsItems = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M8 10h.01M12 10h.01M16 10h.01M21 11c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 19l1.395-3.72C3.512 14.042 3 12.574 3 11c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'cron-jobs',
-    title: 'Cron Jobs',
-    description: 'View and configure scheduled jobs for runtime skills',
-    route: 'cron-jobs',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
-    ),
-  },
-];
-
-const aiSettingsItems = [
-  {
-    id: 'voice',
-    title: 'Voice Dictation',
-    description: 'Manage dictation startup, hotkeys, writing style, and runtime controls',
-    route: 'voice',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zm-7 9a7 7 0 0014 0m-7 7v2m-4 0h8"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'local-model',
-    title: 'Local AI Model',
-    description: 'Choose model tier by device capability and manage downloads',
-    route: 'local-model',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: 'ai',
-    title: 'AI Configuration',
-    description: 'Configure persona, prompting behavior, and AI runtime settings',
-    route: 'ai',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 3l1.9 3.85 4.25.62-3.08 3 .73 4.23L12 12.77 8.2 14.7l.73-4.23-3.08-3 4.25-.62L12 3z"
         />
       </svg>
     ),
@@ -249,89 +155,132 @@ const aiSettingsItems = [
       </svg>
     ),
   },
+];
+
+const aiModelsSettingsItems = [
   {
-    id: 'skills',
-    title: 'Skills',
-    description: 'Configure browser access, skill behavior, and installed skill capabilities',
-    route: 'skills',
+    id: 'local-model',
+    title: 'Local AI Model',
+    description: 'Choose model tier by device capability and manage downloads',
+    route: 'local-model',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2}
-          d="M9.75 3a.75.75 0 00-1.5 0v2.25H6a2.25 2.25 0 000 4.5h2.25V12H6a2.25 2.25 0 000 4.5h2.25V18a.75.75 0 001.5 0v-1.5H12V18a.75.75 0 001.5 0v-1.5H18a2.25 2.25 0 000-4.5h-4.5V9.75H18a2.25 2.25 0 000-4.5h-4.5V3a.75.75 0 00-1.5 0v2.25H9.75V3z"
+          d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
         />
       </svg>
     ),
   },
 ];
 
-const Settings = () => {
+const WrappedSettingsPage = ({ children }: { children: ReactNode }) => {
   return (
     <div className="p-4 pt-6">
       <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden">
-        <Routes>
-          <Route index element={<SettingsHome />} />
-          <Route
-            path="account"
-            element={
-              <SettingsSectionPage
-                title="Account & Security"
-                description="Billing, recovery, team access, and linked account settings."
-                items={accountSettingsItems}
-              />
-            }
-          />
-          <Route
-            path="automation"
-            element={
-              <SettingsSectionPage
-                title="Automation & Channels"
-                description="Desktop automation, capture, messaging, and scheduled jobs."
-                items={automationSettingsItems}
-              />
-            }
-          />
-          <Route
-            path="ai-tools"
-            element={
-              <SettingsSectionPage
-                title="AI & Skills"
-                description="Model management, AI behavior, and skill configuration."
-                items={aiSettingsItems}
-              />
-            }
-          />
-          <Route path="connections" element={<ConnectionsPanel />} />
-          <Route path="messaging" element={<MessagingPanel />} />
-          <Route path="cron-jobs" element={<CronJobsPanel />} />
-          <Route path="screen-intelligence" element={<ScreenIntelligencePanel />} />
-          <Route path="autocomplete" element={<AutocompletePanel />} />
-          <Route path="privacy" element={<PrivacyPanel />} />
-          <Route path="profile" element={<ProfilePanel />} />
-          <Route path="advanced" element={<AdvancedPanel />} />
-          <Route path="agent-chat" element={<AgentChatPanel />} />
-          <Route path="ai" element={<AIPanel />} />
-          <Route path="accessibility" element={<AccessibilityPanel />} />
-          <Route path="local-model" element={<LocalModelPanel />} />
-          <Route path="voice" element={<VoicePanel />} />
-          <Route path="billing" element={<BillingPanel />} />
-          <Route path="skills" element={<SkillsPanel />} />
-          <Route path="tools" element={<ToolsPanel />} />
-          <Route path="team" element={<TeamPanel />} />
-          <Route path="team/manage/:teamId" element={<TeamManagementPanel />} />
-          <Route path="team/manage/:teamId/members" element={<TeamMembersPanel />} />
-          <Route path="team/manage/:teamId/invites" element={<TeamInvitesPanel />} />
-          <Route path="team/members" element={<TeamMembersPanel />} />
-          <Route path="team/invites" element={<TeamInvitesPanel />} />
-          <Route path="developer-options" element={<DeveloperOptionsPanel />} />
-          <Route path="webhooks-debug" element={<WebhooksDebugPanel />} />
-          <Route path="memory-data" element={<MemoryDataPanel />} />
-          <Route path="memory-debug" element={<MemoryDebugPanel />} />
-          <Route path="recovery-phrase" element={<RecoveryPhrasePanel />} />
-        </Routes>
+        {children}
       </div>
+    </div>
+  );
+};
+
+function wrapSettingsPage(element: ReactNode) {
+  return (
+    <WrappedSettingsPage>
+      {element}
+      <div className="border-t border-stone-100 px-4 py-3 text-center text-[11px] text-stone-400">
+        Beta build - v{APP_VERSION}
+      </div>
+    </WrappedSettingsPage>
+  );
+}
+
+const Settings = () => {
+  return (
+    <div>
+      <Routes>
+        <Route index element={wrapSettingsPage(<SettingsHome />)} />
+        <Route
+          path="account"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="Account"
+              description="Recovery phrase, team, connections, and privacy settings."
+              items={accountSettingsItems}
+            />
+          )}
+        />
+        <Route
+          path="features"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="Features"
+              description="Screen awareness, messaging, and tools."
+              items={featuresSettingsItems}
+            />
+          )}
+        />
+        <Route
+          path="ai-models"
+          element={wrapSettingsPage(
+            <SettingsSectionPage
+              title="AI & Models"
+              description="Local AI model setup and management."
+              items={aiModelsSettingsItems}
+            />
+          )}
+        />
+        {/* Account & Billing leaf panels */}
+        <Route path="recovery-phrase" element={wrapSettingsPage(<RecoveryPhrasePanel />)} />
+        <Route path="team" element={wrapSettingsPage(<TeamPanel />)} />
+        <Route path="team/manage/:teamId" element={wrapSettingsPage(<TeamManagementPanel />)} />
+        <Route
+          path="team/manage/:teamId/members"
+          element={wrapSettingsPage(<TeamMembersPanel />)}
+        />
+        <Route
+          path="team/manage/:teamId/invites"
+          element={wrapSettingsPage(<TeamInvitesPanel />)}
+        />
+        <Route path="team/members" element={wrapSettingsPage(<TeamMembersPanel />)} />
+        <Route path="team/invites" element={wrapSettingsPage(<TeamInvitesPanel />)} />
+        <Route path="connections" element={wrapSettingsPage(<ConnectionsPanel />)} />
+        {/* BillingPanel intentionally uses its own wider layout. */}
+        <Route path="billing" element={<BillingPanel />} />
+        <Route path="privacy" element={wrapSettingsPage(<PrivacyPanel />)} />
+        {/* Features leaf panels */}
+        <Route path="screen-intelligence" element={wrapSettingsPage(<ScreenIntelligencePanel />)} />
+        <Route path="autocomplete" element={wrapSettingsPage(<AutocompletePanel />)} />
+        <Route path="voice" element={wrapSettingsPage(<VoicePanel />)} />
+        <Route path="messaging" element={wrapSettingsPage(<MessagingPanel />)} />
+        <Route path="notifications" element={wrapSettingsPage(<NotificationsPanel />)} />
+        <Route
+          path="notification-routing"
+          element={wrapSettingsPage(<NotificationRoutingPanel />)}
+        />
+        <Route path="tools" element={wrapSettingsPage(<ToolsPanel />)} />
+        {/* AI & Models leaf panels */}
+        <Route path="local-model" element={wrapSettingsPage(<LocalModelPanel />)} />
+        {/* Developer Options */}
+        <Route path="developer-options" element={wrapSettingsPage(<DeveloperOptionsPanel />)} />
+        <Route path="ai" element={wrapSettingsPage(<AIPanel />)} />
+        <Route path="agent-chat" element={wrapSettingsPage(<AgentChatPanel />)} />
+        <Route path="cron-jobs" element={wrapSettingsPage(<CronJobsPanel />)} />
+        <Route
+          path="screen-awareness-debug"
+          element={wrapSettingsPage(<ScreenAwarenessDebugPanel />)}
+        />
+        <Route path="autocomplete-debug" element={wrapSettingsPage(<AutocompleteDebugPanel />)} />
+        <Route path="voice-debug" element={wrapSettingsPage(<VoiceDebugPanel />)} />
+        <Route path="local-model-debug" element={wrapSettingsPage(<LocalModelDebugPanel />)} />
+        <Route path="webhooks-debug" element={wrapSettingsPage(<WebhooksDebugPanel />)} />
+        <Route path="memory-data" element={wrapSettingsPage(<MemoryDataPanel />)} />
+        <Route path="memory-debug" element={wrapSettingsPage(<MemoryDebugPanel />)} />
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/settings" replace />} />
+      </Routes>
     </div>
   );
 };
