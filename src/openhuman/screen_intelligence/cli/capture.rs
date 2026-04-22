@@ -47,36 +47,18 @@ pub(super) fn run_capture(args: &[String]) -> Result<()> {
 
             // Save to disk if --keep
             if opts.keep {
-                if let Some(image_ref) = &result.image_ref {
-                    let config = crate::openhuman::config::Config::load_or_init()
-                        .await
-                        .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
+                let config = crate::openhuman::config::Config::load_or_init()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
 
-                    let frame = crate::openhuman::screen_intelligence::CaptureFrame {
-                        captured_at_ms: chrono::Utc::now().timestamp_millis(),
-                        reason: "cli_capture".to_string(),
-                        app_name: result
-                            .context
-                            .as_ref()
-                            .and_then(|c| c.app_name.clone()),
-                        window_title: result
-                            .context
-                            .as_ref()
-                            .and_then(|c| c.window_title.clone()),
-                        image_ref: Some(image_ref.clone()),
-                    };
-
-                    match crate::openhuman::screen_intelligence::AccessibilityEngine::save_screenshot_to_disk(
-                        &config.workspace_dir,
-                        &frame,
-                    ) {
-                        Ok(path) => {
-                            eprintln!("  Saved:   {}", path.display());
-                        }
-                        Err(e) => {
-                            eprintln!("  Save failed: {e}");
-                        }
-                    }
+                match crate::openhuman::screen_intelligence::AccessibilityEngine::save_capture_test_result(
+                    &config.workspace_dir,
+                    &result,
+                    "cli_capture",
+                ) {
+                    Some(Ok(path)) => eprintln!("  Saved:   {}", path.display()),
+                    Some(Err(e)) => eprintln!("  Save failed: {e}"),
+                    None => {}
                 }
             }
         } else {

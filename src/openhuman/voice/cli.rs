@@ -20,7 +20,7 @@ use crate::openhuman::voice::server::{run_standalone, VoiceServerConfig};
 ///   --skip-cleanup     Skip LLM post-processing on transcriptions
 ///   -v / --verbose     Enable debug logging
 ///   -h / --help        Print usage
-pub fn run_standalone_subcommand(args: &[String]) -> Result<()> {
+pub(crate) fn run_standalone_subcommand(args: &[String]) -> Result<()> {
     let mut hotkey: Option<String> = None;
     let mut mode: Option<String> = None;
     let mut skip_cleanup = false;

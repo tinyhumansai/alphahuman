@@ -22,7 +22,7 @@ mod server;
 mod session;
 
 /// Entry point for `openhuman screen-intelligence <subcommand>`.
-pub fn run_screen_intelligence_command(args: &[String]) -> Result<()> {
+pub(crate) fn run_screen_intelligence_command(args: &[String]) -> Result<()> {
     if args.is_empty() || is_help(&args[0]) {
         print_help();
         return Ok(());

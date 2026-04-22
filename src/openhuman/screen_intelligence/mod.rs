@@ -1,6 +1,6 @@
 //! Screen capture, accessibility automation, and vision summaries (macOS-focused).
 
-pub mod cli;
+pub(crate) mod cli;
 pub mod ops;
 mod schemas;
 pub mod server;
