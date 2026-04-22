@@ -1227,6 +1227,15 @@ pub async fn install_skill_from_url(
 
     let fetch_url = normalize_install_url(&raw_url)?;
 
+    // Second-layer SSRF guard: a public-looking hostname can still resolve
+    // to a loopback / private / link-local address (DNS-to-private-IP). We
+    // resolve the host up-front and reject if any returned IP is private.
+    // Known caveat: this does not fully prevent DNS rebinding — reqwest's
+    // resolver may see different answers than ours. Closing that gap requires
+    // pinning a `SocketAddr` and passing it to reqwest via a custom resolver,
+    // tracked separately.
+    validate_resolved_host(&fetch_url).await?;
+
     tracing::debug!(
         raw_url = %raw_url,
         fetch_url = %fetch_url,
@@ -1339,10 +1348,33 @@ pub async fn install_skill_from_url(
 
     let target_file = target_dir.join(SKILL_MD);
     let temp_file = target_dir.join("SKILL.md.tmp");
-    std::fs::write(&temp_file, &content)
-        .map_err(|e| format!("write failed: {}: {e}", temp_file.display()))?;
-    std::fs::rename(&temp_file, &target_file)
-        .map_err(|e| format!("write failed: rename {}: {e}", target_file.display()))?;
+
+    // Roll the partial install back if either filesystem op fails so the
+    // next retry isn't blocked by a leftover empty directory. Cleanup is
+    // best-effort — if it fails, we surface the original write error.
+    let write_result: Result<(), String> = std::fs::write(&temp_file, &content)
+        .map_err(|e| format!("write failed: {}: {e}", temp_file.display()))
+        .and_then(|_| {
+            std::fs::rename(&temp_file, &target_file)
+                .map_err(|e| format!("write failed: rename {}: {e}", target_file.display()))
+        });
+
+    if let Err(e) = write_result {
+        let _ = std::fs::remove_file(&temp_file);
+        if let Err(rm_err) = std::fs::remove_dir(&target_dir) {
+            tracing::warn!(
+                target_dir = %target_dir.display(),
+                error = %rm_err,
+                "[skills] install_skill_from_url: rollback remove_dir failed (non-fatal)"
+            );
+        } else {
+            tracing::warn!(
+                target_dir = %target_dir.display(),
+                "[skills] install_skill_from_url: rolled back partial install after write failure"
+            );
+        }
+        return Err(e);
+    }
 
     #[cfg(unix)]
     {
@@ -1534,6 +1566,80 @@ pub fn validate_install_url(raw: &str) -> Result<(), String> {
         return Err(format!(
             "host {host:?} not allowed (loopback/private/link-local/multicast)"
         ));
+    }
+    Ok(())
+}
+
+/// Resolve the host in the given URL and reject if any returned IP falls in
+/// loopback / private / link-local / multicast / unspecified ranges.
+///
+/// Covers the DNS-to-private-IP SSRF vector: a public-looking hostname can
+/// still resolve to 127.0.0.1 / 169.254.x / fc00::/7 etc., which
+/// [`validate_install_url`] alone cannot detect because it only inspects
+/// literal IP hosts.
+///
+/// Caveat: does **not** close the DNS-rebinding gap. `reqwest` performs its
+/// own DNS lookup on the GET below, and a rebinding server can answer the
+/// check with a public IP and answer reqwest with a private one. Full
+/// mitigation requires resolving to a `SocketAddr` here and passing it to
+/// reqwest via a custom resolver that only honours the pinned address.
+pub async fn validate_resolved_host(raw_url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(raw_url)
+        .map_err(|e| format!("invalid url {raw_url:?} during DNS guard: {e}"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("url {raw_url:?} has no host (DNS guard)"))?;
+    // `tokio::net::lookup_host` wants "host:port". Default https → 443.
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    // IPv6 literal hosts come back bracketed from `url::Url`; `lookup_host`
+    // needs the bracketed form for IPv6 to parse correctly.
+    let lookup_target = if parsed.host().map(|h| matches!(h, url::Host::Ipv6(_))).unwrap_or(false) {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+
+    tracing::debug!(
+        host = %host,
+        port = port,
+        "[skills] validate_resolved_host: resolving"
+    );
+
+    let mut addrs = tokio::net::lookup_host(&lookup_target)
+        .await
+        .map_err(|e| format!("dns lookup failed for {host:?}: {e}"))?
+        .peekable();
+    if addrs.peek().is_none() {
+        return Err(format!("host {host:?} resolved to no IP addresses"));
+    }
+    for addr in addrs {
+        let ip = addr.ip();
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                if is_private_v4(&v4) {
+                    tracing::warn!(
+                        host = %host,
+                        resolved = %v4,
+                        "[skills] validate_resolved_host: rejected private IPv4"
+                    );
+                    return Err(format!(
+                        "host {host:?} resolved to non-public IPv4 {v4} (loopback/private/link-local)"
+                    ));
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                if is_private_v6(&v6) {
+                    tracing::warn!(
+                        host = %host,
+                        resolved = %v6,
+                        "[skills] validate_resolved_host: rejected private IPv6"
+                    );
+                    return Err(format!(
+                        "host {host:?} resolved to non-public IPv6 {v6} (loopback/ula/link-local)"
+                    ));
+                }
+            }
+        }
     }
     Ok(())
 }
