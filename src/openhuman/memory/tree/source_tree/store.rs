@@ -97,6 +97,26 @@ pub fn get_tree(config: &Config, id: &str) -> Result<Option<Tree>> {
     })
 }
 
+/// List every tree of a given kind. Used by the global digest to enumerate
+/// source trees, and by diagnostics. Rows come back ordered by `created_at_ms`
+/// ASC so callers see a stable iteration order.
+pub fn list_trees_by_kind(config: &Config, kind: TreeKind) -> Result<Vec<Tree>> {
+    with_connection(config, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, scope, root_id, max_level, status,
+                    created_at_ms, last_sealed_at_ms
+               FROM mem_tree_trees
+              WHERE kind = ?1
+              ORDER BY created_at_ms ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![kind.as_str()], row_to_tree)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("Failed to collect trees by kind")?;
+        Ok(rows)
+    })
+}
+
 pub(crate) fn update_tree_after_seal_tx(
     tx: &Transaction<'_>,
     tree_id: &str,
