@@ -1,4 +1,4 @@
-//! Pure-CDP DOM scrape for WhatsApp message rows.
+//! Pure-CDP DOM scrape for WhatsApp message rows and call state.
 //!
 //! Replaces the old `dom_scan.js` (injected via `Runtime.evaluate`) with a
 //! single `DOMSnapshot.captureSnapshot` call that runs at the browser's C++
@@ -14,6 +14,12 @@
 //!
 //! Output matches the shape `dom_scan.js` used to return so the rest of
 //! the scanner (merge, emit, hash-dedup) doesn't need to change.
+//!
+//! Call state detection uses the following stable DOM signals:
+//!   * `[data-testid="call-container"]`    — primary call UI container
+//!   * `[data-testid="in-call-button"]`    — controls shown during a call
+//!   * `[data-animate-modal-body]` with text containing "calling" or contact info
+//!   * `[class*="call-container"]`         — CSS class fallback
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,6 +27,205 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::CdpConn;
+
+/// Active-call state detected from the WhatsApp Web DOM.
+#[derive(Debug, Clone, Default)]
+pub struct CallState {
+    /// Whether an audio or video call is currently active.
+    pub active: bool,
+    /// Contact name or phone number shown in the call UI, if detectable.
+    pub contact_name: Option<String>,
+}
+
+/// Run `DOMSnapshot.captureSnapshot` against the WhatsApp page and detect
+/// whether a call is currently active. This is a lightweight-only snapshot
+/// used by the fast-tick call-state poller; message parsing is done
+/// separately by `capture_messages`.
+pub async fn capture_call_state(cdp: &mut CdpConn, session: &str) -> Result<CallState, String> {
+    let raw = cdp
+        .call(
+            "DOMSnapshot.captureSnapshot",
+            serde_json::json!({
+                "computedStyles": [],
+                "includePaintOrder": false,
+                "includeDOMRects": false,
+            }),
+            Some(session),
+        )
+        .await?;
+    let snap: CaptureSnapshot =
+        serde_json::from_value(raw).map_err(|e| format!("decode DOMSnapshot (call): {e}"))?;
+    Ok(detect_call_state(&snap))
+}
+
+/// Walk the snapshot looking for WhatsApp call UI indicators.
+///
+/// Checked selectors (in order of reliability):
+///   1. `[data-testid="call-container"]`  — the main call overlay
+///   2. `[data-testid="in-call-button"]`  — controls shown during an active call
+///   3. `[class*="call-container"]`        — CSS class fallback
+///   4. Any element with `aria-label` containing "call" text signals
+fn detect_call_state(snap: &CaptureSnapshot) -> CallState {
+    let doc = match snap.documents.first() {
+        Some(d) => d,
+        None => return CallState::default(),
+    };
+    let nodes = &doc.nodes;
+    let strings = &snap.strings;
+    let count = nodes.node_type.len();
+    if count == 0 {
+        return CallState::default();
+    }
+
+    // Precompute children map for text content collection.
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for (i, &p) in nodes.parent_index.iter().enumerate() {
+        if p >= 0 && (p as usize) < count {
+            children[p as usize].push(i);
+        }
+    }
+
+    let mut call_container_idx: Option<usize> = None;
+
+    for i in 0..count {
+        if nodes.node_type.get(i).copied().unwrap_or(0) != NODE_TYPE_ELEMENT {
+            continue;
+        }
+        let attrs = attrs_map(nodes, i, strings);
+
+        // Primary: data-testid="call-container"
+        if attrs.get("data-testid").map(String::as_str) == Some("call-container") {
+            call_container_idx = Some(i);
+            break;
+        }
+
+        // Secondary: data-testid="in-call-button" — present only when a call is active
+        if attrs.get("data-testid").map(String::as_str) == Some("in-call-button") {
+            call_container_idx = Some(i);
+            break;
+        }
+
+        // Tertiary: CSS class containing "call-container"
+        if attrs
+            .get("class")
+            .map(|c| c.contains("call-container"))
+            .unwrap_or(false)
+        {
+            call_container_idx = Some(i);
+            break;
+        }
+
+        // Quaternary: aria-label containing "call" hints (e.g. "Voice call with Alice")
+        if let Some(label) = attrs.get("aria-label") {
+            let lower = label.to_lowercase();
+            if (lower.contains("voice call") || lower.contains("video call"))
+                && !lower.contains("start call")
+                && !lower.contains("new call")
+            {
+                call_container_idx = Some(i);
+                break;
+            }
+        }
+    }
+
+    let container = match call_container_idx {
+        Some(idx) => idx,
+        None => return CallState::default(),
+    };
+
+    // Try to extract the contact name shown in the call UI. WhatsApp renders
+    // the name as plain text inside the container — pick the first non-empty
+    // span/div that doesn't look like a button label.
+    let contact_name = find_call_contact_name(nodes, strings, &children, container);
+
+    log::debug!(
+        "[wa-dom] call detected active=true contact_name={:?}",
+        contact_name
+    );
+
+    CallState {
+        active: true,
+        contact_name,
+    }
+}
+
+/// Walk the call container looking for the contact name text. WhatsApp
+/// renders the name in a dedicated text node — we pick the first non-empty
+/// text child whose length is plausible for a name (< 80 chars).
+///
+/// Excluded strings:
+///   * Call-control button labels: "mute", "unmute", "camera", "video",
+///     "end", "leave", "participants", "add", "speaker", "hold", "chat",
+///     "microphone"
+///   * Call-status words: "calling", "connecting", "ringing"
+///   * Timer-like strings (e.g. "0:42", "1:23", "01:23")
+fn find_call_contact_name(
+    nodes: &NodeTreeSnap,
+    strings: &[String],
+    children: &[Vec<usize>],
+    root: usize,
+) -> Option<String> {
+    /// Returns `true` if the trimmed lower-cased text looks like a call
+    /// control label or timer rather than a contact name.
+    fn is_excluded(lower: &str) -> bool {
+        // Common call-control button labels.
+        const CONTROL_WORDS: &[&str] = &[
+            "mute",
+            "unmute",
+            "camera",
+            "video",
+            "end",
+            "leave",
+            "participants",
+            "add",
+            "speaker",
+            "hold",
+            "chat",
+            "microphone",
+            "calling",
+            "connecting",
+            "ringing",
+        ];
+        if CONTROL_WORDS.iter().any(|&w| lower == w) {
+            return true;
+        }
+        // Timer pattern: one or two digit groups separated by colon(s),
+        // e.g. "0:42", "1:23", "01:23:45". Allow at most 3 groups.
+        let parts: Vec<&str> = lower.split(':').collect();
+        if (2..=3).contains(&parts.len())
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        {
+            return true;
+        }
+        false
+    }
+
+    let mut stack = vec![root];
+    while let Some(idx) = stack.pop() {
+        if nodes.node_type.get(idx).copied().unwrap_or(0) == NODE_TYPE_ELEMENT {
+            let name = str_at(strings, *nodes.node_name.get(idx).unwrap_or(&-1));
+            // Span or div children likely contain the display name.
+            if name.eq_ignore_ascii_case("SPAN") || name.eq_ignore_ascii_case("DIV") {
+                let text = collect_text(nodes, strings, children, idx);
+                let trimmed = text.trim().to_string();
+                let lower = trimmed.to_lowercase();
+                // Heuristic: a contact name is a short, non-empty string that
+                // doesn't look like a button label, status indicator, or timer.
+                if !trimmed.is_empty() && trimmed.len() < 80 && !is_excluded(&lower) {
+                    return Some(trimmed);
+                }
+            }
+        }
+        if let Some(kids) = children.get(idx) {
+            for &k in kids.iter().rev() {
+                stack.push(k);
+            }
+        }
+    }
+    None
+}
 
 /// One scraped message row. Mirrors the JSON object the old JS emitted so
 /// the merge path in `mod.rs` keeps working unchanged.
