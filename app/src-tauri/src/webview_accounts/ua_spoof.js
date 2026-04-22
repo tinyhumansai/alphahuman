@@ -97,4 +97,39 @@
   try {
     delete window.safari;
   } catch (_) {}
+
+  // navigator.permissions — return "granted" for notifications queries.
+  // Simple property assignment on Blink platform objects (like Permissions)
+  // is silently ignored; Object.defineProperty on the navigator itself works
+  // because navigator exposes configurable getters (same mechanism used above
+  // for navigator.userAgent).
+  try {
+    var _rp = navigator && navigator.permissions;
+    if (_rp && typeof _rp.query === 'function') {
+      var _rq = _rp.query.bind(_rp);
+      var _fp = {
+        query: function (d) {
+          if (d && d.name === 'notifications') {
+            return Promise.resolve({ state: 'granted', onchange: null });
+          }
+          return _rq(d);
+        },
+      };
+      Object.defineProperty(navigator, 'permissions', {
+        get: function () { return _fp; },
+        configurable: true,
+      });
+    }
+  } catch (_) {}
+
+  // Notification.permission — ensure it reads "granted" even if the V8-level
+  // shim in cef-helper is overwritten or not yet in place for this context.
+  try {
+    if (window.Notification) {
+      Object.defineProperty(window.Notification, 'permission', {
+        get: function () { return 'granted'; },
+        configurable: true,
+      });
+    }
+  } catch (_) {}
 })();
