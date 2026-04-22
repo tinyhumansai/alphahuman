@@ -28,19 +28,8 @@ describe('WelcomeStep', () => {
     expect(onNext).toHaveBeenCalledTimes(1);
   });
 
-  it('disables CTA when nextDisabled is set, and shows loading label when loading', () => {
-    const { rerender } = renderWithProviders(
-      <WelcomeStep
-        onNext={() => {}}
-        nextDisabled
-        nextLoading
-        nextLoadingLabel="Checking account…"
-      />
-    );
-    const btn = screen.getByRole('button', { name: /Checking account/ });
-    expect(btn).toBeDisabled();
-
-    rerender(<WelcomeStep onNext={() => {}} />);
+  it("CTA is always enabled (WelcomeStep has no disabled/loading props)", () => {
+    renderWithProviders(<WelcomeStep onNext={() => {}} />);
     expect(screen.getByRole('button', { name: "Let's Start" })).not.toBeDisabled();
   });
 });
