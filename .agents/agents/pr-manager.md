@@ -50,14 +50,34 @@ Run:
 
 ```bash
 git status --short
-gh pr checkout <PR>
-git branch --show-current
+gh pr checkout <PR> -b pr/<PR>
+git branch --show-current   # should be pr/<PR>
 git log --oneline -20
 ```
 
+Use `-b pr/<PR>` (e.g. `pr/742`) so local branches are namespaced and never collide with the PR author's branch name. If `pr/<PR>` already exists locally, reuse it — check out the existing branch and resync with `gh pr checkout <PR> --force` if needed.
+
 If the working tree was dirty before checkout, stop before `gh pr checkout` and ask the user how to proceed.
 
-Verify that the checked-out branch matches the PR head branch. Do not continue on the wrong branch.
+Verify that the checked-out branch tracks the PR head branch (upstream is set correctly by `gh pr checkout`). The local name will be `pr/<PR>`; the remote branch remains the PR's actual head branch. Do not continue on the wrong branch.
+
+### 2b. Resolve Merge Conflicts With Base
+
+Before triaging comments, ensure the PR is mergeable against its base:
+
+- If step 1's `mergeable` field is `CONFLICTING`, or the PR branch is materially behind base, rebase onto base before doing anything else.
+- Fetch and rebase:
+
+```bash
+git fetch origin <baseRefName>
+git rebase origin/<baseRefName>
+```
+
+- Prefer `git rebase` to keep history linear. Fall back to `git merge origin/<baseRefName>` only when the PR history already contains merge commits, the base branch policy disallows rebasing, or the user has asked for merges.
+- Resolve each conflict by reading both sides and preserving the intent of both — never blindly take one side. Run the relevant typecheck/build on resolved files before continuing. If a conflict is genuinely ambiguous (semantic divergence, architectural disagreement), stop and report rather than guessing.
+- Continue with `git add <files> && git rebase --continue` (or commit the merge). Never use `git rebase --skip` or `--strategy=ours/theirs` wholesale.
+- If the rebase rewrote already-pushed commits, push back with **`git push --force-with-lease`** (never plain `--force`). Only proceed if no one else has pushed to the branch.
+- For fork PRs without push access, do not attempt the rebase/force-push. Report the conflict and ask the PR author to rebase.
 
 ### 3. Collect Review Comments
 
@@ -124,7 +144,9 @@ chore(pr-manager): apply formatting
 chore(pr-manager): lint autofix
 ```
 
-Never use `--no-verify`, never amend, and never force-push.
+Never use `--no-verify`, never amend, and never force-push (except `--force-with-lease` after a deliberate conflict-resolution rebase from phase 2b).
+
+**Leave the local repo clean.** By the end of the run, `git status --short` on `pr/<PR>` must be empty. Every fix — including formatter output, lint autofixes, and generated files — must be committed and pushed to the PR branch. Do not finish with unstaged changes, uncommitted edits, stashes, or untracked artifacts left behind.
 
 ### 7. Run Quality Checks
 
@@ -153,11 +175,16 @@ Notes:
 
 You MUST push once fixes are committed and checks pass. This is the terminal step of the default workflow; skipping it leaves the PR in the same state you found it.
 
+Before pushing, verify the working tree is clean:
+
 ```bash
+git status --short   # must be empty
 git push
 ```
 
-If push is rejected because the remote advanced, use `git pull --rebase` only after inspecting the situation. Never force-push without explicit user approval.
+If `git status --short` shows anything, commit those changes first (formatter output, lint autofixes, regenerated files) before pushing. Never finish with a dirty tree.
+
+If push is rejected because the remote advanced, use `git pull --rebase` only after inspecting the situation. Never force-push without explicit user approval — the sole exception is following a deliberate conflict-resolution rebase (phase 2b), where `git push --force-with-lease` is permitted.
 
 For fork PRs without push access, clearly report that commits are local and instruct the user/author how to pull them. Do not attempt to push.
 
