@@ -399,3 +399,41 @@
 :root {
   color-scheme: light;
 }
+
+/* Command palette + help overlay — scoped tokens. */
+:root {
+  --cmd-accent:           #2F6EF4;
+  --cmd-surface:          #FFFFFF;
+  --cmd-surface-elevated: #F5F5F5;
+  --cmd-foreground:       #171717;
+  --cmd-foreground-muted: #737373;
+  --cmd-border:           #E5E5E5;
+  --cmd-ring:             var(--cmd-accent);
+  --cmd-overlay:          rgba(0, 0, 0, 0.5);
+  --cmd-shadow-palette:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+:root.dark {
+  --cmd-accent:           #60A5FA;
+  --cmd-surface:          #171717;
+  --cmd-surface-elevated: #262626;
+  --cmd-foreground:       #FAFAFA;
+  --cmd-foreground-muted: #A3A3A3;
+  --cmd-border:           #404040;
+  --cmd-overlay:          rgba(0, 0, 0, 0.7);
+  --cmd-shadow-palette:
+    0 20px 25px -5px rgba(0, 0, 0, 0.5),
+    0 10px 10px -5px rgba(0, 0, 0, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmd-palette-enter,
+  .cmd-palette-exit,
+  .cmd-help-enter,
+  .cmd-help-exit {
+    animation: none !important;
+    transition: none !important;
+  }
+}
