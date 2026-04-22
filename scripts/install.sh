@@ -296,6 +296,10 @@ else
     if [ "${OS}" = "linux" ] && [ "${DRY_RUN}" = true ]; then
       log_warn "No Linux release asset is currently published. Dry-run will skip install steps."
       echo "DRY RUN: no compatible asset available for ${OS}/${ARCH}"
+      # Preserve failure signal for automation.
+      if [ "${CI:-}" = "true" ] || [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        exit 1
+      fi
       exit 0
     fi
     log_err "Could not resolve a compatible asset for ${OS}/${ARCH}."
