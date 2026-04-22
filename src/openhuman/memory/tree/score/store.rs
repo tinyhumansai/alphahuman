@@ -223,6 +223,48 @@ pub(crate) fn clear_entity_index_for_node_tx(tx: &Transaction<'_>, node_id: &str
     Ok(n)
 }
 
+/// Index summary-node entities by canonical id only. Summary-level entity
+/// metadata is LLM-derived (Phase 3a #709) — the summariser emits a
+/// curated list of canonical ids without per-occurrence span/surface data,
+/// so this helper writes placeholder values for `entity_kind` and
+/// `surface` (both set to the canonical id) and the summary's score.
+/// Callers should prefer the regular [`index_entities_tx`] for leaves,
+/// where span/surface are meaningful.
+pub(crate) fn index_summary_entity_ids_tx(
+    tx: &Transaction<'_>,
+    entity_ids: &[String],
+    node_id: &str,
+    score: f32,
+    timestamp_ms: i64,
+    tree_id: Option<&str>,
+) -> Result<usize> {
+    if entity_ids.is_empty() {
+        return Ok(0);
+    }
+    let mut stmt = tx.prepare(
+        "INSERT OR REPLACE INTO mem_tree_entity_index (
+            entity_id, node_id, node_kind, entity_kind, surface,
+            score, timestamp_ms, tree_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    for canonical_id in entity_ids {
+        stmt.execute(params![
+            canonical_id,
+            node_id,
+            "summary",
+            // Canonical ids carry a "<kind>:<value>" prefix in Phase 2,
+            // so the id itself stands in for kind and surface until the
+            // LLM summariser emits richer metadata.
+            canonical_id,
+            canonical_id,
+            score,
+            timestamp_ms,
+            tree_id,
+        ])?;
+    }
+    Ok(entity_ids.len())
+}
+
 pub(crate) fn index_entities_tx(
     tx: &Transaction<'_>,
     entities: &[CanonicalEntity],

@@ -1,10 +1,14 @@
 //! Deterministic fallback summariser (#709).
 //!
 //! `InertSummariser` concatenates each input's content, separated by a
-//! blank line, and hard-truncates to `ctx.token_budget`. It also unions
-//! the entity and topic sets (dedup while preserving first-seen order).
-//! The goal is not fidelity — it's a stable, dependency-free baseline so
-//! tree mechanics (sealing, cascade, roots) can be tested without an LLM.
+//! blank line, and hard-truncates to `ctx.token_budget`. Entities and
+//! topics are **intentionally empty**: per design, summary-level entity /
+//! topic metadata is derived by the LLM summariser from the summary's own
+//! synthesised content (not by mechanically unioning children's labels).
+//! Until the networked summariser lands, inert-sealed summaries have no
+//! entity index rows — an honest stub. The goal of this fallback is not
+//! metadata fidelity; it's a stable, dependency-free baseline so tree
+//! mechanics (sealing, cascade, roots) can be tested without an LLM.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -51,11 +55,9 @@ impl Summariser for InertSummariser {
 
         let (content, token_count) = truncate_to_budget(&joined, ctx.token_budget);
 
-        let entities = union_preserve_order(inputs.iter().map(|i| i.entities.as_slice()));
-        let topics = union_preserve_order(inputs.iter().map(|i| i.topics.as_slice()));
-
         log::debug!(
-            "[source_tree::summariser::inert] sealed tree_id={} level={} inputs={} tokens={}",
+            "[source_tree::summariser::inert] sealed tree_id={} level={} inputs={} tokens={} \
+             entities=0 topics=0 (honest stub — LLM summariser derives these)",
             ctx.tree_id,
             ctx.target_level,
             inputs.len(),
@@ -65,8 +67,8 @@ impl Summariser for InertSummariser {
         Ok(SummaryOutput {
             content,
             token_count,
-            entities,
-            topics,
+            entities: Vec::new(),
+            topics: Vec::new(),
         })
     }
 }
@@ -85,21 +87,6 @@ fn truncate_to_budget(text: &str, budget: u32) -> (String, u32) {
     let truncated: String = text.chars().take(char_ceiling).collect();
     let tokens = approx_token_count(&truncated);
     (truncated, tokens)
-}
-
-fn union_preserve_order<'a, I>(iter: I) -> Vec<String>
-where
-    I: IntoIterator<Item = &'a [String]>,
-{
-    let mut out: Vec<String> = Vec::new();
-    for group in iter {
-        for item in group {
-            if !out.iter().any(|existing| existing == item) {
-                out.push(item.clone());
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -146,21 +133,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unions_entities_preserving_order_and_dedupe() {
+    async fn honest_stub_emits_no_entities_or_topics() {
+        // Per design: summary-level entities/topics are LLM-derived from
+        // the summary's own synthesised content. The inert fallback does
+        // not propagate children's labels — it emits empty vecs. The
+        // Ollama summariser (future) will fill them via real NER on its
+        // own output.
         let s = InertSummariser::default();
         let inputs = vec![
             sample_input("a", "x", &["entity:alice", "entity:bob"]),
             sample_input("b", "y", &["entity:bob", "entity:carol"]),
         ];
         let out = s.summarise(&inputs, &test_ctx()).await.unwrap();
-        assert_eq!(
-            out.entities,
-            vec![
-                "entity:alice".to_string(),
-                "entity:bob".to_string(),
-                "entity:carol".to_string(),
-            ]
-        );
+        assert!(out.entities.is_empty());
+        assert!(out.topics.is_empty());
     }
 
     #[tokio::test]

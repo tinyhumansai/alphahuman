@@ -90,6 +90,17 @@ fn append_to_buffer(
     with_connection(config, |conn| {
         let tx = conn.unchecked_transaction()?;
         let mut buf = store::get_buffer_conn(&tx, tree_id, level)?;
+        // Idempotent on (tree_id, level, item_id): a retry after a failed
+        // cascade (step 2 of append_leaf) is a no-op, so duplicated children
+        // and double-counted tokens can't slip into the buffer. oldest_at
+        // stays on first-seen.
+        if buf.item_ids.iter().any(|existing| existing == item_id) {
+            log::debug!(
+                "[source_tree::bucket_seal] append_to_buffer: {item_id} already in buffer \
+                 tree_id={tree_id} level={level} — no-op"
+            );
+            return Ok(());
+        }
         buf.item_ids.push(item_id.to_string());
         buf.token_sum = buf.token_sum.saturating_add(token_delta);
         buf.oldest_at = match buf.oldest_at {
@@ -251,6 +262,20 @@ async fn seal_one_level(
             .context("Failed to read current max_level for tree")?;
 
         store::insert_summary_tx(&tx, &node)?;
+        // Forward-compat: index any entities the summariser emitted into
+        // `mem_tree_entity_index` so Phase 4 retrieval can resolve
+        // "summaries mentioning Alice" via the same inverted index as
+        // leaves. No-op under InertSummariser (entities is empty by
+        // design — see summariser/inert.rs doc); becomes active once the
+        // Ollama summariser lands and emits curated canonical ids.
+        crate::openhuman::memory::tree::score::store::index_summary_entity_ids_tx(
+            &tx,
+            &node.entities,
+            &node.id,
+            node.score,
+            now.timestamp_millis(),
+            Some(&tree_id),
+        )?;
         // Backlink children → new parent so leaf/parent traversal is a
         // single-row lookup in Phase 4. Skipped for levels already bound
         // to a parent (shouldn't happen — a child seals at most once).
