@@ -16,7 +16,6 @@ pub mod jsonrpc;
 pub mod logging;
 pub mod memory_cli;
 pub mod rpc_log;
-pub mod screen_intelligence_cli;
 pub mod shutdown;
 pub mod socketio;
 pub mod types;

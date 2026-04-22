@@ -61,7 +61,7 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
         "call" => run_call_command(&args[1..]),
         // Domain-specific CLI adapters that don't follow the generic namespace pattern.
         "screen-intelligence" => {
-            crate::core::screen_intelligence_cli::run_screen_intelligence_command(&args[1..])
+            crate::openhuman::screen_intelligence::cli::run_screen_intelligence_command(&args[1..])
         }
         "voice" | "dictate" => {
             crate::openhuman::voice::cli::run_standalone_subcommand(&args[1..])
