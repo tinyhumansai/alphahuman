@@ -138,8 +138,7 @@ pub(super) fn is_subagent_spawn_tool(name: &str) -> bool {
 ///
 /// Exposed `pub(crate)` so the debug dump path in
 /// [`crate::openhuman::agent::debug`] shares the exact same
-/// filter logic as the live runner — previously debug_dump carried a
-/// "standalone copy" which drifted over time.
+/// filter logic as the live runner instead of keeping a separate copy.
 pub(crate) fn filter_tool_indices(
     parent_tools: &[Box<dyn Tool>],
     scope: &ToolScope,
@@ -180,7 +179,7 @@ pub(crate) fn filter_tool_indices(
 ///
 /// Exposed `pub(crate)` so the debug dump path in
 /// [`crate::openhuman::agent::debug`] loads prompts through the
-/// exact same code the runner uses — no parallel body-loading logic.
+/// exact same code the runner uses instead of keeping a separate copy.
 pub(crate) fn load_prompt_source(
     source: &PromptSource,
     ctx: &PromptContext<'_>,

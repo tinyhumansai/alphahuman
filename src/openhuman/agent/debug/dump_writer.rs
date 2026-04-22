@@ -28,8 +28,8 @@ pub struct DumpWriteSummary {
 }
 
 /// Write a batch of [`DumpedPrompt`]s into `dir` using the stable
-/// on-disk layout the CLI depends on. Callers are expected to have
-/// already created `dir` (or let this helper propagate the error).
+/// on-disk layout the CLI depends on. `dir` is created if it does
+/// not yet exist; the call fails only on a permission or I/O error.
 ///
 /// Emits `[dump-all] …` progress lines on stderr so the CLI surface
 /// matches pre-extraction behaviour byte-for-byte.
@@ -108,7 +108,7 @@ fn render_meta(dumped: &DumpedPrompt) -> String {
     meta
 }
 
-pub(crate) fn sanitise_filename_component(value: &str) -> String {
+fn sanitise_filename_component(value: &str) -> String {
     value
         .chars()
         .map(|c| {
