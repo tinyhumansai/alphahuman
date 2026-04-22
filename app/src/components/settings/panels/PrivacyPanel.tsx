@@ -17,7 +17,7 @@ const PrivacyPanel = () => {
   };
 
   return (
-    <div>
+    <div data-testid="settings-privacy-panel">
       <SettingsHeader
         title="Privacy & Security"
         showBackButton={true}
