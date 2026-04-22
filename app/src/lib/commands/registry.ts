@@ -34,7 +34,6 @@ export function createRegistry(): Registry {
       byFrame.set(scopeFrame, frame);
     }
     if (frame.has(action.id)) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[commands] duplicate action id "${action.id}" in the same scope — replacing`,
       );

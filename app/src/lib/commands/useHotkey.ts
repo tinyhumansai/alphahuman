@@ -29,6 +29,5 @@ export function useHotkey(
       id: optsRef.current.id,
     });
     return () => hotkeyManager.unbind(frame, sym);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shortcut, frame]);
 }

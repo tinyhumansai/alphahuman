@@ -39,7 +39,6 @@ export default function CommandProvider({ children }: Props) {
   useEffect(() => {
     instanceCount += 1;
     if (instanceCount > 1) {
-      // eslint-disable-next-line no-console
       console.warn('[commands] CommandProvider mounted more than once — this is unsupported');
     }
     return () => {

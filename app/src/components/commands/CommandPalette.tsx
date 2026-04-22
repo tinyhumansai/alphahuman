@@ -48,7 +48,7 @@ export default function CommandPalette({ open, onOpenChange }: Props) {
 
   function runAction(action: RegisteredAction): void {
     onOpenChange(false);
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       registry.runAction(action.id);
     });
   }

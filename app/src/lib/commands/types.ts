@@ -33,7 +33,7 @@ export interface RegisteredAction extends Action {
 
 export interface HotkeyBinding {
   shortcut: ShortcutString;
-  handler: () => void;
+  handler: () => void | Promise<void>;
   scope?: ScopeKind;
   enabled?: () => boolean;
   allowInInput?: boolean;
