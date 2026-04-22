@@ -36,7 +36,9 @@ pub async fn handle_get_stats(idx: &PersonalIndex) -> Result<RpcOutcome<Value>, 
         }
 
         let last_ts: Option<i64> = guard
-            .query_row("SELECT max(ts) FROM items", [], |r| r.get::<_, Option<i64>>(0))
+            .query_row("SELECT max(ts) FROM items", [], |r| {
+                r.get::<_, Option<i64>>(0)
+            })
             .map_err(|e| format!("max ts: {e}"))?;
 
         Ok(json!({

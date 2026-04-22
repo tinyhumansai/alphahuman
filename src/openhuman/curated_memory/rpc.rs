@@ -22,7 +22,10 @@ pub async fn handle_read(
 ) -> Result<RpcOutcome<Value>, String> {
     let store = pick(&file, rt)?;
     let body = store.read().await.map_err(|e| format!("read: {e}"))?;
-    Ok(RpcOutcome::new(json!({ "file": file, "body": body }), vec![]))
+    Ok(RpcOutcome::new(
+        json!({ "file": file, "body": body }),
+        vec![],
+    ))
 }
 
 pub async fn handle_add(

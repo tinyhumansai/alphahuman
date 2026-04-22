@@ -48,7 +48,9 @@ impl PersonalIndex {
         })
         .await
         .context("open task panicked")??;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     /// Open an in-memory index (for tests). Same setup as `open`.
@@ -62,7 +64,9 @@ impl PersonalIndex {
         })
         .await
         .context("open task panicked")??;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 }
 
@@ -75,7 +79,9 @@ pub struct IndexWriter {
 
 impl IndexWriter {
     pub fn new(idx: &PersonalIndex) -> Self {
-        Self { conn: Arc::clone(&idx.conn) }
+        Self {
+            conn: Arc::clone(&idx.conn),
+        }
     }
 
     /// Upsert items by (source, external_id). FTS rows are kept in sync via
@@ -226,7 +232,10 @@ mod tests {
         let version: String = conn
             .query_row("SELECT vec_version()", [], |row| row.get(0))
             .expect("vec_version");
-        assert!(version.starts_with('v'), "unexpected vec_version: {version}");
+        assert!(
+            version.starts_with('v'),
+            "unexpected vec_version: {version}"
+        );
     }
 
     #[tokio::test]
@@ -282,11 +291,9 @@ impl ItemRow {
     fn into_hit(self) -> crate::openhuman::life_capture::types::Hit {
         use crate::openhuman::life_capture::types::{Hit, Item, Source};
         let author = self.author_json.and_then(|s| serde_json::from_str(&s).ok());
-        let metadata =
-            serde_json::from_str(&self.metadata_json).unwrap_or(serde_json::json!({}));
-        let source: Source =
-            serde_json::from_value(serde_json::Value::String(self.source.clone()))
-                .unwrap_or(Source::Gmail);
+        let metadata = serde_json::from_str(&self.metadata_json).unwrap_or(serde_json::json!({}));
+        let source: Source = serde_json::from_value(serde_json::Value::String(self.source.clone()))
+            .unwrap_or(Source::Gmail);
         Hit {
             score: self.score as f32,
             snippet: self.snip,
@@ -306,7 +313,9 @@ impl ItemRow {
 
 impl IndexReader {
     pub fn new(idx: &PersonalIndex) -> Self {
-        Self { conn: Arc::clone(&idx.conn) }
+        Self {
+            conn: Arc::clone(&idx.conn),
+        }
     }
 
     /// Keyword search via FTS5 ranked by bm25 (negated so higher = better).
@@ -372,8 +381,16 @@ impl IndexReader {
         let kw = self.keyword_search(&q.text, oversample).await?;
         let vc = self.vector_search(query_vector, oversample).await?;
 
-        let max_kw = kw.iter().map(|h| h.score).fold(f32::MIN, f32::max).max(1e-6);
-        let max_vc = vc.iter().map(|h| h.score).fold(f32::MIN, f32::max).max(1e-6);
+        let max_kw = kw
+            .iter()
+            .map(|h| h.score)
+            .fold(f32::MIN, f32::max)
+            .max(1e-6);
+        let max_vc = vc
+            .iter()
+            .map(|h| h.score)
+            .fold(f32::MIN, f32::max)
+            .max(1e-6);
 
         let mut by_id: HashMap<uuid::Uuid, (Hit, f32, f32)> = HashMap::new();
         for h in kw {
@@ -399,7 +416,11 @@ impl IndexReader {
                 hit
             })
             .collect();
-        out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(q.k);
         Ok(out)
     }
@@ -473,9 +494,18 @@ mod writer_tests {
         let idx = PersonalIndex::open_in_memory().await.unwrap();
         let writer = IndexWriter::new(&idx);
 
-        writer.upsert(&mut [sample_item("a", "first")]).await.unwrap();
-        writer.upsert(&mut [sample_item("a", "first updated")]).await.unwrap();
-        writer.upsert(&mut [sample_item("b", "second")]).await.unwrap();
+        writer
+            .upsert(&mut [sample_item("a", "first")])
+            .await
+            .unwrap();
+        writer
+            .upsert(&mut [sample_item("a", "first updated")])
+            .await
+            .unwrap();
+        writer
+            .upsert(&mut [sample_item("b", "second")])
+            .await
+            .unwrap();
 
         let conn = idx.conn.lock().await;
         let count: i64 = conn
@@ -484,11 +514,9 @@ mod writer_tests {
         assert_eq!(count, 2, "dedupe by (source, external_id)");
 
         let updated: String = conn
-            .query_row(
-                "SELECT text FROM items WHERE external_id='a'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT text FROM items WHERE external_id='a'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(updated, "first updated", "upsert overwrites text");
     }
@@ -510,7 +538,10 @@ mod writer_tests {
         // Re-ingest with a fresh Uuid for the same (source, external_id).
         let mut second = [sample_item("dup", "updated text")];
         let fresh_uuid = second[0].id;
-        assert_ne!(fresh_uuid, canonical_id, "test setup needs a different uuid");
+        assert_ne!(
+            fresh_uuid, canonical_id,
+            "test setup needs a different uuid"
+        );
         writer.upsert(&mut second).await.unwrap();
 
         // upsert must rewrite the caller's id to the canonical one so the
@@ -543,7 +574,11 @@ mod writer_tests {
 
         let conn = idx.conn.lock().await;
         let count: i64 = conn
-            .query_row("SELECT count(*) FROM item_vectors WHERE item_id = ?1", rusqlite::params![id.to_string()], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM item_vectors WHERE item_id = ?1",
+                rusqlite::params![id.to_string()],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1, "vector replaced, not duplicated");
     }
@@ -575,7 +610,12 @@ mod reader_keyword_tests {
         let writer = IndexWriter::new(&idx);
         writer
             .upsert(&mut [
-                it("a", "ledger contract", "the ledger contract draft is attached", 100),
+                it(
+                    "a",
+                    "ledger contract",
+                    "the ledger contract draft is attached",
+                    100,
+                ),
                 it("b", "lunch", "let's grab lunch", 200),
                 it("c", "ledger", "ledger ledger ledger", 300),
             ])
@@ -619,7 +659,10 @@ mod reader_vector_tests {
         let a = mk("a");
         let b = mk("b");
         let c = mk("c");
-        writer.upsert(&mut [a.clone(), b.clone(), c.clone()]).await.unwrap();
+        writer
+            .upsert(&mut [a.clone(), b.clone(), c.clone()])
+            .await
+            .unwrap();
 
         let mut va = vec![0.0_f32; 1536];
         va[0] = 1.0;

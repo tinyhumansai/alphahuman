@@ -45,7 +45,13 @@ pub struct Query {
 
 impl Query {
     pub fn simple(text: impl Into<String>, k: usize) -> Self {
-        Self { text: text.into(), k, sources: vec![], since: None, until: None }
+        Self {
+            text: text.into(),
+            k,
+            sources: vec![],
+            since: None,
+            until: None,
+        }
     }
 }
 
@@ -88,12 +94,18 @@ mod tests {
         let back: Item = serde_json::from_str(&json).unwrap();
         assert_eq!(back.external_id, item.external_id);
         assert_eq!(back.source, Source::Gmail);
-        assert_eq!(back.author.unwrap().email.as_deref(), Some("sarah@example.com"));
+        assert_eq!(
+            back.author.unwrap().email.as_deref(),
+            Some("sarah@example.com")
+        );
     }
 
     #[test]
     fn source_serializes_as_lowercase_string() {
-        assert_eq!(serde_json::to_string(&Source::IMessage).unwrap(), "\"imessage\"");
+        assert_eq!(
+            serde_json::to_string(&Source::IMessage).unwrap(),
+            "\"imessage\""
+        );
         let back: Source = serde_json::from_str("\"calendar\"").unwrap();
         assert_eq!(back, Source::Calendar);
     }

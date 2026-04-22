@@ -92,7 +92,10 @@ mod tests {
         run(&conn).expect("first run");
 
         let tables = table_names(&conn);
-        assert!(tables.contains(&"items".to_string()), "items table missing; got: {tables:?}");
+        assert!(
+            tables.contains(&"items".to_string()),
+            "items table missing; got: {tables:?}"
+        );
         assert!(
             tables.contains(&"sync_state".to_string()),
             "sync_state table missing; got: {tables:?}"
@@ -110,11 +113,9 @@ mod tests {
         run(&conn).expect("second run (idempotent)");
 
         let count: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM _life_capture_migrations",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT count(*) FROM _life_capture_migrations", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, MIGRATIONS.len() as i64);
     }
