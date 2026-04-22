@@ -225,9 +225,15 @@ pub(crate) fn clear_entity_index_for_node_tx(tx: &Transaction<'_>, node_id: &str
 
 /// Index summary-node entities by canonical id only. Summary-level entity
 /// metadata is LLM-derived (Phase 3a #709) — the summariser emits a
-/// curated list of canonical ids without per-occurrence span/surface data,
-/// so this helper writes placeholder values for `entity_kind` and
-/// `surface` (both set to the canonical id) and the summary's score.
+/// curated list of canonical ids without per-occurrence span/surface data.
+///
+/// Writes the kind prefix (everything before the first `:`) into the
+/// `entity_kind` column so [`lookup_entity`]'s `EntityKind::parse()` keeps
+/// round-tripping on summary rows. `surface` stores the full canonical id
+/// as a stable placeholder — at the summary level we have no per-occurrence
+/// span to recover, and the id is always unique. The summary's score is
+/// reused for each of its entities.
+///
 /// Callers should prefer the regular [`index_entities_tx`] for leaves,
 /// where span/surface are meaningful.
 pub(crate) fn index_summary_entity_ids_tx(
@@ -248,14 +254,25 @@ pub(crate) fn index_summary_entity_ids_tx(
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     for canonical_id in entity_ids {
+        // Canonical ids follow Phase 2's "<kind>:<value>" convention.
+        // Without this split, `entity_kind` would hold the full id and
+        // `lookup_entity`'s `EntityKind::parse()` would fail at read time,
+        // poisoning any mixed leaf/summary lookup.
+        let entity_kind = match canonical_id.split_once(':') {
+            Some((kind, _)) => kind,
+            None => {
+                log::warn!(
+                    "[memory_tree::score::store] summary entity id missing ':' — \
+                     storing as-is: {canonical_id}"
+                );
+                canonical_id.as_str()
+            }
+        };
         stmt.execute(params![
             canonical_id,
             node_id,
             "summary",
-            // Canonical ids carry a "<kind>:<value>" prefix in Phase 2,
-            // so the id itself stands in for kind and surface until the
-            // LLM summariser emits richer metadata.
-            canonical_id,
+            entity_kind,
             canonical_id,
             score,
             timestamp_ms,
@@ -526,5 +543,59 @@ mod tests {
         }
         let hits = lookup_entity(&cfg, "email:alice", Some(2)).unwrap();
         assert_eq!(hits.len(), 2);
+    }
+
+    /// Regression: `index_summary_entity_ids_tx` must write a parseable
+    /// `entity_kind` (the "<kind>" prefix before `:`) so `lookup_entity`
+    /// can still round-trip rows through `EntityKind::parse`. Earlier code
+    /// stored the full canonical id, which poisoned lookups mixing leaf
+    /// and summary hits. See PR #789 CodeRabbit review.
+    #[test]
+    fn summary_entity_index_kind_is_parseable() {
+        use crate::openhuman::memory::tree::store::with_connection;
+
+        let (_tmp, cfg) = test_config();
+
+        // Seed a leaf hit so lookup_entity has something leafy to mix
+        // with the summary hit — this reproduces the mixed-row crash.
+        let leaf_entity = sample_entity("alice");
+        index_entity(&cfg, &leaf_entity, "leaf-1", "leaf", 1000, Some("tree-1")).unwrap();
+
+        // Write a summary row via the tx helper under test.
+        with_connection(&cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            let n = index_summary_entity_ids_tx(
+                &tx,
+                &["email:alice@example.com".into(), "hashtag:launch-q2".into()],
+                "summary-1",
+                0.84,
+                2000,
+                Some("tree-1"),
+            )?;
+            assert_eq!(n, 2);
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+
+        // Before the fix: lookup_entity would fail on the summary row
+        // because entity_kind was "email:alice@example.com" and
+        // EntityKind::parse rejects it. After the fix, the column stores
+        // "email" and the lookup succeeds with both rows.
+        let hits = lookup_entity(&cfg, "email:alice@example.com", None).unwrap();
+        assert_eq!(hits.len(), 1, "summary row should be discoverable");
+        assert_eq!(hits[0].node_id, "summary-1");
+        assert_eq!(hits[0].node_kind, "summary");
+        assert_eq!(hits[0].entity_kind, EntityKind::Email);
+
+        // Hashtag row parses as its own kind too.
+        let hits = lookup_entity(&cfg, "hashtag:launch-q2", None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entity_kind, EntityKind::Hashtag);
+
+        // Mixing leaf + summary entity ids in one lookup also parses cleanly.
+        let hits = lookup_entity(&cfg, "email:alice", None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entity_kind, EntityKind::Email);
     }
 }
