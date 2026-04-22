@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
-export function useStickToBottom<T>(
-  messages: T[],
+export function useStickToBottom(
+  messages: readonly unknown[],
   threadKey: string | null | undefined,
   resetKey: string,
 ) {
@@ -20,13 +20,6 @@ export function useStickToBottom<T>(
     const threadChanged = lastScrolledThreadRef.current !== threadKey;
     const firstScroll = !didInitialScrollRef.current;
     const instant = firstScroll || threadChanged;
-    console.debug('[scroll]', {
-      instant,
-      threadChanged,
-      firstScroll,
-      foundContainer: !!container,
-      containerScrollHeight: container?.scrollHeight ?? 0,
-    });
     if (instant) {
       if (container) {
         container.scrollTop = container.scrollHeight;
