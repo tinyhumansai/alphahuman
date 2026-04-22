@@ -114,9 +114,7 @@ pub struct ConnectedIdentity {
 /// group them by `source + identifier`.
 pub fn load_connected_identities() -> Vec<ConnectedIdentity> {
     let Some(client) = crate::openhuman::memory::global::client_if_ready() else {
-        tracing::debug!(
-            "[composio:profile] load_connected_identities: memory client not ready"
-        );
+        tracing::debug!("[composio:profile] load_connected_identities: memory client not ready");
         return Vec::new();
     };
     let conn = client.profile_conn();

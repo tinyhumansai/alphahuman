@@ -122,7 +122,9 @@ pub async fn composio_delete_connection(
 ) -> OpResult<RpcOutcome<ComposioDeleteResponse>> {
     tracing::debug!(connection_id = %connection_id, "[composio] rpc delete_connection");
     let client = resolve_client(config)?;
-    let toolkit = resolve_toolkit_for_connection(&client, connection_id).await.ok();
+    let toolkit = resolve_toolkit_for_connection(&client, connection_id)
+        .await
+        .ok();
     let resp = client
         .delete_connection(connection_id)
         .await
