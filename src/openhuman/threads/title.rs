@@ -123,12 +123,18 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_same_input() {
-        assert_eq!(title_log_fingerprint("hello"), title_log_fingerprint("hello"));
+        assert_eq!(
+            title_log_fingerprint("hello"),
+            title_log_fingerprint("hello")
+        );
     }
 
     #[test]
     fn fingerprint_differs_for_different_input() {
-        assert_ne!(title_log_fingerprint("hello"), title_log_fingerprint("world"));
+        assert_ne!(
+            title_log_fingerprint("hello"),
+            title_log_fingerprint("world")
+        );
     }
 
     #[test]
@@ -188,7 +194,9 @@ mod tests {
     #[test]
     fn rejects_user_renamed_titles() {
         assert!(!is_auto_generated_thread_title("Planning the launch party"));
-        assert!(!is_auto_generated_thread_title("Chat with Alice about deploys"));
+        assert!(!is_auto_generated_thread_title(
+            "Chat with Alice about deploys"
+        ));
     }
 
     #[test]

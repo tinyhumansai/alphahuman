@@ -63,10 +63,7 @@ mod tests {
     #[test]
     fn default_when_value_above_max() {
         assert_eq!(parse_tool_timeout_secs(Some("3601")), DEFAULT_SECS);
-        assert_eq!(
-            parse_tool_timeout_secs(Some("99999999999")),
-            DEFAULT_SECS
-        );
+        assert_eq!(parse_tool_timeout_secs(Some("99999999999")), DEFAULT_SECS);
     }
 
     #[test]
