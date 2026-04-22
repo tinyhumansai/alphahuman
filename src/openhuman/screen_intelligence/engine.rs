@@ -483,7 +483,7 @@ impl AccessibilityEngine {
     ///
     /// Returns `None` when the result carries no `image_ref` (nothing to save).
     /// Callers supply a `reason` string to label the frame (e.g. `"cli_capture"`).
-    pub fn save_capture_test_result(
+    pub(crate) fn save_capture_test_result(
         workspace_dir: &std::path::Path,
         result: &CaptureTestResult,
         reason: &str,
