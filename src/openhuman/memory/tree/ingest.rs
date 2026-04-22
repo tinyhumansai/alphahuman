@@ -24,6 +24,7 @@ use crate::openhuman::memory::tree::source_tree::{
     append_leaf, get_or_create_source_tree, InertSummariser, LeafRef,
 };
 use crate::openhuman::memory::tree::store;
+use crate::openhuman::memory::tree::topic_tree::route_leaf_to_topic_trees;
 use crate::openhuman::memory::tree::types::Chunk;
 
 /// Outcome of one ingest call — extended with per-chunk admission info.
@@ -237,7 +238,7 @@ async fn append_leaves_to_tree(
                 r.canonical_entities
                     .iter()
                     .map(|e| e.canonical_id.clone())
-                    .collect(),
+                    .collect::<Vec<_>>(),
                 chunk.metadata.tags.clone(),
             ),
             None => (0.0, Vec::new(), chunk.metadata.tags.clone()),
@@ -247,11 +248,22 @@ async fn append_leaves_to_tree(
             token_count: chunk.token_count,
             timestamp: chunk.metadata.timestamp,
             content: chunk.content.clone(),
-            entities,
+            entities: entities.clone(),
             topics,
             score: score_value,
         };
         append_leaf(config, &tree, &leaf, &summariser).await?;
+
+        // Phase 3c (#709): route the leaf to every matching topic tree
+        // and tick the curator for each entity. Non-fatal on error —
+        // the source-tree append has already succeeded above.
+        if let Err(e) = route_leaf_to_topic_trees(config, &leaf, &entities, &summariser).await {
+            log::warn!(
+                "[memory_tree::ingest] topic_tree routing failed chunk_id={} err={:#}",
+                chunk.id,
+                e
+            );
+        }
     }
     Ok(())
 }

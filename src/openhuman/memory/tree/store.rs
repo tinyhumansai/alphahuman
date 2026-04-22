@@ -153,6 +153,27 @@ CREATE TABLE IF NOT EXISTS mem_tree_buffers (
 
 CREATE INDEX IF NOT EXISTS idx_mem_tree_buffers_oldest
     ON mem_tree_buffers(oldest_at_ms);
+
+-- Phase 3c (#709): per-entity hotness counters driving lazy topic-tree
+-- materialisation. One row per canonical entity_id. Counters are bumped
+-- on every ingest; `last_hotness` is recomputed every
+-- `TOPIC_RECHECK_EVERY` ingests to decide whether to spawn / archive a
+-- topic tree for the entity. TODO: 30-day windowing — for Phase 3c we
+-- increment counts forever and rely on project-scale truthfulness.
+CREATE TABLE IF NOT EXISTS mem_tree_entity_hotness (
+    entity_id              TEXT PRIMARY KEY,
+    mention_count_30d      INTEGER NOT NULL DEFAULT 0,
+    distinct_sources       INTEGER NOT NULL DEFAULT 0,
+    last_seen_ms           INTEGER,
+    query_hits_30d         INTEGER NOT NULL DEFAULT 0,
+    graph_centrality       REAL,
+    ingests_since_check    INTEGER NOT NULL DEFAULT 0,
+    last_hotness           REAL,
+    last_updated_ms        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mem_tree_entity_hotness_score
+    ON mem_tree_entity_hotness(last_hotness);
 ";
 
 /// Upsert a batch of chunks atomically.
