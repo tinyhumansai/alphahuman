@@ -430,12 +430,19 @@ fn data_directory_for<R: Runtime>(app: &AppHandle<R>, account_id: &str) -> Resul
     Ok(base.join("webview_accounts").join(account_id))
 }
 
-/// Produce the `initialization_script` payload for this webview. Empty for
-/// providers whose scraping has moved natively to CDP (whatsapp, telegram,
-/// slack, discord, browserscan) under the cef runtime — their webviews
-/// load with ZERO injected JS. Gmail, LinkedIn, and Google Meet still
-/// depend on the JS recipe bridge (not migrated in this PR) so they get
-/// the runtime + recipe concatenated.
+/// Produce the `initialization_script` payload for this webview.
+///
+/// Under **cef** (production): empty for the 5 migrated providers
+/// (whatsapp, telegram, slack, discord, browserscan) — they load with
+/// ZERO injected JS; their scraping + UA override runs via CDP. The 3
+/// deferred providers (gmail, linkedin, google-meet) still get the JS
+/// recipe bridge.
+///
+/// Under **wry**: there is no CDP, so migrated providers that fingerprint
+/// on `navigator.*` still need the `ua_spoof.js` shim even though their
+/// scraper is gone. Non-migrated providers keep the full legacy path
+/// (spoof + runtime + recipe).
+#[cfg(feature = "cef")]
 fn build_init_script(account_id: &str, provider: &str) -> String {
     let Some(recipe_js) = provider_recipe_js(provider) else {
         return String::new();
@@ -444,16 +451,31 @@ fn build_init_script(account_id: &str, provider: &str) -> String {
         "accountId": account_id,
         "provider": provider,
     });
-    // cef runs the UA override through CDP before navigation; wry has no
-    // CDP so keep the JS spoof for providers that need it.
-    #[cfg(not(feature = "cef"))]
+    format!(
+        "window.__OPENHUMAN_RECIPE_CTX__ = {ctx};\n\n{runtime}\n\n{recipe}\n",
+        ctx = ctx,
+        runtime = RUNTIME_JS,
+        recipe = recipe_js
+    )
+}
+
+#[cfg(not(feature = "cef"))]
+fn build_init_script(account_id: &str, provider: &str) -> String {
     let spoof = if provider_ua_spoof(provider) {
         UA_SPOOF_JS
     } else {
         ""
     };
-    #[cfg(feature = "cef")]
-    let spoof = "";
+    // Migrated providers have no recipe under wry either (recipe.js
+    // files were deleted with the cef migration), but the UA shim is
+    // still worth shipping so fingerprint gates pass.
+    let Some(recipe_js) = provider_recipe_js(provider) else {
+        return spoof.to_string();
+    };
+    let ctx = serde_json::json!({
+        "accountId": account_id,
+        "provider": provider,
+    });
     format!(
         "{spoof}\n\nwindow.__OPENHUMAN_RECIPE_CTX__ = {ctx};\n\n{runtime}\n\n{recipe}\n",
         spoof = spoof,
@@ -493,10 +515,18 @@ pub async fn webview_account_open<R: Runtime>(
         .to_string();
     // Validate the real URL up front — otherwise a malformed debug
     // `args.url` would only fail later inside the async CDP session
-    // loop, which is much harder to surface to the caller.
-    let _real_url: Url = real_url_str
+    // loop, which is much harder to surface to the caller. The parsed
+    // Url also feeds `scanner_url_prefix` so scanners match on the
+    // actual origin the user navigated to (honoring debug overrides).
+    let real_url: Url = real_url_str
         .parse()
         .map_err(|e| format!("invalid provider url {real_url_str}: {e}"))?;
+    // Scanner target-match uses `url.starts_with(prefix)`, so the
+    // prefix needs to be the ORIGIN (scheme + host), not the full URL
+    // — same-host intra-app navigations must keep matching after the
+    // initial load.
+    #[cfg(feature = "cef")]
+    let scanner_url_prefix = format!("{}/", real_url.origin().ascii_serialization());
     // Under cef we open the webview at a tiny `data:` placeholder URL so
     // the CDP session opener can attach and apply the UA override BEFORE
     // the real provider URL loads. Under wry there's no CDP, so navigate
@@ -671,79 +701,68 @@ pub async fn webview_account_open<R: Runtime>(
     // runtime is in use (wry has no remote-debugging port).
     #[cfg(feature = "cef")]
     {
+        // Prefix is derived from the validated real URL's origin above
+        // so debug `args.url` overrides (alt hosts, localhost mirrors)
+        // resolve correctly — previously we always used the static
+        // `provider_url(...)` default even when the webview had
+        // navigated elsewhere.
         if args.provider == "whatsapp" {
-            if let Some(prefix) = provider_url(&args.provider) {
-                let registry = app
-                    .try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
-                    .map(|s| s.inner().clone());
-                if let Some(registry) = registry {
-                    let app_clone = app.clone();
-                    let acct = args.account_id.clone();
-                    let prefix = prefix.to_string();
-                    tokio::spawn(async move {
-                        registry.ensure_scanner(app_clone, acct, prefix).await;
-                    });
-                } else {
-                    log::warn!("[webview-accounts] CDP ScannerRegistry not in app state");
-                }
+            let registry = app
+                .try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
+                .map(|s| s.inner().clone());
+            if let Some(registry) = registry {
+                let app_clone = app.clone();
+                let acct = args.account_id.clone();
+                let prefix = scanner_url_prefix.clone();
+                tokio::spawn(async move {
+                    registry.ensure_scanner(app_clone, acct, prefix).await;
+                });
+            } else {
+                log::warn!("[webview-accounts] CDP ScannerRegistry not in app state");
             }
         } else if args.provider == "slack" {
-            if let Some(prefix) = provider_url(&args.provider) {
-                let registry = app
-                    .try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
-                    .map(|s| s.inner().clone());
-                if let Some(registry) = registry {
-                    let app_clone = app.clone();
-                    let acct = args.account_id.clone();
-                    let prefix = prefix.to_string();
-                    tokio::spawn(async move {
-                        registry.ensure_scanner(app_clone, acct, prefix).await;
-                    });
-                } else {
-                    log::warn!("[webview-accounts] slack ScannerRegistry not in app state");
-                }
+            let registry = app
+                .try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
+                .map(|s| s.inner().clone());
+            if let Some(registry) = registry {
+                let app_clone = app.clone();
+                let acct = args.account_id.clone();
+                let prefix = scanner_url_prefix.clone();
+                tokio::spawn(async move {
+                    registry.ensure_scanner(app_clone, acct, prefix).await;
+                });
+            } else {
+                log::warn!("[webview-accounts] slack ScannerRegistry not in app state");
             }
         } else if args.provider == "telegram" {
-            if let Some(prefix) = provider_url(&args.provider) {
-                let registry = app
-                    .try_state::<std::sync::Arc<crate::telegram_scanner::ScannerRegistry>>()
-                    .map(|s| s.inner().clone());
-                if let Some(registry) = registry {
-                    let app_clone = app.clone();
-                    let acct = args.account_id.clone();
-                    let prefix = prefix.to_string();
-                    tokio::spawn(async move {
-                        registry.ensure_scanner(app_clone, acct, prefix).await;
-                    });
-                } else {
-                    log::warn!("[webview-accounts] telegram ScannerRegistry not in app state");
-                }
+            let registry = app
+                .try_state::<std::sync::Arc<crate::telegram_scanner::ScannerRegistry>>()
+                .map(|s| s.inner().clone());
+            if let Some(registry) = registry {
+                let app_clone = app.clone();
+                let acct = args.account_id.clone();
+                let prefix = scanner_url_prefix.clone();
+                tokio::spawn(async move {
+                    registry.ensure_scanner(app_clone, acct, prefix).await;
+                });
+            } else {
+                log::warn!("[webview-accounts] telegram ScannerRegistry not in app state");
             }
         } else if args.provider == "discord" {
             // Discord MITM uses CDP `Network.*` to capture HTTP API calls
-            // and gateway WebSocket frames — see `discord_scanner/mod.rs`
-            // for the event filter and emit shape.
-            if let Some(prefix) = provider_url(&args.provider) {
-                // The CDP target match is by URL prefix only — Discord
-                // navigates within `discord.com/...` so trim the channel
-                // path off the default and match the bare host root.
-                let prefix = prefix
-                    .split_once("/channels")
-                    .map(|(host, _)| host)
-                    .unwrap_or(prefix);
-                let registry = app
-                    .try_state::<std::sync::Arc<crate::discord_scanner::ScannerRegistry>>()
-                    .map(|s| s.inner().clone());
-                if let Some(registry) = registry {
-                    let app_clone = app.clone();
-                    let acct = args.account_id.clone();
-                    let prefix = prefix.to_string();
-                    tokio::spawn(async move {
-                        registry.ensure_scanner(app_clone, acct, prefix).await;
-                    });
-                } else {
-                    log::warn!("[webview-accounts] discord ScannerRegistry not in app state");
-                }
+            // and gateway WebSocket frames — see `discord_scanner/mod.rs`.
+            let registry = app
+                .try_state::<std::sync::Arc<crate::discord_scanner::ScannerRegistry>>()
+                .map(|s| s.inner().clone());
+            if let Some(registry) = registry {
+                let app_clone = app.clone();
+                let acct = args.account_id.clone();
+                let prefix = scanner_url_prefix.clone();
+                tokio::spawn(async move {
+                    registry.ensure_scanner(app_clone, acct, prefix).await;
+                });
+            } else {
+                log::warn!("[webview-accounts] discord ScannerRegistry not in app state");
             }
         }
 

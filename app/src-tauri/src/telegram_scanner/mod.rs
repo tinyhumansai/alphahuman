@@ -582,7 +582,7 @@ fn spawn_dom_poll<R: Runtime>(app: AppHandle<R>, account_id: String, url_prefix:
         loop {
             match dom_scan_once(&url_prefix, &fragment).await {
                 Ok(scan) => {
-                    if !scan.rows.is_empty() && Some(scan.hash) != last_hash {
+                    if Some(scan.hash) != last_hash {
                         log::info!(
                             "[tg][{}] dom scan rows={} unread={} hash={:x}",
                             account_id,
