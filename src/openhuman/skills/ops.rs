@@ -1313,7 +1313,15 @@ pub async fn install_skill_from_url(
 
     let slug = derive_install_slug(&frontmatter)?;
 
-    let skills_root = workspace_dir.join(".openhuman").join("skills");
+    // Install to user scope (`~/.openhuman/skills/<slug>`), which `discover_skills`
+    // scans unconditionally. Project scope (`<ws>/.openhuman/skills/`) is gated on
+    // a `<ws>/.openhuman/trust` marker and would render the install invisible to the
+    // skills list until the user opts the workspace into trust.
+    let skills_root = home
+        .as_deref()
+        .ok_or_else(|| "write failed: unable to resolve home directory".to_string())?
+        .join(".openhuman")
+        .join("skills");
     let target_dir = skills_root.join(&slug);
     if target_dir.exists() {
         return Err(format!(
