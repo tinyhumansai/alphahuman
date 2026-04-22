@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::openhuman::config::LocalAiConfig;
-use crate::openhuman::local_ai::OLLAMA_BASE_URL;
+use crate::openhuman::local_ai::ollama_base_url;
 use crate::openhuman::providers::compatible::{AuthStyle, OpenAiCompatibleProvider};
 use crate::openhuman::providers::Provider;
 
@@ -39,17 +39,15 @@ pub fn new_provider(
         .map(|s| s.trim().trim_end_matches('/').to_string())
         .filter(|s| !s.is_empty());
 
-    let provider_kind = local_ai_config.provider.to_ascii_lowercase();
+    let provider_kind = local_ai_config.provider.trim().to_ascii_lowercase();
     let use_openai_compat_local =
         override_base.is_some() || matches!(provider_kind.as_str(), "llamacpp" | "llama-server");
 
     let (provider_label, local_base, health) = if use_openai_compat_local {
         let base = override_base.unwrap_or_else(|| "http://127.0.0.1:8080/v1".to_string());
         let probe = format!("{base}/models");
-        tracing::info!(
+        tracing::debug!(
             provider = %provider_kind,
-            base = %base,
-            probe = %probe,
             "[routing] local inference configured via OpenAI-compat (non-ollama)"
         );
         (
@@ -58,10 +56,12 @@ pub fn new_provider(
             Arc::new(LocalHealthChecker::with_probe_url(probe, LOCAL_HEALTH_TTL)),
         )
     } else {
+        let ollama_base = ollama_base_url();
+        let local_v1 = format!("{ollama_base}/v1");
         (
             "ollama",
-            format!("{}/v1", OLLAMA_BASE_URL),
-            Arc::new(LocalHealthChecker::new(OLLAMA_BASE_URL)),
+            local_v1,
+            Arc::new(LocalHealthChecker::new(&ollama_base)),
         )
     };
 
