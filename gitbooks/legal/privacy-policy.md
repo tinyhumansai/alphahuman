@@ -1,3 +1,7 @@
+---
+icon: key
+---
+
 # Privacy Policy
 
 Last Updated: 02/02/2026
@@ -18,9 +22,9 @@ We do not collect phone numbers, contact lists, precise location data, device id
 
 ## How We Use Information
 
-We use information solely to operate, maintain, and provide the Service, including to: • Perform tasks explicitly requested by the user&#x20;
+We use information solely to operate, maintain, and provide the Service, including to: • Perform tasks explicitly requested by the user
 
-• Provide contextual assistance across files, applications, or workflows&#x20;
+• Provide contextual assistance across files, applications, or workflows
 
 • Improve reliability and security of the Service
 
@@ -40,11 +44,11 @@ Users may request deletion of their data at any time. Upon such request, all ass
 
 ## Legal Bases for Processing
 
-Where required by law, we process personal data based on one or more of the following legal bases:&#x20;
+Where required by law, we process personal data based on one or more of the following legal bases:
 
-• User consent&#x20;
+• User consent
 
-• Performance of a contract&#x20;
+• Performance of a contract
 
 • Legitimate interests, where applicable and balanced against user rights
 
