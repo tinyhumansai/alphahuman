@@ -251,10 +251,18 @@ fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let p = deserialize_params::<TriageEvaluateParams>(params)?;
 
+        tracing::debug!(
+            source = %p.source,
+            dry_run = p.dry_run.unwrap_or(false),
+            has_external_id = p.external_id.is_some(),
+            "[rpc][agent] triage_evaluate received"
+        );
+
         // Build a TriggerEnvelope from the RPC params. Source-specific
         // variants are discriminated by `p.source`.
         let envelope = match p.source.as_str() {
             "composio" => {
+                tracing::trace!("[rpc][agent] building composio trigger envelope");
                 let toolkit = p.toolkit.as_deref().unwrap_or("unknown");
                 let trigger = p.trigger.as_deref().unwrap_or("unknown");
                 let eid = p.external_id.as_deref().unwrap_or("rpc");
@@ -263,6 +271,7 @@ fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
                 )
             }
             "webhook" => {
+                tracing::trace!("[rpc][agent] building webhook trigger envelope");
                 let tunnel_id = p.external_id.as_deref().unwrap_or("unknown");
                 let method = p.toolkit.as_deref().unwrap_or("POST");
                 let path = p.trigger.as_deref().unwrap_or("/");
@@ -271,15 +280,21 @@ fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
                 )
             }
             "cron" => {
+                tracing::trace!("[rpc][agent] building cron trigger envelope");
                 let job_id = p.external_id.as_deref().unwrap_or("unknown");
                 let job_name = p.display_label.as_str();
+                let output = p
+                    .payload
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| p.payload.to_string());
                 crate::openhuman::agent::triage::TriggerEnvelope::from_cron(
-                    job_id,
-                    job_name,
-                    &p.payload.to_string(),
+                    job_id, job_name, &output,
                 )
             }
             "external" => {
+                tracing::trace!("[rpc][agent] building external trigger envelope");
                 let caller_id = p.external_id.as_deref().unwrap_or("unknown");
                 let reason = p.display_label.as_str();
                 crate::openhuman::agent::triage::TriggerEnvelope::from_external(
@@ -287,11 +302,18 @@ fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
                 )
             }
             other => {
+                tracing::warn!(source = %other, "[rpc][agent] unsupported trigger source");
                 return Err(format!(
                     "unsupported trigger source `{other}` — supported: composio, webhook, cron, external"
                 ));
             }
         };
+
+        tracing::debug!(
+            source = %envelope.source.slug(),
+            external_id = %envelope.external_id,
+            "[rpc][agent] running triage pipeline"
+        );
 
         let run = crate::openhuman::agent::triage::run_triage(&envelope)
             .await

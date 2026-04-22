@@ -166,6 +166,13 @@ impl WebhookRouter {
                     tunnel_uuid, existing.target_kind, existing.skill_id, target_kind, skill_id
                 ));
             }
+            // Prevent silent agent_id rebinding on agent tunnels.
+            if target_kind == "agent" && existing.agent_id.as_deref() != agent_id.as_deref() {
+                return Err(format!(
+                    "Tunnel {} is already bound to agent {:?}; cannot rebind to {:?}",
+                    tunnel_uuid, existing.agent_id, agent_id
+                ));
+            }
         }
 
         debug!(

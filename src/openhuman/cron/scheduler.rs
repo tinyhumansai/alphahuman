@@ -134,16 +134,23 @@ async fn execute_and_persist_job(
         job_type: format!("{:?}", job.job_type),
     });
 
-    let (success, output) = execute_job_with_retry(config, security, job).await;
+    let (execution_success, output) = execute_job_with_retry(config, security, job).await;
     let finished_at = Utc::now();
+    let success = persist_job_result(
+        config,
+        job,
+        execution_success,
+        &output,
+        started_at,
+        finished_at,
+    )
+    .await;
 
     publish_global(DomainEvent::CronJobCompleted {
         job_id: job.id.clone(),
         success,
         output: crate::openhuman::util::truncate_with_ellipsis(&output, 512),
     });
-
-    let success = persist_job_result(config, job, success, &output, started_at, finished_at).await;
     let failure_message =
         (!success).then(|| crate::openhuman::util::truncate_with_ellipsis(&output, 256));
 

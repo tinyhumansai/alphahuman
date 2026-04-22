@@ -67,7 +67,7 @@ pub struct TunnelRegistration {
     /// Optional agent ID for agent-type tunnels. Set when
     /// `target_kind == "agent"` to identify which agent definition
     /// should handle incoming requests on this tunnel.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
 }
 

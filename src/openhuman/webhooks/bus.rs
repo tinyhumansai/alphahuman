@@ -96,7 +96,13 @@ impl EventHandler for WebhookRequestSubscriber {
                     "[webhook] agent tunnel {} — routing to triage pipeline",
                     tunnel_uuid
                 );
-                let payload = decode_webhook_body(&request.body);
+                let payload = match decode_webhook_body(&request.body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!("[webhook] failed to decode body: {}", e);
+                        serde_json::json!({})
+                    }
+                };
                 let envelope = crate::openhuman::agent::triage::TriggerEnvelope::from_webhook(
                     &tunnel_uuid,
                     &method,
@@ -216,16 +222,16 @@ impl EventHandler for WebhookRequestSubscriber {
 /// UTF-8 JSON. If the body is valid UTF-8 but not valid JSON, the raw
 /// text is wrapped under the `"raw"` key so callers still have access
 /// to the original content.
-fn decode_webhook_body(base64_body: &str) -> serde_json::Value {
+fn decode_webhook_body(base64_body: &str) -> Result<serde_json::Value, String> {
     if base64_body.is_empty() {
-        return serde_json::json!({});
+        return Ok(serde_json::json!({}));
     }
     use base64::Engine;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(base64_body.as_bytes())
-        .unwrap_or_default();
-    let text = String::from_utf8_lossy(&decoded);
-    serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw": text.to_string() }))
+        .map_err(|e| format!("invalid base64 body: {e}"))?;
+    let text = std::str::from_utf8(&decoded).map_err(|e| format!("invalid utf-8 body: {e}"))?;
+    Ok(serde_json::from_str(text).unwrap_or_else(|_| serde_json::json!({ "raw": text })))
 }
 
 /// Run the triage pipeline for a trigger envelope and return the
@@ -359,7 +365,7 @@ mod tests {
 
     #[test]
     fn decode_webhook_body_empty_returns_empty_object() {
-        let v = decode_webhook_body("");
+        let v = decode_webhook_body("").unwrap();
         assert!(v.as_object().map(|o| o.is_empty()).unwrap_or(false));
     }
 
@@ -368,7 +374,7 @@ mod tests {
         use base64::Engine;
         let encoded =
             base64::engine::general_purpose::STANDARD.encode(r#"{"key":"value"}"#.as_bytes());
-        let v = decode_webhook_body(&encoded);
+        let v = decode_webhook_body(&encoded).unwrap();
         assert_eq!(v["key"].as_str(), Some("value"));
     }
 
@@ -376,8 +382,14 @@ mod tests {
     fn decode_webhook_body_wraps_non_json_in_raw_field() {
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode("plain text".as_bytes());
-        let v = decode_webhook_body(&encoded);
+        let v = decode_webhook_body(&encoded).unwrap();
         assert_eq!(v["raw"].as_str(), Some("plain text"));
+    }
+
+    #[test]
+    fn decode_webhook_body_rejects_invalid_base64() {
+        let err = decode_webhook_body("not-valid-base64!!!").unwrap_err();
+        assert!(err.contains("invalid base64"));
     }
 
     // ── build_agent_response ──────────────────────────────────────
