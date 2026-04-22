@@ -4,56 +4,54 @@ icon: sack-dollar
 
 # Pricing
 
-OpenHuman is priced as a SaaS product for individuals and teams that rely on high-volume communication and need clarity, coordination, and safety across their tools. Pricing reflects the value of reduced cognitive load and better signal quality, not raw message volume.
+OpenHuman is priced as a SaaS product with three tiers, pay-as-you-go credits, and crypto payment support. Pricing reflects the value of compressed intelligence and reduced cognitive load, not raw token count.
 
----
+#### Plans
 
-## Individual Plans
+**Free ($0/month)** Base access to integrations and inference. Pay-as-you-go top-ups when included usage runs out. No subscription discount on premium usage.
 
-Individual plans are designed for power users who want help managing high-volume activity across multiple conversations and connected sources.
+| Included monthly value | 7-day cycle budget | 5-hour cap | Discount | Storage |
+| ---------------------- | ------------------ | ---------- | -------- | ------- |
+| $1                     | $0.50              | $0.15      | 0%       | 100 MB  |
 
-Core analysis functionality is included so users can understand OpenHuman's value before committing. Deeper features, longer context windows, persistent workflows, richer integrations, and advanced intelligence are available in higher tiers.
+**Basic ($20/month)** Higher included premium usage every billing cycle. 20% premium-usage discount across integrations, bandwidth, and inference. Pay-as-you-go top-ups for overflow.
 
-Plans are tiered to allow users to start lightweight and expand as their needs grow.
+| Included monthly value | 7-day cycle budget | 5-hour cap | Discount | Storage |
+| ---------------------- | ------------------ | ---------- | -------- | ------- |
+| $20                    | $10                | $3         | 20%      | 10 GB   |
 
----
+**Pro ($200/month)** Largest included premium usage allocation. 40% premium-usage discount across integrations and inference. Best fit for heavy bandwidth and agent workloads.
 
-## Team Plans
+| Included monthly value | 7-day cycle budget | 5-hour cap | Discount | Storage |
+| ---------------------- | ------------------ | ---------- | -------- | ------- |
+| $200                   | $100               | $30        | 40%      | 200 GB  |
 
-Team plans are designed for shared coordination environments where multiple members need access under a single workspace.
+Monthly and annual billing are both available. Annual billing lowers the effective monthly price.
 
-Team plans include shared workflows, community-level intelligence, coordination support, and centralized billing. Pricing reflects the number of active participants and the coordination value created.
+#### Pay as You Go
 
-Individual user privacy is preserved even in shared team environments.
+Buy credits as you need them with no subscription required. If you have a subscription, your included budget is consumed first, then top-up credits cover overflow.
 
----
+Top-up amounts: +$5, +$10, +$25.
 
-## Credit System
+**Coupon codes:** Redeem promotional codes (XXXX-XXXX format) in Settings > Account & Security > Billing & Usage to add credits to your account.
 
-OpenHuman uses a credit-based system for usage-metered features.
+#### Pay with Crypto
 
-- Credits are consumed when you use analysis, intelligence, and processing features
-- Oldest credits are consumed first, encouraging usage before expiry
-- Credits can be earned through the referral program, in addition to purchase
-- Every credit transaction is tracked in an auditable ledger
+You can pay annually using crypto. Toggle this option in Settings > Account & Security > Billing & Usage.
 
-Credits provide flexibility as you pay for what you use, and you can supplement your plan with earned credits from referrals.
+#### Inference Budget
 
----
+Your billing dashboard tracks usage within each cycle: daily spending, tokens consumed, 5-hour cap usage, and cycle end date. A progress bar shows remaining budget.
 
-## Payment Methods
+#### Auto-Recharge
 
-OpenHuman supports standard and cryptocurrency payment options.
+Toggle auto-recharge to automatically top up credits when your balance runs low. Requires a saved payment method (add a card in Billing & Usage).
 
-- **Card payments:** Standard subscription billing with the ability to upgrade, downgrade, or cancel at any time
-- **Cryptocurrency:** Alternative payment path for users who prefer crypto
+#### Why Upgrade?
 
-Changes to your plan take effect immediately. Cancellation does not affect outputs already exported to external tools.
+Higher tiers increase your premium-usage discount and included usage every cycle. Annual billing lowers the effective monthly price. Top-ups let you keep going when usage spikes.
 
----
+#### Access During Launch
 
-## Access During Launch
-
-During the initial launch phase, access to OpenHuman may be gated through a waitlist. This is done to manage platform stability and collect feedback from early users.
-
-Waitlist access does not imply long-term pricing commitments. Pricing and plan boundaries may evolve during this phase as usage patterns become clearer.
+During the alpha launch phase, access may be gated through a waitlist. Pricing and plan boundaries may evolve as usage patterns become clearer.

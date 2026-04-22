@@ -5,7 +5,7 @@
 //! echo target), waits for the response, and emits it back through the socket.
 //! This decouples the socket module from webhook routing logic.
 
-use crate::openhuman::event_bus::{publish_global, DomainEvent, EventHandler};
+use crate::core::event_bus::{publish_global, DomainEvent, EventHandler};
 use crate::openhuman::socket::global_socket_manager;
 use async_trait::async_trait;
 use serde_json::json;
@@ -26,6 +26,12 @@ fn error_body(message: &str) -> String {
 /// Subscribes to `WebhookIncomingRequest` events and handles the full routing
 /// flow: lookup tunnel → dispatch to skill/echo → emit response via socket.
 pub struct WebhookRequestSubscriber;
+
+impl Default for WebhookRequestSubscriber {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl WebhookRequestSubscriber {
     pub fn new() -> Self {
@@ -68,126 +74,19 @@ impl EventHandler for WebhookRequestSubscriber {
             correlation_id,
         );
 
-        // Get the webhook router from the skill engine
-        let router = crate::openhuman::skills::global_engine().map(|e| e.webhook_router());
-
-        let registration = router.as_ref().and_then(|r| r.registration(&tunnel_uuid));
-        let skill_id = registration
-            .as_ref()
-            .and_then(|reg| (reg.target_kind == "skill").then(|| reg.skill_id.clone()));
-        if let Some(ref router) = router {
-            router.record_request(request, skill_id.clone());
-        }
-
-        let (response, resolved_skill_id, response_error) = match registration.as_ref() {
-            Some(reg) if reg.target_kind == "echo" => (
-                crate::openhuman::webhooks::ops::build_echo_response(request),
-                Some("echo".to_string()),
-                None,
-            ),
-            Some(reg) if reg.target_kind == "channel" => (
-                crate::openhuman::webhooks::WebhookResponseData {
-                    correlation_id: correlation_id.clone(),
-                    status_code: 501,
-                    headers: std::collections::HashMap::new(),
-                    body: error_body(&format!(
-                        "channel webhook target '{}' is not implemented in this runtime yet",
-                        reg.skill_id
-                    )),
-                },
-                Some(reg.skill_id.clone()),
-                Some("channel webhook target not implemented".to_string()),
-            ),
-            Some(reg) if reg.target_kind == "skill" => {
-                let sid = reg.skill_id.clone();
-                tracing::debug!("[webhook] request routed to skill '{}'", sid);
-
-                let registry = crate::openhuman::skills::global_engine().map(|e| e.registry());
-                match registry {
-                    Some(registry) => {
-                        let result = registry
-                            .send_webhook_request(
-                                &sid,
-                                correlation_id.clone(),
-                                request.method.clone(),
-                                request.path.clone(),
-                                request.headers.clone(),
-                                request.query.clone(),
-                                request.body.clone(),
-                                request.tunnel_id.clone(),
-                                request.tunnel_name.clone(),
-                            )
-                            .await;
-
-                        match result {
-                            Ok(resp) => (resp, Some(sid), None),
-                            Err(e) => {
-                                tracing::warn!("[webhook] skill handler error: {}", e);
-                                (
-                                    crate::openhuman::webhooks::WebhookResponseData {
-                                        correlation_id: correlation_id.clone(),
-                                        status_code: 500,
-                                        headers: std::collections::HashMap::new(),
-                                        body: error_body(&format!("Skill handler error: {}", e)),
-                                    },
-                                    Some(sid),
-                                    Some(e),
-                                )
-                            }
-                        }
-                    }
-                    None => {
-                        tracing::warn!("[webhook] no skill registry available");
-                        (
-                            crate::openhuman::webhooks::WebhookResponseData {
-                                correlation_id: correlation_id.clone(),
-                                status_code: 503,
-                                headers: std::collections::HashMap::new(),
-                                body: error_body("Runtime not ready"),
-                            },
-                            None,
-                            Some("runtime not ready".to_string()),
-                        )
-                    }
-                }
-            }
-            Some(reg) => (
-                crate::openhuman::webhooks::WebhookResponseData {
-                    correlation_id: correlation_id.clone(),
-                    status_code: 400,
-                    headers: std::collections::HashMap::new(),
-                    body: error_body(&format!(
-                        "unknown webhook target kind '{}'",
-                        reg.target_kind
-                    )),
-                },
-                Some(reg.skill_id.clone()),
-                Some("unknown webhook target kind".to_string()),
-            ),
-            None => {
-                tracing::debug!("[webhook] no handler registered for tunnel {}", tunnel_uuid,);
-                (
-                    crate::openhuman::webhooks::WebhookResponseData {
-                        correlation_id: correlation_id.clone(),
-                        status_code: 404,
-                        headers: std::collections::HashMap::new(),
-                        body: error_body("No handler registered for this tunnel"),
-                    },
-                    None,
-                    Some("no handler registered for this tunnel".to_string()),
-                )
-            }
+        tracing::debug!(
+            "[webhook] skill runtime removed; rejecting tunnel {} ({})",
+            tunnel_uuid,
+            tunnel_name
+        );
+        let response = crate::openhuman::webhooks::WebhookResponseData {
+            correlation_id: correlation_id.clone(),
+            status_code: 410,
+            headers: std::collections::HashMap::new(),
+            body: error_body("Webhook skill runtime has been removed"),
         };
-
-        // Record in debug log
-        if let Some(ref router) = router {
-            router.record_response(
-                request,
-                &response,
-                resolved_skill_id.clone(),
-                response_error.clone(),
-            );
-        }
+        let resolved_skill_id: Option<String> = None;
+        let response_error = Some("webhook skill runtime removed".to_string());
 
         // Publish notification events
         if let Some(ref sid) = resolved_skill_id {
@@ -233,5 +132,97 @@ impl EventHandler for WebhookRequestSubscriber {
             resolved_skill_id,
             tunnel_name,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openhuman::webhooks::WebhookRequest;
+    use base64::Engine;
+    use std::collections::HashMap;
+
+    // ── Local helpers ─────────────────────────────────────────────
+
+    #[test]
+    fn base64_encode_matches_standard_engine_output() {
+        assert_eq!(base64_encode("hello"), "aGVsbG8=");
+        assert_eq!(base64_encode(""), "");
+    }
+
+    #[test]
+    fn error_body_is_base64_of_json_envelope() {
+        let encoded = error_body("boom");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded.as_bytes())
+            .expect("valid base64");
+        let json: serde_json::Value = serde_json::from_slice(&decoded).expect("valid json");
+        assert_eq!(json["error"].as_str(), Some("boom"));
+    }
+
+    // ── Constructor + EventHandler metadata ───────────────────────
+
+    #[test]
+    fn default_equals_new_and_is_zero_sized() {
+        // Both constructors produce the same unit-variant struct.
+        let _a = WebhookRequestSubscriber::default();
+        let _b = WebhookRequestSubscriber::new();
+        // Zero-sized type — just asserting both compile and construct.
+        assert_eq!(std::mem::size_of::<WebhookRequestSubscriber>(), 0);
+    }
+
+    #[test]
+    fn event_handler_name_is_namespaced() {
+        let s = WebhookRequestSubscriber::new();
+        assert_eq!(s.name(), "webhook::request_handler");
+    }
+
+    #[test]
+    fn event_handler_domain_filter_is_webhook() {
+        let s = WebhookRequestSubscriber::new();
+        assert_eq!(s.domains(), Some(&["webhook"][..]));
+    }
+
+    // ── handle() behaviour ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn handle_returns_early_on_non_webhook_event() {
+        // A domain event for a different module must be ignored —
+        // `handle()` checks the variant and returns without touching
+        // the socket manager or publishing anything.
+        let subscriber = WebhookRequestSubscriber::new();
+        let event = DomainEvent::AgentTurnStarted {
+            session_id: "s1".into(),
+            channel: "web".into(),
+        };
+        // Must not panic, must not block — even without any singletons
+        // initialised in the test process.
+        subscriber.handle(&event).await;
+    }
+
+    #[tokio::test]
+    async fn handle_processes_incoming_webhook_without_socket_manager() {
+        // When the socket-manager singleton isn't initialised, the
+        // handler should log "no socket manager available" and return
+        // cleanly rather than panicking. We exercise the full routing
+        // path (currently the "skill runtime removed" branch) to lock
+        // in that contract for future refactors.
+        let subscriber = WebhookRequestSubscriber::new();
+        let request = WebhookRequest {
+            correlation_id: "wh_test_1".into(),
+            tunnel_id: "tid-1".into(),
+            tunnel_uuid: "uuid-1".into(),
+            tunnel_name: "my-hook".into(),
+            method: "POST".into(),
+            path: "/hook".into(),
+            headers: HashMap::new(),
+            query: HashMap::new(),
+            body: String::new(),
+        };
+        let event = DomainEvent::WebhookIncomingRequest {
+            request,
+            raw_data: serde_json::json!({}),
+        };
+        subscriber.handle(&event).await;
     }
 }

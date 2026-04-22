@@ -114,6 +114,7 @@ async fn build_memory_context_includes_recalled_entries() {
 
 #[tokio::test]
 async fn process_channel_message_restores_per_sender_history_on_follow_ups() {
+    let _bus_guard = super::common::use_real_agent_handler().await;
     let channel_impl = Arc::new(RecordingChannel::default());
     let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -137,7 +138,6 @@ async fn process_channel_message_restores_per_sender_history_on_follow_ups() {
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         provider_cache: Arc::new(Mutex::new(HashMap::new())),
         route_overrides: Arc::new(Mutex::new(HashMap::new())),
-        api_key: None,
         api_url: None,
         reliability: Arc::new(crate::openhuman::config::ReliabilityConfig::default()),
         provider_runtime_options: providers::ProviderRuntimeOptions::default(),

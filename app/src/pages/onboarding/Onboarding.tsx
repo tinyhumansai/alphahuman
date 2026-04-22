@@ -1,10 +1,10 @@
 import { useState } from 'react';
 
-import ProgressIndicator from '../../components/ProgressIndicator';
 import { useCoreState } from '../../providers/CoreStateProvider';
 import { userApi } from '../../services/api/userApi';
 import { getDefaultEnabledTools } from '../../utils/toolDefinitions';
-import ScreenPermissionsStep from './steps/ScreenPermissionsStep';
+import BetaBanner from './components/BetaBanner';
+import ContextGatheringStep from './steps/ContextGatheringStep';
 import SkillsStep from './steps/SkillsStep';
 import WelcomeStep from './steps/WelcomeStep';
 
@@ -14,21 +14,20 @@ interface OnboardingProps {
 }
 
 interface OnboardingDraft {
-  accessibilityPermissionGranted: boolean;
   connectedSources: string[];
 }
 
 const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
-  const { setOnboardingCompletedFlag, setOnboardingTasks } = useCoreState();
+  const { setOnboardingCompletedFlag, setOnboardingTasks, snapshot } = useCoreState();
   const [currentStep, setCurrentStep] = useState(0);
-  const [draft, setDraft] = useState<OnboardingDraft>({
-    accessibilityPermissionGranted: false,
-    connectedSources: [],
-  });
-  const totalSteps = 3;
+  const [draft, setDraft] = useState<OnboardingDraft>({ connectedSources: [] });
+
+  const handleWelcomeNext = () => {
+    setCurrentStep(1);
+  };
 
   const handleNext = () => {
-    if (currentStep < totalSteps - 1) {
+    if (currentStep < 2) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -39,35 +38,46 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
     }
   };
 
-  const handleAccessibilityNext = (accessibilityPermissionGranted: boolean) => {
-    setDraft(prev => ({ ...prev, accessibilityPermissionGranted }));
-    handleNext();
+  const handleSkillsNext = async (connectedSources: string[]) => {
+    console.debug('[onboarding:handleSkillsNext]', { connectedSources });
+    setDraft(prev => ({ ...prev, connectedSources }));
+    if (connectedSources.length === 0) {
+      // No sources connected — skip context gathering and finish onboarding.
+      await handleContextNext(connectedSources);
+    } else {
+      handleNext();
+    }
   };
 
-  const handleSkillsNext = async (connectedSources: string[]) => {
-    setDraft(prev => ({ ...prev, connectedSources }));
-
+  const handleContextNext = async (connectedSourcesOverride?: string[]) => {
+    const sources = connectedSourcesOverride ?? draft.connectedSources;
+    console.debug('[onboarding:handleContextNext]', { connectedSources: sources });
     await setOnboardingTasks({
-      accessibilityPermissionGranted: draft.accessibilityPermissionGranted,
+      accessibilityPermissionGranted:
+        snapshot.localState.onboardingTasks?.accessibilityPermissionGranted ?? false,
       localModelConsentGiven: false,
       localModelDownloadStarted: false,
       enabledTools: getDefaultEnabledTools(),
-      connectedSources,
+      connectedSources: sources,
       updatedAtMs: Date.now(),
     });
 
     // Notify backend (best-effort — don't block onboarding completion)
+    console.debug('[onboarding:handleContextNext] notifying backend');
     try {
       await userApi.onboardingComplete();
     } catch {
       console.warn('[onboarding] Failed to notify backend of onboarding completion');
     }
 
-    // Write onboarding_completed to core config (source of truth)
+    // Write onboarding_completed to core config (source of truth).
+    // This is the authoritative flag — if it fails, don't complete.
+    console.debug('[onboarding:handleContextNext] setting onboarding completed flag');
     try {
       await setOnboardingCompletedFlag(true);
-    } catch {
-      console.warn('[onboarding] Failed to persist onboarding_completed to core config');
+    } catch (e) {
+      console.error('[onboarding] Failed to persist onboarding_completed to core config', e);
+      throw e;
     }
 
     onComplete?.();
@@ -76,11 +86,17 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
   const renderStep = () => {
     switch (currentStep) {
       case 0:
-        return <WelcomeStep onNext={handleNext} />;
+        return <WelcomeStep onNext={handleWelcomeNext} />;
       case 1:
-        return <ScreenPermissionsStep onNext={handleAccessibilityNext} onBack={handleBack} />;
-      case 2:
         return <SkillsStep onNext={handleSkillsNext} onBack={handleBack} />;
+      case 2:
+        return (
+          <ContextGatheringStep
+            connectedSources={draft.connectedSources}
+            onNext={handleContextNext}
+            onBack={handleBack}
+          />
+        );
       default:
         return null;
     }
@@ -99,7 +115,7 @@ const Onboarding = ({ onComplete, onDefer }: OnboardingProps) => {
         </div>
       )}
       <div className="relative z-10 max-w-lg w-full mx-4">
-        <ProgressIndicator currentStep={currentStep} totalSteps={totalSteps} />
+        <BetaBanner />
         {renderStep()}
       </div>
     </div>

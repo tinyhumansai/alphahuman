@@ -1,27 +1,43 @@
 import { callCoreCommand } from '../coreCommandClient';
 
+/**
+ * Credit balance payload returned by `GET /payments/credits/balance`.
+ *
+ * Mirrors the backend shape defined in
+ * `backend-1/src/services/user/balanceService.ts` → `getCreditBalance(userId)`,
+ * which in turn derives from `IUser.usage.promotionBalanceUsd` on the user
+ * model and the team-level top-up ledger.
+ */
 export interface CreditBalance {
-  balanceUsd: number;
-  topUpBalanceUsd: number;
-  topUpBaselineUsd: number | null;
+  /**
+   * Promotional credit balance on the user document (signup bonus, coupons,
+   * referral rewards). Corresponds to `IUserUsage.promotionBalanceUsd`.
+   */
+  promotionBalanceUsd: number;
+  /**
+   * Team-level top-up balance (paid credits that cover overage once the
+   * included cycle budget is exhausted). Returned by `getTeamTopup(userId)`.
+   */
+  teamTopupUsd: number;
 }
 
 export interface TeamUsage {
   remainingUsd: number;
   cycleBudgetUsd: number;
-  dailyUsage: number;
-  totalInputTokensThisCycle: number;
-  totalOutputTokensThisCycle: number;
-  /** 5-hour rolling window: amount spent (USD) */
-  fiveHourSpendUsd: number;
-  /** 5-hour rolling window: cap for the user's plan (USD) */
+  /** Amount spent in the current 5-hour fixed window (USD) */
+  cycleLimit5hr: number;
+  /** Amount spent in the current 7-day cycle (USD) */
+  cycleLimit7day: number;
+  /** Max USD allowed in the 5-hour window for the current subscription tier */
   fiveHourCapUsd: number;
-  /** ISO timestamp when the oldest 5-hour window entry expires (null if window is empty) */
+  /** ISO timestamp when the 5-hour window resets (null if window is empty) */
   fiveHourResetsAt: string | null;
   /** ISO timestamp when the current weekly cycle started */
   cycleStartDate: string;
   /** ISO timestamp when the current weekly cycle ends */
   cycleEndsAt: string;
+  /** When true, cycle limits are not enforced for this user (test/internal accounts) */
+  bypassCycleLimit?: boolean;
 }
 
 export interface TopUpResult {
@@ -113,16 +129,153 @@ export interface UpdateCardPayload {
 // ── Coupon types ────────────────────────────────────────────────────────────
 
 export interface CouponRedeemResult {
-  success: boolean;
-  data: { code: string; amountUsd: number };
+  couponCode: string;
+  amountUsd: number;
+  pending: boolean;
 }
 
 export interface RedeemedCoupon {
   code: string;
   amountUsd: number;
-  redeemedAt: string;
+  redeemedAt: string | null;
   activationType: string;
   fulfilled: boolean;
+  fulfilledAt: string | null;
+  activationCondition: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function normalizeUsd(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+export function normalizeCouponRedeemResult(raw: unknown): CouponRedeemResult {
+  const record = asRecord(raw) ?? {};
+  const envelopeData = asRecord(record.data);
+  const payload = envelopeData ?? record;
+  return {
+    couponCode:
+      (typeof payload.couponCode === 'string' && payload.couponCode.trim()) ||
+      (typeof payload.code === 'string' && payload.code.trim()) ||
+      '',
+    amountUsd: normalizeUsd(payload.amountUsd ?? payload.amount_usd),
+    pending: Boolean(payload.pending),
+  };
+}
+
+export function normalizeRedeemedCoupon(raw: unknown): RedeemedCoupon {
+  const record = asRecord(raw) ?? {};
+  return {
+    code:
+      (typeof record.code === 'string' && record.code.trim()) ||
+      (typeof record.couponCode === 'string' && record.couponCode.trim()) ||
+      '',
+    amountUsd: normalizeUsd(record.amountUsd ?? record.amount_usd),
+    redeemedAt: asStringOrNull(record.redeemedAt ?? record.redeemed_at),
+    activationType:
+      (typeof record.activationType === 'string' && record.activationType.trim()) ||
+      (typeof record.activation_type === 'string' && record.activation_type.trim()) ||
+      'IMMEDIATE',
+    fulfilled: Boolean(record.fulfilled),
+    fulfilledAt: asStringOrNull(record.fulfilledAt ?? record.fulfilled_at),
+    activationCondition: asStringOrNull(record.activationCondition ?? record.activation_condition),
+  };
+}
+
+function normalizeCreditBalance(payload: unknown): CreditBalance {
+  const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const nested = asRecord(raw.data) ?? asRecord(raw.balance) ?? null;
+  const source = nested ?? raw;
+  const promotionBalanceKeys = [
+    'promotionBalanceUsd',
+    'promotion_balance_usd',
+    'promotionalBalanceUsd',
+    'promotional_balance_usd',
+    'promoBalanceUsd',
+    'promo_balance_usd',
+  ] as const;
+  const teamTopupKeys = [
+    'teamTopupUsd',
+    'team_topup_usd',
+    'teamTopUpUsd',
+    'team_top_up_usd',
+    'teamTopupBalanceUsd',
+    'team_topup_balance_usd',
+  ] as const;
+  const missingPromotionBalance = promotionBalanceKeys.every(key => !(key in source));
+  const missingTeamTopup = teamTopupKeys.every(key => !(key in source));
+
+  if (missingPromotionBalance || missingTeamTopup) {
+    console.debug('[creditsApi] normalizeCreditBalance missing expected keys', {
+      raw: source,
+      missingPromotionBalance,
+      missingPromotionBalanceKeys: missingPromotionBalance ? promotionBalanceKeys : [],
+      missingTeamTopup,
+      missingTeamTopupKeys: missingTeamTopup ? teamTopupKeys : [],
+    });
+  }
+
+  return {
+    promotionBalanceUsd: normalizeUsd(
+      source.promotionBalanceUsd ??
+        source.promotion_balance_usd ??
+        source.promotionalBalanceUsd ??
+        source.promotional_balance_usd ??
+        source.promoBalanceUsd ??
+        source.promo_balance_usd
+    ),
+    teamTopupUsd: normalizeUsd(
+      source.teamTopupUsd ??
+        source.team_topup_usd ??
+        source.teamTopUpUsd ??
+        source.team_top_up_usd ??
+        source.teamTopupBalanceUsd ??
+        source.team_topup_balance_usd
+    ),
+  };
+}
+
+export function normalizeTeamUsage(payload: unknown): TeamUsage {
+  const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  return {
+    remainingUsd: normalizeUsd(raw.remainingUsd ?? raw.remaining_usd),
+    cycleBudgetUsd: normalizeUsd(raw.cycleBudgetUsd ?? raw.cycle_budget_usd),
+    cycleLimit5hr: normalizeUsd(
+      raw.cycleLimit5hr ?? raw.fiveHourSpendUsd ?? raw.five_hour_spend_usd
+    ),
+    cycleLimit7day: normalizeUsd(raw.cycleLimit7day ?? raw.cycle_limit_7day),
+    fiveHourCapUsd: normalizeUsd(raw.fiveHourCapUsd ?? raw.five_hour_cap_usd),
+    fiveHourResetsAt: asStringOrNull(raw.fiveHourResetsAt ?? raw.five_hour_resets_at),
+    cycleStartDate:
+      typeof raw.cycleStartDate === 'string'
+        ? raw.cycleStartDate
+        : typeof raw.cycle_start_date === 'string'
+          ? raw.cycle_start_date
+          : new Date().toISOString(),
+    cycleEndsAt:
+      typeof raw.cycleEndsAt === 'string'
+        ? raw.cycleEndsAt
+        : typeof raw.cycle_ends_at === 'string'
+          ? raw.cycle_ends_at
+          : new Date().toISOString(),
+    bypassCycleLimit: Boolean(
+      raw.bypassCycleLimit ?? raw.bypassRateLimit ?? raw.bypass_cycle_limit
+    ),
+  };
 }
 
 /**
@@ -134,7 +287,8 @@ export const creditsApi = {
    * GET /credits/balance
    */
   getBalance: async (): Promise<CreditBalance> => {
-    return await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    const result = await callCoreCommand<CreditBalance>('openhuman.billing_get_balance');
+    return normalizeCreditBalance(result);
   },
 
   /**
@@ -142,7 +296,8 @@ export const creditsApi = {
    * GET /teams/me/usage
    */
   getTeamUsage: async (): Promise<TeamUsage> => {
-    return await callCoreCommand<TeamUsage>('openhuman.team_get_usage');
+    const result = await callCoreCommand<TeamUsage>('openhuman.team_get_usage');
+    return normalizeTeamUsage(result);
   },
 
   /**
@@ -230,7 +385,8 @@ export const creditsApi = {
    * POST /coupons/redeem
    */
   redeemCoupon: async (code: string): Promise<CouponRedeemResult> => {
-    return await callCoreCommand<CouponRedeemResult>('openhuman.billing_redeem_coupon', { code });
+    const result = await callCoreCommand<unknown>('openhuman.billing_redeem_coupon', { code });
+    return normalizeCouponRedeemResult(result);
   },
 
   /**
@@ -238,6 +394,7 @@ export const creditsApi = {
    * GET /coupons/me
    */
   getUserCoupons: async (): Promise<RedeemedCoupon[]> => {
-    return await callCoreCommand<RedeemedCoupon[]>('openhuman.billing_get_coupons');
+    const coupons = await callCoreCommand<unknown[]>('openhuman.billing_get_coupons');
+    return Array.isArray(coupons) ? coupons.map(normalizeRedeemedCoupon) : [];
   },
 };

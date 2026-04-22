@@ -2,11 +2,9 @@ import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { useNavigate } from 'react-router-dom';
 
 import LottieAnimation from '../components/LottieAnimation';
-import { skillManager } from '../lib/skills/manager';
 import { useCoreState } from '../providers/CoreStateProvider';
 import {
   deriveAesKeyFromMnemonic,
-  deriveEvmAddressFromMnemonic,
   generateMnemonicPhrase,
   MNEMONIC_GENERATE_WORD_COUNT,
   validateMnemonicPhrase,
@@ -158,8 +156,6 @@ const Mnemonic = () => {
       }
 
       const aesKey = deriveAesKeyFromMnemonic(phraseToUse);
-      const walletAddress = deriveEvmAddressFromMnemonic(phraseToUse);
-
       if (!user?._id) {
         const msg = 'User not loaded. Please sign in again or refresh the page.';
         setError(msg);
@@ -167,7 +163,6 @@ const Mnemonic = () => {
         return;
       }
       await setEncryptionKey(aesKey);
-      await skillManager.setWalletAddress(walletAddress);
       navigate('/home');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');

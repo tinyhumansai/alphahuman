@@ -14,12 +14,7 @@ pub fn bundled_openclaw_prompts_dir(resource_dir: &Path) -> Option<PathBuf> {
             .join("agent")
             .join("prompts"),
     ];
-    for p in candidates {
-        if p.is_dir() {
-            return Some(p);
-        }
-    }
-    None
+    candidates.into_iter().find(|p| p.is_dir())
 }
 
 /// Locate `src/openhuman/agent/prompts` by walking up from `cwd`.

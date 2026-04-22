@@ -1,6 +1,5 @@
 import { useState } from 'react';
 
-import { skillManager } from '../../lib/skills/manager';
 import { useCoreState } from '../../providers/CoreStateProvider';
 import { persistor } from '../../store';
 import { resetOpenHumanDataAndRestartCore } from '../../utils/tauriCommands';
@@ -10,23 +9,18 @@ import { useSettingsNavigation } from './hooks/useSettingsNavigation';
 
 const SettingsHome = () => {
   const { navigateToSettings } = useSettingsNavigation();
-  const { clearSession, setOnboardingCompletedFlag } = useCoreState();
+  const { clearSession } = useCoreState();
   const [showLogoutAndClearModal, setShowLogoutAndClearModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLogout = async () => {
     try {
-      await setOnboardingCompletedFlag(false);
-    } catch (err) {
-      console.warn('[Settings] Failed to clear onboarding_completed in config:', err);
-    }
-    try {
       await clearSession();
     } catch (err) {
       console.warn('[Settings] Rust logout failed:', err);
+      setError('Failed to log out. Please try again.');
     }
-    window.location.hash = '/';
   };
 
   const clearAllAppData = async () => {
@@ -43,20 +37,9 @@ const SettingsHome = () => {
       throw err;
     }
 
-    // Best-effort cleanup for in-memory and browser-side caches that live outside the Rust core.
-    try {
-      await skillManager.clearAllSkillsData();
-    } catch (error) {
-      console.warn('Failed to clear skills data:', error);
-      // Continue even if skill cleanup fails because the backend reset already completed.
-    }
-
     await persistor.purge();
     window.localStorage.clear();
     window.sessionStorage.clear();
-
-    // Complete reset - redirect to login for fresh start
-    window.location.hash = '/';
   };
 
   const handleLogoutAndClearData = async () => {
@@ -78,37 +61,59 @@ const SettingsHome = () => {
   const groupedMenuItems = [
     {
       id: 'account',
-      title: 'Account & Security',
-      description: 'Billing, recovery phrase, team management, and linked account access',
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5v14" />
-        </svg>
-      ),
-      onClick: () => navigateToSettings('account'),
-      dangerous: false,
-    },
-    {
-      id: 'automation',
-      title: 'Automation & Channels',
-      description: 'Accessibility, screen intelligence, messaging, autocomplete, and cron jobs',
+      title: 'Account',
+      description: 'Recovery phrase, team, connections, and privacy',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth={2}
-            d="M3 5h18v12H3zM8 21h8m-4-4v4"
+            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
           />
         </svg>
       ),
-      onClick: () => navigateToSettings('automation'),
+      onClick: () => navigateToSettings('account'),
       dangerous: false,
     },
     {
-      id: 'ai-tools',
-      title: 'AI & Skills',
-      description: 'Local model runtime, AI configuration, and skills behavior',
+      id: 'billing',
+      title: 'Billing & Usage',
+      description: 'Subscription plan, pay-as-you-go credits, and payment methods',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H5a3 3 0 00-3 3v8a3 3 0 003 3z"
+          />
+        </svg>
+      ),
+      onClick: () => navigateToSettings('billing'),
+      dangerous: false,
+    },
+    {
+      id: 'features',
+      title: 'Features',
+      description: 'Screen awareness, messaging, and tools',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M13 10V3L4 14h7v7l9-11h-7z"
+          />
+        </svg>
+      ),
+      onClick: () => navigateToSettings('features'),
+      dangerous: false,
+    },
+    {
+      id: 'ai-models',
+      title: 'AI & Models',
+      description: 'Local AI model setup and downloads',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -119,13 +124,13 @@ const SettingsHome = () => {
           />
         </svg>
       ),
-      onClick: () => navigateToSettings('ai-tools'),
+      onClick: () => navigateToSettings('ai-models'),
       dangerous: false,
     },
     {
       id: 'developer-options',
       title: 'Developer Options',
-      description: 'Diagnostic tools, console access, webhooks, and memory inspection',
+      description: 'Diagnostics, debug panels, webhooks, and memory inspection',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -242,7 +247,7 @@ const SettingsHome = () => {
                 <p>This will sign you out and permanently delete local app data including:</p>
                 <ul className="list-disc pl-5 mt-2 space-y-1">
                   <li>App settings and conversations</li>
-                  <li>All skills data</li>
+                  <li>All local integration cache data</li>
                   <li>Workspace data</li>
                   <li>All other local data</li>
                 </ul>

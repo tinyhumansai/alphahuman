@@ -6,21 +6,41 @@ icon: shield
 
 OpenHuman operates on a principle of **zero-knowledge intelligence**. The system is architecturally designed so that your raw data never needs to leave your device. Neocortex compresses your data locally into structured metadata and summaries. Only this compressed output is processed server-side. Your AI has months of context about your entire organizational life. Your raw data has never touched our servers.
 
----
+***
 
 ## Privacy by Design
 
 OpenHuman operates on a principle of **zero retention** for message content. When you make a request, the relevant data is processed to produce an output, and the source content is discarded afterward.
 
-**No long-term message storage.** OpenHuman does not maintain a persistent archive of your conversations. Context is reconstructed from your connected sources when needed.
+**No long-term raw data storage.** OpenHuman does not maintain a persistent archive of your conversations or screen captures. Context is compressed into knowledge graph structures. Raw text and raw images are not stored.
 
 **No training on your data.** Your conversations, analysis results, and personal information are never used to train AI models or improve systems. Your data serves you and only you.
 
 **OS-level credential storage.** On desktop platforms, OpenHuman uses your operating system's secure keychain to store credentials and sensitive tokens. Credentials are never stored in plain text, browser storage, or application-level databases.
 
-**On-device where possible.** Interface rendering, input handling, local state management, and credential operations all happen on your device. Only tasks requiring deeper language processing are handled server-side, under the same privacy constraints.
+**On-device where possible.** Screen Intelligence, Inline autocomplete, local chat, voice processing, and encryption all happen on your device. Only tasks requiring deeper language processing beyond local model capabilities are handled server-side, under the same privacy constraints.
 
----
+### Screen Intelligence Privacy
+
+Screen Intelligence captures your screen approximately every 5 seconds and processes captures using the on-device vision model. This is the most privacy-sensitive feature in OpenHuman, and it is designed accordingly.
+
+**Processing is entirely local.** Raw screenshots are analyzed by the local vision model running on your device's hardware. The model produces structured text summaries. The raw screenshot is then discarded.
+
+**Raw screenshots are never stored.** After the on-device model processes a capture, the raw image is deleted. Only the compressed text summary persists in your local Neocortex memory.
+
+**Raw screenshots are never transmitted.** No raw screen image data is ever sent to any server, cloud service, or third party.
+
+**Per-app permissions.** You control which applications Screen Intelligence monitors. You can exclude any application from capture: banking apps, medical portals, password managers, or any application you consider sensitive.
+
+**You can disable it entirely.** Screen Intelligence is optional. You can turn it off at any time from settings.
+
+***
+
+### Inline autocomplete Privacy
+
+Inline autocomplete runs on the local model using cached memory context from Neocortex. No keystroke data, text input, or completion suggestions are sent to any server. The entire feature operates on-device.
+
+***
 
 ## Permissions and Access Control
 
@@ -36,9 +56,10 @@ OpenHuman does not silently expand its access over time. There is no progressive
 
 Each connected source has its own permission scope:
 
-- **Telegram:** Read-only access. OpenHuman can read messages from conversations you reference in a request. It cannot send messages, edit messages, react, join groups, or act on your behalf.
-- **Notion:** Write access to specific workspaces or pages you approve. OpenHuman does not read unrelated documents.
-- **Google Sheets:** Write access to specific spreadsheets you approve. OpenHuman does not read unrelated sheets.
+* **Telegram:** Full capability access, including reading messages, sending messages, managing contacts, and administering groups. All actions are executed only on your explicit instruction. OpenHuman never sends messages, joins groups, or takes any Telegram action autonomously. You remain in control of every action. See Skills & Integrations for the complete capability list.
+* **Notion:** Write access to specific workspaces or pages you approve. OpenHuman does not read unrelated documents.
+* **Google Sheets:** Write access to specific spreadsheets you approve. OpenHuman does not read unrelated sheets.
+* **Slack:** Read access to conversations you reference in your requests. Used to expand your knowledge graph with workplace context.
 
 Integration permissions are limited to what is needed for the specific action you request.
 
@@ -46,25 +67,27 @@ Integration permissions are limited to what is needed for the specific action yo
 
 Every meaningful operation in OpenHuman is user-initiated. Summaries, analysis, trust evaluation, workflow creation, and exports all require a direct request. There is no continuous background processing or monitoring.
 
+The one exception is Screen Intelligence, which runs on a continuous capture cycle when enabled. However, Screen Intelligence operates entirely on-device and does not access any connected platform. It captures what is visible on your screen.
+
 {% hint style="info" %}
-OpenHuman is idle unless you ask it to do something.
+OpenHuman is idle with respect to your connected platforms unless you ask it to do something.
 {% endhint %}
 
----
+***
 
 ## Revoking Access
 
 You can revoke OpenHuman's access to any connected source at any time.
 
-- Disconnect a source from your settings
-- Remove integration permissions
-- Stop using the application entirely
+* Disconnect a source from your settings
+* Remove integration permissions
+* Stop using the application entirely
 
 Once access is revoked, OpenHuman immediately stops processing data from that source. There is no delayed or cached processing after revocation. Previously exported outputs (such as summaries written to Notion or Google Sheets) remain where they were written, but no new processing occurs.
 
 This makes OpenHuman safe to test, pause, or stop using without residual exposure.
 
----
+***
 
 ## Security
 
@@ -80,7 +103,7 @@ OpenHuman implements security at every layer of the system.
 
 **Short-lived tokens.** Authentication tokens are time-limited and single-use where applicable, reducing the window of exposure if a token is compromised.
 
----
+***
 
 ## How Neocortex enables privacy
 
@@ -108,13 +131,13 @@ OpenHuman includes an intelligence layer designed to help you reason about credi
 
 Trust and risk intelligence operates at different levels:
 
-- **Personal:** Visible only to you. Your own analysis, trust assessments, and risk alerts.
-- **Community:** Aggregated patterns within a group or organization, supporting shared coordination and moderation. Never exposes individual message content.
-- **Network:** Anonymized patterns across the broader OpenHuman user base, improving early detection of shared risks like recurring scam vectors.&#x20;
+* **Personal:** Visible only to you. Your own analysis, trust assessments, and risk alerts.
+* **Community:** Aggregated patterns within a group or organization, supporting shared coordination and moderation. Never exposes individual message content.
+* **Network:** Anonymized patterns across the broader OpenHuman user base, improving early detection of shared risks like recurring scam vectors.
 
 Information does not move between scopes without abstraction and anonymization.
 
----
+***
 
 ## Shared Environments
 

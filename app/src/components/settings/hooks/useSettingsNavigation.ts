@@ -4,31 +4,37 @@ import { useLocation, useNavigate } from 'react-router-dom';
 export type SettingsRoute =
   | 'home'
   | 'account'
-  | 'automation'
-  | 'ai-tools'
+  | 'features'
+  | 'ai-models'
   | 'connections'
   | 'messaging'
   | 'cron-jobs'
   | 'screen-intelligence'
   | 'autocomplete'
   | 'privacy'
-  | 'profile'
-  | 'advanced'
   | 'billing'
   | 'team'
   | 'team-members'
   | 'team-invites'
   | 'developer-options'
-  | 'accessibility'
-  | 'skills'
   | 'ai'
   | 'local-model'
   | 'voice'
+  | 'tools'
   | 'memory-data'
   | 'memory-debug'
   | 'recovery-phrase'
   | 'webhooks-debug'
-  | 'agent-chat';
+  | 'agent-chat'
+  | 'screen-awareness-debug'
+  | 'autocomplete-debug'
+  | 'voice-debug'
+  | 'local-model-debug';
+
+export interface BreadcrumbItem {
+  label: string;
+  onClick?: () => void;
+}
 
 interface SettingsNavigationHook {
   currentRoute: SettingsRoute;
@@ -36,6 +42,7 @@ interface SettingsNavigationHook {
   navigateToTeamManagement: (teamId: string) => void;
   navigateBack: () => void;
   closeSettings: () => void;
+  breadcrumbs: BreadcrumbItem[];
 }
 
 export const useSettingsNavigation = (): SettingsNavigationHook => {
@@ -66,23 +73,24 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     if (path.includes('/settings/team/invites')) return 'team-invites';
     if (path.includes('/settings/team')) return 'team';
     if (path.includes('/settings/account')) return 'account';
-    if (path.includes('/settings/automation')) return 'automation';
-    if (path.includes('/settings/ai-tools')) return 'ai-tools';
+    if (path.includes('/settings/features')) return 'features';
+    if (path.includes('/settings/ai-models')) return 'ai-models';
     if (path.includes('/settings/connections')) return 'connections';
     if (path.includes('/settings/messaging')) return 'messaging';
     if (path.includes('/settings/cron-jobs')) return 'cron-jobs';
+    if (path.includes('/settings/screen-awareness-debug')) return 'screen-awareness-debug';
     if (path.includes('/settings/screen-intelligence')) return 'screen-intelligence';
+    if (path.includes('/settings/autocomplete-debug')) return 'autocomplete-debug';
     if (path.includes('/settings/autocomplete')) return 'autocomplete';
     if (path.includes('/settings/privacy')) return 'privacy';
-    if (path.includes('/settings/profile')) return 'profile';
-    if (path.includes('/settings/advanced')) return 'advanced';
     if (path.includes('/settings/billing')) return 'billing';
     if (path.includes('/settings/developer-options')) return 'developer-options';
-    if (path.includes('/settings/accessibility')) return 'accessibility';
-    if (path.includes('/settings/skills')) return 'skills';
     if (path.includes('/settings/ai')) return 'ai';
+    if (path.includes('/settings/local-model-debug')) return 'local-model-debug';
     if (path.includes('/settings/local-model')) return 'local-model';
+    if (path.includes('/settings/voice-debug')) return 'voice-debug';
     if (path.includes('/settings/voice')) return 'voice';
+    if (path.includes('/settings/tools')) return 'tools';
     if (path.includes('/settings/memory-data')) return 'memory-data';
     if (path.includes('/settings/memory-debug')) return 'memory-debug';
     if (path.includes('/settings/webhooks-debug')) return 'webhooks-debug';
@@ -123,11 +131,96 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
     goBackWithFallback('/home');
   }, [goBackWithFallback]);
 
+  const settingsCrumb: BreadcrumbItem = { label: 'Settings', onClick: () => navigate('/settings') };
+
+  const accountCrumb: BreadcrumbItem = {
+    label: 'Account',
+    onClick: () => navigate('/settings/account'),
+  };
+
+  const featuresCrumb: BreadcrumbItem = {
+    label: 'Features',
+    onClick: () => navigate('/settings/features'),
+  };
+
+  const aiModelsCrumb: BreadcrumbItem = {
+    label: 'AI & Models',
+    onClick: () => navigate('/settings/ai-models'),
+  };
+
+  const teamCrumb: BreadcrumbItem = { label: 'Team', onClick: () => navigate('/settings/team') };
+
+  const developerCrumb: BreadcrumbItem = {
+    label: 'Developer Options',
+    onClick: () => navigate('/settings/developer-options'),
+  };
+
+  const getBreadcrumbs = (): BreadcrumbItem[] => {
+    switch (currentRoute) {
+      // Section pages
+      case 'account':
+      case 'features':
+      case 'ai-models':
+        return [settingsCrumb];
+
+      // Leaf panels under account
+      case 'recovery-phrase':
+      case 'team':
+      case 'connections':
+      case 'privacy':
+        return [settingsCrumb, accountCrumb];
+
+      case 'billing':
+        return [settingsCrumb];
+
+      // Leaf panels under features
+      case 'screen-intelligence':
+      case 'autocomplete':
+      case 'voice':
+      case 'messaging':
+      case 'tools':
+        return [settingsCrumb, featuresCrumb];
+
+      // Leaf panels under AI & Models
+      case 'local-model':
+        return [settingsCrumb, aiModelsCrumb];
+
+      // Team sub-pages
+      case 'team-members':
+      case 'team-invites':
+        return [settingsCrumb, accountCrumb, teamCrumb];
+
+      // Developer sub-pages
+      case 'ai':
+      case 'agent-chat':
+      case 'cron-jobs':
+      case 'screen-awareness-debug':
+      case 'autocomplete-debug':
+      case 'voice-debug':
+      case 'local-model-debug':
+      case 'webhooks-debug':
+      case 'memory-data':
+      case 'memory-debug':
+        return [settingsCrumb, developerCrumb];
+
+      // Developer options section page
+      case 'developer-options':
+        return [settingsCrumb];
+
+      case 'home':
+      default:
+        return [];
+    }
+  };
+
+  const breadcrumbs = getBreadcrumbs();
+
   return {
     currentRoute,
     navigateToSettings,
     navigateToTeamManagement,
     navigateBack,
     closeSettings,
+    breadcrumbs,
   };
 };

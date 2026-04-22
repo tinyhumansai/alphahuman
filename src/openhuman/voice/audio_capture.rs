@@ -144,6 +144,17 @@ impl RecordingHandle {
             None => Err("recording already stopped".to_string()),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_result(result: Result<RecordingResult, String>) -> Self {
+        let (tx, rx) = oneshot::channel();
+        tx.send(result)
+            .expect("test recording result receiver should be open");
+        Self {
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            result_rx: Some(rx),
+        }
+    }
 }
 
 /// Start recording from the default microphone.
@@ -188,6 +199,38 @@ fn record_on_thread(
     stop_flag: Arc<AtomicBool>,
     setup_tx: std::sync::mpsc::SyncSender<Result<(), String>>,
 ) -> Result<RecordingResult, String> {
+    // --- Cross-platform microphone permission pre-check ---
+    use crate::openhuman::accessibility::{
+        detect_microphone_permission, microphone_denied_message, request_microphone_access,
+        PermissionState,
+    };
+
+    let mic_perm = detect_microphone_permission();
+    debug!("{LOG_PREFIX} microphone permission state: {mic_perm:?}");
+
+    match mic_perm {
+        PermissionState::Unknown => {
+            info!("{LOG_PREFIX} microphone permission not yet determined — requesting access");
+            request_microphone_access();
+            // Re-check after request (macOS may have shown a prompt).
+            let updated = detect_microphone_permission();
+            debug!("{LOG_PREFIX} microphone permission after request: {updated:?}");
+            if matches!(updated, PermissionState::Denied | PermissionState::Unknown) {
+                let msg = microphone_denied_message();
+                error!("{LOG_PREFIX} {msg}");
+                let _ = setup_tx.send(Err(msg.clone()));
+                return Err(msg);
+            }
+        }
+        PermissionState::Denied => {
+            let msg = microphone_denied_message();
+            error!("{LOG_PREFIX} {msg}");
+            let _ = setup_tx.send(Err(msg.clone()));
+            return Err(msg);
+        }
+        _ => {} // Granted or Unsupported — proceed normally.
+    }
+
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -196,11 +239,20 @@ fn record_on_thread(
     let device_name = device.name().unwrap_or_else(|_| "<unknown>".into());
     info!("{LOG_PREFIX} using input device: {device_name}");
 
-    let supported_configs = device
-        .supported_input_configs()
-        .map_err(|e| format!("failed to query input configs: {e}"))?;
-
-    let config = find_best_config(supported_configs)?;
+    let config = match device.supported_input_configs() {
+        Ok(supported) => find_best_config(supported).unwrap_or_else(|e| {
+            warn!("{LOG_PREFIX} find_best_config failed ({e}), falling back to default");
+            device
+                .default_input_config()
+                .expect("no default input config available")
+        }),
+        Err(e) => {
+            warn!("{LOG_PREFIX} failed to query input configs ({e}), using default");
+            device
+                .default_input_config()
+                .map_err(|e2| format!("no default input config: {e2}"))?
+        }
+    };
     let source_sample_rate = config.sample_rate().0;
     let source_channels = config.channels() as usize;
 
@@ -294,11 +346,77 @@ fn record_on_thread(
         }
     };
 
-    let stream = match stream {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = setup_tx.send(Err(e.clone()));
-            return Err(e);
+    // If the preferred config failed, retry with the device's default config.
+    let (stream, source_sample_rate, _source_channels) = match stream {
+        Ok(s) => (s, source_sample_rate, source_channels),
+        Err(ref preferred_err) => {
+            warn!(
+                "{LOG_PREFIX} preferred config failed ({preferred_err}), retrying with default config"
+            );
+            match device.default_input_config() {
+                Ok(default_cfg) => {
+                    let sr = default_cfg.sample_rate().0;
+                    let ch = default_cfg.channels() as usize;
+                    let fmt = default_cfg.sample_format();
+                    info!("{LOG_PREFIX} fallback config: rate={sr} channels={ch} format={fmt:?}");
+                    let sc: StreamConfig = default_cfg.into();
+                    let gate = Arc::new(parking_lot::Mutex::new(SilenceGate::new(sr)));
+                    let sw = samples.clone();
+                    let rt = peak_rms.clone();
+                    let fallback_stream = match fmt {
+                        SampleFormat::F32 => device
+                            .build_input_stream(
+                                &sc,
+                                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                    let mono = to_mono(data, ch);
+                                    update_peak_rms(&rt, &mono);
+                                    let gated = gate.lock().process(&mono);
+                                    if !gated.is_empty() {
+                                        sw.lock().extend_from_slice(&gated);
+                                    }
+                                },
+                                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                                None,
+                            )
+                            .map_err(|e| format!("fallback f32 stream failed: {e}")),
+                        SampleFormat::I16 => device
+                            .build_input_stream(
+                                &sc,
+                                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                                    let floats: Vec<f32> =
+                                        data.iter().map(|&s| s as f32 / 32768.0).collect();
+                                    let mono = to_mono(&floats, ch);
+                                    update_peak_rms(&rt, &mono);
+                                    let gated = gate.lock().process(&mono);
+                                    if !gated.is_empty() {
+                                        sw.lock().extend_from_slice(&gated);
+                                    }
+                                },
+                                |err| error!("{LOG_PREFIX} audio stream error: {err}"),
+                                None,
+                            )
+                            .map_err(|e| format!("fallback i16 stream failed: {e}")),
+                        _ => Err(format!("unsupported fallback format: {fmt:?}")),
+                    };
+                    match fallback_stream {
+                        Ok(s) => (s, sr, ch),
+                        Err(e2) => {
+                            let msg = format!(
+                                "both preferred ({preferred_err}) and fallback ({e2}) configs failed"
+                            );
+                            let _ = setup_tx.send(Err(msg.clone()));
+                            return Err(msg);
+                        }
+                    }
+                }
+                Err(e2) => {
+                    let msg = format!(
+                        "preferred config failed ({preferred_err}) and no default available ({e2})"
+                    );
+                    let _ = setup_tx.send(Err(msg.clone()));
+                    return Err(msg);
+                }
+            }
         }
     };
 
@@ -497,6 +615,7 @@ fn find_best_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cpal::{SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfigRange};
 
     #[test]
     fn to_mono_passthrough_single_channel() {
@@ -514,6 +633,13 @@ mod tests {
     }
 
     #[test]
+    fn to_mono_averages_multichannel_frames() {
+        let input = vec![0.0, 0.5, 1.0, 0.25, 0.25, 0.25];
+        let mono = to_mono(&input, 3);
+        assert_eq!(mono, vec![0.5, 0.25]);
+    }
+
+    #[test]
     fn resample_same_rate_passthrough() {
         let input = vec![0.1, 0.2, 0.3];
         let output = resample(&input, TARGET_SAMPLE_RATE);
@@ -527,6 +653,23 @@ mod tests {
         let output = resample(&input, 32_000);
         // Should be approximately 1600 samples.
         assert!(output.len() >= 1590 && output.len() <= 1610);
+    }
+
+    #[test]
+    fn resample_upsamples() {
+        let input = vec![0.0, 1.0, 0.0, -1.0];
+        let output = resample(&input, 8_000);
+        assert_eq!(output.len(), 8);
+        assert!((output[0] - 0.0).abs() < 1e-6);
+        assert!((output[1] - 0.5).abs() < 1e-6);
+        assert!((output[2] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn chunk_rms_handles_empty_and_signal() {
+        assert_eq!(chunk_rms(&[]), 0.0);
+        let rms = chunk_rms(&[1.0, -1.0, 1.0, -1.0]);
+        assert!((rms - 1.0).abs() < 1e-6);
     }
 
     #[test]
@@ -568,5 +711,77 @@ mod tests {
         let peak = std::sync::atomic::AtomicU32::new(0.1f32.to_bits());
         update_peak_rms(&peak, &[]);
         assert!((f32::from_bits(peak.load(Ordering::Relaxed)) - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn silence_gate_keeps_audio_before_threshold() {
+        let mut gate = SilenceGate::new(16_000);
+        let near_silent = vec![0.0; 4_000];
+        let out = gate.process(&near_silent);
+        assert_eq!(out.len(), near_silent.len());
+        assert!(!gate.gating);
+    }
+
+    #[test]
+    fn silence_gate_drops_sustained_silence_and_flushes_on_speech() {
+        let mut gate = SilenceGate::new(16_000);
+        let silence = vec![0.0; 4_000];
+
+        assert_eq!(gate.process(&silence).len(), silence.len());
+        assert!(gate.process(&silence).is_empty());
+        assert!(gate.gating);
+        assert_eq!(gate.lookahead.len(), 1_600);
+
+        let speech = vec![0.5; 160];
+        let out = gate.process(&speech);
+        assert_eq!(out.len(), 1_600 + 160);
+        assert!(!gate.gating);
+        assert!(gate.lookahead.is_empty());
+    }
+
+    #[test]
+    fn find_best_config_prefers_target_rate_and_fewer_channels() {
+        let configs = vec![
+            SupportedStreamConfigRange::new(
+                2,
+                SampleRate(8_000),
+                SampleRate(48_000),
+                SupportedBufferSize::Unknown,
+                SampleFormat::F32,
+            ),
+            SupportedStreamConfigRange::new(
+                1,
+                SampleRate(16_000),
+                SampleRate(16_000),
+                SupportedBufferSize::Unknown,
+                SampleFormat::I16,
+            ),
+        ];
+
+        let best = find_best_config(configs.into_iter()).expect("best config");
+        assert_eq!(best.channels(), 1);
+        assert_eq!(best.sample_rate(), SampleRate(TARGET_SAMPLE_RATE));
+        assert_eq!(best.sample_format(), SampleFormat::I16);
+    }
+
+    #[test]
+    fn find_best_config_falls_back_to_max_rate_when_target_missing() {
+        let configs = vec![SupportedStreamConfigRange::new(
+            1,
+            SampleRate(22_050),
+            SampleRate(44_100),
+            SupportedBufferSize::Unknown,
+            SampleFormat::F32,
+        )];
+
+        let best = find_best_config(configs.into_iter()).expect("best config");
+        assert_eq!(best.sample_rate(), SampleRate(44_100));
+    }
+
+    #[test]
+    fn find_best_config_errors_when_empty() {
+        let err = find_best_config(Vec::<SupportedStreamConfigRange>::new().into_iter())
+            .expect_err("empty config list should fail");
+        assert!(err.contains("no supported audio input configurations"));
     }
 }

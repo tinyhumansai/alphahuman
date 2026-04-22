@@ -24,14 +24,12 @@ pub use ops::*;
 pub use schema::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,
     build_runtime_proxy_client_with_timeouts, runtime_proxy_config, set_runtime_proxy_config,
-    AgentConfig, ArchetypeConfig, AuditConfig, AutocompleteConfig, AutonomyConfig,
-    BrowserComputerUseConfig, BrowserConfig, ChannelsConfig, ClassificationRule, ComposioConfig,
-    Config, CostConfig, CronConfig, DelegateAgentConfig, DictationActivationMode, DictationConfig,
-    DiscordConfig, DockerRuntimeConfig, EmbeddingRouteConfig, HardwareConfig, HardwareTransport,
-    HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig, IntegrationToggle,
-    IntegrationsConfig, LarkConfig, LearningConfig, LocalAiConfig, MatrixConfig, MemoryConfig,
-    ModelRouteConfig, MultimodalConfig, ObservabilityConfig, OrchestratorConfig,
-    PeripheralBoardConfig, PeripheralsConfig, ProxyConfig, ProxyScope, QueryClassificationConfig,
+    AgentConfig, AuditConfig, AutocompleteConfig, AutonomyConfig, BrowserComputerUseConfig,
+    BrowserConfig, ChannelsConfig, ComposioConfig, Config, ContextConfig, CostConfig, CronConfig,
+    DelegateAgentConfig, DictationActivationMode, DictationConfig, DiscordConfig,
+    DockerRuntimeConfig, EmbeddingRouteConfig, HeartbeatConfig, HttpRequestConfig, IMessageConfig,
+    IntegrationToggle, IntegrationsConfig, LarkConfig, LearningConfig, LocalAiConfig, MatrixConfig,
+    MemoryConfig, ModelRouteConfig, MultimodalConfig, ObservabilityConfig, ProxyConfig, ProxyScope,
     ReflectionSource, ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend,
     SandboxConfig, SchedulerConfig, ScreenIntelligenceConfig, SecretsConfig, SecurityConfig,
     SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
@@ -39,13 +37,21 @@ pub use schema::{
     WebhookConfig, DEFAULT_MODEL, MODEL_AGENTIC_V1, MODEL_CODING_V1, MODEL_REASONING_V1,
 };
 pub use schema::{
-    clear_active_user, default_root_openhuman_dir, read_active_user_id, user_openhuman_dir,
-    write_active_user_id,
+    clear_active_user, default_root_openhuman_dir, pre_login_user_dir, read_active_user_id,
+    user_openhuman_dir, write_active_user_id, PRE_LOGIN_USER_ID,
 };
 pub use schemas::{
     all_controller_schemas as all_config_controller_schemas,
     all_registered_controllers as all_config_registered_controllers,
 };
+
+/// Shared mutex used by test modules in this crate that mutate the
+/// `OPENHUMAN_WORKSPACE` env var so they serialize against one another.
+/// Living at the module root means multiple test submodules — `ops::tests`,
+/// `schema::load::tests`, etc. — can grab the same lock and avoid
+/// interleaved mutations.
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {

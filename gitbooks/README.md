@@ -12,13 +12,13 @@ OpenHuman is the first open-source AI agent with Big Data capabilities and a per
 
 Every AI model in the world, all 200+ of them, shares the same fundamental limitation. They are stateless. You type a prompt, get a response, and the context evaporates. Even the ones with "memory" store a few bullet points. A few bullet points is a sticky note, not intelligence.
 
-OpenHuman solves this with two core innovations:
-
-<figure><img src=".gitbook/assets/V02 — Two Innovations@2x.png" alt=""><figcaption></figcaption></figure>
+OpenHuman solves this with three core innovations:
 
 **Neocortex**, a human-like memory engine that can accurately work with over 1 billion tokens. Neocortex indexes 10 million tokens in under 10 seconds, costs $1 to index 5 million tokens, and runs on a MacBook Air CPU with zero LLM dependency. Neocortex goes beyond vector databases. It understands time, entities, and relationships, and it models memory the way the human brain does: by compressing, forgetting strategically, and building knowledge graphs.
 
 **A personalized subconscious system** inspired by the Purkinje cell, a specialized neuron in the human brain responsible for random thoughts and consciousness. OpenHuman's subconscious triggers over 10,000 memory recall loops per day for under $1, producing proactive insights, pattern recognition, and emergent "thoughts" that feed into a self-learning loop.
+
+**A local-first desktop app** that runs AI models directly on your machine. OpenHuman uses Gemma 3 for chat, vision, speech-to-text, and text-to-speech, all on-device. Two flagship capabilities power the experience: Screen Intelligence captures and analyzes your screen activity locally, and Auto-complete uses your memory context to suggest completions on any text surface. Your raw data never leaves your device.
 
 Together, these systems turn OpenHuman into something fundamentally different from a chatbot. It is an AI agent that consumes large amounts of personal data at low cost, maintains a persistent and evolving understanding of your world, and takes proactive actions on your behalf.
 
@@ -30,26 +30,31 @@ OpenHuman is not AGI. But it is a meaningful architectural step closer to it, wi
 
 OpenHuman connects to your communication platforms, tools, and workflows, and compresses that information into structured intelligence any AI can act on.
 
+It **watches your screen** through Screen Intelligence, capturing what you see across your apps locally and building a continuous understanding of your work context without sending raw screenshots to any server.
+
+It **completes your thoughts** through Auto-complete, using your memory context and local models to suggest relevant completions on any text input surface across your system.
+
 It **compresses context** across your connected sources, turning millions of tokens of organizational noise into a structured knowledge graph of entities, relationships, and temporal chains.
 
 It **surfaces signals** that matter: decisions, action items, risks, sentiment shifts, and buried context you would otherwise miss.
 
 It **thinks proactively** through its subconscious system, making connections and surfacing insights you did not explicitly ask for, based on patterns across your entire data history.
 
-It **preserves privacy** by design. Raw data stays on your device. Encryption keys never leave the device. Only compressed metadata and summaries are processed server-side.
+It **preserves privacy** by design. Raw data stays on your device. Encryption keys never leave the device. Local models handle sensitive processing on-device. Only compressed metadata and summaries are processed server-side.
 
 ## Who it's for
 
 OpenHuman is built for people and teams who operate across many conversations and tools, and feel the cost of it.
 
-- **Developers and power users** in the AI ecosystem, especially those using OpenClaw, CrewAI, and similar agentic frameworks, who need a memory and context layer that actually scales.
-- **High-volume communicators** who miss decisions, context, and follow-ups buried in message noise across multiple platforms.
-- **Traders and analysts** who need fast signal extraction and risk awareness across information channels, both on-chain and off-chain.
-- **Distributed teams** who make decisions in chat but need structured follow-through in external tools.
+* **Knowledge workers** who spend their days across 8+ applications and lose context every time they switch. Screen Intelligence and Auto-complete turn your daily workflow into cumulative awareness rather than repeated context loss.
+* **Developers and power users** in the AI ecosystem, especially those using OpenClaw, CrewAI, and similar agentic frameworks, who need a memory and context layer that actually scales.
+* **High-volume communicators** who miss decisions, context, and follow-ups buried in message noise across multiple platforms.
+* **Traders and analysts** who need fast signal extraction and risk awareness across information channels, both on-chain and off-chain.
+* **Distributed teams** who make decisions in chat but need structured follow-through in external tools.
 
 ## What OpenHuman does not do
 
-OpenHuman does not claim to be AGI. It does not send messages automatically or impersonate you. It does not store your raw message data long-term. It does not train on your data.
+OpenHuman does not claim to be AGI. It does not take actions in your connected platforms without your explicit instruction. It does not store your raw message data long-term. It does not train on your data.
 
 {% hint style="info" %}
 Privacy is a core architectural decision, not a checkbox. The full privacy design is covered in Privacy & Security.

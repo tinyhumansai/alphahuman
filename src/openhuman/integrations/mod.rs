@@ -4,12 +4,14 @@
 //! handles external API calls, billing, rate limiting, and markup. The client
 //! never talks to external services directly.
 
+pub mod apify;
 pub mod client;
 pub mod google_places;
 pub mod parallel;
 pub mod twilio;
 pub mod types;
 
+pub use apify::{ApifyGetRunResultsTool, ApifyGetRunStatusTool, ApifyRunActorTool};
 pub use client::{build_client, IntegrationClient};
 pub use google_places::{GooglePlacesDetailsTool, GooglePlacesSearchTool};
 pub use parallel::{ParallelExtractTool, ParallelSearchTool};
@@ -49,35 +51,19 @@ mod tests {
     fn integration_pricing_defaults_on_missing_fields() {
         let json = r#"{"integrations": {}}"#;
         let pricing: IntegrationPricing = serde_json::from_str(json).unwrap();
+        assert!(pricing.integrations.apify.is_none());
         assert!(pricing.integrations.twilio.is_none());
         assert!(pricing.integrations.google_places.is_none());
         assert!(pricing.integrations.parallel.is_none());
     }
 
     #[test]
-    fn build_client_returns_none_when_disabled() {
-        let config = crate::openhuman::config::IntegrationsConfig::default();
-        assert!(build_client(&config).is_none());
-    }
-
-    #[test]
-    fn build_client_returns_none_when_url_missing() {
-        let config = crate::openhuman::config::IntegrationsConfig {
-            enabled: true,
-            backend_url: None,
-            auth_token: Some("tok".into()),
-            ..Default::default()
-        };
-        assert!(build_client(&config).is_none());
-    }
-
-    #[test]
-    fn build_client_rejects_whitespace_only_values() {
-        let config = crate::openhuman::config::IntegrationsConfig {
-            enabled: true,
-            backend_url: Some("   ".into()),
-            auth_token: Some("tok".into()),
-            ..Default::default()
+    fn build_client_returns_none_when_no_auth_token() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = crate::openhuman::config::Config {
+            workspace_dir: tmp.path().join("workspace"),
+            config_path: tmp.path().join("config.toml"),
+            ..crate::openhuman::config::Config::default()
         };
         assert!(build_client(&config).is_none());
     }

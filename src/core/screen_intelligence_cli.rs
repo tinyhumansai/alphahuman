@@ -46,6 +46,7 @@ struct CliOpts {
     ttl_secs: u64,
     keep: bool,
     limit: usize,
+    no_vision_model: bool,
 }
 
 fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
@@ -53,11 +54,16 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
     let mut ttl_secs: u64 = 300;
     let mut keep = false;
     let mut limit: usize = 10;
+    let mut no_vision_model = false;
     let mut rest = Vec::new();
     let mut i = 0;
 
     while i < args.len() {
         match args[i].as_str() {
+            "--no-vision-model" | "--ocr-only" => {
+                no_vision_model = true;
+                i += 1;
+            }
             "--ttl" => {
                 let val = args
                     .get(i + 1)
@@ -101,6 +107,7 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
             ttl_secs,
             keep,
             limit,
+            no_vision_model,
         },
         rest,
     ))
@@ -110,12 +117,24 @@ fn parse_opts(args: &[String]) -> Result<(CliOpts, Vec<String>)> {
 async fn bootstrap_engine(
     verbose: bool,
 ) -> Result<Arc<crate::openhuman::screen_intelligence::AccessibilityEngine>> {
+    bootstrap_engine_with_opts(verbose, false).await
+}
+
+/// Bootstrap with CLI overrides.
+async fn bootstrap_engine_with_opts(
+    verbose: bool,
+    no_vision_model: bool,
+) -> Result<Arc<crate::openhuman::screen_intelligence::AccessibilityEngine>> {
     use crate::openhuman::config::Config;
     use crate::openhuman::screen_intelligence::global_engine;
 
-    let config = Config::load_or_init()
+    let mut config = Config::load_or_init()
         .await
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
+
+    if no_vision_model {
+        config.screen_intelligence.use_vision_model = false;
+    }
 
     let engine = global_engine();
     let _ = engine
@@ -124,9 +143,10 @@ async fn bootstrap_engine(
 
     if verbose {
         log::info!(
-            "[screen-intelligence-cli] engine initialized, enabled={}, vision={}, keep_screenshots={}, workspace={}",
+            "[screen-intelligence-cli] engine initialized, enabled={}, vision={}, use_vision_model={}, keep_screenshots={}, workspace={}",
             config.screen_intelligence.enabled,
             config.screen_intelligence.vision_enabled,
+            config.screen_intelligence.use_vision_model,
             config.screen_intelligence.keep_screenshots,
             config.workspace_dir.display(),
         );
@@ -148,15 +168,17 @@ fn run_server(args: &[String]) -> Result<()> {
     let (opts, rest) = parse_opts(args)?;
 
     if rest.iter().any(|a| is_help(a)) {
-        println!("Usage: openhuman screen-intelligence run [--ttl <secs>] [--keep] [-v]");
+        println!("Usage: openhuman screen-intelligence run [--ttl <secs>] [--keep] [--no-vision-model] [-v]");
         println!();
         println!("Start the screen intelligence capture + vision loop.");
-        println!("Captures screenshots at baseline FPS, sends to vision model,");
+        println!("Captures screenshots at baseline FPS, runs OCR and vision analysis,");
         println!("and logs summaries. Blocks until TTL expires or Ctrl+C.");
         println!();
-        println!("  --ttl <secs>     Session duration (default: 300)");
-        println!("  --keep           Keep screenshots on disk after vision processing");
-        println!("  -v, --verbose    Enable debug logging");
+        println!("  --ttl <secs>        Session duration (default: 300)");
+        println!("  --keep              Keep screenshots on disk after vision processing");
+        println!("  --no-vision-model   Skip the vision LLM — use OCR + text LLM only");
+        println!("  --ocr-only          Alias for --no-vision-model");
+        println!("  -v, --verbose       Enable debug logging");
         return Ok(());
     }
 
@@ -170,9 +192,13 @@ fn run_server(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let config = crate::openhuman::config::Config::load_or_init()
+        let mut config = crate::openhuman::config::Config::load_or_init()
             .await
             .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
+
+        if opts.no_vision_model {
+            config.screen_intelligence.use_vision_model = false;
+        }
 
         let server_config = crate::openhuman::screen_intelligence::server::SiServerConfig {
             ttl_secs: opts.ttl_secs,
@@ -180,15 +206,17 @@ fn run_server(args: &[String]) -> Result<()> {
             keep_screenshots: opts.keep,
         };
 
+        let mode_label = if config.screen_intelligence.use_vision_model {
+            format!("vision LLM ({})", config.local_ai.vision_model_id)
+        } else {
+            "OCR + text LLM (no vision model)".to_string()
+        };
+
         eprintln!();
         eprintln!("  Screen Intelligence");
         eprintln!("  ───────────────────");
         eprintln!("  TTL:              {}s", opts.ttl_secs);
-        eprintln!(
-            "  Vision:           {}",
-            config.screen_intelligence.vision_enabled
-        );
-        eprintln!("  Vision model:     {}", config.local_ai.vision_model_id);
+        eprintln!("  Mode:             {}", mode_label);
         eprintln!(
             "  FPS:              {}",
             config.screen_intelligence.baseline_fps
@@ -334,13 +362,17 @@ fn run_capture(args: &[String]) -> Result<()> {
 /// `openhuman screen-intelligence start` — start a capture + vision session.
 fn run_start_session(args: &[String]) -> Result<()> {
     if args.iter().any(|a| is_help(a)) {
-        println!("Usage: openhuman screen-intelligence start [--ttl <secs>] [-v]");
+        println!(
+            "Usage: openhuman screen-intelligence start [--ttl <secs>] [--no-vision-model] [-v]"
+        );
         println!();
         println!("Start a screen intelligence capture session with vision analysis.");
         println!("The session runs until TTL expires or Ctrl+C is pressed.");
         println!();
-        println!("  --ttl <secs>     Session duration (default: 300, max: 3600)");
-        println!("  -v, --verbose    Enable debug logging");
+        println!("  --ttl <secs>        Session duration (default: 300, max: 3600)");
+        println!("  --no-vision-model   Skip the vision LLM — use OCR + text LLM only");
+        println!("  --ocr-only          Alias for --no-vision-model");
+        println!("  -v, --verbose       Enable debug logging");
         return Ok(());
     }
 
@@ -355,14 +387,12 @@ fn run_start_session(args: &[String]) -> Result<()> {
         .build()?;
 
     rt.block_on(async {
-        let engine = bootstrap_engine(opts.verbose).await?;
+        let engine = bootstrap_engine_with_opts(opts.verbose, opts.no_vision_model).await?;
 
         let params = crate::openhuman::screen_intelligence::StartSessionParams {
             consent: true,
             ttl_secs: Some(opts.ttl_secs),
             screen_monitoring: Some(true),
-            device_control: Some(false),
-            predictive_input: Some(false),
         };
 
         match engine.start_session(params).await {
@@ -483,13 +513,13 @@ fn run_doctor(args: &[String]) -> Result<()> {
 
         let platform_ok = summary["platform_supported"].as_bool().unwrap_or(false);
         let screen_ok = summary["screen_capture_ready"].as_bool().unwrap_or(false);
-        let control_ok = summary["device_control_ready"].as_bool().unwrap_or(false);
+        let control_ok = summary["accessibility_ready"].as_bool().unwrap_or(false);
         let input_ok = summary["input_monitoring_ready"].as_bool().unwrap_or(false);
         let overall_ok = summary["overall_ready"].as_bool().unwrap_or(false);
 
         eprintln!("  {} Platform supported", check(platform_ok));
         eprintln!("  {} Screen recording", check(screen_ok));
-        eprintln!("  {} Accessibility (device control)", check(control_ok));
+        eprintln!("  {} Accessibility automation", check(control_ok));
         eprintln!("  {} Input monitoring", check(input_ok));
         eprintln!();
 
@@ -501,6 +531,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
             eprintln!("  Config:");
             eprintln!("    enabled:           {}", si.enabled);
             eprintln!("    vision_enabled:    {}", si.vision_enabled);
+            eprintln!("    use_vision_model:  {}", si.use_vision_model);
             eprintln!("    baseline_fps:      {}", si.baseline_fps);
             eprintln!("    keep_screenshots:  {}", si.keep_screenshots);
             eprintln!("    local_ai.enabled:  {}", la.enabled);
@@ -536,6 +567,7 @@ fn run_doctor(args: &[String]) -> Result<()> {
                 "config": config.as_ref().map(|c| serde_json::json!({
                     "enabled": c.screen_intelligence.enabled,
                     "vision_enabled": c.screen_intelligence.vision_enabled,
+                    "use_vision_model": c.screen_intelligence.use_vision_model,
                     "baseline_fps": c.screen_intelligence.baseline_fps,
                     "keep_screenshots": c.screen_intelligence.keep_screenshots,
                     "local_ai_enabled": c.local_ai.enabled,
@@ -640,10 +672,10 @@ fn print_help() {
     println!("Boots only the screen intelligence engine (accessibility capture + local-AI");
     println!("vision) without the full desktop app, Socket.IO, or skills runtime.\n");
     println!("Usage:");
-    println!("  openhuman screen-intelligence run       [--ttl <secs>] [-v]");
+    println!("  openhuman screen-intelligence run       [--ttl <secs>] [--no-vision-model] [-v]");
     println!("  openhuman screen-intelligence status     [-v]");
     println!("  openhuman screen-intelligence capture    [--keep] [-v]");
-    println!("  openhuman screen-intelligence start      [--ttl <secs>] [-v]");
+    println!("  openhuman screen-intelligence start      [--ttl <secs>] [--no-vision-model] [-v]");
     println!("  openhuman screen-intelligence stop       [-v]");
     println!("  openhuman screen-intelligence doctor     [-v]");
     println!("  openhuman screen-intelligence vision     [--limit <n>] [-v]");
@@ -658,8 +690,10 @@ fn print_help() {
     println!("  vision    Print recent vision summaries from the active session");
     println!();
     println!("Common options:");
-    println!("  --ttl <secs>     Session TTL (default: 300)");
-    println!("  --limit <n>      Max vision summaries for 'vision' (default: 10)");
-    println!("  --keep           Save screenshot to disk (for 'capture')");
-    println!("  -v, --verbose    Enable debug logging");
+    println!("  --ttl <secs>        Session TTL (default: 300)");
+    println!("  --limit <n>         Max vision summaries for 'vision' (default: 10)");
+    println!("  --keep              Save screenshot to disk (for 'capture')");
+    println!("  --no-vision-model   Skip vision LLM — use OCR + text LLM only");
+    println!("  --ocr-only          Alias for --no-vision-model");
+    println!("  -v, --verbose       Enable debug logging");
 }

@@ -1,11 +1,10 @@
 //! JSON-RPC / CLI controller surface for the bundled local AI stack.
+//!
+//! This module provides high-level functions for interacting with local AI
+//! services such as agent chat, model downloads, summarization, and
+//! transcription. These functions are typically invoked via RPC or CLI.
 
 use chrono::Utc;
-use once_cell::sync::Lazy;
-use serde_json::json;
-use std::collections::HashMap;
-use tokio::sync::Mutex;
-use uuid::Uuid;
 
 use crate::openhuman::agent::Agent;
 use crate::openhuman::config::Config;
@@ -16,9 +15,17 @@ use crate::openhuman::local_ai::{
 use crate::openhuman::providers::{self, ProviderRuntimeOptions};
 use crate::rpc::RpcOutcome;
 
-static REPL_AGENT_SESSIONS: Lazy<Mutex<HashMap<String, Agent>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
+/// Executes a single chat turn with an AI agent.
+///
+/// This function initializes an agent from the provided configuration and
+/// processes the input message.
+///
+/// # Arguments
+///
+/// * `config` - The configuration used to build the agent. May be updated with model/temp overrides.
+/// * `message` - The user message to process.
+/// * `model_override` - Optional model name to use for this call.
+/// * `temperature` - Optional sampling temperature override.
 pub async fn agent_chat(
     config: &mut Config,
     message: &str,
@@ -36,6 +43,7 @@ pub async fn agent_chat(
     Ok(RpcOutcome::single_log(response, "agent chat completed"))
 }
 
+/// A simplified chat interface that does not update the base configuration.
 pub async fn agent_chat_simple(
     config: &Config,
     message: &str,
@@ -63,7 +71,6 @@ pub async fn agent_chat_simple(
     };
 
     let provider = providers::create_routed_provider_with_options(
-        effective.api_key.as_deref(),
         effective.api_url.as_deref(),
         &effective.reliability,
         &effective.model_routes,
@@ -88,81 +95,7 @@ pub async fn agent_chat_simple(
     ))
 }
 
-pub async fn agent_repl_session_start(
-    config: &Config,
-    session_id: Option<String>,
-    model_override: Option<String>,
-    temperature: Option<f64>,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    let mut effective = config.clone();
-    if let Some(model) = model_override {
-        effective.default_model = Some(model);
-    }
-    if let Some(temp) = temperature {
-        effective.default_temperature = temp;
-    }
-
-    let mut requested = session_id.unwrap_or_default();
-    requested = requested.trim().to_string();
-    let session_id = if requested.is_empty() {
-        Uuid::new_v4().to_string()
-    } else {
-        requested
-    };
-
-    let agent = Agent::from_config(&effective).map_err(|e| e.to_string())?;
-    REPL_AGENT_SESSIONS
-        .lock()
-        .await
-        .insert(session_id.clone(), agent);
-
-    Ok(RpcOutcome::single_log(
-        json!({ "session_id": session_id }),
-        "agent repl session started",
-    ))
-}
-
-pub async fn agent_repl_session_reset(
-    session_id: &str,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    let session_id = session_id.trim();
-    if session_id.is_empty() {
-        return Err("session_id is required".to_string());
-    }
-
-    let mut sessions = REPL_AGENT_SESSIONS.lock().await;
-    let reset = if let Some(agent) = sessions.get_mut(session_id) {
-        agent.clear_history();
-        true
-    } else {
-        false
-    };
-
-    Ok(RpcOutcome::single_log(
-        json!({ "reset": reset }),
-        "agent repl session reset",
-    ))
-}
-
-pub async fn agent_repl_session_end(
-    session_id: &str,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    let session_id = session_id.trim();
-    if session_id.is_empty() {
-        return Err("session_id is required".to_string());
-    }
-
-    let ended = REPL_AGENT_SESSIONS
-        .lock()
-        .await
-        .remove(session_id)
-        .is_some();
-    Ok(RpcOutcome::single_log(
-        json!({ "ended": ended }),
-        "agent repl session ended",
-    ))
-}
-
+/// Returns the current operational status of the local AI stack.
 pub async fn local_ai_status(
     config: &Config,
 ) -> Result<RpcOutcome<local_ai::LocalAiStatus>, String> {
@@ -181,6 +114,7 @@ pub async fn local_ai_status(
     ))
 }
 
+/// Triggers a full download of all required local AI models.
 pub async fn local_ai_download(
     config: &Config,
     force: bool,
@@ -202,6 +136,7 @@ pub async fn local_ai_download(
     ))
 }
 
+/// Triggers a download of all local AI assets and returns progress information.
 pub async fn local_ai_download_all_assets(
     config: &Config,
     force: bool,
@@ -227,6 +162,7 @@ pub async fn local_ai_download_all_assets(
     ))
 }
 
+/// Generates a summary of the provided text using local AI models.
 pub async fn local_ai_summarize(
     config: &Config,
     text: &str,
@@ -247,6 +183,7 @@ pub async fn local_ai_summarize(
     ))
 }
 
+/// Suggests relevant follow-up questions based on the provided context.
 pub async fn local_ai_suggest_questions(
     config: &Config,
     context: Option<String>,
@@ -273,6 +210,7 @@ pub async fn local_ai_suggest_questions(
     ))
 }
 
+/// Executes a raw prompt directly against the local AI model.
 pub async fn local_ai_prompt(
     config: &Config,
     prompt: &str,
@@ -291,6 +229,7 @@ pub async fn local_ai_prompt(
     Ok(RpcOutcome::single_log(output, "local ai prompt completed"))
 }
 
+/// Executes a multimodal (vision) prompt with associated images.
 pub async fn local_ai_vision_prompt(
     config: &Config,
     prompt: &str,
@@ -308,6 +247,7 @@ pub async fn local_ai_vision_prompt(
     ))
 }
 
+/// Generates semantic embeddings for the provided input strings.
 pub async fn local_ai_embed(
     config: &Config,
     inputs: &[String],
@@ -323,6 +263,7 @@ pub async fn local_ai_embed(
     ))
 }
 
+/// Transcribes the audio file at the specified path.
 pub async fn local_ai_transcribe(
     config: &Config,
     audio_path: &str,
@@ -338,6 +279,7 @@ pub async fn local_ai_transcribe(
     ))
 }
 
+/// Transcribes raw audio bytes by first saving them to a temporary file.
 pub async fn local_ai_transcribe_bytes(
     config: &Config,
     audio_bytes: &[u8],
@@ -382,6 +324,7 @@ pub async fn local_ai_transcribe_bytes(
     ))
 }
 
+/// Performs text-to-speech synthesis and optionally saves the result to a file.
 pub async fn local_ai_tts(
     config: &Config,
     text: &str,
@@ -395,6 +338,7 @@ pub async fn local_ai_tts(
     Ok(RpcOutcome::single_log(output, "local ai tts completed"))
 }
 
+/// Returns the status of all local AI assets (models and support files).
 pub async fn local_ai_assets_status(
     config: &Config,
 ) -> Result<RpcOutcome<LocalAiAssetsStatus>, String> {
@@ -409,6 +353,7 @@ pub async fn local_ai_assets_status(
     ))
 }
 
+/// Returns progress for any ongoing asset downloads.
 pub async fn local_ai_downloads_progress(
     config: &Config,
 ) -> Result<RpcOutcome<LocalAiDownloadsProgress>, String> {
@@ -423,6 +368,7 @@ pub async fn local_ai_downloads_progress(
     ))
 }
 
+/// Triggers the download of a specific AI asset based on capability name.
 pub async fn local_ai_download_asset(
     config: &Config,
     capability: &str,
@@ -438,12 +384,16 @@ pub async fn local_ai_download_asset(
     ))
 }
 
+/// A single message in a local AI chat conversation.
 #[derive(Debug, serde::Deserialize)]
 pub struct LocalAiChatMessage {
+    /// The role of the message sender (e.g., "user", "assistant").
     pub role: String,
+    /// The text content of the message.
     pub content: String,
 }
 
+/// Executes a multi-turn chat conversation using the local model.
 pub async fn local_ai_chat(
     config: &Config,
     messages: Vec<LocalAiChatMessage>,
@@ -489,9 +439,10 @@ pub struct ReactionDecision {
     pub emoji: Option<String>,
 }
 
-/// Ask the local model whether the assistant should add an emoji reaction to
-/// the user's message, based on channel type and message content.
-/// Designed to be called fire-and-forget — fast, lightweight, no cloud cost.
+/// Evaluates whether the assistant should add an emoji reaction to a user message.
+///
+/// This uses the local model to make a quick decision based on the message
+/// content and the channel context.
 pub async fn local_ai_should_react(
     config: &Config,
     message: &str,
@@ -700,5 +651,122 @@ mod tests {
         assert!(is_emoji_start('⭐'));
         assert!(!is_emoji_start('A'));
         assert!(!is_emoji_start('1'));
+    }
+
+    // ── Op-level validation / error paths (no hardware) ───────────
+
+    fn test_config(tmp: &tempfile::TempDir) -> Config {
+        let mut c = Config::default();
+        c.workspace_dir = tmp.path().join("workspace");
+        c.config_path = tmp.path().join("config.toml");
+        c.local_ai.enabled = false; // disable so the local-ai-disabled error path fires.
+        c
+    }
+
+    #[tokio::test]
+    async fn local_ai_chat_rejects_empty_messages() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_chat(&config, vec![], None).await.unwrap_err();
+        assert!(err.contains("must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_prompt_errors_when_local_ai_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_prompt(&config, "hello", None, None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_vision_prompt_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_vision_prompt(&config, "hello", &[], None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_embed_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_embed(&config, &["text".to_string()])
+            .await
+            .unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_summarize_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_summarize(&config, "some text", None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_suggest_questions_returns_empty_without_local_ai() {
+        // With local_ai disabled suggestions should silently produce an empty
+        // list rather than erroring (graceful degradation).
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let outcome = local_ai_suggest_questions(&config, Some("topic".into()), None)
+            .await
+            .expect("suggestions should not error when disabled");
+        assert!(outcome.value.is_empty());
+    }
+
+    #[tokio::test]
+    async fn local_ai_transcribe_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_transcribe(&config, "/tmp/x.wav")
+            .await
+            .unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_tts_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let err = local_ai_tts(&config, "hello", None).await.unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_chat_errors_when_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let msg = vec![LocalAiChatMessage {
+            role: "user".into(),
+            content: "hi".into(),
+        }];
+        let err = local_ai_chat(&config, msg, None).await.unwrap_err();
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn local_ai_status_reports_even_when_disabled() {
+        // Status should report the disabled state, not error out.
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let result = local_ai_status(&config).await;
+        // Either Ok with a state payload or an error; we just ensure no panic.
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn local_ai_assets_status_returns_without_panic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(&tmp);
+        let _ = local_ai_assets_status(&config).await;
     }
 }

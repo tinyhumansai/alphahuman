@@ -1,35 +1,11 @@
-//! Identity (AIEOS/OpenClaw) and cost tracking configuration.
+//! Cost tracking configuration.
+//!
+//! Identity is loaded from OpenClaw markdown files in the workspace
+//! (`IDENTITY.md`, `SOUL.md`, etc.) and needs no config surface.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct IdentityConfig {
-    /// Identity format: "openclaw" (default) or "aieos"
-    #[serde(default = "default_identity_format")]
-    pub format: String,
-    /// Path to AIEOS JSON file (relative to workspace)
-    #[serde(default)]
-    pub aieos_path: Option<String>,
-    /// Inline AIEOS JSON (alternative to file path)
-    #[serde(default)]
-    pub aieos_inline: Option<String>,
-}
-
-fn default_identity_format() -> String {
-    "openclaw".into()
-}
-
-impl Default for IdentityConfig {
-    fn default() -> Self {
-        Self {
-            format: default_identity_format(),
-            aieos_path: None,
-            aieos_inline: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CostConfig {
@@ -48,10 +24,6 @@ pub struct CostConfig {
     /// Warn when spending reaches this percentage of limit (default: 80)
     #[serde(default = "default_warn_percent")]
     pub warn_at_percent: u8,
-
-    /// Allow requests to exceed budget with --override flag (default: false)
-    #[serde(default)]
-    pub allow_override: bool,
 
     /// Per-model pricing (USD per 1M tokens)
     #[serde(default)]
@@ -88,7 +60,6 @@ impl Default for CostConfig {
             daily_limit_usd: default_daily_limit(),
             monthly_limit_usd: default_monthly_limit(),
             warn_at_percent: default_warn_percent(),
-            allow_override: false,
             prices: get_default_pricing(),
         }
     }
@@ -125,42 +96,54 @@ fn get_default_pricing() -> HashMap<String, ModelPricing> {
     prices
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
-pub struct PeripheralsConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub boards: Vec<PeripheralBoardConfig>,
-    #[serde(default)]
-    pub datasheet_dir: Option<String>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct PeripheralBoardConfig {
-    pub board: String,
-    #[serde(default = "default_peripheral_transport")]
-    pub transport: String,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default = "default_peripheral_baud")]
-    pub baud: u32,
-}
+    #[test]
+    fn cost_config_defaults() {
+        let c = CostConfig::default();
+        assert!(!c.enabled);
+        assert_eq!(c.daily_limit_usd, 10.0);
+        assert_eq!(c.monthly_limit_usd, 100.0);
+        assert_eq!(c.warn_at_percent, 80);
+        assert!(!c.prices.is_empty());
+    }
 
-fn default_peripheral_transport() -> String {
-    "serial".into()
-}
+    #[test]
+    fn cost_config_default_pricing_has_known_models() {
+        let c = CostConfig::default();
+        assert!(c.prices.len() >= 3);
+    }
 
-fn default_peripheral_baud() -> u32 {
-    115_200
-}
+    #[test]
+    fn cost_config_serde_roundtrip() {
+        let c = CostConfig::default();
+        let json = serde_json::to_string(&c).unwrap();
+        let back: CostConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.daily_limit_usd, 10.0);
+        assert_eq!(back.monthly_limit_usd, 100.0);
+    }
 
-impl Default for PeripheralBoardConfig {
-    fn default() -> Self {
-        Self {
-            board: String::new(),
-            transport: default_peripheral_transport(),
-            path: None,
-            baud: default_peripheral_baud(),
-        }
+    #[test]
+    fn cost_config_toml_with_custom_values() {
+        let toml = r#"
+            enabled = true
+            daily_limit_usd = 50.0
+            monthly_limit_usd = 500.0
+            warn_at_percent = 90
+        "#;
+        let c: CostConfig = toml::from_str(toml).unwrap();
+        assert!(c.enabled);
+        assert_eq!(c.daily_limit_usd, 50.0);
+        assert_eq!(c.monthly_limit_usd, 500.0);
+        assert_eq!(c.warn_at_percent, 90);
+    }
+
+    #[test]
+    fn model_pricing_defaults_to_zero() {
+        let p: ModelPricing = serde_json::from_str("{}").unwrap();
+        assert_eq!(p.input, 0.0);
+        assert_eq!(p.output, 0.0);
     }
 }

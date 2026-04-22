@@ -84,6 +84,12 @@ pub trait Channel: Send + Sync {
         Ok(())
     }
 
+    /// Whether this channel supports native emoji reactions on messages.
+    /// Channels that return `true` must handle `[REACTION:<emoji>]` content in `send()`.
+    fn supports_reactions(&self) -> bool {
+        false
+    }
+
     /// Whether this channel supports progressive message updates via draft edits.
     fn supports_draft_updates(&self) -> bool {
         false
@@ -110,6 +116,7 @@ pub trait Channel: Send + Sync {
         _recipient: &str,
         _message_id: &str,
         _text: &str,
+        _thread_ts: Option<&str>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -195,7 +202,7 @@ mod tests {
             .is_none());
         assert!(channel.update_draft("bob", "msg_1", "text").await.is_ok());
         assert!(channel
-            .finalize_draft("bob", "msg_1", "final text")
+            .finalize_draft("bob", "msg_1", "final text", None)
             .await
             .is_ok());
     }

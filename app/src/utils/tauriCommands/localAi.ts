@@ -14,6 +14,7 @@ export interface LocalAiStatus {
   tts_voice_id: string;
   quantization: string;
   vision_state: string;
+  vision_mode: string;
   embedding_state: string;
   stt_state: string;
   tts_state: string;
@@ -170,6 +171,9 @@ export interface ModelPresetResult {
   vision_model_id: string;
   embedding_model_id: string;
   quantization: string;
+  vision_mode: string;
+  supports_screen_summary: boolean;
+  target_ram_gb: number;
   min_ram_gb: number;
   approx_download_gb: number;
 }
@@ -180,19 +184,26 @@ export interface PresetsResponse {
   current_tier: string;
   selected_tier?: string | null;
   device: DeviceProfileResult;
+  /** When true the device is below the RAM floor and cloud fallback is the recommended default. */
+  recommend_disabled?: boolean;
+  /** Current value of `config.local_ai.enabled`. When false, cloud fallback is in use. */
+  local_ai_enabled?: boolean;
 }
 
 export interface ApplyPresetResult {
   applied_tier: string;
-  chat_model_id: string;
-  vision_model_id: string;
-  embedding_model_id: string;
-  quantization: string;
+  chat_model_id?: string;
+  vision_model_id?: string;
+  embedding_model_id?: string;
+  quantization?: string;
+  vision_mode?: string;
+  local_ai_enabled?: boolean;
 }
 
 export interface LocalAiDiagnostics {
   ollama_running: boolean;
   ollama_binary_path: string | null;
+  vision_mode?: string;
   installed_models: Array<{ name: string; size?: number | null; modified_at?: string | null }>;
   expected: {
     chat_model: string;

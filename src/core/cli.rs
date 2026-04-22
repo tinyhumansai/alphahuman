@@ -2,7 +2,7 @@
 //!
 //! This module handles argument parsing, subcommand dispatching, and help printing
 //! for the CLI. It supports commands for running the server, making RPC calls,
-//! starting a REPL, and invoking domain-specific functionality across various namespaces.
+//! and invoking domain-specific functionality across various namespaces.
 
 use anyhow::Result;
 use serde_json::{Map, Value};
@@ -29,20 +29,25 @@ Contribute & Star us on GitHub: https://github.com/tinyhumansai/openhuman
 
 /// Dispatches CLI commands based on arguments.
 ///
-/// This is the entry point for CLI argument handling. It prints the banner,
-/// checks for help requests, and dispatches to specific command handlers
-/// like `run`, `call`, `repl`, `skills`, or namespace-based commands.
+/// This is the entry point for CLI argument handling. It performs the following:
+/// 1. Prints the ASCII welcome banner to stderr.
+/// 2. Resolves and groups available controller schemas.
+/// 3. Checks for global help requests.
+/// 4. Matches the first argument to a subcommand or a domain namespace.
 ///
 /// # Arguments
 ///
-/// * `args` - A slice of strings containing the command-line arguments (excluding the binary name).
+/// * `args` - A slice of strings containing the command-line arguments.
 ///
 /// # Errors
 ///
-/// Returns an error if the command fails or if an unknown command is provided.
+/// Returns an error if the command fails, parameters are invalid, or if
+/// the subcommand/namespace is unknown.
 pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     // Print the welcome banner to stderr to keep stdout clean for JSON output.
     eprint!("{CLI_BANNER}");
+
+    load_dotenv_for_cli()?;
 
     let grouped = grouped_schemas();
     if args.is_empty() || is_help(&args[0]) {
@@ -54,25 +59,154 @@ pub fn run_from_cli_args(args: &[String]) -> Result<()> {
     match args[0].as_str() {
         "run" | "serve" => run_server_command(&args[1..]),
         "call" => run_call_command(&args[1..]),
-        "repl" | "shell" => crate::core::repl::run_repl(&args[1..]),
-        "skills" => crate::core::skills_cli::run_skills_command(&args[1..]),
+        // Domain-specific CLI adapters that don't follow the generic namespace pattern.
         "screen-intelligence" => {
             crate::core::screen_intelligence_cli::run_screen_intelligence_command(&args[1..])
         }
         "voice" | "dictate" => run_voice_server_command(&args[1..]),
         "text-input" => crate::core::text_input_cli::run_text_input_command(&args[1..]),
+        "tree-summarizer" => {
+            crate::core::tree_summarizer_cli::run_tree_summarizer_command(&args[1..])
+        }
         "memory" => crate::core::memory_cli::run_memory_command(&args[1..]),
+        "agent" => {
+            log::debug!(
+                "[cli] dispatching to agent subcommand, args={:?}",
+                &args[1..]
+            );
+            crate::core::agent_cli::run_agent_command(&args[1..])
+        }
+        "sentry-test" => run_sentry_test_command(&args[1..]),
+        // Generic namespace dispatcher: `openhuman <namespace> <function> ...`
         namespace => run_namespace_command(namespace, &args[1..], &grouped),
     }
 }
 
+/// Handles the `sentry-test` subcommand used to verify Sentry wiring end-to-end.
+///
+/// Captures an Error-level event against the currently initialized Sentry
+/// client (see `sentry::init` in the binary entry point), flushes the client,
+/// and prints the event UUID to stdout. Optional `--panic` flag additionally
+/// triggers a panic so the panic integration is exercised too.
+///
+/// Requires a DSN resolvable at runtime — either via the `OPENHUMAN_SENTRY_DSN`
+/// env var or baked into the binary at build time via `option_env!`. Absent a
+/// DSN, the command exits non-zero with a diagnostic instead of silently
+/// producing no telemetry.
+fn run_sentry_test_command(args: &[String]) -> Result<()> {
+    let mut message: Option<String> = None;
+    let mut do_panic = false;
+    let mut i = 0usize;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "--message" => {
+                message = Some(
+                    args.get(i + 1)
+                        .ok_or_else(|| anyhow::anyhow!("missing value for --message"))?
+                        .clone(),
+                );
+                i += 2;
+            }
+            "--panic" => {
+                do_panic = true;
+                i += 1;
+            }
+            "-h" | "--help" => {
+                println!("Usage: openhuman sentry-test [--message <text>] [--panic]");
+                println!();
+                println!("  --message <text>  Body of the Error-level event sent to Sentry");
+                println!("                    (default: \"openhuman sentry-test ping\")");
+                println!("  --panic           After capturing the event, trigger a panic so the");
+                println!("                    panic integration reports it as a separate event.");
+                println!();
+                println!("Requires OPENHUMAN_SENTRY_DSN at runtime, or baked into the binary at");
+                println!(
+                    "build time via option_env!. On success, prints the event UUID to stdout."
+                );
+                return Ok(());
+            }
+            other => return Err(anyhow::anyhow!("unknown sentry-test arg: {other}")),
+        }
+    }
+
+    let client = sentry::Hub::current().client();
+    let dsn_host = client
+        .as_deref()
+        .and_then(|c| c.dsn())
+        .map(|d| d.host().to_string());
+
+    match &dsn_host {
+        Some(host) => eprintln!("[sentry-test] Sentry client active (dsn host: {host})"),
+        None => {
+            return Err(anyhow::anyhow!(
+                "Sentry is not initialized in this binary — no DSN is resolvable. \
+                 Set OPENHUMAN_SENTRY_DSN in the environment (or rebuild with it defined \
+                 at compile time) and try again."
+            ));
+        }
+    }
+
+    let msg = message.unwrap_or_else(|| "openhuman sentry-test ping".to_string());
+
+    sentry::configure_scope(|scope| {
+        scope.set_tag("test", "true");
+        scope.set_tag("source", "sentry-test-cli");
+    });
+
+    let event_id = sentry::capture_message(&msg, sentry::Level::Error);
+
+    if let Some(c) = client {
+        if !c.flush(Some(std::time::Duration::from_secs(5))) {
+            eprintln!(
+                "[sentry-test] WARNING: flush timed out after 5s — event may not have reached Sentry."
+            );
+        }
+    }
+
+    println!("{event_id}");
+
+    if do_panic {
+        eprintln!(
+            "[sentry-test] Triggering panic as requested — the panic integration should capture it."
+        );
+        panic!("openhuman sentry-test intentional panic");
+    }
+
+    Ok(())
+}
+
+/// Loads key/value pairs from a `.env` file into the process environment.
+///
+/// This is used for all CLI entrypoints so direct namespace commands pick up
+/// the same repo-local configuration as `run` / `serve`.
+///
+/// Precedence:
+/// 1. Variables already set in the process environment are **not** overwritten.
+/// 2. If `OPENHUMAN_DOTENV_PATH` is set, that file is loaded.
+/// 3. Otherwise, it searches for `.env` in the current working directory.
+fn load_dotenv_for_cli() -> Result<()> {
+    match std::env::var("OPENHUMAN_DOTENV_PATH") {
+        Ok(path) if !path.trim().is_empty() => {
+            dotenvy::from_path(&path).map_err(|e| {
+                anyhow::anyhow!("failed to load dotenv from OPENHUMAN_DOTENV_PATH={path}: {e}")
+            })?;
+        }
+        _ => {
+            let _ = dotenvy::dotenv();
+        }
+    }
+    Ok(())
+}
+
 /// Handles the `run` subcommand to start the core HTTP/JSON-RPC server.
 ///
-/// Parses flags for port, host, and optional Socket.IO support.
+/// This command boots the main application server, including its JSON-RPC
+/// endpoint, Socket.IO bridge, and background services (voice, vision, etc.).
 ///
 /// # Arguments
 ///
-/// * `args` - Command-line arguments for the `run` command.
+/// * `args` - Command-line arguments for the `run` command (e.g., `--port`).
 fn run_server_command(args: &[String]) -> Result<()> {
     let mut port: Option<u16> = None;
     let mut host: Option<String> = None;
@@ -137,7 +271,7 @@ fn run_server_command(args: &[String]) -> Result<()> {
 
     crate::core::logging::init_for_cli_run(verbose, log_scope);
 
-    // Initialize the Tokio runtime and start the server.
+    // Initialize the Tokio multi-threaded runtime.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -149,7 +283,8 @@ fn run_server_command(args: &[String]) -> Result<()> {
 
 /// Handles the `call` subcommand to invoke a JSON-RPC method directly from the CLI.
 ///
-/// Useful for testing and automation.
+/// This is used for one-off commands and debugging, bypassing the HTTP transport
+/// and calling the internal `invoke_method` directly.
 ///
 /// # Arguments
 ///
@@ -194,7 +329,7 @@ fn run_call_command(args: &[String]) -> Result<()> {
         .block_on(async { invoke_method(default_state(), &method, params).await })
         .map_err(anyhow::Error::msg)?;
 
-    // Output the result as pretty-printed JSON.
+    // Output the result as pretty-printed JSON to stdout.
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
@@ -203,7 +338,6 @@ fn run_call_command(args: &[String]) -> Result<()> {
 ///
 /// Listens for a hotkey, records audio, transcribes via whisper, and inserts
 /// the result into the active text field.
-
 fn run_voice_server_command(args: &[String]) -> Result<()> {
     use crate::openhuman::voice::hotkey::ActivationMode;
     use crate::openhuman::voice::server::{run_standalone, VoiceServerConfig};
@@ -332,10 +466,11 @@ fn run_namespace_command(
     };
 
     // Domain adapters can intercept specific namespace/function combinations.
-    if args.len() > 1 && is_help(&args[1]) {
-        if autocomplete_cli_adapter::maybe_print_start_help(namespace, function) {
-            return Ok(());
-        }
+    if args.len() > 1
+        && is_help(&args[1])
+        && autocomplete_cli_adapter::maybe_print_start_help(namespace, function)
+    {
+        return Ok(());
     }
     if let Some(value) =
         autocomplete_cli_adapter::maybe_handle_namespace_start(namespace, function, &args[1..])?
@@ -406,11 +541,6 @@ fn parse_function_params(
     Ok(out)
 }
 
-/// Re-exported alias for parsing input values, used by the REPL.
-pub fn parse_input_value_for_repl(ty: &TypeSchema, raw: &str) -> Result<Value, String> {
-    parse_input_value(ty, raw)
-}
-
 /// Parses a raw string value into a JSON `Value` based on the target `TypeSchema`.
 ///
 /// Supports basic types like string, bool, and numbers, as well as complex JSON
@@ -475,10 +605,12 @@ fn print_general_help(grouped: &BTreeMap<String, Vec<ControllerSchema>>) {
     println!("OpenHuman core CLI\n");
     println!("Usage:");
     println!("  openhuman run [--host <addr>] [--port <u16>] [--jsonrpc-only] [--verbose]");
-    println!("  openhuman repl [--verbose] [--eval '<cmd>'] [--batch]");
     println!("  openhuman call --method <name> [--params '<json>']");
     println!("  openhuman skills <subcommand> [options]   (skill development runtime)");
+    println!("  openhuman agent <subcommand> [options]    (inspect agent definitions & prompts)");
     println!("  openhuman voice [--hotkey <combo>] [--mode <tap|push>]  (voice dictation server)");
+    println!("  openhuman tree-summarizer <subcommand> [options]  (summary tree CLI)");
+    println!("  openhuman sentry-test [--message <text>] [--panic]  (verify Sentry wiring)");
     println!("  openhuman <namespace> <function> [--param value ...]\n");
     println!("Available namespaces:");
     for namespace in grouped.keys() {
@@ -529,8 +661,19 @@ fn is_help(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{grouped_schemas, parse_function_params, parse_input_value};
+    use super::{grouped_schemas, load_dotenv_for_cli, parse_function_params, parse_input_value};
     use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    static CLI_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        CLI_ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn grouped_schemas_contains_migrated_namespaces() {
@@ -576,5 +719,57 @@ mod tests {
         let err = parse_input_value(&TypeSchema::Bool, "not-a-bool")
             .expect_err("invalid bool should fail");
         assert!(err.contains("expected bool"));
+    }
+
+    #[test]
+    fn load_dotenv_for_cli_reads_cwd_dotenv_without_overwriting_existing_env() {
+        let _guard = env_lock();
+        let tmp = tempdir().expect("tempdir");
+        let env_path = tmp.path().join(".env");
+        std::fs::write(
+            &env_path,
+            "BACKEND_URL=https://staging-api.example.test\nOPENHUMAN_APP_ENV=staging\n",
+        )
+        .expect("write .env");
+
+        let original_dir = std::env::current_dir().expect("current dir");
+        let prior_backend = std::env::var("BACKEND_URL").ok();
+        let prior_app_env = std::env::var("OPENHUMAN_APP_ENV").ok();
+        let prior_dotenv_path = std::env::var("OPENHUMAN_DOTENV_PATH").ok();
+
+        unsafe {
+            std::env::remove_var("BACKEND_URL");
+            std::env::set_var("OPENHUMAN_APP_ENV", "production");
+            std::env::remove_var("OPENHUMAN_DOTENV_PATH");
+        }
+        std::env::set_current_dir(tmp.path()).expect("set current dir");
+
+        let result = load_dotenv_for_cli();
+
+        let loaded_backend = std::env::var("BACKEND_URL").ok();
+        let loaded_app_env = std::env::var("OPENHUMAN_APP_ENV").ok();
+
+        std::env::set_current_dir(&original_dir).expect("restore current dir");
+        unsafe {
+            match prior_backend {
+                Some(value) => std::env::set_var("BACKEND_URL", value),
+                None => std::env::remove_var("BACKEND_URL"),
+            }
+            match prior_app_env {
+                Some(value) => std::env::set_var("OPENHUMAN_APP_ENV", value),
+                None => std::env::remove_var("OPENHUMAN_APP_ENV"),
+            }
+            match prior_dotenv_path {
+                Some(value) => std::env::set_var("OPENHUMAN_DOTENV_PATH", value),
+                None => std::env::remove_var("OPENHUMAN_DOTENV_PATH"),
+            }
+        }
+
+        result.expect("dotenv load should succeed");
+        assert_eq!(
+            loaded_backend.as_deref(),
+            Some("https://staging-api.example.test")
+        );
+        assert_eq!(loaded_app_env.as_deref(), Some("production"));
     }
 }

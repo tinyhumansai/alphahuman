@@ -46,13 +46,22 @@ Quick reference for anyone starting with Claude on this project. Updated by the 
 - **Notification z-index stacking** — ErrorReportNotification: z-[10000] bottom-right. OnboardingOverlay: z-[9999]. LocalAIDownloadSnackbar: z-[9998] bottom-left.
 - **React Compiler lint** — `useCallback` deps must match the full inferred closure. Using `user?._id` as dep when the closure captures `user` triggers `preserve-manual-memoization`. Use `user` as the dep instead.
 - **`setState` in effects** — ESLint `react-hooks/set-state-in-effect` catches synchronous setState in useEffect bodies. Use lazy initializers, compute at render, or event handlers instead.
-- **`OnboardingNextButton` is the shared primary CTA** — All 5 onboarding steps (Welcome, LocalAI, ScreenPermissions, Tools, Skills) use `app/src/pages/onboarding/components/OnboardingNextButton.tsx`. New steps must use this component for the primary navigation button.
+- **`OnboardingNextButton` is the shared primary CTA** — All onboarding steps use `app/src/pages/onboarding/components/OnboardingNextButton.tsx`. New steps must use this component for the primary navigation button.
+- **Onboarding is 3 steps: Welcome(0) → Skills(1) → ContextGathering(2)** — Referral step was removed (issue #752). `ReferralApplyStep.tsx` is preserved but unused. `referralApi` is still used on the Rewards page. `WelcomeStep` no longer has `nextDisabled`/`nextLoading`/`nextLoadingLabel` props (those gated on referral stats prefetch).
 - **Recovery Phrase moved to Settings** — MnemonicStep was removed from onboarding (was step 5). The same BIP39 generate/import functionality now lives in `app/src/components/settings/panels/RecoveryPhrasePanel.tsx`, accessible via Settings > Recovery Phrase. Onboarding completion logic moved into `handleSkillsNext` in `Onboarding.tsx`.
 - **E2E tests find onboarding buttons by label text** — `shared-flows.ts`, `login-flow.spec.ts`, `auth-access-control.spec.ts`, and `voice-mode.spec.ts` locate buttons by their visible label. Changing button labels requires updating all four files. Note: `voice-mode.spec.ts` still references legacy labels that don't match current steps (pre-existing tech debt).
 - **`ScreenPermissionsStep` always shows Continue** — The Continue button is always visible regardless of permission grant status, allowing users to skip the permissions step (#274).
 - **OnboardingOverlay RPC/Redux race condition** — `getOnboardingCompleted()` RPC can fail (sidecar not ready, timeout); the old catch block hardcoded `setOnboardingCompleted(false)`, ignoring the persisted `isOnboardedByUser` Redux flag. Fix: read `selectIsOnboarded` from `authSelectors.ts` in the catch block as fallback, and combine both flags in `shouldShow`: `!onboardingCompleted && !isOnboardedRedux`. Either flag being `true` is sufficient to skip onboarding (#197).
 - **`DEV_FORCE_ONBOARDING` was a no-op** — The old ternary had identical branches; fixed to actually force-show when the flag is set.
 - **`isOnboardedRedux` must be in useEffect deps** — When reading a selector value inside a useEffect, add it to the dependency array or the effect won't re-run when Redux state changes.
+
+## CoreStateProvider & Auth Bootstrap
+
+- **Auth session tokens are NOT in Redux persist** — They live entirely in the Rust sidecar, fetched via `fetchCoreAppSnapshot()` RPC. `PersistGate` only gates non-auth state (AI config, threads, channel connections). `CoreStateProvider` bootstrap is the critical auth path.
+- **`CoreStateProvider` premature `isBootstrapping: false` causes blank Settings** — If the initial RPC call fails (sidecar still starting), the old error handler set `isBootstrapping: false` immediately, causing `ProtectedRoute` to redirect to `/` before the 3s poll could recover. Fix (issue #413): keep `isBootstrapping: true` on initial failure, let the poll retry, give up after 5 attempts (~15s).
+- **`CoreStateProvider` is consumed by ~25 components** — Changes to its state shape or bootstrap behavior affect routes, socket, onboarding, nav, settings, and hooks. Treat it as a high-blast-radius file.
+- **Settings is a full route, not a modal** — `/settings/*` uses nested `<Routes>` in `Settings.tsx`. The `.claude/rules/15-settings-modal-system.md` doc describing a portal/modal approach is outdated. A catch-all `<Route path="*">` redirects unmatched sub-paths to `/settings`.
+- **`PersistGate loading={null}` causes flash** — Changed to `loading={<RouteLoadingScreen />}` (issue #413). `RouteLoadingScreen` accepts an optional `label` prop (defaults to "Initializing OpenHuman...") and can be rendered with no props.
 
 ## Build Blockers: macOS Tahoe + whisper-rs
 
@@ -70,6 +79,34 @@ Quick reference for anyone starting with Claude on this project. Updated by the 
 - **MiniSidebar.tsx retained** (not deleted) as backup. `BottomTabBar.tsx` is the active nav component.
 - **Agent message bubbles** need `bg-stone-200/80` (not `bg-stone-100`) on `#F5F5F5` background — `bg-stone-100` is nearly invisible.
 - **~55 files touched** — purely CSS class changes, zero logic/handler/state changes.
+
+## Upsell / Billing (Phase 1 — Issue #403)
+
+- **Upsell components** live in `app/src/components/upsell/` — `UpsellBanner`, `UsageLimitModal`, `GlobalUpsellBanner`, `upsellDismissState`. Shared hook: `app/src/hooks/useUsageState.ts`.
+- **Usage data sources** — `creditsApi.getTeamUsage()` returns `TeamUsage` (rolling 10h spend/cap + weekly budget/remaining). `billingApi.getCurrentPlan()` returns `CurrentPlanData` (plan tier, caps, subscription status). Both go through `callCoreCommand` (core RPC). No Redux slice — all local hook state.
+- **Module-level cache in `useUsageState`** — `_cache` variable with 60s TTL prevents duplicate API calls when multiple components mount simultaneously. New pattern; do not remove.
+- **Banner dismiss state uses localStorage** (prefix `openhuman:upsell:`), not Redux — consistent with CLAUDE.md exception for ephemeral UI state.
+- **Phased rollout** — Phase 1 = banners + limit modal + hook. Phase 2 = onboarding upsell + analytics. Phase 3 = remote config + A/B testing.
+- **"5-hour" label stragglers in Conversations.tsx** — `LimitPill` label and its hover tooltip still say "5h" / "5-hour". Commit 8c52236's "10-hour" terminology refactor missed those two spots.
+- **`getTeamUsage()` now normalizes via `normalizeTeamUsage()`** — Added in issue #482. The Rust sidecar passes backend JSON through opaquely (`src/openhuman/team/ops.rs`), so the TS client must normalize field names and types. Pattern matches existing `normalizeCreditBalance()` in the same file. Any new billing API that returns raw backend data should follow the same normalize-at-the-client pattern.
+- **Two separate `TeamUsage` types exist** — `creditsApi.ts:24` (billing: cycle budget, limits) and `types/team.ts:11` (team model: daily token limit). Different import paths, no collision, but confusing.
+
+## Settings & Skills Reorganization (Issue #396)
+
+- **Settings is NOT a modal** — It's a full route (`/settings/*`) with nested `<Routes>`. The `.claude/rules/15-settings-modal-system.md` doc is outdated.
+- **SettingsHeader breadcrumbs** — All panels now receive `breadcrumbs` from `useSettingsNavigation()` hook. The hook derives breadcrumbs from the current route path. When adding a new settings panel, destructure `breadcrumbs` from the hook and pass to `<SettingsHeader>`.
+- **Standard settings padding** — All settings panel content areas use `p-4 space-y-4`. Don't deviate.
+- **Dead code removed** — `TauriCommandsPanel`, `useSettingsAnimation`, `SettingsPanelLayout`, `SettingsBackButton`, `ProfilePanel`, `AdvancedPanel`, `SkillsPanel`, `SkillsGrid` were all deleted. Don't re-create them.
+- **Skills page is the single management surface** — Browser Access toggle moved from SkillsPanel to the Skills page. There is no `/settings/skills` route anymore.
+- **Panel decomposition** — LocalModelPanel, AutocompletePanel, CronJobsPanel, ScreenIntelligencePanel were split into sub-components in subdirectories. Each orchestrator is ≤ ~300 lines.
+- **UnifiedSkillCard** — All skill types (built-in, channels, 3rd party) use `UnifiedSkillCard` from `app/src/components/skills/SkillCard.tsx`. Secondary actions use an overflow menu. `data-testid` attributes (`skill-sync-button-*`, `skill-debug-button-*`) must be preserved.
+- **SkillSearchBar + SkillCategoryFilter** — New components in `app/src/components/skills/` for search and category filtering on the Skills page.
+
+## Agent Timeout & Cancellation (Issue #715)
+
+- **Frontend silence timer, not a wall-clock limit** — `armSilenceTimer` in `app/src/pages/Conversations.tsx` fires if 120s (fixed to 600s) pass with zero inference progress events. It re-arms on every `tool_call`, `tool_result`, `iteration_start`, etc., so long-running tool chains that keep emitting events are not cut off.
+- **Rust-side HTTP timeout is separate** — `src/openhuman/providers/compatible.rs` sets a 120s `reqwest` client timeout on LLM calls. Not changed in #715; relevant if a single LLM round-trip itself stalls for >2 min.
+- **Manual cancel path** — `chatCancel()` in `app/src/services/chatService.ts` → `openhuman.channel_web_cancel` RPC → `cancel_chat()` in `src/openhuman/channels/providers/web.rs`. Fully implemented; the silence timer is an automatic fallback.
 
 ## Environment
 

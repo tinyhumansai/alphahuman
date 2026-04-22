@@ -16,6 +16,7 @@ use crate::openhuman::local_ai::paths::{
 use crate::openhuman::local_ai::whisper_engine;
 use crate::rpc::RpcOutcome;
 
+use super::hallucination::{is_hallucinated_output, HallucinationMode};
 use super::postprocess;
 use super::types::{VoiceSpeechResult, VoiceStatus, VoiceTtsResult};
 
@@ -33,7 +34,14 @@ pub async fn voice_status(config: &Config) -> Result<RpcOutcome<VoiceStatus>, St
     let service = local_ai::global(config);
     let whisper_in_process = whisper_engine::is_loaded(&service.whisper);
 
-    let stt_available = whisper_in_process || (whisper_bin.is_some() && stt_model.is_some());
+    // STT is available when ANY transcription backend can work:
+    // 1. The in-process whisper engine is already loaded, OR
+    // 2. In-process whisper is enabled in config and the model file exists
+    //    (the engine will load the model on first use), OR
+    // 3. The whisper-cli binary is installed and the model file exists.
+    let stt_available = whisper_in_process
+        || (config.local_ai.whisper_in_process && stt_model.is_some())
+        || (whisper_bin.is_some() && stt_model.is_some());
     let tts_available = piper_bin.is_some() && tts_voice.is_some();
 
     debug!(
@@ -174,6 +182,19 @@ pub async fn voice_transcribe_bytes(
         write_elapsed.as_millis(),
         transcribe_elapsed.as_millis()
     );
+
+    // Filter hallucinated output before spending time on LLM cleanup.
+    if is_hallucinated_output(&raw_text, HallucinationMode::Conversation) {
+        debug!("{LOG_PREFIX} transcribe_bytes: hallucination detected, returning empty result");
+        return Ok(RpcOutcome::single_log(
+            VoiceSpeechResult {
+                text: String::new(),
+                raw_text,
+                model_id: output.model_id,
+            },
+            "voice transcription filtered (hallucination)",
+        ));
+    }
 
     let cleanup_started = Instant::now();
     let text = if skip_cleanup {
@@ -357,5 +378,49 @@ mod tests {
 
         let result = voice_status(&config).await.unwrap();
         assert!(result.value.whisper_binary.is_some());
+    }
+
+    #[test]
+    fn safe_basename_helpers_cover_missing_and_present_values() {
+        assert_eq!(safe_basename_path(&None), "<none>");
+        assert_eq!(safe_basename_str(&None), "<none>");
+
+        let path = Some(std::path::PathBuf::from("/tmp/models/voice.bin"));
+        let string = Some("/tmp/models/voice.bin".to_string());
+        assert_eq!(safe_basename_path(&path), "voice.bin");
+        assert_eq!(safe_basename_str(&string), "voice.bin");
+    }
+
+    #[tokio::test]
+    async fn voice_transcribe_errors_when_local_ai_disabled() {
+        let mut config = Config::default();
+        config.local_ai.enabled = false;
+
+        let err = voice_transcribe(&config, " /tmp/input.wav ", None, true)
+            .await
+            .expect_err("disabled local ai should fail");
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn voice_transcribe_bytes_errors_when_local_ai_disabled() {
+        let mut config = Config::default();
+        config.local_ai.enabled = false;
+
+        let err = voice_transcribe_bytes(&config, b"abc", Some("wav".to_string()), None, true)
+            .await
+            .expect_err("disabled local ai should fail");
+        assert!(err.contains("local ai is disabled"));
+    }
+
+    #[tokio::test]
+    async fn voice_tts_errors_when_local_ai_disabled() {
+        let mut config = Config::default();
+        config.local_ai.enabled = false;
+
+        let err = voice_tts(&config, "hello world", None)
+            .await
+            .expect_err("disabled local ai should fail");
+        assert!(err.contains("local ai is disabled"));
     }
 }

@@ -1,5 +1,9 @@
 //! Bundled local AI stack (Ollama, whisper.cpp, Piper).
 
+#[cfg(test)]
+pub(crate) static LOCAL_AI_TEST_MUTEX: once_cell::sync::Lazy<std::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(()));
+
 mod core;
 pub mod device;
 pub mod gif_decision;
@@ -11,6 +15,7 @@ pub mod sentiment;
 mod install;
 pub(crate) mod model_ids;
 mod ollama_api;
+pub(crate) use ollama_api::{ollama_base_url, OLLAMA_BASE_URL};
 mod parse;
 pub(crate) mod paths;
 mod service;
@@ -21,7 +26,7 @@ pub use device::DeviceProfile;
 pub use gif_decision::{GifDecision, TenorGifResult, TenorSearchResult};
 pub use ops as rpc;
 pub use ops::*;
-pub use presets::{ModelPreset, ModelTier};
+pub use presets::{ModelPreset, ModelTier, VisionMode};
 pub use schemas::{
     all_controller_schemas as all_local_ai_controller_schemas,
     all_registered_controllers as all_local_ai_registered_controllers,

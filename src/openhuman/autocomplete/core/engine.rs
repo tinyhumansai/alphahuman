@@ -7,11 +7,15 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
 
+#[cfg(target_os = "macos")]
+use super::focus::validate_focused_target;
 use super::focus::{
-    apply_text_to_focused_field, focused_text_context_verbose, is_escape_key_down, is_tab_key_down,
-    send_backspace, validate_focused_target,
+    any_modifier_down, apply_text_to_focused_field, focused_text_context_verbose,
+    is_escape_key_down, is_tab_key_down, send_backspace,
 };
-use super::overlay::{overlay_helper_quit, show_overflow_badge};
+#[cfg(target_os = "macos")]
+use super::overlay::overlay_helper_quit;
+use super::overlay::show_overflow_badge;
 use super::terminal::{
     extract_terminal_input_context, is_terminal_app, looks_like_terminal_buffer,
 };
@@ -25,6 +29,10 @@ use super::types::{
 };
 
 const REFRESH_TIMEOUT_SECS: u64 = 120;
+
+/// Maximum consecutive errors before the engine auto-stops to prevent
+/// notification floods (e.g. missing Ollama, denied AX permissions).
+const MAX_CONSECUTIVE_ERRORS: u32 = 5;
 
 struct EngineState {
     running: bool,
@@ -40,6 +48,11 @@ struct EngineState {
     last_tab_down: bool,
     last_escape_down: bool,
     last_overlay_signature: Option<String>,
+    /// Tracks the last error message that triggered a notification so we
+    /// suppress duplicate badge toasts on consecutive identical failures.
+    last_notified_error: Option<String>,
+    /// Counts consecutive refresh errors; reset to 0 on any success.
+    consecutive_error_count: u32,
     task: Option<JoinHandle<()>>,
 }
 
@@ -58,6 +71,8 @@ impl Default for EngineState {
             last_tab_down: false,
             last_escape_down: false,
             last_overlay_signature: None,
+            last_notified_error: None,
+            consecutive_error_count: 0,
             task: None,
         }
     }
@@ -135,6 +150,8 @@ impl AutocompleteEngine {
         state.phase = "idle".to_string();
         state.debounce_ms = debounce_ms;
         state.last_error = None;
+        state.consecutive_error_count = 0;
+        state.last_notified_error = None;
 
         let engine = global_engine();
         state.task = Some(tokio::spawn(async move {
@@ -167,14 +184,34 @@ impl AutocompleteEngine {
                             .await;
                     match refresh_result {
                         Ok(Ok(Err(err))) => {
-                            let error_message = {
+                            let (should_notify, should_stop) = {
                                 let mut state = engine.inner.lock().await;
                                 state.phase = "error".to_string();
-                                state.last_error = Some(err);
+                                state.consecutive_error_count += 1;
+                                state.last_error = Some(err.clone());
                                 state.updated_at_ms = Some(Utc::now().timestamp_millis());
-                                state.last_error.clone()
+
+                                // Only notify if this is a *new* error message.
+                                let is_new_error = state.last_notified_error.as_ref() != Some(&err);
+                                if is_new_error {
+                                    state.last_notified_error = Some(err.clone());
+                                }
+
+                                let stop = state.consecutive_error_count >= MAX_CONSECUTIVE_ERRORS;
+                                (is_new_error, stop)
                             };
-                            if let Some(error_message) = error_message {
+
+                            if should_stop {
+                                log::warn!(
+                                    "[autocomplete] {} consecutive errors, auto-stopping engine to prevent notification floods: {}",
+                                    MAX_CONSECUTIVE_ERRORS,
+                                    err
+                                );
+                                engine.stop(None).await;
+                                break;
+                            }
+
+                            if should_notify {
                                 let app_lower = engine
                                     .inner
                                     .lock()
@@ -187,7 +224,7 @@ impl AutocompleteEngine {
                                     show_overflow_badge(
                                         "error",
                                         None,
-                                        Some(&error_message),
+                                        Some(&err),
                                         None,
                                         None,
                                         700,
@@ -202,6 +239,8 @@ impl AutocompleteEngine {
                                 state.phase = "idle".to_string();
                             }
                             state.last_error = None;
+                            state.consecutive_error_count = 0;
+                            state.last_notified_error = None;
                         }
                         Ok(Err(join_err)) => {
                             log::error!(
@@ -342,13 +381,13 @@ impl AutocompleteEngine {
         }
         if should_apply {
             // Validate the focused element still matches before inserting.
-            let (expected_app, expected_role) = {
+            let (_expected_app, _expected_role) = {
                 let state = self.inner.lock().await;
                 (state.app_name.clone(), state.target_role.clone())
             };
             let apply_result = (|| -> Result<(), String> {
                 #[cfg(target_os = "macos")]
-                validate_focused_target(expected_app.as_deref(), expected_role.as_deref())?;
+                validate_focused_target(_expected_app.as_deref(), _expected_role.as_deref())?;
                 apply_text_to_focused_field(&cleaned)?;
                 Ok(())
             })();
@@ -692,12 +731,19 @@ impl AutocompleteEngine {
         let suggestion = sanitize_suggestion(&generated);
         let app_name = focused.app_name.clone();
         let target_role = focused.role.clone();
+        let low_quality = is_low_quality_suggestion(&suggestion, &context);
         let mut state = self.inner.lock().await;
         state.app_name = app_name.clone();
         state.target_role = target_role;
         state.context = context;
         state.updated_at_ms = Some(Utc::now().timestamp_millis());
-        if suggestion.is_empty() {
+        if suggestion.is_empty() || low_quality {
+            if low_quality {
+                log::debug!(
+                    "[autocomplete] dropping low-quality suggestion: {:?}",
+                    suggestion
+                );
+            }
             state.suggestion = None;
             state.phase = "idle".to_string();
             state.last_error = None;
@@ -756,6 +802,13 @@ impl AutocompleteEngine {
         }
 
         let is_down = is_tab_key_down();
+        // Ignore Tab when any modifier is held (Ctrl+Tab app-switch, Shift+Tab outdent,
+        // Cmd+Tab, Option+Tab). Reset edge state so a clean Tab afterwards still accepts.
+        if is_down && any_modifier_down() {
+            let mut state = self.inner.lock().await;
+            state.last_tab_down = false;
+            return Ok(());
+        }
         let pending = {
             let mut state = self.inner.lock().await;
             let edge = is_down && !state.last_tab_down;
@@ -774,13 +827,13 @@ impl AutocompleteEngine {
             let cleaned = sanitize_suggestion(&suggestion);
             if !cleaned.is_empty() {
                 // Validate the focused element still matches before inserting.
-                let (expected_app, expected_role) = {
+                let (_expected_app, _expected_role) = {
                     let state = self.inner.lock().await;
                     (state.app_name.clone(), state.target_role.clone())
                 };
                 #[cfg(target_os = "macos")]
                 if let Err(e) =
-                    validate_focused_target(expected_app.as_deref(), expected_role.as_deref())
+                    validate_focused_target(_expected_app.as_deref(), _expected_role.as_deref())
                 {
                     log::warn!("[autocomplete] tab-accept aborted: {e}");
                     let mut state = self.inner.lock().await;
@@ -943,6 +996,48 @@ pub fn global_engine() -> Arc<AutocompleteEngine> {
     AUTOCOMPLETE_ENGINE.clone()
 }
 
+/// Start the embedded global autocomplete engine when config enables it.
+///
+/// Intended for core process startup. The engine reuses the process-global
+/// singleton so RPC status/stop calls continue to operate on the same instance.
+pub async fn start_if_enabled(app_config: &Config) {
+    if !app_config.autocomplete.enabled {
+        log::info!("[autocomplete] disabled in config, skipping embedded startup");
+        return;
+    }
+
+    let status = global_engine().status().await;
+    if status.running {
+        log::info!(
+            "[autocomplete] embedded engine already running (phase={} debounce={}ms)",
+            status.phase,
+            status.debounce_ms
+        );
+        return;
+    }
+
+    match global_engine()
+        .start(AutocompleteStartParams {
+            debounce_ms: Some(app_config.autocomplete.debounce_ms),
+        })
+        .await
+    {
+        Ok(result) => {
+            let latest = global_engine().status().await;
+            log::info!(
+                "[autocomplete] startup requested (started={} running={} phase={} debounce={}ms)",
+                result.started,
+                latest.running,
+                latest.phase,
+                latest.debounce_ms
+            );
+        }
+        Err(err) => {
+            log::warn!("[autocomplete] startup failed: {err}");
+        }
+    }
+}
+
 fn detect_tab_artifact_suffix(expected_context: &str, current_context: &str) -> usize {
     if expected_context.is_empty() || current_context.is_empty() {
         return 0;
@@ -965,9 +1060,58 @@ fn detect_tab_artifact_suffix(expected_context: &str, current_context: &str) -> 
     0
 }
 
+/// Reject obviously useless suggestions before they reach the overlay.
+/// Filters: too-short, pure whitespace/punct, or exact echo of the trailing context.
+fn is_low_quality_suggestion(suggestion: &str, context: &str) -> bool {
+    let trimmed = suggestion.trim();
+    if trimmed.chars().count() < 2 {
+        return true;
+    }
+    if !trimmed.chars().any(|c| c.is_alphanumeric()) {
+        return true;
+    }
+    // Suggestion is a substring of the tail the user already typed — useless echo.
+    let tail_window = context
+        .chars()
+        .rev()
+        .take(trimmed.chars().count() + 8)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    if tail_window.contains(trimmed) {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::detect_tab_artifact_suffix;
+    use super::is_low_quality_suggestion;
+
+    #[test]
+    fn low_quality_rejects_too_short() {
+        assert!(is_low_quality_suggestion("", ""));
+        assert!(is_low_quality_suggestion("a", "hello "));
+    }
+
+    #[test]
+    fn low_quality_rejects_pure_punct() {
+        assert!(is_low_quality_suggestion("...", "hello"));
+        assert!(is_low_quality_suggestion("  -- ", "hello"));
+    }
+
+    #[test]
+    fn low_quality_rejects_echo_of_tail() {
+        assert!(is_low_quality_suggestion("world", "hello world"));
+    }
+
+    #[test]
+    fn low_quality_accepts_new_content() {
+        assert!(!is_low_quality_suggestion(" world", "hello"));
+        assert!(!is_low_quality_suggestion("tomorrow", "see you "));
+    }
 
     #[test]
     fn detects_literal_tab_suffix() {

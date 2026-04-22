@@ -10,7 +10,9 @@ use super::{
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use tokio::fs::{self, File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
@@ -19,7 +21,27 @@ fn default_config_and_workspace_dirs() -> Result<(PathBuf, PathBuf)> {
     Ok((config_dir.clone(), config_dir.join("workspace")))
 }
 
+/// Parse a boolean env-var value. Accepts the usual truthy/falsy tokens
+/// (`1/true/yes/on` and `0/false/no/off`, case-insensitive). Returns `None`
+/// on unrecognised values and logs a warning so silent mis-spellings don't
+/// invisibly leave the config unchanged.
+fn parse_env_bool(name: &str, raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => {
+            tracing::warn!(
+                env = %name,
+                value = %raw,
+                "invalid boolean env override ignored; expected 1/true/yes/on or 0/false/no/off"
+            );
+            None
+        }
+    }
+}
+
 const ACTIVE_WORKSPACE_STATE_FILE: &str = "active_workspace.toml";
+static WARNED_WORLD_READABLE_CONFIGS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ActiveWorkspaceState {
@@ -27,7 +49,15 @@ struct ActiveWorkspaceState {
 }
 
 fn default_config_dir() -> Result<PathBuf> {
-    Ok(default_root_openhuman_dir()?)
+    default_root_openhuman_dir()
+}
+
+fn default_root_dir_name() -> &'static str {
+    if crate::api::config::is_staging_app_env(crate::api::config::app_env_from_env().as_deref()) {
+        ".openhuman-staging"
+    } else {
+        ".openhuman"
+    }
 }
 
 /// Returns the root openhuman directory (`~/.openhuman`), independent of any
@@ -37,7 +67,7 @@ pub fn default_root_openhuman_dir() -> Result<PathBuf> {
     let home = UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
-    Ok(home.join(".openhuman"))
+    Ok(home.join(default_root_dir_name()))
 }
 
 fn active_workspace_state_path(default_dir: &Path) -> PathBuf {
@@ -213,6 +243,17 @@ async fn resolve_runtime_config_dirs(
         }
     }
 
+    resolve_config_dirs_ignoring_env(default_openhuman_dir, default_workspace_dir).await
+}
+
+/// Same as [`resolve_runtime_config_dirs`] but skips the
+/// `OPENHUMAN_WORKSPACE` env var override. Used by
+/// [`Config::load_from_default_paths`] so callers can reliably load
+/// the real user config without mutating the process environment.
+async fn resolve_config_dirs_ignoring_env(
+    default_openhuman_dir: &Path,
+    default_workspace_dir: &Path,
+) -> Result<(PathBuf, PathBuf, ConfigResolutionSource)> {
     // 2. Active user — scopes the entire openhuman dir to a per-user directory
     //    so that config, auth, encryption, and workspace are all user-isolated.
     if let Some(user_id) = read_active_user_id(default_openhuman_dir) {
@@ -237,10 +278,21 @@ async fn resolve_runtime_config_dirs(
         ));
     }
 
-    // 4. Default.
+    // 4. Default: no login yet. Encapsulate config/memory/state under the
+    //    pre-login user directory so everything is user-scoped from the very
+    //    first init. On first real login, this directory is migrated to the
+    //    authenticated user id (see `credentials::ops::store_session`).
+    let user_dir = pre_login_user_dir(default_openhuman_dir);
+    let user_workspace = user_dir.join("workspace");
+    tracing::debug!(
+        user_id = %PRE_LOGIN_USER_ID,
+        user_dir = %user_dir.display(),
+        default_workspace_dir = %default_workspace_dir.display(),
+        "Config dirs resolved to pre-login user directory (no active user, no workspace marker)"
+    );
     Ok((
-        default_openhuman_dir.to_path_buf(),
-        default_workspace_dir.to_path_buf(),
+        user_dir,
+        user_workspace,
         ConfigResolutionSource::DefaultConfigDir,
     ))
 }
@@ -331,6 +383,21 @@ pub fn user_openhuman_dir(default_openhuman_dir: &Path, user_id: &str) -> PathBu
     default_openhuman_dir.join("users").join(user_id)
 }
 
+/// Stable id used to scope the openhuman directory before any user has
+/// logged in.  All memory, state, config, sessions and workspace files
+/// created on first init land under `{root}/users/{PRE_LOGIN_USER_ID}`
+/// so nothing is ever written directly at the root `.openhuman` path.
+///
+/// On first successful login, this directory is migrated into the real
+/// user-scoped directory (see `credentials::ops::store_session`).
+pub const PRE_LOGIN_USER_ID: &str = "local";
+
+/// Returns the pre-login (unauthenticated) user directory:
+/// `{default_openhuman_dir}/users/local`.
+pub fn pre_login_user_dir(default_openhuman_dir: &Path) -> PathBuf {
+    user_openhuman_dir(default_openhuman_dir, PRE_LOGIN_USER_ID)
+}
+
 fn migrate_legacy_autocomplete_disabled_apps(config: &mut Config) {
     // Legacy defaults blocked both terminal and code, which prevented Codex/CLI usage.
     // Migrate only the exact legacy default so custom user preferences remain untouched.
@@ -374,6 +441,31 @@ impl Config {
 
         let config_path = openhuman_dir.join("config.toml");
 
+        // Pre-login path: no active user, no workspace marker, no env override,
+        // and no existing config.toml on disk.  Return an in-memory default
+        // config without creating any directories or writing any files — disk
+        // state is deferred until the first successful login in
+        // `credentials::ops::store_session`, which writes `active_user.toml`
+        // and triggers a reload that materializes the user-scoped directory.
+        if resolution_source == ConfigResolutionSource::DefaultConfigDir && !config_path.exists() {
+            let mut config = Config {
+                config_path: config_path.clone(),
+                workspace_dir: workspace_dir.clone(),
+                ..Default::default()
+            };
+            config.apply_env_overrides();
+
+            tracing::debug!(
+                path = %config.config_path.display(),
+                workspace = %config.workspace_dir.display(),
+                source = resolution_source.as_str(),
+                initialized = false,
+                persisted = false,
+                "Config loaded (pre-login, in-memory only — no dirs or files written)"
+            );
+            return Ok(config);
+        }
+
         fs::create_dir_all(&openhuman_dir)
             .await
             .context("Failed to create config directory")?;
@@ -387,13 +479,18 @@ impl Config {
                 use std::os::unix::fs::PermissionsExt;
                 if let Ok(meta) = fs::metadata(&config_path).await {
                     if meta.permissions().mode() & 0o004 != 0 {
-                        tracing::warn!(
-                            "Config file {:?} is world-readable (mode {:o}). \
-                             Consider restricting with: chmod 600 {:?}",
-                            config_path,
-                            meta.permissions().mode() & 0o777,
-                            config_path,
-                        );
+                        let warned = WARNED_WORLD_READABLE_CONFIGS
+                            .get_or_init(|| Mutex::new(HashSet::new()));
+                        let mut warned_guard = warned.lock().unwrap_or_else(|e| e.into_inner());
+                        if warned_guard.insert(config_path.clone()) {
+                            tracing::warn!(
+                                "Config file {:?} is world-readable (mode {:o}). \
+                                 Consider restricting with: chmod 600 {:?}",
+                                config_path,
+                                meta.permissions().mode() & 0o777,
+                                config_path,
+                            );
+                        }
                     }
                 }
             }
@@ -406,43 +503,10 @@ impl Config {
             })?;
             config.config_path = config_path.clone();
             config.workspace_dir = workspace_dir;
-            let store = crate::openhuman::security::SecretStore::new(
-                &openhuman_dir,
-                config.secrets.encrypt,
-            );
-            decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.composio.api_key,
-                "config.composio.api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.browser.computer_use.api_key,
-                "config.browser.computer_use.api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.web_search.brave_api_key,
-                "config.web_search.brave_api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.web_search.parallel_api_key,
-                "config.web_search.parallel_api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.storage.provider.config.db_url,
-                "config.storage.provider.config.db_url",
-            )?;
-            for agent in config.agents.values_mut() {
-                decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-            }
             migrate_legacy_autocomplete_disabled_apps(&mut config);
             config.apply_env_overrides();
 
-            tracing::info!(
+            tracing::debug!(
                 path = %config.config_path.display(),
                 workspace = %config.workspace_dir.display(),
                 source = resolution_source.as_str(),
@@ -451,9 +515,11 @@ impl Config {
             );
             Ok(config)
         } else {
-            let mut config = Config::default();
-            config.config_path = config_path.clone();
-            config.workspace_dir = workspace_dir;
+            let mut config = Config {
+                config_path: config_path.clone(),
+                workspace_dir,
+                ..Default::default()
+            };
             config.save().await?;
 
             #[cfg(unix)]
@@ -464,7 +530,7 @@ impl Config {
 
             config.apply_env_overrides();
 
-            tracing::info!(
+            tracing::debug!(
                 path = %config.config_path.display(),
                 workspace = %config.workspace_dir.display(),
                 source = resolution_source.as_str(),
@@ -475,12 +541,41 @@ impl Config {
         }
     }
 
-    pub fn apply_env_overrides(&mut self) {
-        if let Ok(key) = std::env::var("OPENHUMAN_API_KEY").or_else(|_| std::env::var("API_KEY")) {
-            if !key.is_empty() {
-                self.api_key = Some(key);
-            }
+    /// Load config from the default user paths, bypassing the
+    /// `OPENHUMAN_WORKSPACE` environment variable.
+    ///
+    /// This is used by the debug dump to load the real user config
+    /// for auth token resolution when the dump script overrides
+    /// `OPENHUMAN_WORKSPACE` to a throwaway temp directory.
+    pub async fn load_from_default_paths() -> Result<Self> {
+        let (default_openhuman_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
+        let (openhuman_dir, workspace_dir, _source) =
+            resolve_config_dirs_ignoring_env(&default_openhuman_dir, &default_workspace_dir)
+                .await?;
+        let config_path = openhuman_dir.join("config.toml");
+
+        if !config_path.exists() {
+            let mut config = Config {
+                config_path,
+                workspace_dir,
+                ..Default::default()
+            };
+            config.apply_env_overrides();
+            return Ok(config);
         }
+
+        let raw = fs::read_to_string(&config_path)
+            .await
+            .context("reading config.toml from default paths")?;
+        let mut config: Config =
+            toml::from_str(&raw).context("parsing config.toml from default paths")?;
+        config.config_path = config_path;
+        config.workspace_dir = workspace_dir;
+        config.apply_env_overrides();
+        Ok(config)
+    }
+
+    pub fn apply_env_overrides(&mut self) {
         if let Ok(model) = std::env::var("OPENHUMAN_MODEL").or_else(|_| std::env::var("MODEL")) {
             if !model.is_empty() {
                 self.default_model = Some(model);
@@ -514,37 +609,14 @@ impl Config {
             }
         }
 
-        if let Ok(enabled) = std::env::var("OPENHUMAN_WEB_SEARCH_ENABLED")
-            .or_else(|_| std::env::var("WEB_SEARCH_ENABLED"))
-        {
-            self.web_search.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
-        }
-
-        if let Ok(provider) = std::env::var("OPENHUMAN_WEB_SEARCH_PROVIDER")
-            .or_else(|_| std::env::var("WEB_SEARCH_PROVIDER"))
-        {
-            let provider = provider.trim();
-            if !provider.is_empty() {
-                self.web_search.provider = provider.to_string();
-            }
-        }
-
-        if let Ok(api_key) =
-            std::env::var("OPENHUMAN_BRAVE_API_KEY").or_else(|_| std::env::var("BRAVE_API_KEY"))
-        {
-            let api_key = api_key.trim();
-            if !api_key.is_empty() {
-                self.web_search.brave_api_key = Some(api_key.to_string());
-            }
-        }
-
-        if let Ok(api_key) = std::env::var("OPENHUMAN_PARALLEL_API_KEY")
-            .or_else(|_| std::env::var("PARALLEL_API_KEY"))
-        {
-            let api_key = api_key.trim();
-            if !api_key.is_empty() {
-                self.web_search.parallel_api_key = Some(api_key.to_string());
-            }
+        // `OPENHUMAN_WEB_SEARCH_ENABLED` is intentionally ignored —
+        // web search is unconditionally registered in the tool set.
+        // Only the result/timeout budget knobs remain environment-configurable.
+        if std::env::var_os("OPENHUMAN_WEB_SEARCH_ENABLED").is_some() {
+            log::warn!(
+                "[config] OPENHUMAN_WEB_SEARCH_ENABLED is deprecated and ignored — \
+                 web search is always registered; provider/API-key overrides were removed."
+            );
         }
 
         if let Ok(max_results) = std::env::var("OPENHUMAN_WEB_SEARCH_MAX_RESULTS")
@@ -563,28 +635,6 @@ impl Config {
             if let Ok(timeout_secs) = timeout_secs.parse::<u64>() {
                 if timeout_secs > 0 {
                     self.web_search.timeout_secs = timeout_secs;
-                }
-            }
-        }
-
-        if let Ok(provider) = std::env::var("OPENHUMAN_STORAGE_PROVIDER") {
-            let provider = provider.trim();
-            if !provider.is_empty() {
-                self.storage.provider.config.provider = provider.to_string();
-            }
-        }
-
-        if let Ok(db_url) = std::env::var("OPENHUMAN_STORAGE_DB_URL") {
-            let db_url = db_url.trim();
-            if !db_url.is_empty() {
-                self.storage.provider.config.db_url = Some(db_url.to_string());
-            }
-        }
-
-        if let Ok(timeout_secs) = std::env::var("OPENHUMAN_STORAGE_CONNECT_TIMEOUT_SECS") {
-            if let Ok(timeout_secs) = timeout_secs.parse::<u64>() {
-                if timeout_secs > 0 {
-                    self.storage.provider.config.connect_timeout_secs = Some(timeout_secs);
                 }
             }
         }
@@ -630,13 +680,14 @@ impl Config {
         }
 
         if let Ok(scope_raw) = std::env::var("OPENHUMAN_PROXY_SCOPE") {
-            if let Some(scope) = parse_proxy_scope(&scope_raw) {
-                self.proxy.scope = scope;
-            } else {
-                tracing::warn!(
-                    scope = %scope_raw,
-                    "Ignoring invalid OPENHUMAN_PROXY_SCOPE (valid: environment|openhuman|services)"
-                );
+            let trimmed = scope_raw.trim();
+            if !trimmed.is_empty() {
+                match parse_proxy_scope(trimmed) {
+                    Some(scope) => self.proxy.scope = scope,
+                    None => {
+                        tracing::warn!("Invalid OPENHUMAN_PROXY_SCOPE value {:?} ignored", trimmed);
+                    }
+                }
             }
         }
 
@@ -665,9 +716,33 @@ impl Config {
                 } else {
                     tracing::warn!(
                         tier = %tier_str,
-                        "ignoring invalid OPENHUMAN_LOCAL_AI_TIER (valid: low, medium, high)"
+                        "ignoring invalid OPENHUMAN_LOCAL_AI_TIER (valid: ram_1gb, ram_2_4gb, ram_4_8gb, ram_8_16gb, ram_16_plus_gb)"
                     );
                 }
+            }
+        }
+
+        // Node runtime overrides
+        if let Ok(flag) = std::env::var("OPENHUMAN_NODE_ENABLED") {
+            if let Some(enabled) = parse_env_bool("OPENHUMAN_NODE_ENABLED", &flag) {
+                self.node.enabled = enabled;
+            }
+        }
+        if let Ok(version) = std::env::var("OPENHUMAN_NODE_VERSION") {
+            let trimmed = version.trim();
+            if !trimmed.is_empty() {
+                self.node.version = trimmed.to_string();
+            }
+        }
+        if let Ok(dir) = std::env::var("OPENHUMAN_NODE_CACHE_DIR") {
+            let trimmed = dir.trim();
+            if !trimmed.is_empty() {
+                self.node.cache_dir = trimmed.to_string();
+            }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_NODE_PREFER_SYSTEM") {
+            if let Some(prefer_system) = parse_env_bool("OPENHUMAN_NODE_PREFER_SYSTEM", &flag) {
+                self.node.prefer_system = prefer_system;
             }
         }
 
@@ -720,14 +795,6 @@ impl Config {
             match normalized.as_str() {
                 "1" | "true" | "yes" | "on" => self.learning.tool_tracking_enabled = true,
                 "0" | "false" | "no" | "off" => self.learning.tool_tracking_enabled = false,
-                _ => {}
-            }
-        }
-        if let Ok(flag) = std::env::var("OPENHUMAN_LEARNING_SKILL_CREATION_ENABLED") {
-            let normalized = flag.trim().to_ascii_lowercase();
-            match normalized.as_str() {
-                "1" | "true" | "yes" | "on" => self.learning.skill_creation_enabled = true,
-                "0" | "false" | "no" | "off" => self.learning.skill_creation_enabled = false,
                 _ => {}
             }
         }
@@ -832,13 +899,67 @@ impl Config {
             }
         }
 
-        if let Ok(flag) = std::env::var("OPENHUMAN_OVERLAY_ENABLED") {
+        // ── Context management overrides ───────────────────────────────
+        if let Ok(flag) = std::env::var("OPENHUMAN_CONTEXT_ENABLED") {
             let normalized = flag.trim().to_ascii_lowercase();
             match normalized.as_str() {
-                "1" | "true" | "yes" | "on" => self.overlay_enabled = true,
-                "0" | "false" | "no" | "off" => self.overlay_enabled = false,
+                "1" | "true" | "yes" | "on" => self.context.enabled = true,
+                "0" | "false" | "no" | "off" => self.context.enabled = false,
                 _ => {}
             }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_CONTEXT_MICROCOMPACT_ENABLED") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.context.microcompact_enabled = true,
+                "0" | "false" | "no" | "off" => self.context.microcompact_enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_CONTEXT_AUTOCOMPACT_ENABLED") {
+            let normalized = flag.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.context.autocompact_enabled = true,
+                "0" | "false" | "no" | "off" => self.context.autocompact_enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(val) = std::env::var("OPENHUMAN_CONTEXT_TOOL_RESULT_BUDGET_BYTES") {
+            if let Ok(n) = val.trim().parse::<usize>() {
+                self.context.tool_result_budget_bytes = n;
+            }
+        }
+        if let Ok(model) = std::env::var("OPENHUMAN_CONTEXT_SUMMARIZER_MODEL") {
+            let model = model.trim();
+            if !model.is_empty() {
+                self.context.summarizer_model = Some(model.to_string());
+            }
+        }
+
+        // Migration: `agent.tool_result_budget_bytes` used to own this
+        // knob before it moved to `context.tool_result_budget_bytes`. If
+        // an existing config.toml sets the old field to a non-default
+        // value and the new field is still at its default AND the env
+        // var is not present, copy the old value forward and emit a
+        // deprecation warning so the user knows to move it. The env var
+        // check is important: without it a user who explicitly sets
+        // `OPENHUMAN_CONTEXT_TOOL_RESULT_BUDGET_BYTES` to the default
+        // value would have their env override silently clobbered by the
+        // agent-field migration.
+        let context_default = crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES;
+        let context_env_set =
+            std::env::var_os("OPENHUMAN_CONTEXT_TOOL_RESULT_BUDGET_BYTES").is_some();
+        if !context_env_set
+            && self.context.tool_result_budget_bytes == context_default
+            && self.agent.tool_result_budget_bytes != context_default
+        {
+            tracing::warn!(
+                old = self.agent.tool_result_budget_bytes,
+                "[context:config] `agent.tool_result_budget_bytes` is \
+                 deprecated — please move it to \
+                 `context.tool_result_budget_bytes` in your config.toml"
+            );
+            self.context.tool_result_budget_bytes = self.agent.tool_result_budget_bytes;
         }
 
         if self.proxy.enabled && self.proxy.scope == ProxyScope::Environment {
@@ -849,43 +970,7 @@ impl Config {
     }
 
     pub async fn save(&self) -> Result<()> {
-        let mut config_to_save = self.clone();
-        let openhuman_dir = self
-            .config_path
-            .parent()
-            .context("Config path must have a parent directory")?;
-        let store =
-            crate::openhuman::security::SecretStore::new(openhuman_dir, self.secrets.encrypt);
-
-        encrypt_optional_secret(&store, &mut config_to_save.api_key, "config.api_key")?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.composio.api_key,
-            "config.composio.api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.browser.computer_use.api_key,
-            "config.browser.computer_use.api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.web_search.brave_api_key,
-            "config.web_search.brave_api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.web_search.parallel_api_key,
-            "config.web_search.parallel_api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.storage.provider.config.db_url,
-            "config.storage.provider.config.db_url",
-        )?;
-        for agent in config_to_save.agents.values_mut() {
-            encrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-        }
+        let config_to_save = self.clone();
 
         let toml_str =
             toml::to_string_pretty(&config_to_save).context("Failed to serialize config")?;
@@ -1014,12 +1099,14 @@ mod tests {
         let root = tmp.path();
         let default_workspace = root.join("workspace");
 
-        // No active user → uses default.
+        // No active user → falls back to the pre-login user directory so
+        // memory/state/config are still encapsulated under users/.
         let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs(root, &default_workspace)
             .await
             .unwrap();
-        assert_eq!(oh_dir, root);
-        assert_eq!(ws_dir, default_workspace);
+        let expected_pre_login_dir = root.join("users").join(PRE_LOGIN_USER_ID);
+        assert_eq!(oh_dir, expected_pre_login_dir);
+        assert_eq!(ws_dir, expected_pre_login_dir.join("workspace"));
         assert_eq!(source, ConfigResolutionSource::DefaultConfigDir);
 
         // With active user → scopes to user dir.
@@ -1031,5 +1118,211 @@ mod tests {
         assert_eq!(oh_dir, expected_user_dir);
         assert_eq!(ws_dir, expected_user_dir.join("workspace"));
         assert_eq!(source, ConfigResolutionSource::ActiveUser);
+    }
+
+    #[test]
+    fn pre_login_user_dir_is_under_users_tree() {
+        let root = PathBuf::from("/home/test/.openhuman");
+        let dir = pre_login_user_dir(&root);
+        assert_eq!(
+            dir,
+            PathBuf::from("/home/test/.openhuman/users").join(PRE_LOGIN_USER_ID)
+        );
+    }
+
+    #[test]
+    fn default_root_dir_name_uses_staging_suffix_for_staging_env() {
+        let prior = std::env::var(crate::api::config::APP_ENV_VAR).ok();
+
+        std::env::set_var(crate::api::config::APP_ENV_VAR, "staging");
+        assert!(crate::api::config::is_staging_app_env(Some("staging")));
+        assert_eq!(default_root_dir_name(), ".openhuman-staging");
+
+        std::env::set_var(crate::api::config::APP_ENV_VAR, "production");
+        assert_eq!(default_root_dir_name(), ".openhuman");
+
+        match prior {
+            Some(value) => std::env::set_var(crate::api::config::APP_ENV_VAR, value),
+            None => std::env::remove_var(crate::api::config::APP_ENV_VAR),
+        }
+    }
+
+    // ── apply_env_overrides ────────────────────────────────────────
+
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
+
+    fn clear_env(keys: &[&str]) {
+        for key in keys {
+            unsafe {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    #[test]
+    fn apply_env_overrides_picks_up_model() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&["OPENHUMAN_MODEL", "MODEL"]);
+        unsafe {
+            std::env::set_var("OPENHUMAN_MODEL", "gpt-5");
+        }
+        let mut cfg = Config::default();
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.default_model.as_deref(), Some("gpt-5"));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_MODEL");
+        }
+    }
+
+    #[test]
+    fn apply_env_overrides_validates_temperature_range() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&["OPENHUMAN_TEMPERATURE"]);
+        let mut cfg = Config::default();
+        cfg.default_temperature = 0.5;
+        unsafe {
+            std::env::set_var("OPENHUMAN_TEMPERATURE", "1.2");
+        }
+        cfg.apply_env_overrides();
+        assert!((cfg.default_temperature - 1.2).abs() < f64::EPSILON);
+
+        // Out of range — should be ignored.
+        unsafe {
+            std::env::set_var("OPENHUMAN_TEMPERATURE", "5");
+        }
+        cfg.apply_env_overrides();
+        assert!((cfg.default_temperature - 1.2).abs() < f64::EPSILON);
+
+        // Garbage value — ignored.
+        unsafe {
+            std::env::set_var("OPENHUMAN_TEMPERATURE", "not-a-number");
+        }
+        cfg.apply_env_overrides();
+        assert!((cfg.default_temperature - 1.2).abs() < f64::EPSILON);
+        unsafe {
+            std::env::remove_var("OPENHUMAN_TEMPERATURE");
+        }
+    }
+
+    #[test]
+    fn apply_env_overrides_reasoning_enabled_parses_truthy_falsy() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&["OPENHUMAN_REASONING_ENABLED", "REASONING_ENABLED"]);
+        let mut cfg = Config::default();
+        cfg.runtime.reasoning_enabled = None;
+
+        unsafe {
+            std::env::set_var("OPENHUMAN_REASONING_ENABLED", "yes");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.runtime.reasoning_enabled, Some(true));
+
+        unsafe {
+            std::env::set_var("OPENHUMAN_REASONING_ENABLED", "off");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.runtime.reasoning_enabled, Some(false));
+
+        // Unknown value — leaves field unchanged.
+        unsafe {
+            std::env::set_var("OPENHUMAN_REASONING_ENABLED", "maybe");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.runtime.reasoning_enabled, Some(false));
+        unsafe {
+            std::env::remove_var("OPENHUMAN_REASONING_ENABLED");
+        }
+    }
+
+    #[test]
+    fn apply_env_overrides_web_search_limits_only() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&[
+            "OPENHUMAN_WEB_SEARCH_MAX_RESULTS",
+            "WEB_SEARCH_MAX_RESULTS",
+            "OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS",
+            "WEB_SEARCH_TIMEOUT_SECS",
+        ]);
+        let mut cfg = Config::default();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_MAX_RESULTS", "5");
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS", "20");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.web_search.max_results, 5);
+        assert_eq!(cfg.web_search.timeout_secs, 20);
+        clear_env(&[
+            "OPENHUMAN_WEB_SEARCH_MAX_RESULTS",
+            "OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS",
+        ]);
+    }
+
+    #[test]
+    fn apply_env_overrides_web_search_max_results_and_timeout_clamped() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&[
+            "OPENHUMAN_WEB_SEARCH_MAX_RESULTS",
+            "WEB_SEARCH_MAX_RESULTS",
+            "OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS",
+            "WEB_SEARCH_TIMEOUT_SECS",
+        ]);
+        let mut cfg = Config::default();
+        cfg.web_search.max_results = 3;
+        cfg.web_search.timeout_secs = 10;
+
+        // Valid values apply.
+        unsafe {
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_MAX_RESULTS", "5");
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS", "20");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(cfg.web_search.max_results, 5);
+        assert_eq!(cfg.web_search.timeout_secs, 20);
+
+        // Out-of-range (>10 for max_results, 0 for timeout) — ignored.
+        unsafe {
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_MAX_RESULTS", "999");
+            std::env::set_var("OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS", "0");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(
+            cfg.web_search.max_results, 5,
+            "out-of-range must be ignored"
+        );
+        assert_eq!(cfg.web_search.timeout_secs, 20);
+        clear_env(&[
+            "OPENHUMAN_WEB_SEARCH_MAX_RESULTS",
+            "OPENHUMAN_WEB_SEARCH_TIMEOUT_SECS",
+        ]);
+    }
+
+    #[test]
+    fn apply_env_overrides_picks_up_sentry_dsn() {
+        let _g = ENV_LOCK.lock().unwrap();
+        clear_env(&["OPENHUMAN_SENTRY_DSN"]);
+        let mut cfg = Config::default();
+        unsafe {
+            std::env::set_var("OPENHUMAN_SENTRY_DSN", "https://token@sentry.io/1");
+        }
+        cfg.apply_env_overrides();
+        assert_eq!(
+            cfg.observability.sentry_dsn.as_deref(),
+            Some("https://token@sentry.io/1")
+        );
+        clear_env(&["OPENHUMAN_SENTRY_DSN"]);
+    }
+
+    // ── resolve_config_dir_for_workspace ───────────────────────────
+
+    #[test]
+    fn resolve_config_dir_for_workspace_returns_parent_and_workspace() {
+        let ws = PathBuf::from("/home/test/.openhuman/workspace");
+        let (config_dir, workspace_dir) = resolve_config_dir_for_workspace(&ws);
+        // Config dir is the parent of workspace.
+        assert!(
+            config_dir.ends_with(".openhuman")
+                || config_dir == PathBuf::from("/home/test/.openhuman")
+        );
+        assert!(workspace_dir.ends_with("workspace"));
     }
 }

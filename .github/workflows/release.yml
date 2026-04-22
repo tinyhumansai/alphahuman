@@ -3,9 +3,18 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      build_target:
+        description: Build target environment
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+          - staging
       release_type:
         description: Version increment type
-        required: true
+        required: false
+        default: patch
         type: choice
         options:
           - patch
@@ -17,13 +26,13 @@ permissions:
   packages: write
 
 concurrency:
-  group: release-main
+  group: release-${{ github.event.inputs.build_target || 'production' }}-main
   cancel-in-progress: false
 
 # ---------------------------------------------------------------------------
 # Job dependency graph
 #
-#   prepare-release
+#   prepare-build
 #        │
 #        ├─── create-release
 #        │         │
@@ -46,14 +55,17 @@ jobs:
   # =========================================================================
   # Phase 1: Version bump, commit, tag
   # =========================================================================
-  prepare-release:
-    name: Prepare release commit and tag
+  prepare-build:
+    name: Prepare build context
     runs-on: ubuntu-latest
     environment: Production
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      tag: ${{ steps.bump.outputs.tag }}
-      sha: ${{ steps.push.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      build_ref: ${{ steps.resolve.outputs.build_ref }}
+      release_enabled: ${{ steps.resolve.outputs.release_enabled }}
+      base_url: ${{ steps.resolve.outputs.base_url }}
     steps:
       - name: Enforce main branch
         if: github.ref != 'refs/heads/main'
@@ -62,18 +74,27 @@ jobs:
           exit 1
 
       - name: Generate GitHub App token
+        if: inputs.build_target == 'production'
         id: app-token
         uses: tibdex/github-app-token@v1
         with:
           app_id: ${{ secrets.XGITHUB_APP_ID }}
           private_key: ${{ secrets.XGITHUB_APP_PRIVATE_KEY }}
 
-      - name: Checkout main
+      - name: Checkout main for production release
+        if: inputs.build_target == 'production'
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+
+      - name: Checkout main for staging build
+        if: inputs.build_target == 'staging'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -81,6 +102,7 @@ jobs:
           node-version: 24.x
 
       - name: Configure Git
+        if: inputs.build_target == 'production'
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -92,10 +114,16 @@ jobs:
           git pull origin main --ff-only
 
       - name: Compute next version and sync release files
+        if: inputs.build_target == 'production'
         id: bump
         run: node scripts/release/bump-version.js "${{ inputs.release_type }}"
 
+      - name: Verify release version sync
+        if: inputs.build_target == 'production'
+        run: node scripts/release/verify-version-sync.js "${{ steps.bump.outputs.version }}"
+
       - name: Ensure tag does not already exist
+        if: inputs.build_target == 'production'
         env:
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
@@ -110,12 +138,13 @@ jobs:
           fi
 
       - name: Commit, push and tag
+        if: inputs.build_target == 'production'
         id: push
         env:
           VERSION: ${{ steps.bump.outputs.version }}
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
-          git add app/package.json app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml
+          git add app/package.json app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml Cargo.toml
           git commit -m "chore(release): v${VERSION}"
           git push origin main
 
@@ -124,6 +153,33 @@ jobs:
 
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve build outputs
+        id: resolve
+        shell: bash
+        run: |
+          if [ "${{ inputs.build_target }}" = "production" ]; then
+            VERSION="${{ steps.bump.outputs.version }}"
+            TAG="${{ steps.bump.outputs.tag }}"
+            SHA="${{ steps.push.outputs.sha }}"
+            BUILD_REF="$TAG"
+            RELEASE_ENABLED="true"
+            BASE_URL="https://api.tinyhumans.ai/"
+          else
+            VERSION="$(node -p "require('./app/package.json').version")"
+            TAG=""
+            SHA="$(git rev-parse HEAD)"
+            BUILD_REF="$SHA"
+            RELEASE_ENABLED="false"
+            BASE_URL="https://staging-api.tinyhumans.ai/"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "build_ref=$BUILD_REF" >> "$GITHUB_OUTPUT"
+          echo "release_enabled=$RELEASE_ENABLED" >> "$GITHUB_OUTPUT"
+          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
+
   # =========================================================================
   # Phase 2: Create draft GitHub release
   # =========================================================================
@@ -131,7 +187,8 @@ jobs:
     name: Create GitHub release
     runs-on: ubuntu-latest
     environment: Production
-    needs: prepare-release
+    if: needs.prepare-build.outputs.release_enabled == 'true'
+    needs: prepare-build
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
       upload_url: ${{ steps.create.outputs.upload_url }}
@@ -141,9 +198,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const tag = '${{ needs.prepare-release.outputs.tag }}';
-            const version = '${{ needs.prepare-release.outputs.version }}';
-            const target = '${{ needs.prepare-release.outputs.sha }}';
+            const tag = '${{ needs.prepare-build.outputs.tag }}';
+            const version = '${{ needs.prepare-build.outputs.version }}';
+            const target = '${{ needs.prepare-build.outputs.sha }}';
 
             const { owner, repo } = context.repo;
 
@@ -176,7 +233,12 @@ jobs:
   # =========================================================================
   build-desktop:
     name: "Desktop: ${{ matrix.settings.artifact_suffix }}"
-    needs: [prepare-release, create-release]
+    needs: [prepare-build, create-release]
+    if: >-
+      always()
+      && needs.prepare-build.result == 'success'
+      && (needs.prepare-build.outputs.release_enabled != 'true'
+          || needs.create-release.result == 'success')
     runs-on: ${{ matrix.settings.platform }}
     environment: Production
     strategy:
@@ -201,13 +263,25 @@ jobs:
             artifact_suffix: windows
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Keep in sync with DEFAULT_TELEGRAM_BOT_USERNAME_* in channels/controllers/ops.rs
+      OPENHUMAN_TELEGRAM_BOT_USERNAME: ${{ inputs.build_target == 'staging' && 'alphahumantest_bot' || 'openhumanaibot' }}
+      VITE_TELEGRAM_BOT_USERNAME: ${{ inputs.build_target == 'staging' && 'alphahumantest_bot' || 'openhumanaibot' }}
     steps:
-      - name: Checkout tag
+      - name: Checkout build ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare-release.outputs.tag }}
+          ref: ${{ needs.prepare-build.outputs.build_ref }}
           fetch-depth: 1
-          submodules: true
+          submodules: recursive
+
+      - name: Configure staging app environment
+        if: inputs.build_target == 'staging'
+        shell: bash
+        run: |
+          echo "OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
+          echo "VITE_OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
+          echo "OPENHUMAN_TELEGRAM_BOT_USERNAME=alphahumantest_bot" >> "$GITHUB_ENV"
+          echo "VITE_TELEGRAM_BOT_USERNAME=alphahumantest_bot" >> "$GITHUB_ENV"
 
       - name: Set Xcode version
         if: matrix.settings.platform == 'macos-latest'
@@ -230,7 +304,27 @@ jobs:
         if: matrix.settings.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf cmake libasound2-dev libxdo-dev libxtst-dev libx11-dev libxi-dev libevdev-dev libssl-dev libclang-dev
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf cmake libasound2-dev libxdo-dev libxtst-dev libx11-dev libxi-dev \
+            libevdev-dev libssl-dev libclang-dev \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libpango-1.0-0 libcairo2 libatspi2.0-0 libxshmfence1 libu2f-udev
+
+      - name: Dump missing shared libs (debug)
+        if: matrix.settings.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set +e
+          for BIN in \
+            app/src-tauri/target/${{ matrix.settings.target }}/release/OpenHuman \
+            target/${{ matrix.settings.target }}/release/OpenHuman; do
+            if [ -x "$BIN" ]; then
+              echo "ldd $BIN"
+              ldd "$BIN" | grep 'not found' || echo "  all resolved"
+            fi
+          done
 
       # Skip first 7 lines of Cargo.lock (workspace package version bumps) so the key tracks dependency changes only
       - name: Cargo.lock fingerprint (deps only)
@@ -248,6 +342,55 @@ jobs:
           key: ${{ runner.os }}-cargo-registry-${{ steps.cargo-lock-fingerprint.outputs.hash }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
+
+      # CEF is now the default runtime — cef-dll-sys + vendored tauri-cli
+      # auto-download the ~400MB Chromium distribution on first build. Cache
+      # it per-OS across runs. Default path is `dirs::cache_dir()/tauri-cef`
+      # (macOS: ~/Library/Caches; Linux: ~/.cache; Windows: %LOCALAPPDATA%).
+      - name: Cache CEF binary distribution (unix)
+        if: matrix.settings.platform != 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/tauri-cef
+            ~/.cache/tauri-cef
+          key: cef-${{ matrix.settings.target }}-${{ hashFiles('app/src-tauri/Cargo.toml') }}
+          restore-keys: |
+            cef-${{ matrix.settings.target }}-
+
+      - name: Cache CEF binary distribution (windows)
+        if: matrix.settings.platform == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri-cef
+          key: cef-${{ matrix.settings.target }}-${{ hashFiles('app/src-tauri/Cargo.toml') }}
+          restore-keys: |
+            cef-${{ matrix.settings.target }}-
+
+      # Upstream @tauri-apps/cli (used by tauri-action) doesn't bundle CEF
+      # framework files into the produced installer. Only the fork at
+      # vendor/tauri-cef does. Build and install that CLI so `cargo tauri
+      # build` invokes the cef-aware bundler.
+      - name: Cache vendored tauri-cli binary (unix)
+        if: matrix.settings.platform != 'windows-latest'
+        id: tauri-cli-cache-unix
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: vendored-tauri-cli-${{ runner.os }}-${{ hashFiles('app/src-tauri/vendor/tauri-cef/crates/tauri-cli/Cargo.toml') }}
+
+      - name: Cache vendored tauri-cli binary (windows)
+        if: matrix.settings.platform == 'windows-latest'
+        id: tauri-cli-cache-windows
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: vendored-tauri-cli-${{ runner.os }}-${{ hashFiles('app/src-tauri/vendor/tauri-cef/crates/tauri-cli/Cargo.toml') }}
+
+      - name: Install vendored tauri-cli (cef-aware bundler)
+        if: (matrix.settings.platform == 'windows-latest' && steps.tauri-cli-cache-windows.outputs.cache-hit != 'true') || (matrix.settings.platform != 'windows-latest' && steps.tauri-cli-cache-unix.outputs.cache-hit != 'true')
+        shell: bash
+        run: cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -288,7 +431,7 @@ jobs:
         id: config-overrides
         uses: actions/github-script@v7
         env:
-          BASE_URL: ${{ vars.BASE_URL }}
+          BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
           UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY || vars.UPDATER_PUBLIC_KEY }}
           UPDATER_ENDPOINT: ${{ vars.UPDATER_ENDPOINT }}
           UPDATER_REPO: tinyhumansai/openhuman
@@ -306,9 +449,21 @@ jobs:
         run: yarn build
         env:
           NODE_ENV: production
-          VITE_BACKEND_URL: ${{ vars.BASE_URL }}
+          VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
+          # OAuth guardrails (#365): block openhuman://oauth/success on outdated desktop builds.
+          VITE_MINIMUM_SUPPORTED_APP_VERSION: ${{ vars.VITE_MINIMUM_SUPPORTED_APP_VERSION }}
+          VITE_LATEST_APP_DOWNLOAD_URL: ${{ vars.VITE_LATEST_APP_DOWNLOAD_URL }}
+          # Sentry release tracking (#405): baked into the bundle so every event
+          # groups under the same release, and @sentry/vite-plugin uploads the
+          # matching source maps when SENTRY_AUTH_TOKEN is present.
+          VITE_BUILD_SHA: ${{ needs.prepare-build.outputs.sha }}
+          SENTRY_RELEASE: openhuman@${{ needs.prepare-build.outputs.version }}+${{ needs.prepare-build.outputs.sha }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_FRONTEND }}
 
       - name: Resolve core manifest and binary names
         id: core-paths
@@ -349,7 +504,12 @@ jobs:
           MATRIX_TARGET: ${{ matrix.settings.target }}
           CORE_MANIFEST: ${{ steps.core-paths.outputs.core_manifest }}
           CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
+          OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
           OPENHUMAN_SENTRY_DSN: ${{ vars.OPENHUMAN_SENTRY_DSN }}
+          # Sentry release tracking (#405): `option_env!("OPENHUMAN_BUILD_SHA")`
+          # in src/main.rs bakes the short SHA into the release tag
+          # (`openhuman@<version>+<sha>`) so core events match the frontend.
+          OPENHUMAN_BUILD_SHA: ${{ needs.prepare-build.outputs.sha }}
 
       - name: Stage sidecar for Tauri bundler
         shell: bash
@@ -376,28 +536,83 @@ jobs:
           CORE_TARGET_DIR: ${{ steps.core-paths.outputs.core_target_dir }}
           CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
 
-      - name: Build, package and upload to release
-        uses: tauri-apps/tauri-action@v0.6.2
+      # CEF is the default runtime — we build via the vendored tauri-cli so
+      # the bundler copies Chromium Embedded Framework files into the .app /
+      # .deb / .AppImage / .msi / NSIS setup. macOS signing is intentionally
+      # skipped here and handled by the dedicated re-sign + notarize step
+      # below (hardened runtime + entitlements are required for notarization).
+      - name: Build and package Tauri app (CEF, vendored CLI)
         id: tauri-build
+        shell: bash
+        working-directory: app
         env:
-          # NOTE: APPLE_CERTIFICATE, APPLE_SIGNING_IDENTITY, APPLE_ID, etc. are
-          # intentionally omitted so tauri-action builds WITHOUT signing.
-          # Signing + notarization are handled in a dedicated step afterwards
-          # where we sign everything with hardened runtime + entitlements
-          # (required by Apple notarization).
-          BASE_URL: ${{ vars.BASE_URL }}
+          BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
+          OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
+          # Re-declare Vite env so tauri.conf.json's `beforeBuildCommand`
+          # (`vite build`) bakes Sentry + debug flags into the final bundle.
+          # The earlier explicit `yarn build` step ran with these, but the
+          # rebuild triggered here would strip them and ship a DSN-less UI.
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_DEBUG: ${{ vars.VITE_DEBUG }}
+          # Sentry release tracking (#405) — must match the first `yarn build`
+          # so source maps uploaded there still resolve against the final bundle
+          # produced by the tauri-driven rebuild.
+          VITE_BUILD_SHA: ${{ needs.prepare-build.outputs.sha }}
+          SENTRY_RELEASE: openhuman@${{ needs.prepare-build.outputs.version }}+${{ needs.prepare-build.outputs.sha }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_FRONTEND }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
           WITH_UPDATER: "true"
-        with:
-          projectPath: app
-          args: -c ${{ steps.config-overrides.outputs.json }} ${{ matrix.settings.args }}
-          includeDebug: false
-          includeRelease: true
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          owner: tinyhumansai
-          repo: openhuman
+          VITE_MINIMUM_SUPPORTED_APP_VERSION: ${{ vars.VITE_MINIMUM_SUPPORTED_APP_VERSION }}
+          VITE_LATEST_APP_DOWNLOAD_URL: ${{ vars.VITE_LATEST_APP_DOWNLOAD_URL }}
+          TAURI_CONFIG_OVERRIDE: ${{ steps.config-overrides.outputs.json }}
+          MATRIX_ARGS: ${{ matrix.settings.args }}
+        run: |
+          cargo tauri build -c "$TAURI_CONFIG_OVERRIDE" $MATRIX_ARGS
+
+      # tauri-action previously uploaded non-macOS installer assets directly
+      # to the release. Replicate that for Linux + Windows here (macOS goes
+      # through the re-sign + notarize path below and uploads separately).
+      - name: Upload non-macOS installers to release
+        if: needs.prepare-build.outputs.release_enabled == 'true' && matrix.settings.platform != 'macos-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-build.outputs.tag }}
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          BUNDLE_ROOTS=(
+            "app/src-tauri/target/${MATRIX_TARGET}/release/bundle"
+            "target/${MATRIX_TARGET}/release/bundle"
+          )
+          UPLOAD=()
+          for root in "${BUNDLE_ROOTS[@]}"; do
+            [ -d "$root" ] || continue
+            for f in \
+              "$root"/deb/*.deb \
+              "$root"/appimage/*.AppImage \
+              "$root"/appimage/*.AppImage.sig \
+              "$root"/msi/*.msi \
+              "$root"/msi/*.msi.sig \
+              "$root"/nsis/*-setup.exe \
+              "$root"/nsis/*-setup.exe.sig; do
+              [ -e "$f" ] && UPLOAD+=("$f")
+            done
+          done
+          if [ ${#UPLOAD[@]} -eq 0 ]; then
+            echo "No installer artifacts found for ${MATRIX_TARGET}"
+            exit 1
+          fi
+          echo "Uploading:"
+          printf '  %s\n' "${UPLOAD[@]}"
+          gh release upload "$TAG" "${UPLOAD[@]}" --repo tinyhumansai/openhuman --clobber
 
       - name: Locate macOS .app bundle
         if: matrix.settings.platform == 'macos-latest'
@@ -462,16 +677,18 @@ jobs:
             "${{ steps.locate-app.outputs.bundle_dir }}"
 
       - name: Re-upload notarized macOS artifacts to release
-        if: matrix.settings.platform == 'macos-latest'
+        if: matrix.settings.platform == 'macos-latest' && needs.prepare-build.outputs.release_enabled == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
         run: |
           bash scripts/release/upload-macos-artifacts.sh \
             "${{ steps.locate-app.outputs.app_path }}" \
             "${{ steps.locate-app.outputs.bundle_dir }}" \
-            "${{ needs.prepare-release.outputs.version }}" \
+            "${{ needs.prepare-build.outputs.version }}" \
             "${{ matrix.settings.target }}"
 
       - name: Verify macOS app bundle sidecar layout
@@ -502,7 +719,7 @@ jobs:
           xcrun stapler validate "$APP_PATH" || echo "WARNING: Staple validation failed"
 
       - name: Package CLI tarball and upload to release (unix)
-        if: matrix.settings.platform != 'windows-latest'
+        if: matrix.settings.platform != 'windows-latest' && needs.prepare-build.outputs.release_enabled == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -524,16 +741,16 @@ jobs:
 
           bash scripts/release/package-cli-tarball.sh \
             "$BIN" \
-            "${{ needs.prepare-release.outputs.version }}" \
+            "${{ needs.prepare-build.outputs.version }}" \
             "${{ matrix.settings.target }}"
 
       - name: Package CLI zip and upload to release (windows)
-        if: matrix.settings.platform == 'windows-latest'
+        if: matrix.settings.platform == 'windows-latest' && needs.prepare-build.outputs.release_enabled == 'true'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $Version = "${{ needs.prepare-release.outputs.version }}"
+          $Version = "${{ needs.prepare-build.outputs.version }}"
           $Target = "${{ matrix.settings.target }}"
           $BinPath = "${{ steps.cli-paths.outputs.cli_path }}"
           $ZipName = "openhuman-core-${Version}-${Target}.zip"
@@ -550,6 +767,15 @@ jobs:
           gh release upload "v${Version}" $ZipName "${ZipName}.sha256" --repo tinyhumansai/openhuman --clobber
           Write-Host "[package-cli] Uploaded $ZipName to v${Version}"
 
+      - name: Upload staging desktop bundles
+        if: needs.prepare-build.outputs.release_enabled != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-bundles-${{ matrix.settings.platform }}-${{ matrix.settings.artifact_suffix }}
+          path: |
+            app/src-tauri/target/${{ matrix.settings.target }}/release/bundle/**
+            target/${{ matrix.settings.target }}/release/bundle/**
+
       - name: Upload standalone CLI artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -562,17 +788,22 @@ jobs:
   # =========================================================================
   build-docker:
     name: "Docker: build and push"
-    needs: [prepare-release, create-release]
+    needs: [prepare-build, create-release]
+    if: >-
+      always()
+      && needs.prepare-build.result == 'success'
+      && needs.prepare-build.outputs.release_enabled == 'true'
+      && needs.create-release.result == 'success'
     runs-on: ubuntu-latest
     environment: Production
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: tinyhumansai/openhuman-core
     steps:
-      - name: Checkout tag
+      - name: Checkout build ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare-release.outputs.tag }}
+          ref: ${{ needs.prepare-build.outputs.build_ref }}
           fetch-depth: 1
 
       - name: Set up Docker Buildx
@@ -604,14 +835,56 @@ jobs:
       #       org.opencontainers.image.revision=${{ needs.prepare-release.outputs.sha }}
 
   # =========================================================================
+  # Phase 3c: Generate and upload latest.json for the Tauri auto-updater.
+  # Runs after every platform has uploaded its updater artifact (.sig files
+  # from createUpdaterArtifacts) so the manifest can reference all four
+  # platform entries. Production-only — staging builds don't feed the public
+  # updater endpoint.
+  # =========================================================================
+  publish-updater-manifest:
+    name: Publish updater manifest (latest.json)
+    needs: [prepare-build, create-release, build-desktop]
+    if: >-
+      needs.prepare-build.outputs.release_enabled == 'true'
+      && needs.build-desktop.result == 'success'
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-build.outputs.build_ref }}
+          fetch-depth: 1
+
+      - name: Generate and upload latest.json
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-build.outputs.tag }}
+          VERSION: ${{ needs.prepare-build.outputs.version }}
+          REPO: tinyhumansai/openhuman
+        run: bash scripts/release/publish-updater-manifest.sh
+
+  # =========================================================================
   # Phase 4: Publish the draft release (waits for ALL build phases)
   # =========================================================================
   publish-release:
     name: Publish draft release
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-release, create-release, build-desktop, build-docker]
-    if: needs.build-desktop.result == 'success' && needs.build-docker.result == 'success'
+    needs:
+      [
+        prepare-build,
+        create-release,
+        build-desktop,
+        build-docker,
+        publish-updater-manifest,
+      ]
+    if: >-
+      needs.prepare-build.outputs.release_enabled == 'true'
+      && needs.build-desktop.result == 'success'
+      && needs.build-docker.result == 'success'
+      && needs.publish-updater-manifest.result == 'success'
     steps:
       - name: Validate required installer assets exist
         uses: actions/github-script@v7
@@ -630,9 +903,10 @@ jobs:
             const requiredPatterns = [
               /OpenHuman_.*_aarch64\.dmg$/,
               /OpenHuman_.*_x64\.dmg$/,
-              /OpenHuman_.*_amd64\.AppImage$/,
-              /OpenHuman_.*_amd64\.deb$/,
               /(OpenHuman_.*_x64-setup\.exe$|OpenHuman_.*_x64.*\.msi$)/,
+              // Auto-updater manifest — without this, installed clients can't
+              // discover new releases via plugins.updater.endpoints.
+              /^latest\.json$/,
             ];
 
             const missing = requiredPatterns.filter((pattern) => !names.some((name) => pattern.test(name)));
@@ -689,12 +963,21 @@ jobs:
     name: Remove release and tag if build failed
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-release, create-release, build-desktop, build-docker]
+    needs:
+      [
+        prepare-build,
+        create-release,
+        build-desktop,
+        build-docker,
+        publish-updater-manifest,
+      ]
     if: >-
       always()
+      && needs.prepare-build.outputs.release_enabled == 'true'
       && needs.create-release.result == 'success'
       && (needs.build-desktop.result == 'failure' || needs.build-desktop.result == 'cancelled'
-          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled')
+          || needs.build-docker.result == 'failure' || needs.build-docker.result == 'cancelled'
+          || needs.publish-updater-manifest.result == 'failure' || needs.publish-updater-manifest.result == 'cancelled')
     steps:
       - name: Delete GitHub release
         uses: actions/github-script@v7
@@ -722,7 +1005,7 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const tag = '${{ needs.prepare-release.outputs.tag }}';
+            const tag = '${{ needs.prepare-build.outputs.tag }}';
 
             try {
               await github.rest.git.deleteRef({ owner, repo, ref: `tags/${tag}` });
@@ -738,7 +1021,7 @@ jobs:
       - name: Delete staging Docker image
         continue-on-error: true
         env:
-          TAG: ${{ needs.prepare-release.outputs.tag }}
+          TAG: ${{ needs.prepare-build.outputs.tag }}
         run: |
           PACKAGE="openhuman-core"
           STAGING_TAG="staging-${TAG}"

@@ -185,6 +185,15 @@ const CAPABILITIES: &[Capability] = &[
         status: CapabilityStatus::Beta,
     },
     Capability {
+        id: "skills.run_apify_actors",
+        name: "Run Apify Actors",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description: "Launch Apify scrapers and automation actors, then inspect run status and collected results.",
+        how_to: "Conversations > Ask the assistant to run an Apify actor",
+        status: CapabilityStatus::Beta,
+    },
+    Capability {
         id: "skills.toggle_enabled",
         name: "Enable or Disable Skills",
         domain: "skills",
@@ -237,15 +246,6 @@ const CAPABILITIES: &[Capability] = &[
         description: "Connect supported exchanges for trading and portfolio workflows.",
         how_to: "Settings > Connections",
         status: CapabilityStatus::ComingSoon,
-    },
-    Capability {
-        id: "skills.browser_access_policy",
-        name: "Configure Browser Access Policy",
-        domain: "skills",
-        category: CapabilityCategory::Skills,
-        description: "Control whether browser-based tools can visit only the allowlist or any public domain.",
-        how_to: "Settings > Developer Options > Skills > Browser Access",
-        status: CapabilityStatus::Beta,
     },
     Capability {
         id: "local_ai.download_model",
@@ -585,7 +585,8 @@ const CAPABILITIES: &[Capability] = &[
         name: "Debug Webhooks",
         domain: "settings",
         category: CapabilityCategory::Settings,
-        description: "Inspect registered webhook tunnels and captured request and response logs.",
+        description:
+            "Inspect Composio trigger history and find the daily JSONL archive files stored by the app.",
         how_to: "Settings > Developer Options > Webhooks",
         status: CapabilityStatus::Beta,
     },
@@ -641,6 +642,25 @@ const CAPABILITIES: &[Capability] = &[
         category: CapabilityCategory::Automation,
         description: "Inspect past runs and results for scheduled jobs.",
         how_to: "Settings > Cron Jobs",
+        status: CapabilityStatus::Beta,
+    },
+    // ── Proactive agents ─────────────────────────────────────────────────────
+    Capability {
+        id: "automation.morning_briefing",
+        name: "Morning Briefing",
+        domain: "automation",
+        category: CapabilityCategory::Automation,
+        description: "Daily proactive agent that reviews calendar, tasks, emails, and market context to deliver a morning summary.",
+        how_to: "Automatic after onboarding (runs daily at 7 AM). Adjust schedule via Settings > Cron Jobs.",
+        status: CapabilityStatus::Beta,
+    },
+    Capability {
+        id: "automation.welcome_agent",
+        name: "Welcome Message",
+        domain: "automation",
+        category: CapabilityCategory::Automation,
+        description: "One-shot agent that delivers a personalized, witty welcome message after onboarding completes.",
+        how_to: "Automatic — triggered once after onboarding.",
         status: CapabilityStatus::Beta,
     },
     // ── Update ──────────────────────────────────────────────────────────────

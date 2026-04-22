@@ -2,8 +2,9 @@
 
 use super::dispatch::run_message_dispatch_loop;
 use super::supervision::{compute_max_in_flight_messages, spawn_supervised_listener};
+use crate::core::event_bus::{self, DomainEvent, TracingSubscriber, DEFAULT_CAPACITY};
+use crate::openhuman::agent::harness::build_tool_instructions_filtered;
 use crate::openhuman::agent::host_runtime;
-use crate::openhuman::agent::loop_::build_tool_instructions;
 use crate::openhuman::channels::context::{
     effective_channel_message_timeout_secs, ChannelRuntimeContext,
     DEFAULT_CHANNEL_INITIAL_BACKOFF_SECS, DEFAULT_CHANNEL_MAX_BACKOFF_SECS,
@@ -19,7 +20,6 @@ use crate::openhuman::channels::linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 use crate::openhuman::channels::matrix::MatrixChannel;
 use crate::openhuman::channels::mattermost::MattermostChannel;
-use crate::openhuman::channels::prompt::build_system_prompt;
 use crate::openhuman::channels::qq::QQChannel;
 use crate::openhuman::channels::signal::SignalChannel;
 use crate::openhuman::channels::slack::SlackChannel;
@@ -30,7 +30,7 @@ use crate::openhuman::channels::whatsapp::WhatsAppChannel;
 use crate::openhuman::channels::whatsapp_web::WhatsAppWebChannel;
 use crate::openhuman::channels::Channel;
 use crate::openhuman::config::Config;
-use crate::openhuman::event_bus::{self, DomainEvent, TracingSubscriber, DEFAULT_CAPACITY};
+use crate::openhuman::context::channels_prompt::build_system_prompt;
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{self, Provider};
 use crate::openhuman::security::SecurityPolicy;
@@ -44,7 +44,38 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // subscriber for debug logging of all domain events.
     let bus = event_bus::init_global(DEFAULT_CAPACITY);
     let _tracing_handle = bus.subscribe(Arc::new(TracingSubscriber));
+    crate::openhuman::health::bus::register_health_subscriber();
+    crate::openhuman::skills::bus::register_skill_cleanup_subscriber();
+    crate::openhuman::memory::conversations::register_conversation_persistence_subscriber(
+        config.workspace_dir.clone(),
+    );
+    crate::openhuman::composio::register_composio_trigger_subscriber();
+    // Spawn the per-toolkit provider periodic sync scheduler. This is
+    // a thin tokio task that ticks every minute and dispatches into
+    // any provider whose `sync_interval_secs` has elapsed for an
+    // active Composio connection. Safe to call here even though
+    // `bootstrap_skill_runtime` may also start it — `start_periodic_sync`
+    // is intentionally cheap and the loop body no-ops when there are
+    // no connections.
+    crate::openhuman::composio::start_periodic_sync();
+    // Native request handlers. Re-registering is safe (latest wins) so
+    // this is idempotent even if `bootstrap_skill_runtime` also runs.
+    // Must happen before `run_message_dispatch_loop` begins, because
+    // channel dispatch calls `request_native_global("agent.run_turn", …)`
+    // for every inbound message.
+    crate::openhuman::agent::bus::register_agent_handlers();
     tracing::debug!("[event_bus] global singleton initialized in start_channels");
+
+    // Initialise the sub-agent definition registry from this workspace.
+    // Idempotent — `bootstrap_skill_runtime` may also call it.
+    if let Err(err) = crate::openhuman::agent::harness::AgentDefinitionRegistry::init_global(
+        &config.workspace_dir,
+    ) {
+        tracing::warn!(
+            "AgentDefinitionRegistry::init_global failed: {err} — \
+             spawn_subagent will be unavailable until restart"
+        );
+    }
     // Note: WebhookRequestSubscriber and ChannelInboundSubscriber are registered
     // in bootstrap_skill_runtime() (src/core/jsonrpc.rs) to avoid double-registration
     // when both startup paths run in the same process.
@@ -55,10 +86,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
         secrets_encrypt: config.secrets.encrypt,
         reasoning_enabled: config.runtime.reasoning_enabled,
     };
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
-        config.api_key.as_deref(),
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_intelligent_routing_provider(
         config.api_url.as_deref(),
-        &config.reliability,
+        &config,
         &provider_runtime_options,
     )?);
 
@@ -83,16 +113,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &config.memory,
         Some(&config.storage.provider.config),
         &config.workspace_dir,
-        config.api_key.as_deref(),
     )?);
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
     let tools_registry = Arc::new(tools::all_tools_with_runtime(
@@ -100,13 +121,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &security,
         runtime,
         Arc::clone(&mem),
-        composio_key,
-        composio_entity_id,
         &config.browser,
         &config.http_request,
         &workspace,
         &config.agents,
-        config.api_key.as_deref(),
         &config,
     ));
 
@@ -146,12 +164,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
             "Open approved HTTPS URLs in Brave Browser (allowlist-only, no scraping)",
         ));
     }
-    if config.composio.enabled {
-        tool_descs.push((
-            "composio",
-            "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run (optionally with connected_account_id), 'connect' to OAuth.",
-        ));
-    }
+    // Composio tool descriptions are intentionally excluded from the main
+    // agent prompt — those tools are only available to the integrations_agent
+    // subagent via category_filter = "skill".
     tool_descs.push((
         "schedule",
         "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
@@ -172,15 +187,30 @@ pub async fn start_channels(config: Config) -> Result<()> {
     } else {
         None
     };
+    // `channel_name = None` on startup: the channel runtime wires up
+    // multiple providers in parallel, so there's no single platform to
+    // name here. The capability block falls back to a platform-agnostic
+    // "messaging bot" phrasing. Per-channel renderers that want a
+    // named capabilities section can call `build_system_prompt` with
+    // `Some(name)` directly.
     let mut system_prompt = build_system_prompt(
         &workspace,
         &model,
         &tool_descs,
         &skills,
-        Some(&config.identity),
         bootstrap_max_chars,
+        None,
     );
-    system_prompt.push_str(&build_tool_instructions(tools_registry.as_ref()));
+    // Filter out Skill-category tools (e.g. Composio, Apify) from the
+    // main agent prompt — those are only available to the integrations_agent
+    // subagent via category_filter = "skill".
+    let non_skill_tools: Vec<&Box<dyn crate::openhuman::tools::Tool>> = tools_registry
+        .iter()
+        .filter(|t| t.category() != crate::openhuman::tools::traits::ToolCategory::Skill)
+        .collect();
+    let non_skill_refs: Vec<&dyn crate::openhuman::tools::Tool> =
+        non_skill_tools.iter().map(|t| t.as_ref()).collect();
+    system_prompt.push_str(&build_tool_instructions_filtered(&non_skill_refs));
 
     if !skills.is_empty() {
         println!(
@@ -197,6 +227,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
+        tracing::info!(
+            channel = "telegram",
+            allowed_users_count = tg.allowed_users.len(),
+            mention_only = tg.mention_only,
+            stream_mode = ?tg.stream_mode,
+            draft_update_interval_ms = tg.draft_update_interval_ms,
+            "[channels] telegram enabled in core config (bot token not logged)"
+        );
         channels.push(Arc::new(
             TelegramChannel::new(
                 tg.bot_token.clone(),
@@ -205,6 +243,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
             )
             .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
         ));
+    } else {
+        tracing::info!(
+            "[channels] telegram not configured (no channels_config.telegram in saved config)"
+        );
     }
 
     if let Some(ref dc) = config.channels_config.discord {
@@ -386,7 +428,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
     println!("  Listening for messages... (Ctrl+C to stop)");
     println!();
 
-    crate::openhuman::health::mark_component_ok("channels");
     event_bus::publish_global(DomainEvent::SystemStartup {
         component: "channels".into(),
     });
@@ -426,6 +467,19 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let _cron_delivery_handle = bus.subscribe(Arc::new(
         crate::openhuman::cron::bus::CronDeliverySubscriber::new(Arc::clone(&channels_by_name)),
     ));
+    // Register the proactive message subscriber so morning briefings,
+    // welcome messages, and other proactive agent output gets routed to
+    // the user's active channel (+ always to web).
+    let _proactive_handle = bus.subscribe(Arc::new(
+        crate::openhuman::channels::proactive::ProactiveMessageSubscriber::new(
+            Arc::clone(&channels_by_name),
+            config.channels_config.active_channel.clone(),
+        ),
+    ));
+    // Register the tree summarizer event subscriber for observability logging.
+    let _tree_summarizer_handle = bus.subscribe(Arc::new(
+        crate::openhuman::tree_summarizer::bus::TreeSummarizerEventSubscriber::new(),
+    ));
 
     let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
 
@@ -452,7 +506,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
         route_overrides: Arc::new(Mutex::new(HashMap::new())),
-        api_key: config.api_key.clone(),
         api_url: config.api_url.clone(),
         reliability: Arc::new(config.reliability.clone()),
         provider_runtime_options,

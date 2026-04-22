@@ -1,6 +1,7 @@
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::device::DeviceProfile;
 use crate::openhuman::local_ai::model_ids;
+use crate::openhuman::local_ai::presets::{self, VisionMode};
 use crate::openhuman::local_ai::types::LocalAiStatus;
 
 use super::LocalAiService;
@@ -10,6 +11,7 @@ impl LocalAiService {
         let model_id = model_ids::effective_chat_model_id(config);
         let vision_model_id = model_ids::effective_vision_model_id(config);
         let embedding_model_id = model_ids::effective_embedding_model_id(config);
+        let vision_mode = vision_mode_str(config);
         Self {
             whisper: super::whisper_engine::new_handle(),
             status: parking_lot::Mutex::new(LocalAiStatus {
@@ -21,7 +23,8 @@ impl LocalAiService {
                 stt_model_id: model_ids::effective_stt_model_id(config),
                 tts_voice_id: model_ids::effective_tts_voice_id(config),
                 quantization: model_ids::effective_quantization(config),
-                vision_state: "idle".to_string(),
+                vision_state: initial_vision_state(config),
+                vision_mode,
                 embedding_state: "idle".to_string(),
                 stt_state: "idle".to_string(),
                 tts_state: "idle".to_string(),
@@ -62,6 +65,7 @@ impl LocalAiService {
 
     pub fn reset_to_idle(&self, config: &Config) {
         let model_id = model_ids::effective_chat_model_id(config);
+        let vision_mode = vision_mode_str(config);
         let mut status = self.status.lock();
         status.state = "idle".to_string();
         status.model_id = model_id.clone();
@@ -71,7 +75,8 @@ impl LocalAiService {
         status.stt_model_id = model_ids::effective_stt_model_id(config);
         status.tts_voice_id = model_ids::effective_tts_voice_id(config);
         status.quantization = model_ids::effective_quantization(config);
-        status.vision_state = "idle".to_string();
+        status.vision_state = initial_vision_state(config);
+        status.vision_mode = vision_mode;
         status.embedding_state = "idle".to_string();
         status.stt_state = "idle".to_string();
         status.tts_state = "idle".to_string();
@@ -126,6 +131,7 @@ impl LocalAiService {
             status.tts_voice_id = model_ids::effective_tts_voice_id(&effective_config);
             status.quantization = model_ids::effective_quantization(&effective_config);
             status.state = "loading".to_string();
+            status.vision_mode = vision_mode_str(&effective_config);
             status.warning = Some("Connecting to local Ollama runtime".to_string());
             status.download_progress = None;
             status.downloaded_bytes = None;
@@ -177,14 +183,17 @@ impl LocalAiService {
         }
 
         // Attempt to load whisper model in-process if configured (blocking I/O).
+        // Pass GPU info from the device profile so whisper can use hardware acceleration.
         if effective_config.local_ai.whisper_in_process {
             if let Ok(model_path) =
                 crate::openhuman::local_ai::paths::resolve_stt_model_path(&effective_config)
             {
                 let model = std::path::PathBuf::from(&model_path);
                 let handle = self.whisper.clone();
+                let gpu = device.has_gpu;
+                let gpu_desc = device.gpu_description.clone();
                 let load_result = tokio::task::spawn_blocking(move || {
-                    super::whisper_engine::load_engine(&handle, &model)
+                    super::whisper_engine::load_engine(&handle, &model, gpu, gpu_desc.as_deref())
                 })
                 .await;
                 match load_result {
@@ -207,10 +216,10 @@ impl LocalAiService {
 
         let mut status = self.status.lock();
         status.state = "ready".to_string();
-        status.vision_state = if effective_config.local_ai.preload_vision_model {
-            "ready".to_string()
-        } else {
-            "idle".to_string()
+        status.vision_state = match presets::vision_mode_for_config(&effective_config.local_ai) {
+            VisionMode::Disabled => "disabled".to_string(),
+            VisionMode::Bundled => "ready".to_string(),
+            VisionMode::Ondemand => "idle".to_string(),
         };
         status.embedding_state = if effective_config.local_ai.preload_embedding_model {
             "ready".to_string()
@@ -256,56 +265,63 @@ impl LocalAiService {
 }
 
 fn config_with_recommended_tier_if_unselected(config: &Config, device: &DeviceProfile) -> Config {
-    let selected_tier = config
-        .local_ai
-        .selected_tier
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
     let current_tier =
         crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
-    if selected_tier.is_some()
-        || matches!(
-            current_tier,
-            crate::openhuman::local_ai::presets::ModelTier::Low
-                | crate::openhuman::local_ai::presets::ModelTier::Medium
-                | crate::openhuman::local_ai::presets::ModelTier::High
-        )
-    {
-        return config.clone();
+
+    // Local AI is opt-in on every device. The only way to keep it enabled
+    // across a restart is an explicit opt-in (`apply_preset` on a real tier),
+    // which sets `opt_in_confirmed = true`. Every other state — fresh install,
+    // pre-MVP upgrade with a stale `selected_tier`, manual config edit — is
+    // hard-overridden to disabled here, regardless of device RAM.
+    if !config.local_ai.opt_in_confirmed {
+        tracing::debug!(
+            total_ram_gb = device.total_ram_gb(),
+            min_required_gb = crate::openhuman::local_ai::presets::MIN_RAM_GB_FOR_LOCAL_AI,
+            ?current_tier,
+            selected_tier = ?config.local_ai.selected_tier,
+            "[local_ai] bootstrap: opt_in_confirmed=false, hard-overriding to disabled (cloud fallback)"
+        );
+        let mut effective_config = config.clone();
+        effective_config.local_ai.enabled = false;
+        return effective_config;
     }
 
-    let recommended = crate::openhuman::local_ai::presets::recommend_tier(device);
-    let mut effective_config = config.clone();
-    crate::openhuman::local_ai::presets::apply_preset_to_config(
-        &mut effective_config.local_ai,
-        recommended,
-    );
-    tracing::debug!(
-        ?recommended,
-        "[local_ai] bootstrap: no tier selected, using recommended preset"
-    );
-    effective_config
+    // User has explicitly opted in via apply_preset. Honor the config as-is.
+    config.clone()
 }
 
-/// Append a tier step-down hint when the current tier is Medium or High.
 fn format_degraded_warning(err: &str, config: &Config) -> String {
     let current = crate::openhuman::local_ai::presets::current_tier_from_config(&config.local_ai);
     match current {
-        crate::openhuman::local_ai::presets::ModelTier::High => {
+        crate::openhuman::local_ai::presets::ModelTier::Ram16PlusGb => {
             format!(
-                "{err}. Hint: your device may not support the High tier model. \
-                 Try switching to Medium or Low in Settings > Local AI Model."
+                "{err}. Hint: your device may not support the 16 GB+ tier model. \
+                 Try switching to the 8-16 GB or 4-8 GB tier in Settings > Local AI Model."
             )
         }
-        crate::openhuman::local_ai::presets::ModelTier::Medium => {
+        crate::openhuman::local_ai::presets::ModelTier::Ram8To16Gb => {
             format!(
-                "{err}. Hint: your device may not support the Medium tier model. \
-                 Try switching to Low in Settings > Local AI Model."
+                "{err}. Hint: your device may not support the 8-16 GB tier model. \
+                 Try switching to the 4-8 GB or 2-4 GB tier in Settings > Local AI Model."
             )
         }
+        crate::openhuman::local_ai::presets::ModelTier::Ram4To8Gb => format!(
+            "{err}. Hint: your device may not support the 4-8 GB tier vision sidecar. \
+             Try switching to the 2-4 GB tier for text-only local AI."
+        ),
         _ => err.to_string(),
     }
+}
+
+fn initial_vision_state(config: &Config) -> String {
+    match presets::vision_mode_for_config(&config.local_ai) {
+        VisionMode::Disabled => "disabled".to_string(),
+        VisionMode::Ondemand | VisionMode::Bundled => "idle".to_string(),
+    }
+}
+
+fn vision_mode_str(config: &Config) -> String {
+    format!("{:?}", presets::vision_mode_for_config(&config.local_ai)).to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -322,48 +338,109 @@ mod tests {
         assert!(!service.should_run_memory_autosummary(&config));
     }
 
-    #[test]
-    fn bootstrap_uses_recommended_tier_when_selection_missing() {
-        let config = Config::default();
-        let device = DeviceProfile {
-            total_ram_bytes: 4 * 1024 * 1024 * 1024,
+    fn test_device(ram_gb: u64) -> DeviceProfile {
+        DeviceProfile {
+            total_ram_bytes: ram_gb * 1024 * 1024 * 1024,
             cpu_count: 4,
             cpu_brand: String::new(),
             os_name: String::new(),
             os_version: String::new(),
             has_gpu: false,
             gpu_description: None,
-        };
+        }
+    }
+
+    #[test]
+    fn bootstrap_defaults_to_disabled_on_low_ram_device() {
+        let config = Config::default();
+        let device = test_device(4);
 
         let effective = config_with_recommended_tier_if_unselected(&config, &device);
 
-        // If config already matches a built-in preset, preserve user defaults
-        // and keep selected_tier unset.
-        assert!(effective.local_ai.selected_tier.is_none());
-        assert_eq!(
-            effective.local_ai.chat_model_id,
-            config.local_ai.chat_model_id
+        assert!(
+            !effective.local_ai.enabled,
+            "local_ai.enabled must default to false on <8 GB device"
         );
     }
 
     #[test]
-    fn bootstrap_keeps_existing_selected_tier() {
-        let mut config = Config::default();
-        config.local_ai.selected_tier = Some("high".to_string());
-        let original_chat_model = config.local_ai.chat_model_id.clone();
-        let device = DeviceProfile {
-            total_ram_bytes: 4 * 1024 * 1024 * 1024,
-            cpu_count: 4,
-            cpu_brand: String::new(),
-            os_name: String::new(),
-            os_version: String::new(),
-            has_gpu: false,
-            gpu_description: None,
-        };
+    fn bootstrap_defaults_to_disabled_on_sufficient_ram_device() {
+        // Local AI is opt-in. Even with >= 8 GB RAM, an unselected tier must
+        // leave local AI disabled — the user has to explicitly turn it on.
+        let config = Config::default();
+        let device = test_device(16);
 
         let effective = config_with_recommended_tier_if_unselected(&config, &device);
 
-        assert_eq!(effective.local_ai.selected_tier.as_deref(), Some("high"));
-        assert_eq!(effective.local_ai.chat_model_id, original_chat_model);
+        assert!(
+            !effective.local_ai.enabled,
+            "local_ai.enabled must default to false when no tier selected, regardless of RAM"
+        );
+    }
+
+    #[test]
+    fn bootstrap_honors_opt_in_on_low_ram_device() {
+        let mut config = Config::default();
+        config.local_ai.selected_tier = Some("ram_2_4gb".to_string());
+        config.local_ai.opt_in_confirmed = true;
+        crate::openhuman::local_ai::presets::apply_preset_to_config(
+            &mut config.local_ai,
+            crate::openhuman::local_ai::presets::ModelTier::Ram2To4Gb,
+        );
+        let device = test_device(4);
+
+        let effective = config_with_recommended_tier_if_unselected(&config, &device);
+
+        assert!(
+            effective.local_ai.enabled,
+            "explicit opt-in must be honored even on low-RAM device"
+        );
+    }
+
+    #[test]
+    fn bootstrap_honors_opt_in_on_sufficient_ram_device() {
+        let mut config = Config::default();
+        config.local_ai.selected_tier = Some("ram_2_4gb".to_string());
+        config.local_ai.opt_in_confirmed = true;
+        crate::openhuman::local_ai::presets::apply_preset_to_config(
+            &mut config.local_ai,
+            crate::openhuman::local_ai::presets::ModelTier::Ram2To4Gb,
+        );
+        let device = test_device(16);
+
+        let effective = config_with_recommended_tier_if_unselected(&config, &device);
+
+        assert!(
+            effective.local_ai.enabled,
+            "explicit opt-in on sufficient-RAM device must stay enabled"
+        );
+        assert_eq!(
+            effective.local_ai.chat_model_id, config.local_ai.chat_model_id,
+            "opt-in config must not be mutated"
+        );
+    }
+
+    #[test]
+    fn bootstrap_overrides_stale_selected_tier_without_opt_in() {
+        // Existing install (pre-MVP) had `selected_tier = "ram_2_4gb"` auto-populated
+        // by old RAM-based bootstrap logic, but never went through an explicit MVP
+        // opt-in. `opt_in_confirmed = false` must hard-override to disabled.
+        let mut config = Config::default();
+        config.local_ai.enabled = true;
+        config.local_ai.selected_tier = Some("ram_2_4gb".to_string());
+        config.local_ai.opt_in_confirmed = false;
+        let device = test_device(16);
+
+        let effective = config_with_recommended_tier_if_unselected(&config, &device);
+
+        assert!(
+            !effective.local_ai.enabled,
+            "stale selected_tier without opt_in_confirmed must be hard-overridden to disabled"
+        );
+        assert_eq!(
+            effective.local_ai.selected_tier.as_deref(),
+            Some("ram_2_4gb"),
+            "bootstrap must leave the persisted selected_tier untouched — only the effective `enabled` flips"
+        );
     }
 }

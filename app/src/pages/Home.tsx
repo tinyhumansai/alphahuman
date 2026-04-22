@@ -9,14 +9,22 @@ import {
   triggerLocalAiAssetBootstrap,
 } from '../utils/localAiBootstrap';
 import { formatBytes, formatEta, progressFromStatus } from '../utils/localAiHelpers';
-import { isTauri, type LocalAiStatus, openhumanLocalAiStatus } from '../utils/tauriCommands';
+import {
+  isTauri,
+  type LocalAiAssetsStatus,
+  type LocalAiStatus,
+  openhumanLocalAiAssetsStatus,
+  openhumanLocalAiStatus,
+} from '../utils/tauriCommands';
 
 const Home = () => {
   const { user } = useUser();
   const navigate = useNavigate();
   const userName = user?.firstName || 'User';
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
+  const [localAiAssets, setLocalAiAssets] = useState<LocalAiAssetsStatus | null>(null);
   const [downloadBusy, setDownloadBusy] = useState(false);
+  const [bootstrapMessage, setBootstrapMessage] = useState<string>('');
   const autoRetryDoneRef = useRef(false);
   const initialBootstrapHandledRef = useRef(false);
   const initialBootstrapInFlightRef = useRef(false);
@@ -31,9 +39,9 @@ const Home = () => {
     return 'Good evening';
   };
 
-  // Open in-app conversations window
+  // Open in-app chat.
   const handleStartCooking = async () => {
-    navigate('/conversations');
+    navigate('/chat');
   };
 
   const refreshLocalAiStatus = async () => {
@@ -44,14 +52,23 @@ const Home = () => {
 
   const runManualBootstrap = async (force: boolean) => {
     setDownloadBusy(true);
+    setBootstrapMessage('');
     try {
       await bootstrapLocalAiWithRecommendedPreset(
         force,
         force ? '[Home re-bootstrap]' : '[Home manual bootstrap]'
       );
-      await refreshLocalAiStatus();
+      const freshStatus = await refreshLocalAiStatus();
+      if (freshStatus?.state === 'ready') {
+        setBootstrapMessage(force ? 'Re-bootstrap complete' : 'Local AI is ready');
+      } else if (freshStatus?.state === 'degraded') {
+        setBootstrapMessage('Bootstrap failed — check warning below');
+      }
+      setTimeout(() => setBootstrapMessage(''), 3000);
     } catch (error) {
       console.warn('[Home] manual Local AI bootstrap failed:', error);
+      setBootstrapMessage('Bootstrap failed');
+      setTimeout(() => setBootstrapMessage(''), 3000);
     } finally {
       setDownloadBusy(false);
     }
@@ -63,9 +80,16 @@ const Home = () => {
     let mounted = true;
     const load = async () => {
       try {
-        const status = await openhumanLocalAiStatus();
+        const [status, assets] = await Promise.all([
+          openhumanLocalAiStatus(),
+          openhumanLocalAiAssetsStatus().catch(err => {
+            console.warn('[Home] failed to load local AI assets status:', err);
+            return null;
+          }),
+        ]);
         if (mounted) {
           setLocalAiStatus(status.result);
+          setLocalAiAssets(assets?.result ?? null);
 
           // Auto-retry bootstrap once if Ollama is degraded (install/server issue).
           if (status.result?.state === 'degraded' && !autoRetryDoneRef.current) {
@@ -145,6 +169,31 @@ const Home = () => {
   }, []);
 
   const modelProgress = useMemo(() => progressFromStatus(localAiStatus), [localAiStatus]);
+  // Hide the Local Model Runtime card once every capability's model file is
+  // present on disk. We use `assets_status` (which inspects the filesystem)
+  // instead of the in-memory `LocalAiStatus` sub-states, because the latter
+  // stay at `idle` until a capability is first exercised — even when the
+  // underlying model has already been downloaded.
+  //
+  // A capability is considered "done" when its asset state is:
+  //   - `ready`    → model file exists on disk
+  //   - `disabled` → not applicable for the selected preset
+  //   - `ondemand` → vision preset intentionally defers download until first use
+  const allModelsDownloaded = useMemo(() => {
+    if (!localAiStatus || !localAiAssets) return false;
+    if (localAiStatus.state !== 'ready') return false;
+    const isDone = (state: string | undefined | null): boolean =>
+      state === 'ready' || state === 'disabled' || state === 'ondemand';
+
+    return (
+      isDone(localAiAssets.chat?.state) &&
+      isDone(localAiAssets.vision?.state) &&
+      isDone(localAiAssets.embedding?.state) &&
+      isDone(localAiAssets.stt?.state) &&
+      isDone(localAiAssets.tts?.state)
+    );
+  }, [localAiStatus, localAiAssets]);
+
   const isInstalling = localAiStatus?.state === 'installing';
   const indeterminateDownload =
     isInstalling ||
@@ -223,8 +272,8 @@ const Home = () => {
           </button>
         </div>
 
-        {/* Local AI card (desktop only) */}
-        {isTauri() && (
+        {/* Local AI card (desktop only) — hidden once all models are fully downloaded */}
+        {isTauri() && !allModelsDownloaded && (
           <div className="mt-3 bg-white rounded-2xl shadow-soft border border-stone-200 px-4 py-4 text-left">
             <div className="flex items-center justify-between">
               <div className="text-[11px] uppercase tracking-wide text-stone-400">
@@ -314,18 +363,41 @@ const Home = () => {
             )}
 
             <div className="mt-2 flex items-center gap-2">
-              <button
-                onClick={() => void runManualBootstrap(false)}
-                disabled={downloadBusy}
-                className="rounded-md bg-primary-500 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-primary-600 disabled:opacity-60">
-                {downloadBusy ? 'Working...' : 'Bootstrap'}
-              </button>
+              {localAiStatus?.state === 'ready' ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-green-50 px-2.5 py-1.5 text-[11px] font-medium text-green-700 border border-green-200">
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  Running
+                </span>
+              ) : (
+                <button
+                  onClick={() => void runManualBootstrap(false)}
+                  disabled={downloadBusy}
+                  className="rounded-md bg-primary-500 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-primary-600 disabled:opacity-60">
+                  {downloadBusy
+                    ? 'Working...'
+                    : localAiStatus?.state === 'degraded'
+                      ? 'Retry'
+                      : 'Bootstrap'}
+                </button>
+              )}
               <button
                 onClick={() => void runManualBootstrap(true)}
                 disabled={downloadBusy}
                 className="rounded-md border border-stone-200 px-2.5 py-1.5 text-[11px] font-medium text-stone-600 hover:border-stone-300 disabled:opacity-60">
-                Re-bootstrap
+                {downloadBusy ? 'Working...' : 'Re-bootstrap'}
               </button>
+              {bootstrapMessage && (
+                <span className="text-[11px] text-green-600 animate-fade-up">
+                  {bootstrapMessage}
+                </span>
+              )}
             </div>
           </div>
         )}

@@ -1,32 +1,35 @@
 import createDebug from 'debug';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import PillTabBar from '../../../components/PillTabBar';
 import { useCoreState } from '../../../providers/CoreStateProvider';
 import { billingApi } from '../../../services/api/billingApi';
 import {
   type AutoRechargeSettings,
   type CreditBalance,
   creditsApi,
+  type CreditTransaction,
   type SavedCard,
-  type TeamUsage,
 } from '../../../services/api/creditsApi';
 import type { CurrentPlanData, PlanTier } from '../../../types/api';
 import { openUrl } from '../../../utils/openUrl';
-import SettingsHeader from '../components/SettingsHeader';
+import PageBackButton from '../components/PageBackButton';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
-import AutoRechargeSection from './billing/AutoRechargeSection';
-import InferenceBudget from './billing/InferenceBudget';
-import PayAsYouGoCard from './billing/PayAsYouGoCard';
-import SubscriptionPlans from './billing/SubscriptionPlans';
-import { buildPlanId, formatStorageLimit, formatUsdAmount, getPlanMeta } from './billingHelpers';
+import BillingHistoryTab from './billing/BillingHistoryTab';
+import BillingPaymentsTab from './billing/BillingPaymentsTab';
+import BillingPlansTab from './billing/BillingPlansTab';
+import { buildPlanId } from './billingHelpers';
 
 const log = createDebug('openhuman:billing-panel');
 
+type BillingTab = 'overview' | 'plans' | 'payments' | 'history';
+
 // ── Component ───────────────────────────────────────────────────────────
 const BillingPanel = () => {
-  const { navigateBack } = useSettingsNavigation();
+  const { navigateBack, breadcrumbs } = useSettingsNavigation();
   const { snapshot, teams, refresh } = useCoreState();
   const user = snapshot.currentUser;
+  const sessionToken = snapshot.sessionToken;
 
   // Active team context
   const activeTeamId = user?.activeTeamId;
@@ -36,9 +39,10 @@ const BillingPanel = () => {
   // Credits & usage state
   const [currentPlan, setCurrentPlan] = useState<CurrentPlanData | null>(null);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
-  const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
+  const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [isLoadingCredits, setIsLoadingCredits] = useState(false);
   const [isToppingUp, setIsToppingUp] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<BillingTab>('plans');
 
   // Local state
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
@@ -82,30 +86,69 @@ const BillingPanel = () => {
     currentPlan?.hasActiveSubscription ??
     activeTeam?.team.subscription?.hasActiveSubscription ??
     false;
-  const planExpiry = currentPlan?.planExpiry ?? activeTeam?.team.subscription?.planExpiry ?? null;
-  const currentPlanMeta = getPlanMeta(currentTier);
-
-  // Fetch current plan, credits balance, and team usage on mount
+  // Fetch current plan, credits balance, and team usage once auth is available.
   useEffect(() => {
+    if (!sessionToken) {
+      log('[load] skipped: no session token yet');
+      setCurrentPlan(null);
+      setCreditBalance(null);
+      setIsLoadingCredits(false);
+      return;
+    }
+
+    let cancelled = false;
     setIsLoadingCredits(true);
-    Promise.all([billingApi.getCurrentPlan(), creditsApi.getBalance(), creditsApi.getTeamUsage()])
-      .then(([plan, balance, usage]) => {
-        log(
-          '[load] plan=%s active=%s weeklyBudget=%s',
-          plan.plan,
-          plan.hasActiveSubscription,
-          plan.weeklyBudgetUsd
-        );
-        setCurrentPlan(plan);
-        setCreditBalance(balance);
-        setTeamUsage(usage);
+    log('[load] fetching billing state tokenPresent=%s activeTeamId=%s', true, activeTeamId);
+    Promise.allSettled([
+      billingApi.getCurrentPlan(),
+      creditsApi.getBalance(),
+      creditsApi.getTransactions(5, 0),
+    ])
+      .then(([planResult, balanceResult, transactionsResult]) => {
+        if (planResult.status === 'fulfilled') {
+          const plan = planResult.value;
+          log(
+            '[load] plan=%s active=%s weeklyBudget=%s',
+            plan.plan,
+            plan.hasActiveSubscription,
+            plan.weeklyBudgetUsd
+          );
+          if (!cancelled) {
+            setCurrentPlan(plan);
+          }
+        } else {
+          log('[load] getCurrentPlan failed: %O', planResult.reason);
+        }
+        if (balanceResult.status === 'fulfilled') {
+          log(
+            '[load] balance promotion=%s teamTopup=%s',
+            balanceResult.value.promotionBalanceUsd,
+            balanceResult.value.teamTopupUsd
+          );
+          if (!cancelled) {
+            setCreditBalance(balanceResult.value);
+          }
+        } else {
+          log('[load] getBalance failed: %O', balanceResult.reason);
+        }
+        if (transactionsResult.status === 'fulfilled') {
+          if (!cancelled) {
+            setTransactions(transactionsResult.value.transactions);
+          }
+        } else {
+          log('[load] getTransactions failed: %O', transactionsResult.reason);
+        }
       })
-      .catch(error => {
-        log('[load] failed: %O', error);
-        console.error(error);
-      })
-      .finally(() => setIsLoadingCredits(false));
-  }, []);
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingCredits(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken, activeTeamId]);
 
   // When crypto is selected, force annual
   useEffect(() => {
@@ -159,7 +202,7 @@ const BillingPanel = () => {
     const nextEnabled = !arSettings.enabled;
 
     if (nextEnabled && !arSettings.hasSavedPaymentMethod && cards.length === 0) {
-      setArError('Add a payment card before enabling auto-recharge.');
+      setArError('Add a payment card on Stripe before enabling auto-recharge.');
       return;
     }
 
@@ -256,6 +299,13 @@ const BillingPanel = () => {
         const plan = await billingApi.getCurrentPlan();
         log('[payment-success] plan=%s active=%s', plan.plan, plan.hasActiveSubscription);
         setCurrentPlan(plan);
+        const balance = await creditsApi.getBalance();
+        log(
+          '[payment-success] refreshed balance promotion=%s teamTopup=%s',
+          balance.promotionBalanceUsd,
+          balance.teamTopupUsd
+        );
+        setCreditBalance(balance);
       } catch (e) {
         console.error('Failed to fetch current plan after payment', e);
       }
@@ -355,97 +405,35 @@ const BillingPanel = () => {
     }
   };
 
-  const handleBalanceRefresh = useCallback(async () => {
-    try {
-      const balance = await creditsApi.getBalance();
-      setCreditBalance(balance);
-    } catch (err) {
-      log('[balance-refresh] failed: %O', err);
-    }
-  }, []);
+  const transactionRows = transactions.slice(0, 4);
 
   // ── JSX ─────────────────────────────────────────────────────────────
   return (
-    <div>
-      <SettingsHeader
-        title={teamName ? `Billing — ${teamName}` : 'Billing & Subscription'}
-        showBackButton={true}
-        onBack={navigateBack}
-      />
-
-      <div className="overflow-y-auto">
-        <div className="p-4 space-y-3">
-          {/* ── Current Plan Header ───────────────────────────────── */}
-          <div className="rounded-2xl border border-stone-200 bg-white p-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <h3 className="text-sm font-semibold text-stone-900">Current Plan — {currentTier}</h3>
-              {hasActive && (
-                <button
-                  onClick={handleManageSubscription}
-                  className="text-xs text-primary-400 hover:text-primary-300 font-medium transition-colors">
-                  Manage
-                </button>
-              )}
-            </div>
-            {planExpiry && (
-              <p className="text-xs text-stone-400 mb-1.5">
-                Renews{' '}
-                {new Date(planExpiry).toLocaleDateString('en-US', {
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </p>
-            )}
-            <p className="text-xs text-stone-500">
-              Your subscription includes premium usage each cycle. Pay-as-you-go credits cover
-              overage after the included budget is consumed.
-            </p>
-            {currentPlan && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                  Included monthly value: {formatUsdAmount(currentPlan.monthlyBudgetUsd)}
-                </span>
-                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                  7-day cycle budget: {formatUsdAmount(currentPlan.weeklyBudgetUsd)}
-                </span>
-                <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                  5-hour cap: {formatUsdAmount(currentPlan.fiveHourCapUsd)}
-                </span>
-                {currentPlanMeta && (
-                  <>
-                    <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                      Premium-usage discount: {currentPlanMeta.discountPercent}%
-                    </span>
-                    <span className="rounded-full border border-stone-200 bg-stone-50 px-2 py-1 text-[10px] text-stone-600">
-                      Storage: {formatStorageLimit(currentPlanMeta.storageLimitBytes)}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── Pay as You Go ── PROMOTED TO TOP ─────────────────── */}
-          <PayAsYouGoCard
-            creditBalance={creditBalance}
-            isLoadingCredits={isLoadingCredits}
-            isToppingUp={isToppingUp}
-            onTopUp={handleTopUp}
-            onBalanceRefresh={handleBalanceRefresh}
+    <div className="overflow-y-auto">
+      <div className="mx-auto max-w-2xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
+        <header className="space-y-5">
+          <PageBackButton
+            label={
+              teamName ? `Back to ${breadcrumbs.at(-1)?.label ?? 'settings'}` : 'Back to settings'
+            }
+            onClick={navigateBack}
           />
+          <PillTabBar
+            items={[
+              { label: 'Plans', value: 'plans' },
+              { label: 'Top ups & Credits', value: 'payments' },
+              { label: 'History', value: 'history' },
+            ]}
+            selected={selectedTab}
+            onChange={setSelectedTab}
+            activeClassName="border-primary-600 bg-primary-600 text-white"
+            inactiveClassName="border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+            containerClassName="flex gap-2 overflow-x-auto pb-1 scrollbar-hide"
+          />
+        </header>
 
-          {/* ── Divider ──────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 py-2">
-            <div className="flex-1 h-px bg-stone-200" />
-            <span className="text-xs text-stone-400 whitespace-nowrap">
-              Or subscribe for included usage + discounts
-            </span>
-            <div className="flex-1 h-px bg-stone-200" />
-          </div>
-
-          {/* ── Subscription Plans ──────────────────────────────── */}
-          <SubscriptionPlans
+        {selectedTab === 'plans' && (
+          <BillingPlansTab
             currentTier={currentTier}
             billingInterval={billingInterval}
             setBillingInterval={setBillingInterval}
@@ -456,85 +444,46 @@ const BillingPanel = () => {
             paymentConfirmed={paymentConfirmed}
             onUpgrade={handleUpgrade}
           />
+        )}
 
-          {/* ── Inference Budget ────────────────────────────────── */}
-          <div className="pt-2">
-            <InferenceBudget teamUsage={teamUsage} isLoadingCredits={isLoadingCredits} />
-          </div>
-
-          {/* ── Auto-Recharge + Payment Methods ────────────────── */}
-          <AutoRechargeSection
-            arSettings={arSettings}
-            arLoading={arLoading}
-            arError={arError}
-            arSaving={arSaving}
-            arThreshold={arThreshold}
+        {selectedTab === 'payments' && (
+          <BillingPaymentsTab
             arAmount={arAmount}
-            arWeeklyLimit={arWeeklyLimit}
             arDirty={arDirty}
-            setArThreshold={setArThreshold}
-            setArAmount={setArAmount}
-            setArWeeklyLimit={setArWeeklyLimit}
-            setArError={setArError}
-            onArToggle={handleArToggle}
-            onArSave={handleArSave}
+            arError={arError}
+            arLoading={arLoading}
+            arSaving={arSaving}
+            arSettings={arSettings}
+            arThreshold={arThreshold}
+            arWeeklyLimit={arWeeklyLimit}
             cards={cards}
             cardsLoading={cardsLoading}
             confirmDeleteId={confirmDeleteId}
+            creditBalance={creditBalance}
             deletingCardId={deletingCardId}
-            settingDefaultId={settingDefaultId}
-            setConfirmDeleteId={setConfirmDeleteId}
-            onSetDefault={handleSetDefault}
-            onDeleteCard={handleDeleteCard}
+            isLoadingCredits={isLoadingCredits}
+            isToppingUp={isToppingUp}
             onAddCard={handleAddCard}
+            onArSave={handleArSave}
+            onArToggle={handleArToggle}
+            onDeleteCard={handleDeleteCard}
+            onSetDefault={handleSetDefault}
+            onTopUp={handleTopUp}
+            setArAmount={setArAmount}
+            setArThreshold={setArThreshold}
+            setArWeeklyLimit={setArWeeklyLimit}
+            setConfirmDeleteId={setConfirmDeleteId}
+            settingDefaultId={settingDefaultId}
           />
+        )}
 
-          {/* ── Why upgrade? ───────────────────────────────────── */}
-          <div className="pt-2">
-            <div className="rounded-xl bg-gradient-to-br from-primary-500/10 to-sage-500/10 border border-primary-500/20 p-4">
-              <h3 className="text-sm font-semibold text-stone-900 mb-2">Why upgrade?</h3>
-              <ul className="space-y-1.5 text-xs text-stone-600">
-                <li className="flex items-start gap-2">
-                  <svg
-                    className="w-4 h-4 text-sage-400 flex-shrink-0 mt-0.5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                  <span>
-                    Higher tiers increase your premium-usage discount and included usage every cycle
-                  </span>
-                </li>
-                {currentTier === 'FREE' && (
-                  <li className="flex items-start gap-2">
-                    <svg
-                      className="w-4 h-4 text-sage-400 flex-shrink-0 mt-0.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                    <span>
-                      Annual billing lowers the effective monthly price, and top-ups let you keep
-                      going when usage spikes
-                    </span>
-                  </li>
-                )}
-              </ul>
-            </div>
-          </div>
-        </div>
+        {selectedTab === 'history' && (
+          <BillingHistoryTab
+            hasActive={hasActive}
+            onManageSubscription={handleManageSubscription}
+            transactionRows={transactionRows}
+          />
+        )}
       </div>
     </div>
   );

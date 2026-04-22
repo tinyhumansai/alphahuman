@@ -12,10 +12,12 @@ export interface PlanMeta {
   annualPrice: number;
   monthlyBudgetUsd: number;
   weeklyBudgetUsd: number;
+  /** USD cap per 10-hour rolling inference window; amount scales with `tier` (FREE / BASIC / PRO). */
   fiveHourCapUsd: number;
   discountPercent: number;
-  storageLimitBytes: number;
   features: PlanFeature[];
+  recommended?: boolean;
+  tagline?: string;
 }
 
 export const PLANS: PlanMeta[] = [
@@ -24,50 +26,49 @@ export const PLANS: PlanMeta[] = [
     name: 'Free',
     monthlyPrice: 0,
     annualPrice: 0,
-    monthlyBudgetUsd: 1,
-    weeklyBudgetUsd: 0.5,
-    fiveHourCapUsd: 0.15,
+    monthlyBudgetUsd: 0,
+    weeklyBudgetUsd: 0,
+    fiveHourCapUsd: 0,
     discountPercent: 0,
-    storageLimitBytes: 100 * 1024 * 1024,
+    tagline: 'Get started at no cost',
     features: [
-      { text: 'Base access to integrations and inference', included: true },
-      { text: 'Pay-as-you-go top-ups when included usage runs out', included: true },
-      { text: 'No subscription discount on premium usage', included: true },
+      { text: 'Access to Everything', included: true },
+      { text: 'Heavy Rate Limits', included: true },
+      { text: 'Pay-as-you-go', included: true },
+      { text: 'No discounts', included: false },
     ],
   },
   {
     tier: 'BASIC',
     name: 'Basic',
-    monthlyPrice: 20,
-    annualPrice: 200,
+    monthlyPrice: 19.99,
+    annualPrice: 199,
     monthlyBudgetUsd: 20,
     weeklyBudgetUsd: 10,
     fiveHourCapUsd: 3,
     discountPercent: 20,
-    storageLimitBytes: 10 * 1024 * 1024 * 1024,
+    recommended: true,
+    tagline: 'Best value for most users',
     features: [
-      { text: 'Higher included premium usage every billing cycle', included: true },
-      {
-        text: '20% premium-usage discount across integrations, bandwidth, and inference',
-        included: true,
-      },
-      { text: 'Pay-as-you-go top-ups for overflow usage', included: true },
+      { text: 'Everything in Free', included: true },
+      { text: '20x more usage', included: true },
+      { text: 'Cloud features enabled', included: true },
     ],
   },
   {
     tier: 'PRO',
     name: 'Pro',
-    monthlyPrice: 200,
-    annualPrice: 2000,
-    monthlyBudgetUsd: 200,
-    weeklyBudgetUsd: 100,
+    monthlyPrice: 199.99,
+    annualPrice: 1799.99,
+    monthlyBudgetUsd: 199,
+    weeklyBudgetUsd: 99,
     fiveHourCapUsd: 30,
     discountPercent: 40,
-    storageLimitBytes: 200 * 1024 * 1024 * 1024,
+    tagline: 'For power users and teams',
     features: [
-      { text: 'Largest included premium usage allocation', included: true },
-      { text: '40% premium-usage discount across integrations and inference', included: true },
-      { text: 'Best fit for heavy bandwidth and agent workloads', included: true },
+      { text: 'Everything in Basic', included: true },
+      { text: '40x more usage', included: true },
+      { text: 'Higher Rate Limits', included: true },
     ],
   },
 ];
@@ -111,12 +112,4 @@ export function getPlanMeta(tier: PlanTier): PlanMeta | undefined {
 export function formatUsdAmount(amount: number): string {
   if (Number.isInteger(amount)) return `$${amount}`;
   return `$${amount.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}`;
-}
-
-export function formatStorageLimit(bytes: number): string {
-  const gb = 1024 * 1024 * 1024;
-  const mb = 1024 * 1024;
-
-  if (bytes >= gb) return `${Math.round(bytes / gb)} GB`;
-  return `${Math.round(bytes / mb)} MB`;
 }

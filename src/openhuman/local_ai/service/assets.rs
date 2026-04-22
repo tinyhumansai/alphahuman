@@ -4,9 +4,12 @@ use futures_util::TryStreamExt;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::model_ids;
+use log::debug;
+
 use crate::openhuman::local_ai::paths::{
     resolve_stt_model_path, resolve_tts_voice_path, stt_model_target_path, tts_model_target_path,
 };
+use crate::openhuman::local_ai::presets::{self, VisionMode};
 use crate::openhuman::local_ai::types::{
     LocalAiAssetStatus, LocalAiAssetsStatus, LocalAiDownloadProgressItem, LocalAiDownloadsProgress,
 };
@@ -24,9 +27,61 @@ impl LocalAiService {
         let chat_ready = self.has_model(&chat_model).await.unwrap_or(false);
         let vision_ready = self.has_model(&vision_model).await.unwrap_or(false);
         let embedding_ready = self.has_model(&embedding_model).await.unwrap_or(false);
-        let stt_path = resolve_stt_model_path(config).ok();
-        let tts_path = resolve_tts_voice_path(config).ok();
+        let stt_resolve = resolve_stt_model_path(config);
+        let tts_resolve = resolve_tts_voice_path(config);
 
+        let stt_path = stt_resolve.as_ref().ok().cloned();
+        let tts_path = tts_resolve.as_ref().ok().cloned();
+
+        // STT and TTS are downloaded on-demand (first transcription / first
+        // synthesis).  When the model file is not yet on disk but a download
+        // URL is configured, report "ondemand" instead of "missing" so the
+        // UI can treat the capability as non-blocking.
+        let has_stt_url = config
+            .local_ai
+            .stt_download_url
+            .as_deref()
+            .is_some_and(|v| !v.trim().is_empty());
+        let has_tts_url = config
+            .local_ai
+            .tts_download_url
+            .as_deref()
+            .is_some_and(|v| !v.trim().is_empty());
+
+        let stt_state = if stt_path.is_some() {
+            "ready"
+        } else if has_stt_url {
+            "ondemand"
+        } else {
+            "missing"
+        };
+        let tts_state = if tts_path.is_some() {
+            "ready"
+        } else if has_tts_url {
+            "ondemand"
+        } else {
+            "missing"
+        };
+
+        if let Err(ref err) = stt_resolve {
+            debug!("[local_ai::assets_status] STT resolve failed (state={stt_state}): {err}");
+        }
+        if let Err(ref err) = tts_resolve {
+            debug!("[local_ai::assets_status] TTS resolve failed (state={tts_state}): {err}");
+        }
+
+        let stt_warning = match stt_state {
+            "ondemand" => {
+                Some("STT model will download on first transcription request.".to_string())
+            }
+            _ => None,
+        };
+        let tts_warning = match tts_state {
+            "ondemand" => Some("TTS voice will download on first synthesis request.".to_string()),
+            _ => None,
+        };
+
+        let vision_mode = presets::vision_mode_for_config(&config.local_ai);
         Ok(LocalAiAssetsStatus {
             chat: LocalAiAssetStatus {
                 state: if chat_ready { "ready" } else { "missing" }.to_string(),
@@ -36,11 +91,26 @@ impl LocalAiService {
                 warning: None,
             },
             vision: LocalAiAssetStatus {
-                state: if vision_ready { "ready" } else { "missing" }.to_string(),
+                state: match vision_mode {
+                    VisionMode::Disabled => "disabled",
+                    VisionMode::Ondemand if vision_ready => "ready",
+                    VisionMode::Ondemand => "ondemand",
+                    VisionMode::Bundled if vision_ready => "ready",
+                    VisionMode::Bundled => "missing",
+                }
+                .to_string(),
                 id: vision_model,
                 provider: "ollama".to_string(),
                 path: None,
-                warning: None,
+                warning: match vision_mode {
+                    VisionMode::Disabled => {
+                        Some("Vision is disabled for this RAM tier.".to_string())
+                    }
+                    VisionMode::Ondemand if !vision_ready => {
+                        Some("Vision model will download on first vision request.".to_string())
+                    }
+                    _ => None,
+                },
             },
             embedding: LocalAiAssetStatus {
                 state: if embedding_ready { "ready" } else { "missing" }.to_string(),
@@ -50,28 +120,18 @@ impl LocalAiService {
                 warning: None,
             },
             stt: LocalAiAssetStatus {
-                state: if stt_path.is_some() {
-                    "ready"
-                } else {
-                    "missing"
-                }
-                .to_string(),
+                state: stt_state.to_string(),
                 id: stt_model,
                 provider: "whisper.cpp".to_string(),
                 path: stt_path,
-                warning: None,
+                warning: stt_warning,
             },
             tts: LocalAiAssetStatus {
-                state: if tts_path.is_some() {
-                    "ready"
-                } else {
-                    "missing"
-                }
-                .to_string(),
+                state: tts_state.to_string(),
                 id: tts_voice,
                 provider: "piper".to_string(),
                 path: tts_path,
-                warning: None,
+                warning: tts_warning,
             },
             quantization: model_ids::effective_quantization(config),
         })
@@ -201,11 +261,16 @@ impl LocalAiService {
 
         self.ensure_ollama_server(config).await?;
 
-        let steps = vec![
+        let mut steps = vec![
             ("chat", model_ids::effective_chat_model_id(config)),
-            ("vision", model_ids::effective_vision_model_id(config)),
             ("embedding", model_ids::effective_embedding_model_id(config)),
         ];
+        if matches!(
+            presets::vision_mode_for_config(&config.local_ai),
+            VisionMode::Bundled
+        ) {
+            steps.insert(1, ("vision", model_ids::effective_vision_model_id(config)));
+        }
 
         let total = steps.len();
         for (index, (label, model_id)) in steps.into_iter().enumerate() {
@@ -243,6 +308,11 @@ impl LocalAiService {
         {
             let mut status = self.status.lock();
             status.state = "ready".to_string();
+            status.vision_state = match presets::vision_mode_for_config(&config.local_ai) {
+                VisionMode::Disabled => "disabled".to_string(),
+                VisionMode::Ondemand => "idle".to_string(),
+                VisionMode::Bundled => "ready".to_string(),
+            };
             status.download_progress = Some(1.0);
             status.downloaded_bytes = None;
             status.total_bytes = None;
@@ -277,6 +347,15 @@ impl LocalAiService {
                 self.ensure_ollama_model_available(&model, "chat").await?;
             }
             "vision" => {
+                if matches!(
+                    presets::vision_mode_for_config(&config.local_ai),
+                    VisionMode::Disabled
+                ) {
+                    return Err(
+                        "Vision is disabled for this RAM tier. Switch to the 4-8 GB tier or above to enable it."
+                            .to_string(),
+                    );
+                }
                 self.ensure_ollama_server(config).await?;
                 let model = model_ids::effective_vision_model_id(config);
                 self.ensure_ollama_model_available(&model, "vision").await?;

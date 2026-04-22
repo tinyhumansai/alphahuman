@@ -4,88 +4,82 @@ icon: screwdriver
 
 # Skills & Integrations
 
-OpenHuman extends its capabilities through two systems: a **skills engine** that adds new functionality to the assistant, and **integrations** that connect OpenHuman to external tools. Together, they allow OpenHuman to do more than analyze conversations; it can fetch data, run scheduled tasks, produce structured outputs, and write results to the tools you already use.
+OpenHuman extends its capabilities through Skills, organized into five categories accessible from the Skills tab in the bottom navigation. Each Skill is either a built-in desktop capability, a messaging channel, or a third-party integration that connects through OAuth.
 
----
+<figure><img src="../.gitbook/assets/9. Skills &#x26; Integrations@2x.png" alt=""><figcaption></figcaption></figure>
 
-## Skills Engine
+#### Built-in Skills
 
-Skills are sandboxed modules that run inside OpenHuman's native application. Each skill is an isolated unit with its own execution environment, storage, and permissions. Skills extend what the assistant can do without requiring an app update.
+Core desktop capabilities that run locally on your device.
 
-When you make a request, OpenHuman's AI automatically discovers which skills are available and decides whether to invoke them based on what you asked for. You do not need to manage skills manually. They are loaded, registered, and made available to the AI system transparently.
+**Screen Intelligence:** Captures windows, summarizes what is on screen, and feeds useful context into memory. Configurable capture frequency (\~5 seconds default), per-app allowlist and denylist controls. All processing happens locally.
 
-### What Skills Can Do
+**Text Auto-Complete:** Suggests inline completions while you type and lets you control where autocomplete is active. Powered by your local AI model and your memory context. Press Tab to accept suggestions.
 
-Skills operate within defined boundaries. A skill can:
+**Voice Intelligence:** Uses the microphone for dictation and voice-driven chat with your AI. All speech recognition runs locally on your device.
 
-- **Fetch external data:** make HTTP requests to APIs, retrieve information from services, and bring data into OpenHuman's context
-- **Run on a schedule:** execute at defined intervals using cron-style scheduling, enabling automated monitoring, reporting, or data collection
-- **Process and transform:** analyze, filter, or restructure data within its sandboxed environment, using its own local database for persistence
-- **Write outputs:** produce structured results that the AI can present to you or export through integrations
-- **Respond to events:** react to real-time events from the server, enabling workflows that trigger based on external conditions
+Each built-in Skill has a Setup or Enable button to activate it.
 
-### Isolation and Safety
+#### Channels
 
-Each skill runs in its own sandboxed environment with enforced resource limits. Skills cannot access each other's data or execution context. This means a misbehaving skill cannot affect the rest of the application or compromise your data.
+Messaging platforms that OpenHuman can send and receive messages through.
 
-Skills are discovered from a curated registry and filtered by platform compatibility. Only skills that support your current platform are loaded.
+**Telegram:** Send and receive messages via Telegram. Full two-way access including reading history, sending and replying, forwarding, editing, deleting, managing groups, handling reactions, polls, contacts, admin actions, and more. Over 80 distinct actions are available.
 
-{% hint style="info" %}
-Skills extend OpenHuman's capabilities without requiring trust beyond their declared scope. Each one is isolated, resource-limited, and independently revocable.
-{% endhint %}
+**Discord:** Send and receive messages via Discord. Two-way messaging across your Discord servers and channels.
 
----
+Both channels show "Not configured" until you click Setup and complete the connection flow.
 
-## Integrations
+#### Social
 
-Integrations connect OpenHuman to external tools so structured outputs can live where your team already works. Integrations are not about importing data into OpenHuman, they are about exporting intelligence out of it.
+Connect social platforms to extend your knowledge graph and post or interact across channels.
 
-### Supported Integrations
+**Facebook:** Create posts, manage pages, and work with Facebook social data.
 
-**Telegram:** OpenHuman connects to your Telegram account to read and analyze conversations, extract signals, summarize discussions, and generate context-aware responses. Access is scoped to the conversations you reference in your requests.
+**Instagram:** Manage Instagram publishing, messaging, and social content workflows.
 
-**Notion:** Export summaries, action items, decisions, and workflow records to your Notion workspace. OpenHuman writes structured documents that preserve the context of where outputs originated. Useful for building shared knowledge bases or living records.
+**Reddit:** Read posts, monitor communities, and participate in Reddit discussions.
 
-**Google Sheets:** Export tabular data such as logs, reports, extracted metrics, or tracking records. Useful for lightweight analysis, reporting, and audit trails.
+**Slack:** Send messages and read channel history in Slack.
 
-These integrations are optional and can be enabled or disabled at any time from your settings.
+#### Tools & Automation
 
-### How Data Moves
+Connect development and project management tools.
 
-Data moves from OpenHuman to external tools **only when you explicitly request it**.
+**GitHub:** Inspect repos, issues, and pull requests on GitHub.
 
-When a workflow, summary, or analysis is exported, OpenHuman writes structured data, not raw conversation text. There is no continuous sync, no background polling, and no automatic data transfer. Each export is a deliberate action you initiate.
+**Linear:** Triage and update issues in your Linear workspace.
 
-Integrations are write-oriented by default. OpenHuman does not read from external tools unless a specific workflow requires it and you have approved that behavior.
+#### Productivity
 
-{% hint style="info" %}
-**You control what leaves OpenHuman.** Nothing is exported to external tools without a clear, user-initiated action.
-{% endhint %}
+Connect your work tools so OpenHuman can pull context from email, calendar, documents, and spreadsheets.
 
----
+**Gmail:** Read, search, and send email through your Google account.
 
-## From Conversation to Action
+**Google Calendar:** List and manage events across your Google calendars.
 
-One of OpenHuman's core capabilities is turning unstructured conversations into structured, actionable outputs.
+**Google Drive:** Browse and fetch files from your Google Drive.
 
-When discussions lead to decisions, commitments, or tasks, OpenHuman can recognize these moments (when you ask it to analyze a conversation) and represent them as **workflows as** structured objects that capture what needs to happen, who is involved, and where the decision came from.
+**Google Sheets:** Read, update, and organize spreadsheets in Google Sheets.
 
-Workflows link back to the conversations they originated from, preserving intent and rationale. When connected to tools like Notion or Google Sheets, workflows can be exported without duplicating entire conversation histories.
+**Notion:** Read and edit pages, databases, and comments in Notion.
 
-Workflows exist to reduce coordination friction, not to replace dedicated project management systems. OpenHuman does not auto-assign tasks, enforce deadlines, or create workflows without your input.
+#### How Connections Work
 
----
+Most third-party integrations connect via Composio OAuth. When you click Connect on an integration, a browser window opens for authentication. Once you complete sign-in, the connection becomes active and OpenHuman can begin syncing data.
 
-## Intelligence Concepts
+Each integration shows its current status:
 
-OpenHuman works by translating raw conversation activity into a small number of structured concepts. These concepts allow the system to reason about communication, coordination, and trust without storing message histories.
+* **Not connected / Not configured:** Integration has not been set up.
+* **Connected:** Integration is active and syncing.
+* **Manage:** Active integration with options to reconfigure or disconnect.
 
-**Signals:** Structured interpretations extracted from conversations. A signal might represent a decision, warning, important update, or emerging theme. Signals are independent objects that can be filtered, referenced, or aggregated.
+#### What Skills Can Do
 
-**Claims:** Specific assertions that can be evaluated over time, such as predictions, commitments, or verifiable statements. Claims are tracked structurally and can resolve as accurate, inaccurate, or inconclusive.
+Skills operate within defined boundaries. A skill can fetch external data, run on a schedule, process and transform information, write structured outputs, and respond to events. Each skill runs in its own sandboxed environment with enforced resource limits.
 
-**Contributions:** Meaningful actions taken by participants within conversations, inferred from behavior and context. Contribution records support community recognition and value attribution.
+#### Privacy
 
-**Workflows:** Structured processes that originate from conversation, preserving the context of decisions and commitments as actionable objects.
+When you connect a Skill, OpenHuman has the access scope shown for that integration. All ingested data is processed and compressed locally on your device. Raw data does not leave your machine. Compressed summaries and structured context enter your Neocortex knowledge graph with AES-256-GCM encryption.
 
-These concepts allow OpenHuman to support trust, coordination, and intelligence without becoming invasive or requiring the storage of raw conversation data.
+You can revoke any connection at any time from the Skills tab.

@@ -1,3 +1,7 @@
+---
+icon: head-side-gear
+---
+
 # The Subconscious
 
 OpenHuman's subconscious is what separates it from every other AI agent. Most AI systems follow the conscious mind model: they wait for instructions and execute them. They cannot think on their own. OpenHuman can.
@@ -23,6 +27,8 @@ This loop runs over 10,000 times per day for less than $1. Memory recalls are ch
 The subconscious does not generate generic AI outputs. It produces context-specific intelligence grounded in your actual data.
 
 It might surface a risk you had not noticed: two team members making contradictory commitments in separate conversations. It might connect a trend in your trading data to a discussion from three weeks ago. It might remind you of a commitment you made that is approaching its deadline, before you think to ask.
+
+It might notice that the spreadsheet you were reviewing on screen this morning contradicts a decision your team made in Slack last week.
 
 The outputs are proactive. You do not need to prompt OpenHuman to get value from the subconscious. It works in the background, feeding insights into the system that are available when you interact.
 

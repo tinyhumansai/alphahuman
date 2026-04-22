@@ -7,22 +7,33 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tempfile::TempDir;
 
+// Note: the shared bus handler lock and the "install the real agent
+// handler for this test" helper both live in
+// `crate::openhuman::agent::bus` as `BUS_HANDLER_LOCK` (re-exported from
+// `crate::core::event_bus::testing`) and `use_real_agent_handler` so any
+// test in the workspace can drive the real `agent.run_turn` path without
+// depending on channels-specific scaffolding.
+//
+// For stub installations use `mock_agent_run_turn` (also in
+// `crate::openhuman::agent::bus`) or the generic `mock_bus_stub` in
+// `crate::core::event_bus::testing` for arbitrary bus methods.
+pub(super) use crate::openhuman::agent::bus::use_real_agent_handler;
+
 pub(super) fn make_workspace() -> TempDir {
     let tmp = TempDir::new().unwrap();
-    // Create minimal workspace files
+    // Create minimal workspace files — only the bundled identity prompts
+    // plus a MEMORY.md stand-in for what the archivist would write.
     std::fs::write(tmp.path().join("SOUL.md"), "# Soul\nBe helpful.").unwrap();
     std::fs::write(
         tmp.path().join("IDENTITY.md"),
         "# Identity\nName: OpenHuman",
     )
     .unwrap();
-    std::fs::write(tmp.path().join("USER.md"), "# User\nName: Test User").unwrap();
     std::fs::write(
-        tmp.path().join("AGENTS.md"),
-        "# Agents\nFollow instructions.",
+        tmp.path().join("PROFILE.md"),
+        "# User Profile\nName: Test User",
     )
     .unwrap();
-    std::fs::write(tmp.path().join("TOOLS.md"), "# Tools\nUse shell carefully.").unwrap();
     std::fs::write(
         tmp.path().join("HEARTBEAT.md"),
         "# Heartbeat\nCheck status.",

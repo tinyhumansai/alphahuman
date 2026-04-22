@@ -11,9 +11,6 @@ pub struct DelegateAgentConfig {
     /// Optional system prompt for the sub-agent
     #[serde(default)]
     pub system_prompt: Option<String>,
-    /// Optional API key override
-    #[serde(default)]
-    pub api_key: Option<String>,
     /// Temperature override
     #[serde(default)]
     pub temperature: Option<f64>,
@@ -52,6 +49,18 @@ pub struct AgentConfig {
     /// Channels not listed default to "readonly".
     #[serde(default)]
     pub channel_permissions: std::collections::HashMap<String, String>,
+
+    /// Maximum byte length of a single tool-result body before the
+    /// context pipeline's tool-result budget stage truncates it. Applied
+    /// inline at tool-execution time (before the result enters history),
+    /// so it is cache-safe. `0` disables the cap. Defaults to
+    /// `DEFAULT_TOOL_RESULT_BUDGET_BYTES` (16 KiB).
+    #[serde(default = "default_tool_result_budget_bytes")]
+    pub tool_result_budget_bytes: usize,
+}
+
+fn default_tool_result_budget_bytes() -> usize {
+    crate::openhuman::context::DEFAULT_TOOL_RESULT_BUDGET_BYTES
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -85,6 +94,7 @@ impl Default for AgentConfig {
             tool_dispatcher: default_agent_tool_dispatcher(),
             max_memory_context_chars: default_max_memory_context_chars(),
             channel_permissions: std::collections::HashMap::new(),
+            tool_result_budget_bytes: default_tool_result_budget_bytes(),
         }
     }
 }

@@ -24,10 +24,10 @@
 //!  19. Builder validation (missing required fields)
 //!  20. Idempotent system prompt insertion
 
-use crate::openhuman::agent::agent::Agent;
 use crate::openhuman::agent::dispatcher::{
     NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
+use crate::openhuman::agent::harness::session::Agent;
 use crate::openhuman::config::{AgentConfig, MemoryConfig};
 use crate::openhuman::memory::{self, Memory};
 use crate::openhuman::providers::{
@@ -247,7 +247,7 @@ fn make_memory() -> (Arc<dyn Memory>, tempfile::TempDir) {
         backend: "none".into(),
         ..MemoryConfig::default()
     };
-    let mem = Arc::from(memory::create_memory(&cfg, tmp.path(), None).unwrap());
+    let mem = Arc::from(memory::create_memory(&cfg, tmp.path()).unwrap());
     (mem, tmp)
 }
 
@@ -257,7 +257,7 @@ fn make_sqlite_memory() -> (Arc<dyn Memory>, tempfile::TempDir) {
         backend: "sqlite".into(),
         ..MemoryConfig::default()
     };
-    let mem = Arc::from(memory::create_memory(&cfg, tmp.path(), None).unwrap());
+    let mem = Arc::from(memory::create_memory(&cfg, tmp.path()).unwrap());
     (mem, tmp)
 }
 

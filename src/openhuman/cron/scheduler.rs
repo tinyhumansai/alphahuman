@@ -1,9 +1,9 @@
+use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::config::Config;
 use crate::openhuman::cron::{
     due_jobs, next_run_for_schedule, record_last_run, record_run, remove_job, reschedule_after_run,
     update_job, CronJob, CronJobPatch, DeliveryConfig, JobType, Schedule, SessionTarget,
 };
-use crate::openhuman::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::security::SecurityPolicy;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -19,7 +19,8 @@ const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
 pub async fn run(config: Config) -> Result<()> {
     // Ensure the global event bus is initialized so cron delivery events
     // are not silently dropped. This is a no-op if already initialized.
-    crate::openhuman::event_bus::init_global(crate::openhuman::event_bus::DEFAULT_CAPACITY);
+    crate::core::event_bus::init_global(crate::core::event_bus::DEFAULT_CAPACITY);
+    crate::openhuman::health::bus::register_health_subscriber();
 
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
@@ -28,7 +29,9 @@ pub async fn run(config: Config) -> Result<()> {
         &config.workspace_dir,
     ));
 
-    crate::openhuman::health::mark_component_ok("scheduler");
+    publish_global(DomainEvent::SystemStartup {
+        component: "scheduler".to_string(),
+    });
 
     loop {
         interval.tick().await;
@@ -36,7 +39,11 @@ pub async fn run(config: Config) -> Result<()> {
         let jobs = match due_jobs(&config, Utc::now()) {
             Ok(jobs) => jobs,
             Err(e) => {
-                crate::openhuman::health::mark_component_error("scheduler", e.to_string());
+                publish_global(DomainEvent::HealthChanged {
+                    component: "scheduler".to_string(),
+                    healthy: false,
+                    message: Some(e.to_string()),
+                });
                 tracing::warn!("Scheduler query failed: {e}");
                 continue;
             }
@@ -95,12 +102,19 @@ async fn process_due_jobs(config: &Config, security: &Arc<SecurityPolicy>, jobs:
     }))
     .buffer_unordered(max_concurrent);
 
-    while let Some((job_id, success)) = in_flight.next().await {
-        if !success {
-            crate::openhuman::health::mark_component_error(
-                "scheduler",
-                format!("job {job_id} failed"),
-            );
+    while let Some((job_id, success, failure_message)) = in_flight.next().await {
+        if success {
+            publish_global(DomainEvent::HealthChanged {
+                component: "scheduler".to_string(),
+                healthy: true,
+                message: None,
+            });
+        } else {
+            publish_global(DomainEvent::HealthChanged {
+                component: "scheduler".to_string(),
+                healthy: false,
+                message: Some(failure_message.unwrap_or_else(|| format!("job {job_id} failed"))),
+            });
         }
     }
 }
@@ -109,34 +123,87 @@ async fn execute_and_persist_job(
     config: &Config,
     security: &SecurityPolicy,
     job: &CronJob,
-) -> (String, bool) {
-    crate::openhuman::health::mark_component_ok("scheduler");
+) -> (String, bool, Option<String>) {
     warn_if_high_frequency_agent_job(job);
 
     let started_at = Utc::now();
     let (success, output) = execute_job_with_retry(config, security, job).await;
     let finished_at = Utc::now();
     let success = persist_job_result(config, job, success, &output, started_at, finished_at).await;
+    let failure_message =
+        (!success).then(|| crate::openhuman::util::truncate_with_ellipsis(&output, 256));
 
-    (job.id.clone(), success)
+    (job.id.clone(), success, failure_message)
 }
 
 async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
+    use crate::openhuman::agent::Agent;
+
     let name = job.name.clone().unwrap_or_else(|| "cron-job".to_string());
     let prompt = job.prompt.clone().unwrap_or_default();
     let prefixed_prompt = format!("[cron:{} {name}] {prompt}", job.id);
-    let model_override = job.model.clone();
+
+    // Apply per-job model override onto a cloned Config, so the Agent
+    // sees it through the normal `default_model` path without mutating
+    // the caller's config.
+    let mut effective = config.clone();
+    if let Some(model) = job.model.clone() {
+        effective.default_model = Some(model);
+    }
+
+    // When an agent_id is set, resolve the built-in definition and apply
+    // its model hint, iteration cap, and prompt body so the cron job
+    // runs with the definition's constraints instead of the generic
+    // Agent::from_config defaults.
+    if let Some(ref agent_id) = job.agent_id {
+        if let Some(registry) =
+            crate::openhuman::agent::harness::definition::AgentDefinitionRegistry::global()
+        {
+            if let Some(def) = registry.get(agent_id) {
+                tracing::debug!(
+                    job_id = %job.id,
+                    agent_id = %agent_id,
+                    max_iterations = def.max_iterations,
+                    "[cron] applying agent definition overrides"
+                );
+                let fallback_model = effective
+                    .default_model
+                    .clone()
+                    .unwrap_or_else(|| crate::openhuman::config::DEFAULT_MODEL.to_string());
+                effective.default_model = Some(def.model.resolve(&fallback_model));
+                effective.agent.max_tool_iterations = def.max_iterations;
+            } else {
+                tracing::warn!(
+                    job_id = %job.id,
+                    agent_id = %agent_id,
+                    "[cron] agent_id not found in registry — falling back to generic agent"
+                );
+            }
+        } else {
+            tracing::warn!(
+                job_id = %job.id,
+                "[cron] AgentDefinitionRegistry not initialized — falling back to generic agent"
+            );
+        }
+    }
 
     let run_result = match job.session_target {
         SessionTarget::Main | SessionTarget::Isolated => {
-            crate::openhuman::agent::run(
-                config.clone(),
-                Some(prefixed_prompt),
-                model_override,
-                config.default_temperature,
-                vec![],
-            )
-            .await
+            tracing::debug!(
+                job_id = %job.id,
+                target = ?job.session_target,
+                "[cron] building isolated agent for scheduled job"
+            );
+            match Agent::from_config(&effective) {
+                Ok(mut agent) => {
+                    // Tag events so downstream subscribers can correlate
+                    // cron-triggered turns. `cron` is the channel so the
+                    // event bus can filter from other flows (`cli`, `web`…).
+                    agent.set_event_context(format!("cron:{}", job.id), "cron");
+                    agent.run_single(&prefixed_prompt).await
+                }
+                Err(e) => Err(e),
+            }
         }
     };
 
@@ -243,35 +310,55 @@ fn warn_if_high_frequency_agent_job(job: &CronJob) {
 
 async fn deliver_if_configured(_config: &Config, job: &CronJob, output: &str) -> Result<()> {
     let delivery: &DeliveryConfig = &job.delivery;
-    if !delivery.mode.eq_ignore_ascii_case("announce") {
-        return Ok(());
+
+    let mode = delivery.mode.trim().to_ascii_lowercase();
+    match mode.as_str() {
+        // Proactive delivery — the channels module decides where to send.
+        // Used by morning briefings, welcome messages, and other
+        // user-facing proactive agents.
+        "proactive" => {
+            let source = format!("cron:{}", job.id);
+            tracing::debug!(
+                job_id = %job.id,
+                source = %source,
+                "[cron] publishing ProactiveMessageRequested event"
+            );
+            publish_global(DomainEvent::ProactiveMessageRequested {
+                source,
+                message: output.to_string(),
+                job_name: job.name.clone(),
+            });
+        }
+
+        // Announce delivery — the cron job specifies the exact channel
+        // and target. Used for explicit channel-targeted output.
+        "announce" => {
+            let channel = delivery
+                .channel
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("delivery.channel is required for announce mode"))?;
+            let target = delivery
+                .to
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("delivery.to is required for announce mode"))?;
+
+            tracing::debug!(
+                job_id = %job.id,
+                channel = %channel,
+                target = %target,
+                "[cron] publishing CronDeliveryRequested event"
+            );
+            publish_global(DomainEvent::CronDeliveryRequested {
+                job_id: job.id.clone(),
+                channel: channel.to_string(),
+                target: target.to_string(),
+                output: output.to_string(),
+            });
+        }
+
+        // No delivery configured — output is stored in last_output only.
+        _ => {}
     }
-
-    let channel = delivery
-        .channel
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("delivery.channel is required for announce mode"))?;
-    let target = delivery
-        .to
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("delivery.to is required for announce mode"))?;
-
-    tracing::debug!(
-        job_id = %job.id,
-        channel = %channel,
-        target = %target,
-        "[cron] publishing CronDeliveryRequested event"
-    );
-
-    // Publish the delivery request as an event. The channels module's
-    // CronDeliverySubscriber handles the actual dispatch, decoupling
-    // the cron scheduler from channel implementations.
-    publish_global(DomainEvent::CronDeliveryRequested {
-        job_id: job.id.clone(),
-        channel: channel.to_string(),
-        target: target.to_string(),
-        output: output.to_string(),
-    });
 
     Ok(())
 }
@@ -461,6 +548,7 @@ mod tests {
             job_type: JobType::Shell,
             session_target: SessionTarget::Isolated,
             model: None,
+            agent_id: None,
             enabled: true,
             delivery: DeliveryConfig::default(),
             delete_after_run: false,
@@ -489,7 +577,13 @@ mod tests {
     async fn run_job_command_failure() {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp).await;
-        let job = test_job("ls definitely_missing_file_for_scheduler_test");
+        // Pin the absolute path so `sh -lc` doesn't pick up a
+        // homebrew / PATH-shadowed `ls` that macOS SIP refuses to
+        // execute under an unsigned cargo-test binary. `/bin/ls` is
+        // an Apple-signed system binary on macOS and present on
+        // Linux, so this keeps CI behaviour identical while making
+        // local dev runs deterministic.
+        let job = test_job("/bin/ls definitely_missing_file_for_scheduler_test");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
         let (success, output) = run_job_command(&config, &security, &job).await;
@@ -503,7 +597,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut config = test_config(&tmp).await;
         config.autonomy.allowed_commands = vec!["sleep".into()];
-        let job = test_job("sleep 1");
+        // Pin `/bin/sleep` — see note on `run_job_command_failure` for why.
+        let job = test_job("/bin/sleep 1");
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
         let (success, output) =
@@ -578,13 +673,16 @@ mod tests {
         config.autonomy.allowed_commands = vec!["sh".into()];
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
+        // Pin absolute paths inside the script too — some dev
+        // environments have a homebrew `touch` on PATH that macOS
+        // SIP refuses to execute under an unsigned cargo-test binary.
         tokio::fs::write(
             config.workspace_dir.join("retry-once.sh"),
-            "#!/bin/sh\nif [ -f retry-ok.flag ]; then\n  echo recovered\n  exit 0\nfi\ntouch retry-ok.flag\nexit 1\n",
+            "#!/bin/sh\nif [ -f retry-ok.flag ]; then\n  echo recovered\n  exit 0\nfi\n/usr/bin/touch retry-ok.flag\nexit 1\n",
         )
         .await
         .unwrap();
-        let job = test_job("sh ./retry-once.sh");
+        let job = test_job("/bin/sh ./retry-once.sh");
 
         let (success, output) = execute_job_with_retry(&config, &security, &job).await;
         assert!(success);
@@ -599,7 +697,8 @@ mod tests {
         config.reliability.provider_backoff_ms = 1;
         let security = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
 
-        let job = test_job("ls always_missing_for_retry_test");
+        // Pin `/bin/ls` — see note on `run_job_command_failure`.
+        let job = test_job("/bin/ls always_missing_for_retry_test");
 
         let (success, output) = execute_job_with_retry(&config, &security, &job).await;
         assert!(!success);
@@ -702,11 +801,11 @@ mod tests {
 
     #[tokio::test]
     async fn deliver_if_configured_publishes_event_for_announce_mode() {
-        use crate::openhuman::event_bus::{self, DomainEvent, EventHandler};
+        use crate::core::event_bus::{DomainEvent, EventHandler};
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         // Create an isolated bus for this test.
-        let bus = crate::openhuman::event_bus::EventBus::create(16);
+        let bus = crate::core::event_bus::EventBus::create(16);
 
         let received = Arc::new(AtomicUsize::new(0));
         let received_clone = Arc::clone(&received);
@@ -753,6 +852,145 @@ mod tests {
         assert_eq!(received.load(Ordering::SeqCst), 1);
 
         // Also verify the function itself succeeds.
+        assert!(deliver_if_configured(&config, &job, "hello").await.is_ok());
+    }
+
+    #[test]
+    fn is_one_shot_auto_delete_true_for_at_schedule_with_flag() {
+        let mut job = test_job("echo hi");
+        job.delete_after_run = true;
+        job.schedule = Schedule::At { at: Utc::now() };
+        assert!(is_one_shot_auto_delete(&job));
+    }
+
+    #[test]
+    fn is_one_shot_auto_delete_false_for_cron_schedule() {
+        let mut job = test_job("echo hi");
+        job.delete_after_run = true;
+        job.schedule = Schedule::Cron {
+            expr: "0 * * * *".into(),
+            tz: None,
+        };
+        assert!(!is_one_shot_auto_delete(&job));
+    }
+
+    #[test]
+    fn is_one_shot_auto_delete_false_when_flag_not_set() {
+        let mut job = test_job("echo hi");
+        job.delete_after_run = false;
+        job.schedule = Schedule::At { at: Utc::now() };
+        assert!(!is_one_shot_auto_delete(&job));
+    }
+
+    #[test]
+    fn is_env_assignment_true() {
+        assert!(is_env_assignment("FOO=bar"));
+        assert!(is_env_assignment("_VAR=1"));
+    }
+
+    #[test]
+    fn is_env_assignment_false() {
+        assert!(!is_env_assignment("echo"));
+        assert!(!is_env_assignment("=bad"));
+        assert!(!is_env_assignment("123=nope"));
+        assert!(!is_env_assignment(""));
+    }
+
+    #[test]
+    fn strip_wrapping_quotes_removes_quotes() {
+        assert_eq!(strip_wrapping_quotes("\"hello\""), "hello");
+        assert_eq!(strip_wrapping_quotes("'world'"), "world");
+        assert_eq!(strip_wrapping_quotes("noquotes"), "noquotes");
+        assert_eq!(strip_wrapping_quotes(""), "");
+    }
+
+    #[test]
+    fn forbidden_path_argument_allows_safe_commands() {
+        let policy = SecurityPolicy::default();
+        assert!(forbidden_path_argument(&policy, "echo hello").is_none());
+        assert!(forbidden_path_argument(&policy, "date").is_none());
+    }
+
+    #[test]
+    fn forbidden_path_argument_skips_flags_and_urls() {
+        let policy = SecurityPolicy::default();
+        assert!(forbidden_path_argument(&policy, "curl https://example.com").is_none());
+        assert!(forbidden_path_argument(&policy, "ls -la").is_none());
+    }
+
+    #[test]
+    fn warn_if_high_frequency_agent_job_does_not_panic_on_non_agent() {
+        let mut job = test_job("echo hi");
+        job.job_type = JobType::Shell;
+        warn_if_high_frequency_agent_job(&job); // should not panic
+    }
+
+    #[test]
+    fn warn_if_high_frequency_agent_job_does_not_panic_on_at_schedule() {
+        let mut job = test_job("echo hi");
+        job.job_type = JobType::Agent;
+        job.schedule = Schedule::At { at: Utc::now() };
+        warn_if_high_frequency_agent_job(&job); // should not panic
+    }
+
+    #[test]
+    fn warn_if_high_frequency_agent_job_handles_every_ms() {
+        let mut job = test_job("echo hi");
+        job.job_type = JobType::Agent;
+        job.schedule = Schedule::Every { every_ms: 60_000 }; // 1 minute — too frequent
+        warn_if_high_frequency_agent_job(&job); // should warn but not panic
+    }
+
+    #[tokio::test]
+    async fn deliver_if_configured_skips_empty_mode() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let mut job = test_job("echo ok");
+        job.delivery.mode = "".into();
+        assert!(deliver_if_configured(&config, &job, "output").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn deliver_if_configured_announce_missing_channel_errors() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let mut job = test_job("echo ok");
+        job.delivery = DeliveryConfig {
+            mode: "announce".into(),
+            channel: None,
+            to: Some("target".into()),
+            best_effort: true,
+        };
+        let result = deliver_if_configured(&config, &job, "out").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn deliver_if_configured_announce_missing_target_errors() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let mut job = test_job("echo ok");
+        job.delivery = DeliveryConfig {
+            mode: "announce".into(),
+            channel: Some("telegram".into()),
+            to: None,
+            best_effort: true,
+        };
+        let result = deliver_if_configured(&config, &job, "out").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn deliver_if_configured_proactive_mode_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let mut job = test_job("echo ok");
+        job.delivery = DeliveryConfig {
+            mode: "proactive".into(),
+            channel: None,
+            to: None,
+            best_effort: true,
+        };
         assert!(deliver_if_configured(&config, &job, "hello").await.is_ok());
     }
 }

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-// Re-export the unified ToolResult from the skills module so all tools use one type.
+// Re-export the unified ToolResult from the lightweight skills types module so all tools use one type.
 pub use crate::openhuman::skills::types::{ToolContent, ToolResult};
 
 /// Controls where a tool is available.
@@ -14,6 +14,40 @@ pub enum ToolScope {
     AgentOnly,
     /// Only available via explicit CLI/RPC invocation (not autonomous agent).
     CliRpcOnly,
+}
+
+/// Category of a tool — used by the sub-agent runner to scope which
+/// tools a given sub-agent is allowed to see.
+///
+/// The distinction matters because:
+///
+/// - **System tools** are built-in Rust implementations (shell, file_read,
+///   file_write, cron_*, memory_*, …) that run inside the core process
+///   with direct host access.
+/// - **Skill tools** are integration-facing tools that talk to external
+///   services (for example Composio-backed SaaS actions).
+///
+/// The orchestrator uses this category to spawn dedicated tool-execution
+/// sub-agents: one scoped to `Skill` for service integrations (running
+/// with the backend's `agentic` model hint), and others scoped to
+/// `System` for code/file/host work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCategory {
+    /// Built-in Rust tools with direct host access.
+    #[default]
+    System,
+    /// Integration-facing tools that reach external services.
+    Skill,
+}
+
+impl std::fmt::Display for ToolCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::System => write!(f, "system"),
+            Self::Skill => write!(f, "skill"),
+        }
+    }
 }
 
 /// Permission level required to execute a tool.
@@ -56,7 +90,7 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
-/// Core tool trait — implement for any capability (built-in or skill-based).
+/// Core tool trait — implement for any capability (built-in or integration-based).
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// Tool name (used in LLM function calling)
@@ -83,6 +117,12 @@ pub trait Tool: Send + Sync {
     /// Override to restrict (e.g. `CliRpcOnly` for phone calls).
     fn scope(&self) -> ToolScope {
         ToolScope::All
+    }
+
+    /// Category of this tool — `System` for built-in Rust tools (default)
+    /// or `Skill` for integration-facing tools.
+    fn category(&self) -> ToolCategory {
+        ToolCategory::System
     }
 
     /// Get the full spec for LLM registration
@@ -162,5 +202,102 @@ mod tests {
 
         assert!(parsed.is_error);
         assert_eq!(parsed.output(), "boom");
+    }
+
+    // ── Default trait-method values ────────────────────────────────
+
+    #[test]
+    fn default_permission_level_is_read_only() {
+        let tool = DummyTool;
+        assert_eq!(tool.permission_level(), PermissionLevel::ReadOnly);
+    }
+
+    #[test]
+    fn default_scope_is_all() {
+        let tool = DummyTool;
+        assert_eq!(tool.scope(), ToolScope::All);
+    }
+
+    #[test]
+    fn default_category_is_system() {
+        let tool = DummyTool;
+        assert_eq!(tool.category(), ToolCategory::System);
+    }
+
+    // ── PermissionLevel ordering ───────────────────────────────────
+
+    #[test]
+    fn permission_level_is_totally_ordered_from_none_to_dangerous() {
+        // The runtime compares PermissionLevel as `<` to reject tools whose
+        // required level exceeds the channel max, so the ordering is a
+        // load-bearing invariant.
+        assert!(PermissionLevel::None < PermissionLevel::ReadOnly);
+        assert!(PermissionLevel::ReadOnly < PermissionLevel::Write);
+        assert!(PermissionLevel::Write < PermissionLevel::Execute);
+        assert!(PermissionLevel::Execute < PermissionLevel::Dangerous);
+    }
+
+    #[test]
+    fn permission_level_default_is_read_only() {
+        assert_eq!(PermissionLevel::default(), PermissionLevel::ReadOnly);
+    }
+
+    #[test]
+    fn permission_level_display_matches_variant_name() {
+        assert_eq!(PermissionLevel::None.to_string(), "None");
+        assert_eq!(PermissionLevel::ReadOnly.to_string(), "ReadOnly");
+        assert_eq!(PermissionLevel::Write.to_string(), "Write");
+        assert_eq!(PermissionLevel::Execute.to_string(), "Execute");
+        assert_eq!(PermissionLevel::Dangerous.to_string(), "Dangerous");
+    }
+
+    #[test]
+    fn permission_level_round_trips_as_json_number() {
+        for level in [
+            PermissionLevel::None,
+            PermissionLevel::ReadOnly,
+            PermissionLevel::Write,
+            PermissionLevel::Execute,
+            PermissionLevel::Dangerous,
+        ] {
+            let s = serde_json::to_string(&level).unwrap();
+            let back: PermissionLevel = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, level);
+        }
+    }
+
+    // ── ToolCategory ───────────────────────────────────────────────
+
+    #[test]
+    fn tool_category_default_is_system() {
+        assert_eq!(ToolCategory::default(), ToolCategory::System);
+    }
+
+    #[test]
+    fn tool_category_display_is_lowercase() {
+        assert_eq!(ToolCategory::System.to_string(), "system");
+        assert_eq!(ToolCategory::Skill.to_string(), "skill");
+    }
+
+    #[test]
+    fn tool_category_serde_uses_snake_case() {
+        // The runtime relies on snake_case JSON for `category` in agent
+        // definitions — catch any rename that would break user-facing
+        // definition files.
+        let s = serde_json::to_string(&ToolCategory::System).unwrap();
+        assert_eq!(s, "\"system\"");
+        let s = serde_json::to_string(&ToolCategory::Skill).unwrap();
+        assert_eq!(s, "\"skill\"");
+        let back: ToolCategory = serde_json::from_str("\"skill\"").unwrap();
+        assert_eq!(back, ToolCategory::Skill);
+    }
+
+    // ── ToolScope ──────────────────────────────────────────────────
+
+    #[test]
+    fn tool_scope_variants_are_distinct() {
+        assert_ne!(ToolScope::All, ToolScope::AgentOnly);
+        assert_ne!(ToolScope::All, ToolScope::CliRpcOnly);
+        assert_ne!(ToolScope::AgentOnly, ToolScope::CliRpcOnly);
     }
 }

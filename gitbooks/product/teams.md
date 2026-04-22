@@ -8,19 +8,19 @@ OpenHuman supports team workspaces for organizations that need shared access, ce
 
 Teams are designed for professional environments where multiple people rely on OpenHuman and need shared administrative control without compromising individual privacy.
 
----
+***
 
 ## Team Workspaces
 
 A team workspace is a shared environment where members access OpenHuman under a unified account structure. Workspaces provide:
 
-- **Centralized billing:** one subscription covers all team members, with usage tracked per member
-- **Member management:** invite, remove, and manage team members from a single dashboard
-- **Shared configuration:** team-level settings and preferences that apply across the workspace
+* **Centralized billing:** one subscription covers all team members, with usage tracked per member
+* **Member management:** invite, remove, and manage team members from a single dashboard
+* **Shared configuration:** team-level settings and preferences that apply across the workspace
 
 Each team has a unique identifier and can be managed independently from individual accounts. Users can belong to a team while still maintaining their personal OpenHuman account and settings.
 
----
+***
 
 ## Roles and Permissions
 
@@ -32,7 +32,7 @@ Team workspaces support three roles:
 
 **Member:** Standard access to OpenHuman within the team workspace. Members use the product normally and benefit from the team subscription, but cannot modify team settings or manage other members.
 
----
+***
 
 ## Shared Intelligence
 
@@ -50,15 +50,27 @@ All shared intelligence is derived from aggregated and anonymized signals. OpenH
 **Privacy is preserved in teams.** Shared intelligence is always aggregated. Individual message content and personal analysis remain private to each user.
 {% endhint %}
 
----
+***
 
 ## Referral Program
 
 OpenHuman offers a referral system where existing users can invite others and earn credits.
 
-- Generate a personal invite code from your account settings
-- Share the code with colleagues or collaborators
-- Both the referrer and the new user receive credits when the invitation is accepted
-- Additional credit bonuses may apply when referred users subscribe to a paid plan
+* Generate a personal invite code from your account settings
+* Share the code with colleagues or collaborators
+* Both the referrer and the new user receive credits when the invitation is accepted
+* Additional credit bonuses may apply when referred users subscribe to a paid plan
 
 Referral credits can be used toward OpenHuman usage across any plan tier.
+
+***
+
+## Managing Teams
+
+Navigate to Settings > Account & Security > Team to manage your teams.
+
+**Your Teams:** Shows all teams you belong to with your role (Owner or Member), plan tier (Free, Basic, or Pro), and status (Active or Inactive).
+
+**Create New Team:** Enter a team name and click Create.
+
+**Join Existing Team:** Enter an invite code provided by a team owner and click Join.

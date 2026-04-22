@@ -51,11 +51,10 @@ impl EngineState {
                 screen_recording: PermissionState::Unknown,
                 accessibility: PermissionState::Unknown,
                 input_monitoring: PermissionState::Unknown,
+                microphone: PermissionState::Unknown,
             },
             features: AccessibilityFeatures {
                 screen_monitoring: true,
-                device_control: true,
-                predictive_input: config.autocomplete_enabled,
             },
             config,
             session: None,

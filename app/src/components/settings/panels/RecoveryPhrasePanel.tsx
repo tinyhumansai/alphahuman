@@ -1,10 +1,8 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { skillManager } from '../../../lib/skills/manager';
 import { useCoreState } from '../../../providers/CoreStateProvider';
 import {
   deriveAesKeyFromMnemonic,
-  deriveEvmAddressFromMnemonic,
   generateMnemonicPhrase,
   MNEMONIC_GENERATE_WORD_COUNT,
   validateMnemonicPhrase,
@@ -17,7 +15,7 @@ const BIP39_IMPORT_LENGTHS = [12, 15, 18, 21, 24] as const;
 const IMPORT_SLOTS_INITIAL = MNEMONIC_GENERATE_WORD_COUNT;
 
 const RecoveryPhrasePanel = () => {
-  const { navigateBack } = useSettingsNavigation();
+  const { navigateBack, breadcrumbs } = useSettingsNavigation();
   const { snapshot, setEncryptionKey } = useCoreState();
   const user = snapshot.currentUser;
 
@@ -177,14 +175,11 @@ const RecoveryPhrasePanel = () => {
       }
 
       const aesKey = deriveAesKeyFromMnemonic(phraseToUse);
-      const walletAddress = deriveEvmAddressFromMnemonic(phraseToUse);
-
       if (!user?._id) {
         setError('User not loaded. Please sign in again or refresh the page.');
         return;
       }
       await setEncryptionKey(aesKey);
-      await skillManager.setWalletAddress(walletAddress);
       setSuccess(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
@@ -201,7 +196,12 @@ const RecoveryPhrasePanel = () => {
 
   return (
     <div>
-      <SettingsHeader title="Recovery Phrase" showBackButton onBack={navigateBack} />
+      <SettingsHeader
+        title="Recovery Phrase"
+        showBackButton
+        onBack={navigateBack}
+        breadcrumbs={breadcrumbs}
+      />
 
       <div>
         <div className="p-4">

@@ -18,9 +18,6 @@ pub struct HeartbeatConfig {
     /// Maximum token budget for the situation report (default 40k).
     #[serde(default = "default_context_budget")]
     pub context_budget_tokens: u32,
-    /// Override model for escalation (default: use config.default_model).
-    #[serde(default)]
-    pub escalation_model: Option<String>,
 }
 
 fn default_context_budget() -> u32 {
@@ -30,11 +27,10 @@ fn default_context_budget() -> u32 {
 impl Default for HeartbeatConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            interval_minutes: 15,
-            inference_enabled: false,
+            enabled: true,
+            interval_minutes: 5,
+            inference_enabled: true,
             context_budget_tokens: default_context_budget(),
-            escalation_model: None,
         }
     }
 }

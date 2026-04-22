@@ -6,20 +6,21 @@
 //! a unified memory interface for AI agents.
 
 pub mod chunker;
+pub mod conversations;
 pub mod embeddings;
 pub mod global;
 pub mod ingestion;
 pub mod ingestion_queue;
 pub mod ops;
-pub(crate) mod relex;
 pub mod rpc_models;
 pub mod schemas;
 pub mod store;
 pub mod traits;
+pub mod tree;
 
 pub use ingestion::{
     ExtractedEntity, ExtractedRelation, ExtractionMode, MemoryIngestionConfig,
-    MemoryIngestionRequest, MemoryIngestionResult, DEFAULT_GLINER_RELEX_MODEL,
+    MemoryIngestionRequest, MemoryIngestionResult, DEFAULT_MEMORY_EXTRACTION_MODEL,
 };
 pub use ingestion_queue::{IngestionJob, IngestionQueue};
 pub use ops as rpc;
@@ -36,3 +37,4 @@ pub use store::{
     NamespaceQueryResult, NamespaceRetrievalContext, RetrievalScoreBreakdown, UnifiedMemory,
 };
 pub use traits::{Memory, MemoryCategory, MemoryEntry};
+pub use tree::{all_memory_tree_controller_schemas, all_memory_tree_registered_controllers};
