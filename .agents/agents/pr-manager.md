@@ -188,20 +188,22 @@ If push is rejected because the remote advanced, use `git pull --rebase` only af
 
 For fork PRs without push access, clearly report that commits are local and instruct the user/author how to pull them. Do not attempt to push.
 
-### 9. Optional Re-review Loop
+### 9. Wait for CodeRabbit Re-review (REQUIRED)
 
-If fixes were pushed and the user wants bot re-review:
+After pushing, you MUST wait for CodeRabbit to re-review the new commits. Do not finalize the run early.
 
 - Record the pushed `HEAD` SHA and push timestamp.
-- Wait up to 10 minutes for new CodeRabbit comments or reviews.
-- Poll with:
+- **Sleep 10 minutes** (`sleep 600`) to give CodeRabbit time to post its review.
+- Then poll for new reviews/comments from `coderabbitai` created after the push timestamp:
 
 ```bash
 gh pr view <PR> --json reviews --jq '.reviews[] | select(.author.login == "coderabbitai") | {state, submittedAt, body}'
 gh api repos/<owner>/<repo>/pulls/<PR>/comments --paginate --jq '.[] | select(.user.login == "coderabbitai" and .created_at > "<push-timestamp>")'
 ```
 
-If new actionable comments appear, triage and address them once more if the direction is clear. Cap automated re-review handling at two cycles, then report remaining items.
+- If a new CodeRabbit review appears during or shortly after the 10-minute window, re-poll every 60s until it lands (cap total wait at 15 minutes).
+- If new actionable comments appear, loop back to triage → fix → push. Cap automated re-review handling at **two cycles**, then report remaining items to the user instead of looping further.
+- If no new review arrives after the window, proceed and note this explicitly in the final report.
 
 ## Final Report Format
 
