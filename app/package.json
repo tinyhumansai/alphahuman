@@ -55,6 +55,7 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@noble/secp256k1": "^3.0.0",
+    "@radix-ui/react-dialog": "^1",
     "@reduxjs/toolkit": "^2.11.2",
     "@scure/bip32": "^2.0.1",
     "@scure/bip39": "^2.0.1",
@@ -65,6 +66,7 @@
     "@tauri-apps/plugin-os": "^2.3.2",
     "@types/three": "^0.183.1",
     "buffer": "^6.0.3",
+    "cmdk": "^1",
     "debug": "^4.4.3",
     "lottie-react": "^2.4.1",
     "os-browserify": "^0.3.0",
