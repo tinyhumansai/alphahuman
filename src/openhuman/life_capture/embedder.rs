@@ -18,7 +18,12 @@ pub struct HostedEmbedder {
 
 impl HostedEmbedder {
     pub fn new(base_url: String, api_key: String, model: String) -> Self {
-        Self { base_url, api_key, model, http: reqwest::Client::new() }
+        Self {
+            base_url,
+            api_key,
+            model,
+            http: reqwest::Client::new(),
+        }
     }
 }
 
@@ -48,7 +53,10 @@ impl Embedder for HostedEmbedder {
             .http
             .post(&url)
             .bearer_auth(&self.api_key)
-            .json(&EmbedReq { input: texts, model: &self.model })
+            .json(&EmbedReq {
+                input: texts,
+                model: &self.model,
+            })
             .send()
             .await?
             .error_for_status()?
@@ -84,7 +92,9 @@ mod tests {
         let mock = server
             .mock_async(|when, then| {
                 when.method(POST).path("/v1/embeddings");
-                then.status(200).header("content-type", "application/json").json_body(body);
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .json_body(body);
             })
             .await;
 

@@ -1,11 +1,11 @@
 //! Controller schemas + handler adapters for curated memory.
 //!
-//! Exposes four controllers under the `memory_curated` namespace (the
+//! Exposes four controllers under the `curated_memory` namespace (the
 //! `memory` namespace is already owned by the long-term memory subsystem):
-//!   - memory_curated.read    — read a curated file ("memory" | "user")
-//!   - memory_curated.add     — append an entry, char-bounded
-//!   - memory_curated.replace — substring replace
-//!   - memory_curated.remove  — drop entries matching a needle
+//!   - curated_memory.read    — read a curated file ("memory" | "user")
+//!   - curated_memory.add     — append an entry, char-bounded
+//!   - curated_memory.replace — substring replace
+//!   - curated_memory.remove  — drop entries matching a needle
 
 use serde_json::{Map, Value};
 
@@ -27,17 +27,31 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
 
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
     vec![
-        RegisteredController { schema: schemas("read"), handler: handle_read },
-        RegisteredController { schema: schemas("add"), handler: handle_add },
-        RegisteredController { schema: schemas("replace"), handler: handle_replace },
-        RegisteredController { schema: schemas("remove"), handler: handle_remove },
+        RegisteredController {
+            schema: schemas("read"),
+            handler: handle_read,
+        },
+        RegisteredController {
+            schema: schemas("add"),
+            handler: handle_add,
+        },
+        RegisteredController {
+            schema: schemas("replace"),
+            handler: handle_replace,
+        },
+        RegisteredController {
+            schema: schemas("remove"),
+            handler: handle_remove,
+        },
     ]
 }
 
 fn file_input() -> FieldSchema {
     FieldSchema {
         name: "file",
-        ty: TypeSchema::Enum { variants: vec!["memory", "user"] },
+        ty: TypeSchema::Enum {
+            variants: vec!["memory", "user"],
+        },
         comment: "Which curated file to operate on: 'memory' (agent notes) or 'user' (user notes).",
         required: true,
     }

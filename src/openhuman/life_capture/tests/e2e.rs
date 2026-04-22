@@ -45,7 +45,10 @@ async fn ingest_then_retrieve_with_redaction_and_quote_strip() {
                On Mon, Apr 21, 2026 at 9:14 AM, Sarah <sarah@x> wrote:\n\
                > earlier text we don't want indexed";
     let cleaned = redact::redact(&quote_strip::strip_quoted_reply(raw));
-    assert!(!cleaned.contains("earlier text"), "quote-strip didn't drop the quoted block");
+    assert!(
+        !cleaned.contains("earlier text"),
+        "quote-strip didn't drop the quoted block"
+    );
     assert!(cleaned.contains("<EMAIL>"), "redact didn't mask the email");
 
     let item = Item {
