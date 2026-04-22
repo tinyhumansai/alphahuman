@@ -28,7 +28,7 @@ describe('WelcomeStep', () => {
     expect(onNext).toHaveBeenCalledTimes(1);
   });
 
-  it("CTA is always enabled (WelcomeStep has no disabled/loading props)", () => {
+  it('CTA is always enabled (WelcomeStep has no disabled/loading props)', () => {
     renderWithProviders(<WelcomeStep onNext={() => {}} />);
     expect(screen.getByRole('button', { name: "Let's Start" })).not.toBeDisabled();
   });
