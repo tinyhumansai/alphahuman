@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as chatService from '../../services/chatService';
 import { threadApi } from '../../services/api/threadApi';
 import { store } from '../../store';
+import { clearAllChatRuntime } from '../../store/chatRuntimeSlice';
 import { setStatusForUser } from '../../store/socketSlice';
-import { setSelectedThread } from '../../store/threadSlice';
+import { clearAllThreads, loadThreads, setSelectedThread } from '../../store/threadSlice';
 import ChatRuntimeProvider from '../ChatRuntimeProvider';
 
 vi.mock('../../services/chatService', async () => {
@@ -54,8 +55,8 @@ function renderProvider(): chatService.ChatEventListeners {
 function resetRuntimeState() {
   // Reset chatRuntime + thread slices to clean state by dispatching a thread
   // selection that clears ambient state.
-  store.dispatch({ type: 'thread/clearAllThreads' });
-  store.dispatch({ type: 'chatRuntime/clearAllChatRuntime' });
+  store.dispatch(clearAllThreads());
+  store.dispatch(clearAllChatRuntime());
   store.dispatch(setStatusForUser({ userId: '__pending__', status: 'disconnected' }));
 }
 
@@ -152,10 +153,13 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
 
   describe('proactive thread resolution', () => {
     it('reuses the selected thread when resolving a proactive: sender', async () => {
-      store.dispatch({
-        type: 'thread/loadThreads/fulfilled',
-        payload: { threads: [{ id: 'visible-thread', title: 'x' }] },
-      });
+      store.dispatch(
+        loadThreads.fulfilled(
+          { threads: [{ id: 'visible-thread', title: 'x' }] as never, count: 1 },
+          'req-id',
+          undefined
+        )
+      );
       store.dispatch(setSelectedThread('visible-thread'));
       const listeners = renderProvider();
 
@@ -165,16 +169,15 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
           request_id: 'req-p1',
           full_response: 'ping',
         });
-        // Allow the queued async proactive dispatch to flush.
-        await Promise.resolve();
-        await Promise.resolve();
       });
 
       // createNewThread must NOT be invoked when a visible thread already exists.
       expect(threadApi.createNewThread).not.toHaveBeenCalled();
-      expect(threadApi.appendMessage).toHaveBeenCalledWith(
-        'visible-thread',
-        expect.objectContaining({ content: 'ping', sender: 'agent' })
+      await waitFor(() =>
+        expect(threadApi.appendMessage).toHaveBeenCalledWith(
+          'visible-thread',
+          expect.objectContaining({ content: 'ping', sender: 'agent' })
+        )
       );
     });
 
@@ -196,11 +199,9 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
           request_id: 'req-p2',
           full_response: 'bootstrap msg',
         });
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
       });
 
+      await waitFor(() => expect(threadApi.appendMessage).toHaveBeenCalled());
       expect(threadApi.createNewThread).toHaveBeenCalledTimes(1);
       expect(threadApi.appendMessage).toHaveBeenCalledWith(
         'created-thread',
@@ -209,10 +210,13 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
     });
 
     it('deduplicates identical proactive messages from the same sender', async () => {
-      store.dispatch({
-        type: 'thread/loadThreads/fulfilled',
-        payload: { threads: [{ id: 'visible-thread', title: 'x' }] },
-      });
+      store.dispatch(
+        loadThreads.fulfilled(
+          { threads: [{ id: 'visible-thread', title: 'x' }] as never, count: 1 },
+          'req-id',
+          undefined
+        )
+      );
       store.dispatch(setSelectedThread('visible-thread'));
       const listeners = renderProvider();
 
@@ -225,12 +229,9 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
       await act(async () => {
         listeners.onProactiveMessage?.(event);
         listeners.onProactiveMessage?.(event);
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
       });
 
-      expect(threadApi.appendMessage).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(threadApi.appendMessage).toHaveBeenCalledTimes(1));
     });
   });
 

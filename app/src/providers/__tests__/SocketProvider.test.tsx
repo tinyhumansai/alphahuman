@@ -1,6 +1,8 @@
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { callCoreRpc } from '../../services/coreRpcClient';
+import { socketService } from '../../services/socketService';
 import { useCoreState } from '../CoreStateProvider';
 import SocketProvider from '../SocketProvider';
 
@@ -30,15 +32,8 @@ function setToken(token: string | null) {
 }
 
 describe('SocketProvider — token transitions', () => {
-  let socketService: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
-  let callCoreRpc: ReturnType<typeof vi.fn>;
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    socketService = (await import('../../services/socketService'))
-      .socketService as unknown as typeof socketService;
-    callCoreRpc = (await import('../../services/coreRpcClient'))
-      .callCoreRpc as unknown as ReturnType<typeof vi.fn>;
   });
 
   it('does not connect when mounted with a null token', () => {
@@ -49,8 +44,8 @@ describe('SocketProvider — token transitions', () => {
       </SocketProvider>
     );
 
-    expect(socketService.connect).not.toHaveBeenCalled();
-    expect(socketService.disconnect).not.toHaveBeenCalled();
+    expect(vi.mocked(socketService.connect)).not.toHaveBeenCalled();
+    expect(vi.mocked(socketService.disconnect)).not.toHaveBeenCalled();
   });
 
   it('connects socket and triggers sidecar RPC when a token first appears', () => {
@@ -61,9 +56,9 @@ describe('SocketProvider — token transitions', () => {
       </SocketProvider>
     );
 
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
-    expect(socketService.connect).toHaveBeenCalledWith('jwt-abc');
-    expect(callCoreRpc).toHaveBeenCalledWith(
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledWith('jwt-abc');
+    expect(vi.mocked(callCoreRpc)).toHaveBeenCalledWith(
       expect.objectContaining({ method: 'openhuman.socket_connect_with_session' })
     );
   });
@@ -75,7 +70,7 @@ describe('SocketProvider — token transitions', () => {
         <div />
       </SocketProvider>
     );
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(1);
 
     // Same token on re-render — should not trigger another connect.
     setToken('jwt-abc');
@@ -85,8 +80,8 @@ describe('SocketProvider — token transitions', () => {
       </SocketProvider>
     );
 
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
-    expect(socketService.disconnect).not.toHaveBeenCalled();
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.disconnect)).not.toHaveBeenCalled();
   });
 
   it('disconnects when the token is cleared after being set', () => {
@@ -96,7 +91,7 @@ describe('SocketProvider — token transitions', () => {
         <div />
       </SocketProvider>
     );
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(1);
 
     setToken(null);
     rerender(
@@ -105,7 +100,7 @@ describe('SocketProvider — token transitions', () => {
       </SocketProvider>
     );
 
-    expect(socketService.disconnect).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.disconnect)).toHaveBeenCalledTimes(1);
   });
 
   it('reconnects when the token rotates to a new value', () => {
@@ -115,8 +110,8 @@ describe('SocketProvider — token transitions', () => {
         <div />
       </SocketProvider>
     );
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
-    expect(socketService.connect).toHaveBeenLastCalledWith('jwt-first');
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(socketService.connect)).toHaveBeenLastCalledWith('jwt-first');
 
     setToken('jwt-second');
     rerender(
@@ -125,7 +120,7 @@ describe('SocketProvider — token transitions', () => {
       </SocketProvider>
     );
 
-    expect(socketService.connect).toHaveBeenCalledTimes(2);
-    expect(socketService.connect).toHaveBeenLastCalledWith('jwt-second');
+    expect(vi.mocked(socketService.connect)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(socketService.connect)).toHaveBeenLastCalledWith('jwt-second');
   });
 });
