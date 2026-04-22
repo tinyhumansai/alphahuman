@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 
 import { fetchNotifications, markNotificationRead } from '../../services/notificationService';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
-import { markRead as markReadAction, setNotifications } from '../../store/notificationsSlice';
+import {
+  markRead as markReadAction,
+  setNotifications,
+  setNotificationsError,
+  setNotificationsLoading,
+} from '../../store/notificationsSlice';
 import NotificationCard from './NotificationCard';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13,18 +18,32 @@ const NotificationCenter = () => {
   const dispatch = useAppDispatch();
   const { items, unreadCount, loading, error } = useAppSelector(s => s.notifications);
   const [selectedProvider, setSelectedProvider] = useState<string | undefined>(undefined);
+  // All providers seen across unfiltered loads — kept separate so the filter
+  // pill row doesn't collapse when a provider filter is active.
+  const [allProviders, setAllProviders] = useState<string[]>([]);
 
   // Fetch on mount and when provider filter changes.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      dispatch(setNotificationsLoading(true));
       try {
         const result = await fetchNotifications({ provider: selectedProvider, limit: 100 });
         if (!cancelled) {
           dispatch(setNotifications(result));
+          // Accumulate providers only from unfiltered loads so the pill row
+          // stays stable when a filter is active.
+          if (!selectedProvider) {
+            const seen = Array.from(new Set(result.items.map(n => n.provider))).sort();
+            setAllProviders(seen);
+          }
         }
-      } catch {
-        // Errors are surfaced via notificationsSlice.error; silently ignore here.
+      } catch (err) {
+        if (!cancelled) {
+          dispatch(
+            setNotificationsError(err instanceof Error ? err.message : 'Failed to load notifications')
+          );
+        }
       }
     };
     void load();
@@ -54,8 +73,7 @@ const NotificationCenter = () => {
     }
   };
 
-  // Extract unique providers from current items for the filter pill row.
-  const providers = Array.from(new Set(items.map(n => n.provider))).sort();
+  const providers = allProviders;
 
   return (
     <div className="flex flex-col h-full">

@@ -62,7 +62,12 @@ const NotificationRoutingPanel = () => {
     };
     const next = { ...current, ...patch };
     setSettings(prev => ({ ...prev, [provider]: next }));
-    await setNotificationSettings({ provider, ...next });
+    try {
+      await setNotificationSettings({ provider, ...next });
+    } catch (err) {
+      setSettings(prev => ({ ...prev, [provider]: current }));
+      throw err;
+    }
   };
 
   return (

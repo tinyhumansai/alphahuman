@@ -281,7 +281,14 @@ fn row_to_notification(row: &rusqlite::Row<'_>) -> Result<IntegrationNotificatio
     };
 
     let received_at_str: String = row.get(10)?;
-    let received_at: DateTime<Utc> = received_at_str.parse().unwrap_or_else(|_| Utc::now());
+    let received_at: DateTime<Utc> = received_at_str.parse().unwrap_or_else(|e| {
+        tracing::warn!(
+            raw = %received_at_str,
+            error = %e,
+            "[notifications::store] invalid received_at, using now"
+        );
+        Utc::now()
+    });
 
     let scored_at_str: Option<String> = row.get(11)?;
     let scored_at: Option<DateTime<Utc>> = scored_at_str.and_then(|s| s.parse().ok());

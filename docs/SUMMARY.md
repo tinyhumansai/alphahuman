@@ -2,7 +2,6 @@
 
 **Branch**: `feat/714-native-os-notifications`
 **Base**: `upstream/main`
-**Worktree**: `/Volumes/Extreme SSD/Work/Zerolend/tinyhumans.ai/openhuman-714`
 **Upstream**: `tinyhumansai/openhuman`
 **Origin (fork)**: `oxoxDev/openhuman`
 
@@ -71,7 +70,7 @@ Frontend — permission round-trip + dormant click listener.
 - `cargo clippy` — pre-existing errors in `src/slack_scanner/extract.rs` (type_complexity) and `src/lib.rs:212` (unnecessary_map_or) unrelated to this feature. Verified with `git diff upstream/main -- app/src-tauri/src/lib.rs` shows only the 2-line invoke handler addition.
 
 **Not yet done:**
-- Manual verification in built `.app` bundle with real Slack/Discord/Gmail notifications. Requires `yarn macos:build:debug` (~10 min), install, open, trigger notifications, confirm provider-prefixed titles fire natively.
+- Manual verification in built `.app` bundle with real Slack/Discord/Gmail notifications. Requires `yarn macOS:build:debug` (~10 min), install, open, trigger notifications, confirm provider-prefixed titles fire natively.
 
 ---
 
@@ -124,4 +123,3 @@ if let Some(r) = route {
 
 - **Home.tsx build-tag pill** — `skip-worktree` flag set on `app/src/pages/Home.tsx` with inline `#714` pill (top-right, fixed). Per-clone, does NOT travel with branch. If teammate pulls this branch into their own clone, no pill appears locally. If they want one, Phase 3 Step 6 of `.claude/rules/00-workflow.md` has the snippet.
 - **Cargo.lock** — version bumped to 0.52.26 locally. Separate commit `e6f60180` so diff review is clean.
-- **`SUMMARY.md`** (this file) — not committed. Reference only. Delete before opening PR.

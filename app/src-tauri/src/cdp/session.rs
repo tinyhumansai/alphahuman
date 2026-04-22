@@ -137,6 +137,26 @@ async fn run_session_cycle(account_id: &str, real_url: &str) -> Result<(), Strin
         session_id
     );
 
+    // Stub the Web Notifications permission API before any provider JS
+    // runs. Without this, providers like Slack and Gmail show in-app
+    // "please enable notifications" banners because Notification.permission
+    // returns "default" in the CEF context. The real notification path runs
+    // through the CEF IPC hook registered in webview_accounts — this just
+    // makes the page's permission check pass.
+    cdp.call(
+        "Page.addScriptToEvaluateOnNewDocument",
+        json!({
+            "source": "Object.defineProperty(Notification,'permission',{get:()=>'granted'});\
+                       Notification.requestPermission=()=>Promise.resolve('granted');"
+        }),
+        Some(&session_id),
+    )
+    .await?;
+    log::debug!(
+        "[cdp-session][{}] notification permission stub injected",
+        account_id
+    );
+
     // Drive the webview from the placeholder to the real provider URL.
     // Fragment survives same-origin navigations so scanners can match on
     // it indefinitely. Skip navigation if the target is already on the

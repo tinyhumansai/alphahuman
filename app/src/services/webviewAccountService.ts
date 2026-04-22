@@ -204,10 +204,11 @@ function handleRecipeEvent(evt: RecipeEventPayload) {
       body,
       raw_payload: payload as Record<string, unknown>,
     })
-      .then(({ id }) => {
+      .then(result => {
+        if (result.skipped) return;
         store.dispatch(
           addNotification({
-            id,
+            id: result.id,
             provider: evt.provider,
             account_id: accountId,
             title: title || `${evt.provider} notification`,

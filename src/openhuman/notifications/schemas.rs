@@ -86,12 +86,20 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     required: true,
                 },
             ],
-            outputs: vec![FieldSchema {
-                name: "id",
-                ty: TypeSchema::String,
-                comment: "UUID of the newly created notification record.",
-                required: true,
-            }],
+            outputs: vec![
+                FieldSchema {
+                    name: "id",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "UUID of the newly created notification record. Absent when skipped.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "skipped",
+                    ty: TypeSchema::Bool,
+                    comment: "True when the provider is disabled and the notification was not stored.",
+                    required: true,
+                },
+            ],
         },
 
         "list" => ControllerSchema {

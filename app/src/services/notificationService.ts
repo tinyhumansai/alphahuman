@@ -47,12 +47,16 @@ export async function markNotificationRead(id: string): Promise<void> {
   }
 }
 
+type NotificationIngestResult =
+  | { id: string; skipped?: false }
+  | { skipped: true; reason: string };
+
 /**
  * Ingest a new notification via the core RPC pipeline.
  * Calls `openhuman.notification_ingest`.
  *
- * This is typically called from the Tauri shell (Rust side) but can also be
- * invoked from the frontend for testing or manual ingestion.
+ * Returns `{ id }` when the notification was persisted, or
+ * `{ skipped: true, reason }` when the provider is disabled.
  */
 export async function ingestNotification(payload: {
   provider: string;
@@ -60,13 +64,17 @@ export async function ingestNotification(payload: {
   title: string;
   body: string;
   raw_payload: Record<string, unknown>;
-}): Promise<{ id: string }> {
+}): Promise<NotificationIngestResult> {
   log('ingestNotification provider=%s', payload.provider);
-  const result = await callCoreRpc<{ id: string }>({
+  const result = await callCoreRpc<NotificationIngestResult>({
     method: 'openhuman.notification_ingest',
     params: payload,
   });
-  log('ingestNotification created id=%s', result.id);
+  if (result.skipped) {
+    log('ingestNotification skipped provider=%s reason=%s', payload.provider, result.reason);
+  } else {
+    log('ingestNotification created id=%s', result.id);
+  }
   return result;
 }
 

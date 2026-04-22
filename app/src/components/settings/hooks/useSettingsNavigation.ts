@@ -29,7 +29,9 @@ export type SettingsRoute =
   | 'screen-awareness-debug'
   | 'autocomplete-debug'
   | 'voice-debug'
-  | 'local-model-debug';
+  | 'local-model-debug'
+  | 'notifications'
+  | 'notification-routing';
 
 export interface BreadcrumbItem {
   label: string;

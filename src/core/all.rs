@@ -145,6 +145,9 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(
         crate::openhuman::webview_notifications::all_webview_notifications_registered_controllers(),
     );
+    // Integration notification ingest, triage, and per-provider settings
+    controllers
+        .extend(crate::openhuman::notifications::all_notifications_registered_controllers());
     controllers
 }
 
@@ -197,6 +200,8 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(
         crate::openhuman::webview_notifications::all_webview_notifications_controller_schemas(),
     );
+    // Integration notification ingest, triage, and per-provider settings
+    schemas.extend(crate::openhuman::notifications::all_notifications_controller_schemas());
     schemas
 }
 
