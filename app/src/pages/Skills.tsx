@@ -21,6 +21,7 @@ import {
 } from '../components/skills/skillIcons';
 import SkillSearchBar from '../components/skills/SkillSearchBar';
 import VoiceSetupModal from '../components/skills/VoiceSetupModal';
+import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
 import { useScreenIntelligenceSkillStatus } from '../features/screen-intelligence/useScreenIntelligenceSkillStatus';
 import { useVoiceSkillStatus } from '../features/voice/useVoiceSkillStatus';
@@ -30,6 +31,7 @@ import { canonicalizeComposioToolkitSlug } from '../lib/composio/toolkitSlug';
 import { type ComposioConnection, deriveComposioState } from '../lib/composio/types';
 import { useAppSelector } from '../store/hooks';
 import type { ChannelConnectionStatus, ChannelDefinition, ChannelType } from '../types/channels';
+import { IS_DEV } from '../utils/config';
 import { subconsciousEscalationsDismiss } from '../utils/tauriCommands';
 
 function channelStatusDot(status: ChannelConnectionStatus): string {
@@ -214,7 +216,7 @@ export default function Skills() {
   );
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!IS_DEV) return;
     console.debug('[skills][composio] hook result', {
       toolkitCount: composioToolkits.length,
       connectionCount: composioConnectionByToolkit.size,
@@ -243,7 +245,7 @@ export default function Skills() {
     const missingKnownToolkits = KNOWN_COMPOSIO_TOOLKITS.filter(
       slug => !normalizedToolkits.includes(slug)
     );
-    if (import.meta.env.DEV && missingKnownToolkits.length > 0) {
+    if (IS_DEV && missingKnownToolkits.length > 0) {
       console.debug('[skills][composio] filling gaps from KNOWN_COMPOSIO_TOOLKITS', {
         toolkitCount: composioToolkits.length,
         connectionCount: composioConnectionByToolkit.size,
@@ -362,7 +364,7 @@ export default function Skills() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-amber-900">
-                      Integrations are showing stale status
+                      Connections are showing stale status
                     </h2>
                     <p className="mt-1 text-xs leading-relaxed text-amber-800">{composioError}</p>
                   </div>
@@ -378,7 +380,7 @@ export default function Skills() {
 
             {filteredItems.length === 0 ? (
               <div className="py-8 text-center">
-                <p className="text-sm text-stone-400">No skills found</p>
+                <p className="text-sm text-stone-400">No connections found</p>
               </div>
             ) : (
               groupedItems.map(({ category, items }) => (
@@ -507,6 +509,7 @@ export default function Skills() {
                             statusColor={channelStatusColor(status)}
                             ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
                             onCtaClick={() => setChannelModalDef(item.channelDef!)}
+                            badge={isMessagingId(item.channelDef!.id) ? <ConnectionBadge kind="messaging" /> : undefined}
                           />
                         );
                       }
@@ -548,6 +551,7 @@ export default function Skills() {
                             }
                             ctaLabel={ctaLabel}
                             ctaVariant={ctaVariant}
+                            badge={<ConnectionBadge kind="composio" />}
                             onCtaClick={() => {
                               if (hasComposioError) {
                                 void refreshComposio();

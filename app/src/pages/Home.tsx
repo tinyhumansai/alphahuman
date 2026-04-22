@@ -280,7 +280,7 @@ const Home = () => {
               onClick={() => navigate('/skills')}
               className="w-full flex items-center justify-between py-2.5 text-left hover:bg-stone-50 rounded-md px-2 -mx-2 transition-colors">
               <div>
-                <div className="text-sm font-medium text-stone-900">Connect your skills</div>
+                <div className="text-sm font-medium text-stone-900">Connect your services</div>
                 <div className="text-xs text-stone-500">
                   Give your assistant access to Gmail, Calendar, and more.
                 </div>
