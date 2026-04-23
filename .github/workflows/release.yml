@@ -449,6 +449,7 @@ jobs:
         run: yarn build
         env:
           NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
           VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
