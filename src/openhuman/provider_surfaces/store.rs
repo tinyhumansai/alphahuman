@@ -7,6 +7,11 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::openhuman::provider_surfaces::types::{ProviderEvent, RespondQueueItem};
 
+/// Soft cap on the in-memory respond queue to bound growth under provider
+/// firehose volume before the SQLite-backed store lands. The queue is
+/// prepend-ordered, so oldest entries are dropped from the tail.
+const MAX_QUEUE_ITEMS: usize = 500;
+
 static RESPOND_QUEUE: OnceLock<Mutex<Vec<RespondQueueItem>>> = OnceLock::new();
 
 fn queue() -> &'static Mutex<Vec<RespondQueueItem>> {
@@ -49,6 +54,9 @@ pub fn upsert_queue_item(event: ProviderEvent) -> RespondQueueItem {
         queue.remove(existing_idx);
     }
     queue.insert(0, item.clone());
+    if queue.len() > MAX_QUEUE_ITEMS {
+        queue.truncate(MAX_QUEUE_ITEMS);
+    }
     item
 }
 

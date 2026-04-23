@@ -147,6 +147,29 @@ impl UnifiedMemory {
             );
         }
 
+        // Companion migration: `vector_chunks` rows keyed by `document_id` still
+        // point at `GLOBAL_NAMESPACE` after the `memory_docs` split above, so
+        // namespace-scoped recall would miss them. Re-home each chunk to its
+        // document's new namespace. Idempotent: after both migrations run, no
+        // chunk under GLOBAL_NAMESPACE maps to a document in another namespace.
+        let chunks_migrated = conn.execute(
+            "UPDATE vector_chunks
+             SET namespace = (
+                 SELECT namespace FROM memory_docs
+                 WHERE memory_docs.document_id = vector_chunks.document_id
+             )
+             WHERE namespace = ?1
+               AND document_id IN (
+                 SELECT document_id FROM memory_docs WHERE namespace != ?1
+               )",
+            rusqlite::params![GLOBAL_NAMESPACE],
+        )?;
+        if chunks_migrated > 0 {
+            log::info!(
+                "[memory] migrated {chunks_migrated} vector_chunks rows out of the `{GLOBAL_NAMESPACE}` namespace"
+            );
+        }
+
         Ok(Self {
             workspace_dir: workspace_dir.to_path_buf(),
             db_path,

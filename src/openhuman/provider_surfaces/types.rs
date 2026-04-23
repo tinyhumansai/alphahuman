@@ -30,8 +30,11 @@ pub struct ProviderEvent {
 }
 
 /// Queue item shown in the local respond queue.
+///
+/// Field naming mirrors `ProviderEvent` and the declared controller schema
+/// (`provider_surfaces::ingest_event` inputs), so callers see a single
+/// snake_case contract on both request and response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub struct RespondQueueItem {
     pub id: String,
     pub provider: String,
@@ -57,7 +60,6 @@ pub struct RespondQueueItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RespondQueueListResponse {
     pub items: Vec<RespondQueueItem>,
     pub count: usize,

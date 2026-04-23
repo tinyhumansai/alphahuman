@@ -109,7 +109,7 @@ mod tests {
         let second_result = second_value.get("data").unwrap_or(&second_value);
 
         assert_eq!(first_result["provider"], "linkedin");
-        assert_eq!(second_result["entityId"], "entity-1");
+        assert_eq!(second_result["entity_id"], "entity-1");
 
         let queue = list_queue(EmptyRequest {}).await.unwrap();
         let queue_json = queue.into_cli_compatible_json().unwrap();
@@ -130,7 +130,7 @@ mod tests {
         let items = data["items"].as_array().unwrap();
 
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0]["entityId"], "entity-2");
-        assert_eq!(items[1]["entityId"], "entity-1");
+        assert_eq!(items[0]["entity_id"], "entity-2");
+        assert_eq!(items[1]["entity_id"], "entity-1");
     }
 }
