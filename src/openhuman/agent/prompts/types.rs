@@ -213,6 +213,13 @@ pub struct PromptContext<'a> {
     /// session, tests). Pre-fetched by the caller from the
     /// `auth_get_me` cache so prompt builders never reach the network.
     pub user_identity: Option<UserIdentity>,
+    /// Session-scoped snapshot of the curated-memory pair
+    /// (`MEMORY.md` + `USER.md`). When set, [`UserFilesSection`] renders
+    /// from this snapshot instead of reading workspace files, so runtime
+    /// `curated_memory.add/replace/remove` writes are visible on the
+    /// NEXT session while the in-flight prompt bytes stay frozen (KV-
+    /// cache contract). `None` falls back to the workspace-file loader.
+    pub curated_snapshot: Option<&'a crate::openhuman::curated_memory::MemorySnapshot>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

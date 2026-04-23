@@ -77,6 +77,7 @@ mod tests {
             include_profile: false,
             include_memory_md: false,
             user_identity: identity,
+            curated_snapshot: None,
         }
     }
 

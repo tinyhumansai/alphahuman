@@ -540,6 +540,7 @@ async fn run_typed_mode(
         include_profile: !definition.omit_profile,
         include_memory_md: !definition.omit_memory_md,
         user_identity: crate::openhuman::app_state::peek_cached_current_user_identity(),
+        curated_snapshot: parent.curated_snapshot.as_deref(),
     };
 
     let system_prompt = match &definition.system_prompt {
@@ -1166,3 +1167,6 @@ fn parse_tool_arguments(arguments: &str) -> serde_json::Value {
 #[cfg(test)]
 #[path = "ops_tests.rs"]
 mod tests;
+    use super::*;
+    use crate::openhuman::agent::harness::definition::{ModelSpec, ToolScope};
+
