@@ -1,4 +1,28 @@
 import { callCoreRpc } from '../coreRpcClient';
+import { getBackendUrl } from '../backendUrl';
+
+/**
+ * Send a magic-link email for email-based login.
+ * POST /auth/email/send-link
+ * @param email - The user's email address.
+ * @param frontendRedirectUri - Where the backend should redirect after verification
+ *   (e.g. "openhuman://" for desktop, or the web app origin for web).
+ */
+export async function sendEmailMagicLink(
+  email: string,
+  frontendRedirectUri: string
+): Promise<void> {
+  const backendUrl = await getBackendUrl();
+  const response = await fetch(`${backendUrl}/auth/email/send-link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, frontendRedirectUri }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Failed to send magic link (${response.status})`);
+  }
+}
 
 /**
  * Consume a verified login token and return the JWT.
