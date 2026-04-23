@@ -18,11 +18,16 @@ pub struct HostedEmbedder {
 
 impl HostedEmbedder {
     pub fn new(base_url: String, api_key: String, model: String) -> Self {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             base_url,
             api_key,
             model,
-            http: reqwest::Client::new(),
+            http,
         }
     }
 }
@@ -35,7 +40,6 @@ struct EmbedReq<'a> {
 
 #[derive(Deserialize)]
 struct EmbedRespItem {
-    #[allow(dead_code)]
     index: usize,
     embedding: Vec<f32>,
 }
@@ -63,8 +67,30 @@ impl Embedder for HostedEmbedder {
             .json::<EmbedResp>()
             .await?;
         let mut data = resp.data;
+        if data.len() != texts.len() {
+            anyhow::bail!(
+                "embeddings response length {} != input {}",
+                data.len(),
+                texts.len()
+            );
+        }
         // Keep order by index in case the server returns out of order.
         data.sort_by_key(|d| d.index);
+        let dim = self.dim();
+        for (i, d) in data.iter().enumerate() {
+            if d.index != i {
+                anyhow::bail!(
+                    "embeddings response has missing/duplicate index at position {i} (got index {})",
+                    d.index
+                );
+            }
+            if d.embedding.len() != dim {
+                anyhow::bail!(
+                    "embedding at index {i} has dim {} (expected {dim})",
+                    d.embedding.len()
+                );
+            }
+        }
         Ok(data.into_iter().map(|d| d.embedding).collect())
     }
 

@@ -115,7 +115,7 @@ Module placement (per repo rules — new functionality lives in its own subdirec
 
 Independent of the mode, two local-only mitigations always run before any network call:
 
-- **PII redaction** — local regex + light NER replaces emails, phone numbers, SSN/credit-card-shaped tokens with `<EMAIL>` etc. before embedding.
+- **PII redaction** — local regex replaces emails, phone numbers, and SSN/credit-card-shaped tokens with `<EMAIL>` etc. before embedding. (Light NER is a future enhancement; only regex redaction is implemented today.)
 - **Quoted-thread stripping** — index only the new content of an email, not the 14-deep reply quote.
 
 A new Settings → Privacy panel renders the table above with the user's current selections highlighted, and a per-source toggle to disable ingestion entirely for any source.
