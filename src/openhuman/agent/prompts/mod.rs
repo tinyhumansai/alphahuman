@@ -10,10 +10,10 @@ mod workspace_files;
 
 pub use builder::{ArchetypePromptSection, DynamicPromptSection, SystemPromptBuilder};
 pub use sections::{
-    DateTimeSection, IdentitySection, RuntimeSection, SafetySection, ToolsSection,
-    UserFilesSection, UserMemorySection, WorkspaceSection,
     render_datetime, render_identity, render_runtime, render_safety, render_tools,
-    render_user_files, render_user_memory, render_workspace,
+    render_user_files, render_user_memory, render_workspace, DateTimeSection, IdentitySection,
+    RuntimeSection, SafetySection, ToolsSection, UserFilesSection, UserMemorySection,
+    WorkspaceSection,
 };
 pub use subagent::{render_subagent_system_prompt, render_subagent_system_prompt_with_format};
 

@@ -1,5 +1,7 @@
 use crate::openhuman::agent::prompts::types::{PromptContext, PromptSection};
-use crate::openhuman::agent::prompts::workspace_files::{inject_workspace_file, sync_workspace_file};
+use crate::openhuman::agent::prompts::workspace_files::{
+    inject_workspace_file, sync_workspace_file,
+};
 use anyhow::Result;
 
 pub struct IdentitySection;
