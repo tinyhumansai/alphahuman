@@ -49,9 +49,16 @@ pub async fn query_topic(
     limit: usize,
 ) -> Result<QueryResponse> {
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
-    log::info!(
-        "[retrieval::topic] query_topic entity_id={} window_days={:?} query={} limit={}",
-        entity_id,
+    // Redact `entity_id` — typically `email:<addr>` or `handle:<name>`.
+    // Log the kind prefix only so operators can still see what kind of
+    // entity was queried.
+    let entity_kind_prefix = entity_id
+        .split_once(':')
+        .map(|(k, _)| k)
+        .unwrap_or("unknown");
+    log::debug!(
+        "[retrieval::topic] query_topic entity_kind={} window_days={:?} has_query={} limit={}",
+        entity_kind_prefix,
         time_window_days,
         query.is_some(),
         limit
@@ -479,5 +486,109 @@ mod tests {
                 w[1].score
             );
         }
+    }
+
+    // Regression: the same node_id must only appear once in `hits`, even
+    // when the topic-tree root overlaps with its own entity-index row.
+    // Flagged on PR #831 CodeRabbit review — see the HashMap-based merge
+    // in `query_topic`. Without the dedup, `total` would be 2 and the
+    // caller would see two rows for the same summary.
+    #[tokio::test]
+    async fn duplicate_node_is_deduplicated_across_index_and_topic_tree_root() {
+        use crate::openhuman::memory::tree::score::extract::EntityKind;
+        use crate::openhuman::memory::tree::score::resolver::CanonicalEntity;
+        use crate::openhuman::memory::tree::score::store as score_store;
+        use crate::openhuman::memory::tree::source_tree::store as tree_store;
+        use crate::openhuman::memory::tree::source_tree::types::{
+            SummaryNode, Tree, TreeKind, TreeStatus,
+        };
+        use crate::openhuman::memory::tree::store::with_connection;
+
+        let (_tmp, cfg) = test_config();
+        let ts = Utc::now();
+        let entity_id = "topic:phoenix";
+        let summary_id = "summary:L1:phoenix-root";
+
+        // 1. Create a topic tree whose root points at `summary_id`.
+        let tree = Tree {
+            id: "test:phoenix-topic-tree".into(),
+            kind: TreeKind::Topic,
+            scope: entity_id.into(),
+            root_id: Some(summary_id.into()),
+            max_level: 1,
+            status: TreeStatus::Active,
+            created_at: ts,
+            last_sealed_at: Some(ts),
+        };
+
+        // 2. Create the summary row itself.
+        let summary = SummaryNode {
+            id: summary_id.into(),
+            tree_id: tree.id.clone(),
+            tree_kind: TreeKind::Topic,
+            level: 1,
+            parent_id: None,
+            child_ids: vec![],
+            content: "Phoenix migration recap".into(),
+            token_count: 100,
+            entities: vec![entity_id.into()],
+            topics: vec![],
+            time_range_start: ts,
+            time_range_end: ts,
+            score: 0.5,
+            sealed_at: ts,
+            deleted: false,
+            embedding: None,
+        };
+
+        // 3. Write tree + summary + entity-index row in one tx. The
+        //    entity-index row is what creates the dedup scenario: both
+        //    `lookup_entity` AND `fetch_topic_tree_root_summary` will
+        //    now return the same node.
+        let entity = CanonicalEntity {
+            canonical_id: entity_id.into(),
+            kind: EntityKind::Topic,
+            surface: "phoenix".into(),
+            span_start: 0,
+            span_end: 7,
+            score: 0.9,
+        };
+        with_connection(&cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            tree_store::insert_tree_conn(&tx, &tree)?;
+            tree_store::insert_summary_tx(&tx, &summary)?;
+            score_store::index_entities_tx(
+                &tx,
+                &[entity],
+                summary_id,
+                "summary",
+                ts.timestamp_millis(),
+                Some(&tree.id),
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+
+        // 4. Query — expect exactly one hit (the summary), not two.
+        let resp = query_topic(&cfg, entity_id, None, None, 10).await.unwrap();
+        let phoenix_hits: Vec<_> = resp
+            .hits
+            .iter()
+            .filter(|h| h.node_id == summary_id)
+            .collect();
+        assert_eq!(
+            phoenix_hits.len(),
+            1,
+            "summary should appear once, not duplicated between index \
+             and topic-tree root; got {} phoenix hits in response of {}",
+            phoenix_hits.len(),
+            resp.hits.len()
+        );
+        // `total` also reflects the dedup'd count.
+        assert_eq!(
+            resp.total, 1,
+            "total should count distinct nodes, not raw row occurrences"
+        );
     }
 }

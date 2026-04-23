@@ -40,7 +40,9 @@ pub async fn fetch_leaves(config: &Config, chunk_ids: &[String]) -> Result<Vec<R
         chunk_ids.to_vec()
     };
 
-    log::info!("[retrieval::fetch] fetch_leaves n={}", ids.len());
+    // Count only — individual chunk ids can include source scope (e.g.
+    // `chat:slack:#<channel>:0`) and are redacted from logs.
+    log::debug!("[retrieval::fetch] fetch_leaves n={}", ids.len());
 
     let config_owned = config.clone();
     let hits = tokio::task::spawn_blocking(move || -> Result<Vec<RetrievalHit>> {

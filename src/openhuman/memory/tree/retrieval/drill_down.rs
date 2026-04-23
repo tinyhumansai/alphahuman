@@ -44,9 +44,13 @@ pub async fn drill_down(
     query: Option<&str>,
     limit: Option<usize>,
 ) -> Result<Vec<RetrievalHit>> {
-    log::info!(
-        "[retrieval::drill_down] drill_down node_id={} max_depth={} query={} limit={:?}",
-        node_id,
+    // Redact `node_id` — embeds tree scope (e.g. `summary:L1:<uuid>` or
+    // `chat:slack:#<channel>:<seq>`) which can carry workspace hints. Log
+    // the id's structural prefix only.
+    let node_kind_prefix = node_id.split_once(':').map(|(k, _)| k).unwrap_or("unknown");
+    log::debug!(
+        "[retrieval::drill_down] drill_down node_kind={} max_depth={} has_query={} limit={:?}",
+        node_kind_prefix,
         max_depth,
         query.is_some(),
         limit
@@ -342,5 +346,168 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out.len(), 2, "no limit — both children returned");
+    }
+
+    // ── Regression: BFS (not DFS) traversal ──────────────────────────
+    //
+    // `walk_with_embeddings` uses a `VecDeque` frontier with `pop_front` +
+    // `push_back` (FIFO) — flagged on PR #831 CodeRabbit review after the
+    // original `Vec::pop()` implementation was DFS.
+    //
+    // A single-level tree can't distinguish the two (both produce the same
+    // output). We need a 2-level tree where BFS yields
+    //   [L1_A, L1_B, c_A_1, c_A_2, c_B_1, c_B_2]
+    // and DFS would yield
+    //   [L1_B, c_B_2, c_B_1, L1_A, c_A_2, c_A_1]
+    // (or similar — the key invariant is that BFS returns all siblings at
+    // one depth before any descendant at a deeper depth).
+
+    use crate::openhuman::memory::tree::source_tree::store as tree_store;
+    use crate::openhuman::memory::tree::source_tree::types::{SummaryNode, Tree, TreeStatus};
+    use crate::openhuman::memory::tree::store::with_connection;
+
+    /// Build a tiny 2-level tree directly via store inserts so we can
+    /// assert BFS ordering without needing ~100 leaves to cascade L1→L2
+    /// through the token-budget seal path.
+    async fn seed_two_level_tree(cfg: &Config) -> (String, Vec<String>, Vec<String>) {
+        let ts = Utc::now();
+        let tree = Tree {
+            id: "test:two-level".into(),
+            kind: TreeKind::Source,
+            scope: "slack:#eng".into(),
+            root_id: Some("s:L2:root".into()),
+            max_level: 2,
+            status: TreeStatus::Active,
+            created_at: ts,
+            last_sealed_at: Some(ts),
+        };
+        let leaf_a_1 = Chunk {
+            id: "chat:slack:#eng:0".into(),
+            content: "leaf-a-1".into(),
+            metadata: Metadata {
+                source_kind: SourceKind::Chat,
+                source_id: "slack:#eng".into(),
+                owner: "alice".into(),
+                timestamp: ts,
+                time_range: (ts, ts),
+                tags: vec![],
+                source_ref: Some(SourceRef::new("slack://x")),
+            },
+            token_count: 10,
+            seq_in_source: 0,
+            created_at: ts,
+        };
+        let leaf_a_2 = Chunk {
+            id: "chat:slack:#eng:1".into(),
+            content: "leaf-a-2".into(),
+            metadata: leaf_a_1.metadata.clone(),
+            seq_in_source: 1,
+            ..leaf_a_1.clone()
+        };
+        let leaf_b_1 = Chunk {
+            id: "chat:slack:#eng:2".into(),
+            content: "leaf-b-1".into(),
+            metadata: leaf_a_1.metadata.clone(),
+            seq_in_source: 2,
+            ..leaf_a_1.clone()
+        };
+        let leaf_b_2 = Chunk {
+            id: "chat:slack:#eng:3".into(),
+            content: "leaf-b-2".into(),
+            metadata: leaf_a_1.metadata.clone(),
+            seq_in_source: 3,
+            ..leaf_a_1.clone()
+        };
+        upsert_chunks(
+            cfg,
+            &[
+                leaf_a_1.clone(),
+                leaf_a_2.clone(),
+                leaf_b_1.clone(),
+                leaf_b_2.clone(),
+            ],
+        )
+        .unwrap();
+
+        let l1_a = SummaryNode {
+            id: "s:L1:a".into(),
+            tree_id: tree.id.clone(),
+            tree_kind: TreeKind::Source,
+            level: 1,
+            parent_id: Some("s:L2:root".into()),
+            child_ids: vec![leaf_a_1.id.clone(), leaf_a_2.id.clone()],
+            content: "L1 summary A".into(),
+            token_count: 50,
+            entities: vec![],
+            topics: vec![],
+            time_range_start: ts,
+            time_range_end: ts,
+            score: 0.5,
+            sealed_at: ts,
+            deleted: false,
+            embedding: None,
+        };
+        let l1_b = SummaryNode {
+            id: "s:L1:b".into(),
+            child_ids: vec![leaf_b_1.id.clone(), leaf_b_2.id.clone()],
+            ..l1_a.clone()
+        };
+        let root = SummaryNode {
+            id: "s:L2:root".into(),
+            level: 2,
+            parent_id: None,
+            child_ids: vec![l1_a.id.clone(), l1_b.id.clone()],
+            content: "L2 root".into(),
+            ..l1_a.clone()
+        };
+
+        // Open the shared connection to the memory_tree DB and write the
+        // tree + three summaries in one transaction.
+        with_connection(cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            tree_store::insert_tree_conn(&tx, &tree)?;
+            tree_store::insert_summary_tx(&tx, &l1_a)?;
+            tree_store::insert_summary_tx(&tx, &l1_b)?;
+            tree_store::insert_summary_tx(&tx, &root)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
+
+        (
+            root.id,
+            vec![l1_a.id, l1_b.id],
+            vec![leaf_a_1.id, leaf_a_2.id, leaf_b_1.id, leaf_b_2.id],
+        )
+    }
+
+    #[tokio::test]
+    async fn walk_visits_siblings_before_descendants_bfs_order() {
+        let (_tmp, cfg) = test_config();
+        let (root_id, l1_ids, leaf_ids) = seed_two_level_tree(&cfg).await;
+
+        let out = drill_down(&cfg, &root_id, 2, None, None).await.unwrap();
+        // Both L1s + all 4 leaves = 6 hits.
+        assert_eq!(out.len(), 6, "L2 with 2×L1 × 2 leaves each = 6 hits");
+
+        // Collect ids in returned order.
+        let ordered: Vec<&str> = out.iter().map(|h| h.node_id.as_str()).collect();
+
+        // BFS invariant: every L1 index must come BEFORE every leaf index.
+        // (DFS would interleave a whole L1 subtree before the other L1.)
+        let last_l1 = l1_ids
+            .iter()
+            .map(|id| ordered.iter().position(|&n| n == id).unwrap())
+            .max()
+            .unwrap();
+        let first_leaf = leaf_ids
+            .iter()
+            .map(|id| ordered.iter().position(|&n| n == id).unwrap())
+            .min()
+            .unwrap();
+        assert!(
+            last_l1 < first_leaf,
+            "BFS must return both L1 summaries before any leaf; got ordered={ordered:?}"
+        );
     }
 }

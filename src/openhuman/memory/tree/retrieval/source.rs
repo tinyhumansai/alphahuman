@@ -50,9 +50,11 @@ pub async fn query_source(
     limit: usize,
 ) -> Result<QueryResponse> {
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
-    log::info!(
-        "[retrieval::source] query_source source_id={:?} source_kind={:?} window_days={:?} query={} limit={}",
-        source_id,
+    // Redact `source_id` — can be a workspace scope like `slack:#<channel>`
+    // that leaks organisational structure. Log only presence + kind filter.
+    log::debug!(
+        "[retrieval::source] query_source has_source_id={} source_kind={:?} window_days={:?} has_query={} limit={}",
+        source_id.is_some(),
         source_kind.map(|k| k.as_str()),
         time_window_days,
         query.is_some(),
