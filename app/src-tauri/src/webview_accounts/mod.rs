@@ -21,6 +21,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(all(feature = "cef", target_os = "linux"))]
+use std::sync::{OnceLock, mpsc::sync_channel};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -311,6 +313,38 @@ struct WebviewNotificationFired {
     tag: Option<String>,
 }
 
+/// Linux: one worker thread + bounded queue so a burst of toasts does not
+/// spawn unbounded `std::thread` handles (each would block in `wait_for_action`).
+#[cfg(all(feature = "cef", target_os = "linux"))]
+const LINUX_NOTIFY_QUEUE_CAP: usize = 16;
+
+#[cfg(all(feature = "cef", target_os = "linux"))]
+static LINUX_NOTIFY_TX: OnceLock<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>> =
+    OnceLock::new();
+
+#[cfg(all(feature = "cef", target_os = "linux"))]
+fn enqueue_linux_notification(job: Box<dyn FnOnce() + Send>) {
+    let tx = LINUX_NOTIFY_TX.get_or_init(|| {
+        let (tx, rx) = sync_channel(LINUX_NOTIFY_QUEUE_CAP);
+        std::thread::Builder::new()
+            .name("openhuman-linux-notify".to_string())
+            .spawn(move || {
+                while let Ok(j) = rx.recv() {
+                    j();
+                }
+            })
+            .expect("spawn openhuman-linux-notify");
+        tx
+    });
+    if let Err(e) = tx.try_send(job) {
+        log::warn!(
+            "[notify-cef] linux notification queue full (cap={}), dropping toast: {}",
+            LINUX_NOTIFY_QUEUE_CAP,
+            e
+        );
+    }
+}
+
 /// Translate a `tauri-runtime-cef` notification payload into a native OS
 /// toast via `tauri-plugin-notification`, and mirror the fire to the
 /// React frontend so it can drive click-to-focus routing.
@@ -477,7 +511,7 @@ fn forward_native_notification<R: Runtime>(
     {
         let title_c = notify_title.clone();
         let body_c = body.to_string();
-        std::thread::spawn(move || {
+        enqueue_linux_notification(Box::new(move || {
             let t = title_c;
             let b = body_c;
             let mut n = notify_rust::Notification::new();
@@ -513,7 +547,7 @@ fn forward_native_notification<R: Runtime>(
                     log::warn!("[notify-click][{}] show failed: {}", acct_for_click, e);
                 }
             }
-        });
+        }));
     }
 
     #[cfg(windows)]

@@ -24,6 +24,8 @@ const NotificationRoutingPanel = () => {
       { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }
     >
   >({});
+  const [loadedProviders, setLoadedProviders] = useState<Record<string, boolean>>({});
+  const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void Promise.allSettled(
@@ -36,17 +38,29 @@ const NotificationRoutingPanel = () => {
         string,
         { enabled: boolean; importance_threshold: number; route_to_orchestrator: boolean }
       > = {};
-      results.forEach(result => {
+      const nextLoadedProviders: Record<string, boolean> = {};
+      const nextLoadErrors: Record<string, string> = {};
+      results.forEach((result, index) => {
+        const provider = providers[index];
         if (result.status === 'fulfilled') {
-          const [provider, s] = result.value;
+          const [, s] = result.value;
           next[provider] = {
             enabled: s.enabled,
             importance_threshold: s.importance_threshold,
             route_to_orchestrator: s.route_to_orchestrator,
           };
+          nextLoadedProviders[provider] = true;
+        } else {
+          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          nextLoadErrors[provider] = message;
+          console.warn(`[settings][notification-routing] failed to load provider=${provider}`, {
+            error: message,
+          });
         }
       });
-      setSettings(next);
+      setSettings(prev => ({ ...prev, ...next }));
+      setLoadedProviders(nextLoadedProviders);
+      setLoadErrors(nextLoadErrors);
     });
   }, [providers]);
 
@@ -58,6 +72,9 @@ const NotificationRoutingPanel = () => {
       route_to_orchestrator: boolean;
     }>
   ) => {
+    if (!loadedProviders[provider] || loadErrors[provider]) {
+      return;
+    }
     const current = settings[provider] ?? {
       enabled: true,
       importance_threshold: 0,
@@ -154,11 +171,14 @@ const NotificationRoutingPanel = () => {
           </div>
           <div className="divide-y divide-stone-100">
             {providers.map(provider => {
+              const hasLoadError = Boolean(loadErrors[provider]);
+              const isLoaded = Boolean(loadedProviders[provider]);
               const s = settings[provider] ?? {
                 enabled: true,
                 importance_threshold: 0,
                 route_to_orchestrator: true,
               };
+              const controlsDisabled = !isLoaded || hasLoadError;
               return (
                 <div key={provider} className="px-4 py-3 space-y-2">
                   <div className="flex items-center justify-between">
@@ -168,6 +188,7 @@ const NotificationRoutingPanel = () => {
                       <input
                         type="checkbox"
                         checked={s.enabled}
+                        disabled={controlsDisabled}
                         onChange={e => {
                           void updateSetting(provider, { enabled: e.target.checked });
                         }}
@@ -183,6 +204,7 @@ const NotificationRoutingPanel = () => {
                       max={1}
                       step={0.05}
                       value={s.importance_threshold}
+                      disabled={controlsDisabled}
                       onChange={e => {
                         void updateSetting(provider, {
                           importance_threshold: Number(e.target.value),
@@ -196,11 +218,15 @@ const NotificationRoutingPanel = () => {
                     <input
                       type="checkbox"
                       checked={s.route_to_orchestrator}
+                      disabled={controlsDisabled}
                       onChange={e => {
                         void updateSetting(provider, { route_to_orchestrator: e.target.checked });
                       }}
                     />
                   </label>
+                  {hasLoadError ? (
+                    <p className="text-xs text-red-600">Failed to load settings. Retry from this panel.</p>
+                  ) : null}
                 </div>
               );
             })}
