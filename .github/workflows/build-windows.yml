@@ -29,14 +29,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: yarn
+          cache: pnpm
+
+      - name: Install pnpm
+        run: corepack enable pnpm
 
       - name: Install Rust (1.93.0)
         uses: dtolnay/rust-toolchain@1.93.0
         with:
           targets: x86_64-pc-windows-msvc
 
-      # Skip first 7 lines of Cargo.lock (workspace package version bumps) so the key tracks dependency changes only
       - name: Cargo.lock fingerprint (deps only)
         id: cargo-lock-fingerprint
         shell: bash
@@ -53,8 +55,6 @@ jobs:
           restore-keys: |
             Windows-cargo-registry-
 
-      # CEF runtime auto-downloads via cef-dll-sys / vendored tauri-cli. Cache
-      # it so we don't re-fetch ~400MB every run.
       - name: Cache CEF binary distribution
         uses: actions/cache@v4
         with:
@@ -76,10 +76,10 @@ jobs:
         run: cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        run: yarn build
+        run: pnpm build
         env:
           NODE_ENV: production
           VITE_BACKEND_URL: ${{ vars.BASE_URL }}
