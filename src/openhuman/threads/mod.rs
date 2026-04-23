@@ -6,7 +6,6 @@
 
 pub mod ops;
 pub mod schemas;
-pub(crate) mod title;
 
 pub use schemas::{
     all_controller_schemas as all_threads_controller_schemas,
