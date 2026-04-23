@@ -1734,3 +1734,191 @@ pub async fn webview_recipe_event<R: Runtime>(
         .map_err(|e| format!("emit failed: {e}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).expect("valid url")
+    }
+
+    // ── provider registry match arms ──────────────────────────────────
+
+    #[test]
+    fn zoom_registered_in_provider_url() {
+        assert_eq!(provider_url("zoom"), Some("https://zoom.us/"));
+    }
+
+    #[test]
+    fn zoom_registered_in_user_agent() {
+        assert_eq!(provider_user_agent("zoom"), Some(CHROME_UA));
+    }
+
+    #[test]
+    fn zoom_registered_in_recipe_js() {
+        let recipe = provider_recipe_js("zoom").expect("zoom recipe present");
+        // Basic sanity: recipe identifies itself so we don't accidentally
+        // wire the wrong constant.
+        assert!(recipe.contains("zoom-recipe"));
+    }
+
+    #[test]
+    fn zoom_enables_ua_spoof() {
+        assert!(provider_ua_spoof("zoom"));
+    }
+
+    #[test]
+    fn zoom_allowed_hosts_covers_core_domains() {
+        let hosts = provider_allowed_hosts("zoom");
+        assert!(hosts.contains(&"zoom.us"), "zoom.us in allowlist");
+        assert!(hosts.contains(&"zoomgov.com"), "zoomgov.com in allowlist");
+        assert!(hosts.contains(&"zdassets.com"), "zdassets.com in allowlist");
+    }
+
+    #[test]
+    fn zoom_is_supported() {
+        assert!(provider_is_supported("zoom"));
+    }
+
+    // ── url_is_internal: subdomain + exact match ──────────────────────
+
+    #[test]
+    fn zoom_web_client_subdomain_is_internal() {
+        assert!(url_is_internal(
+            "zoom",
+            &url("https://app.zoom.us/wc/join/123")
+        ));
+    }
+
+    #[test]
+    fn zoom_apex_domain_is_internal() {
+        assert!(url_is_internal("zoom", &url("https://zoom.us/signin")));
+    }
+
+    #[test]
+    fn zoom_external_host_is_not_internal() {
+        assert!(!url_is_internal(
+            "zoom",
+            &url("https://unrelated.example.com/")
+        ));
+    }
+
+    // ── rewrite_provider_deep_link: Zoom flows ────────────────────────
+
+    #[test]
+    fn rewrite_join_flow_with_confno() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=9819254358"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/9819254358"
+        );
+    }
+
+    #[test]
+    fn rewrite_start_flow_with_confno() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/start?action=start&confno=86449940711"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/86449940711"
+        );
+    }
+
+    #[test]
+    fn rewrite_preserves_pwd_query_param() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=111&pwd=secret"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/111?pwd=secret"
+        );
+    }
+
+    #[test]
+    fn rewrite_falls_back_to_tk_when_pwd_absent() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoommtg://zoom.us/join?confno=222&tk=tokenvalue"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/222?pwd=tokenvalue"
+        );
+    }
+
+    #[test]
+    fn rewrite_accepts_zoommtg_scheme() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoommtg://zoom.us/join?action=join&confno=333"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/join/333");
+    }
+
+    #[test]
+    fn rewrite_without_confno_falls_back_to_home() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/home?action=home"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/home");
+    }
+
+    #[test]
+    fn rewrite_with_empty_confno_falls_back_to_home() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno="),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/home");
+    }
+
+    #[test]
+    fn rewrite_rejects_non_zoom_provider() {
+        assert!(rewrite_provider_deep_link(
+            "slack",
+            &url("zoomus://zoom.us/join?action=join&confno=444")
+        )
+        .is_none());
+        assert!(rewrite_provider_deep_link(
+            "google-meet",
+            &url("zoomus://zoom.us/join?action=join&confno=555")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn rewrite_rejects_http_zoom_url() {
+        // Ordinary https zoom.us navigations must pass through untouched so
+        // the existing `url_is_internal` flow decides.
+        assert!(rewrite_provider_deep_link(
+            "zoom",
+            &url("https://zoom.us/j/9819254358")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn rewrite_rejects_unknown_scheme() {
+        assert!(rewrite_provider_deep_link(
+            "zoom",
+            &url("msteams://teams.microsoft.com/l/meetup-join/666")
+        )
+        .is_none());
+    }
+}
