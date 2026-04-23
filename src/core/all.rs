@@ -74,6 +74,13 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::composio::all_composio_registered_controllers());
     // Scheduled job management
     controllers.extend(crate::openhuman::cron::all_cron_registered_controllers());
+    // Local personal index — search + stats over captured life data.
+    controllers.extend(crate::openhuman::life_capture::all_life_capture_registered_controllers());
+    // People — contact resolution + recency × frequency × reciprocity × depth scoring.
+    controllers.extend(crate::openhuman::people::all_people_registered_controllers());
+    // Curated memory (MEMORY.md + USER.md) — agent-writable scratchpad.
+    controllers
+        .extend(crate::openhuman::curated_memory::all_curated_memory_registered_controllers());
     // Agent definition and prompt inspection
     controllers.extend(crate::openhuman::agent::all_agent_registered_controllers());
     // System and process health monitoring
@@ -153,6 +160,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     );
     // Integration notification ingest, triage, and per-provider settings
     controllers.extend(crate::openhuman::notifications::all_notifications_registered_controllers());
+    // EventKit bridge — Calendar read + Reminders write (macOS; stubs on other platforms)
+    controllers.extend(crate::openhuman::eventkit::all_eventkit_registered_controllers());
     controllers
 }
 
@@ -166,6 +175,9 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::app_state::all_app_state_controller_schemas());
     schemas.extend(crate::openhuman::composio::all_composio_controller_schemas());
     schemas.extend(crate::openhuman::cron::all_cron_controller_schemas());
+    schemas.extend(crate::openhuman::life_capture::all_life_capture_controller_schemas());
+    schemas.extend(crate::openhuman::people::all_people_controller_schemas());
+    schemas.extend(crate::openhuman::curated_memory::all_curated_memory_controller_schemas());
     schemas.extend(crate::openhuman::agent::all_agent_controller_schemas());
     schemas.extend(crate::openhuman::health::all_health_controller_schemas());
     schemas.extend(crate::openhuman::doctor::all_doctor_controller_schemas());
@@ -209,6 +221,8 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     );
     // Integration notification ingest, triage, and per-provider settings
     schemas.extend(crate::openhuman::notifications::all_notifications_controller_schemas());
+    // EventKit bridge — Calendar read + Reminders write (macOS; stubs on other platforms)
+    schemas.extend(crate::openhuman::eventkit::all_eventkit_controller_schemas());
     schemas
 }
 
@@ -278,9 +292,15 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "learning" => Some(
             "User context enrichment — LinkedIn profile scraping and onboarding intelligence.",
         ),
+        "people" => Some(
+            "Contact resolution and recency × frequency × reciprocity × depth scoring.",
+        ),
         "notification" => Some(
             "Integration notification ingest, triage scoring, listing, read-state, \
              and per-provider routing settings.",
+        ),
+        "eventkit" => Some(
+            "EventKit bridge — read Calendar events and write Reminders on macOS.",
         ),
         _ => None,
     }
