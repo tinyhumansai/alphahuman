@@ -70,7 +70,9 @@ pub fn schemas(function: &str) -> ControllerSchema {
             function: "query_source",
             description: "Return summaries from one or more per-source trees. \
                  Filter by `source_id` (exact), `source_kind` (chat/email/document), \
-                 and/or `time_window_days`. Results are newest-first and capped at `limit`.",
+                 and/or `time_window_days`. Results are newest-first and capped at `limit`. \
+                 Pass `query` to rerank candidates by cosine similarity against the \
+                 stored embedding (legacy rows without an embedding fall to the bottom).",
             inputs: vec![
                 FieldSchema {
                     name: "source_id",
@@ -91,6 +93,14 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     ty: TypeSchema::Option(Box::new(TypeSchema::U64)),
                     comment: "Only return summaries whose time range overlaps the \
                      last N days.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "query",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Optional natural-language query — when present, \
+                     candidates are reranked by cosine similarity to the query's \
+                     embedding. Candidates without stored embeddings sort last.",
                     required: false,
                 },
                 FieldSchema {
@@ -132,7 +142,8 @@ pub fn schemas(function: &str) -> ControllerSchema {
             description: "Return summaries / chunks associated with a canonical \
                  entity id across every tree (source, topic, global). Also returns \
                  the topic tree's root if one has materialised for the entity. \
-                 Sorted by (score DESC, timestamp DESC).",
+                 Sorted by (score DESC, timestamp DESC), or by cosine similarity \
+                 if `query` is provided.",
             inputs: vec![
                 FieldSchema {
                     name: "entity_id",
@@ -144,6 +155,14 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     name: "time_window_days",
                     ty: TypeSchema::Option(Box::new(TypeSchema::U64)),
                     comment: "Only return hits whose time range overlaps the last N days.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "query",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Optional natural-language query — when present, \
+                     candidates are reranked by cosine similarity to the query's \
+                     embedding. Candidates without stored embeddings sort last.",
                     required: false,
                 },
                 FieldSchema {

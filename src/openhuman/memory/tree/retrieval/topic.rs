@@ -20,6 +20,7 @@ use crate::openhuman::config::Config;
 use crate::openhuman::memory::tree::retrieval::types::{
     hit_from_summary, QueryResponse, RetrievalHit,
 };
+use crate::openhuman::memory::tree::score::embed::{build_embedder_from_config, cosine_similarity};
 use crate::openhuman::memory::tree::score::store::{lookup_entity, EntityHit};
 use crate::openhuman::memory::tree::source_tree::store;
 use crate::openhuman::memory::tree::source_tree::types::{Tree, TreeKind};
@@ -35,17 +36,24 @@ const LOOKUP_HEADROOM: usize = 200;
 /// (e.g. `email:alice@example.com`, `topic:phoenix`). Unknown ids return
 /// an empty response — callers that want fuzzy matching should go through
 /// `memory_tree_search_entities` first.
+///
+/// When `query` is `Some`, hits are reranked by cosine similarity to the
+/// query's embedding; candidates without embeddings (legacy rows) fall
+/// to the bottom. When `None`, the classic `(score DESC, timestamp DESC)`
+/// ordering applies.
 pub async fn query_topic(
     config: &Config,
     entity_id: &str,
     time_window_days: Option<u32>,
+    query: Option<&str>,
     limit: usize,
 ) -> Result<QueryResponse> {
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
     log::info!(
-        "[retrieval::topic] query_topic entity_id={} window_days={:?} limit={}",
+        "[retrieval::topic] query_topic entity_id={} window_days={:?} query={} limit={}",
         entity_id,
         time_window_days,
+        query.is_some(),
         limit
     );
 
@@ -81,21 +89,96 @@ pub async fn query_topic(
     }
 
     let total = hits.len();
-    // Sort: score DESC, then newest first on ties.
-    hits.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.time_range_end.cmp(&a.time_range_end))
-    });
-    hits.truncate(limit);
+
+    let sorted = if let Some(q) = query {
+        rerank_by_semantic_similarity(config, q, hits).await?
+    } else {
+        let mut by_score = hits;
+        // Sort: score DESC, then newest first on ties.
+        by_score.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.time_range_end.cmp(&a.time_range_end))
+        });
+        by_score
+    };
+    let mut sorted = sorted;
+    sorted.truncate(limit);
 
     log::debug!(
         "[retrieval::topic] returning hits={} total={}",
-        hits.len(),
+        sorted.len(),
         total
     );
-    Ok(QueryResponse::new(hits, total))
+    Ok(QueryResponse::new(sorted, total))
+}
+
+/// Rerank hits by cosine similarity to the query embedding. Reads each
+/// hit's stored embedding (summary rows from `mem_tree_summaries`, leaf
+/// rows from `mem_tree_chunks`) directly via store helpers. Rows with no
+/// embedding sort to the bottom, preserving their relative (score, time)
+/// order so the unranked tail remains readable.
+async fn rerank_by_semantic_similarity(
+    config: &Config,
+    query: &str,
+    hits: Vec<RetrievalHit>,
+) -> Result<Vec<RetrievalHit>> {
+    use crate::openhuman::memory::tree::retrieval::types::NodeKind;
+    use crate::openhuman::memory::tree::source_tree::store as src_store;
+    use crate::openhuman::memory::tree::store::get_chunk_embedding;
+
+    let embedder = build_embedder_from_config(config)?;
+    let query_vec = embedder.embed(query).await?;
+    log::debug!(
+        "[retrieval::topic] query embedded provider={} hits_to_rerank={}",
+        embedder.name(),
+        hits.len()
+    );
+
+    // Resolve each hit's embedding. spawn_blocking around the DB reads
+    // so the event loop stays healthy even for larger headroom pulls.
+    let mut decorated: Vec<(f32, bool, RetrievalHit)> = Vec::with_capacity(hits.len());
+    for h in hits {
+        let node_id = h.node_id.clone();
+        let node_kind = h.node_kind;
+        let config_owned = config.clone();
+        let emb = tokio::task::spawn_blocking(move || -> Result<Option<Vec<f32>>> {
+            match node_kind {
+                NodeKind::Summary => src_store::get_summary_embedding(&config_owned, &node_id),
+                NodeKind::Leaf => get_chunk_embedding(&config_owned, &node_id),
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("embedding fetch join error: {e}"))??;
+
+        match emb {
+            Some(v) => {
+                let sim = cosine_similarity(&query_vec, &v);
+                decorated.push((sim, true, h));
+            }
+            None => {
+                decorated.push((f32::NEG_INFINITY, false, h));
+            }
+        }
+    }
+
+    decorated.sort_by(|a, b| match (a.1, b.1) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.2.score
+                        .partial_cmp(&a.2.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| b.2.time_range_end.cmp(&a.2.time_range_end))
+        }
+    });
+
+    Ok(decorated.into_iter().map(|(_, _, h)| h).collect())
 }
 
 /// Look up the topic tree for `entity_id` and return its current root as a
@@ -225,6 +308,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.workspace_dir = tmp.path().to_path_buf();
+        // Phase 4 (#710): ingest triggers seals which embed.
+        cfg.memory_tree.embedding_endpoint = None;
+        cfg.memory_tree.embedding_model = None;
+        cfg.memory_tree.embedding_strict = false;
         (tmp, cfg)
     }
 
@@ -247,7 +334,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_entity_returns_empty() {
         let (_tmp, cfg) = test_config();
-        let resp = query_topic(&cfg, "email:nobody@example.com", None, 10)
+        let resp = query_topic(&cfg, "email:nobody@example.com", None, None, 10)
             .await
             .unwrap();
         assert!(resp.hits.is_empty());
@@ -260,7 +347,7 @@ mod tests {
         ingest_chat(&cfg, "slack:#eng", "alice", vec![], substantive_batch())
             .await
             .unwrap();
-        let resp = query_topic(&cfg, "email:alice@example.com", None, 10)
+        let resp = query_topic(&cfg, "email:alice@example.com", None, None, 10)
             .await
             .unwrap();
         assert!(
@@ -277,7 +364,9 @@ mod tests {
         ingest_chat(&cfg, "slack:#eng", "alice", vec![], substantive_batch())
             .await
             .unwrap();
-        let resp = query_topic(&cfg, "topic:phoenix", None, 10).await.unwrap();
+        let resp = query_topic(&cfg, "topic:phoenix", None, None, 10)
+            .await
+            .unwrap();
         // Topic extraction may depend on the specific scorer config; at
         // minimum the call should succeed and the response is a well-formed
         // (possibly empty) `QueryResponse`. We don't hard-assert hits here
@@ -306,7 +395,7 @@ mod tests {
             .unwrap();
 
         // 7-day window should reject the ancient hit.
-        let resp = query_topic(&cfg, "email:alice@example.com", Some(7), 10)
+        let resp = query_topic(&cfg, "email:alice@example.com", Some(7), None, 10)
             .await
             .unwrap();
         assert!(resp.hits.is_empty(), "ancient mention filtered by window");
@@ -335,7 +424,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let resp = query_topic(&cfg, "email:alice@example.com", None, 2)
+        let resp = query_topic(&cfg, "email:alice@example.com", None, None, 2)
             .await
             .unwrap();
         assert!(resp.hits.len() <= 2);
@@ -351,7 +440,7 @@ mod tests {
         ingest_chat(&cfg, "slack:#eng", "alice", vec![], substantive_batch())
             .await
             .unwrap();
-        let resp = query_topic(&cfg, "email:alice@example.com", None, 10)
+        let resp = query_topic(&cfg, "email:alice@example.com", None, None, 10)
             .await
             .unwrap();
         for w in resp.hits.windows(2) {

@@ -154,6 +154,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut cfg = Config::default();
         cfg.workspace_dir = tmp.path().to_path_buf();
+        // Phase 4 (#710): ingest in seeding needs inert embedder.
+        cfg.memory_tree.embedding_endpoint = None;
+        cfg.memory_tree.embedding_model = None;
+        cfg.memory_tree.embedding_strict = false;
         (tmp, cfg)
     }
 

@@ -31,6 +31,12 @@ pub struct QuerySourceRequest {
     pub source_kind: Option<String>,
     #[serde(default)]
     pub time_window_days: Option<u32>,
+    /// Phase 4 (#710) — optional natural-language query string. When
+    /// provided, candidates are reranked by cosine similarity to the
+    /// query's embedding rather than sorted by recency. Legacy rows
+    /// with no stored embedding fall to the bottom.
+    #[serde(default)]
+    pub query: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -49,6 +55,7 @@ pub async fn query_source_rpc(
         req.source_id.as_deref(),
         source_kind,
         req.time_window_days,
+        req.query.as_deref(),
         limit,
     )
     .await
@@ -88,6 +95,10 @@ pub struct QueryTopicRequest {
     pub entity_id: String,
     #[serde(default)]
     pub time_window_days: Option<u32>,
+    /// Phase 4 (#710) — optional natural-language query for semantic
+    /// rerank. When unset, falls back to the classic score DESC order.
+    #[serde(default)]
+    pub query: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -97,9 +108,15 @@ pub async fn query_topic_rpc(
     req: QueryTopicRequest,
 ) -> Result<RpcOutcome<QueryResponse>, String> {
     let limit = req.limit.unwrap_or(0);
-    let resp = query_topic(config, &req.entity_id, req.time_window_days, limit)
-        .await
-        .map_err(|e| format!("query_topic: {e}"))?;
+    let resp = query_topic(
+        config,
+        &req.entity_id,
+        req.time_window_days,
+        req.query.as_deref(),
+        limit,
+    )
+    .await
+    .map_err(|e| format!("query_topic: {e}"))?;
     let n = resp.hits.len();
     Ok(RpcOutcome::single_log(
         resp,

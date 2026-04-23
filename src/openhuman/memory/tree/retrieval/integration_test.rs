@@ -25,6 +25,10 @@ fn test_config() -> (TempDir, Config) {
     let tmp = TempDir::new().unwrap();
     let mut cfg = Config::default();
     cfg.workspace_dir = tmp.path().to_path_buf();
+    // Phase 4 (#710): ingest embeds chunks; tests use inert for determinism.
+    cfg.memory_tree.embedding_endpoint = None;
+    cfg.memory_tree.embedding_model = None;
+    cfg.memory_tree.embedding_strict = false;
     (tmp, cfg)
 }
 
@@ -83,7 +87,7 @@ async fn end_to_end_three_chat_batches() {
     assert!(alice.mention_count >= 1);
 
     // ── query_topic on alice should return at least one hit.
-    let by_email = query_topic(&cfg, "email:alice@example.com", None, 20)
+    let by_email = query_topic(&cfg, "email:alice@example.com", None, None, 20)
         .await
         .unwrap();
     assert!(
@@ -94,7 +98,7 @@ async fn end_to_end_three_chat_batches() {
     // ── query_source by source_id returns what we put in (chunks get
     // surfaced directly since none of the channels seal — 2 short msgs
     // per channel is under the seal budget).
-    let by_source_kind = query_source(&cfg, None, Some(SourceKind::Chat), None, 20)
+    let by_source_kind = query_source(&cfg, None, Some(SourceKind::Chat), None, None, 20)
         .await
         .unwrap();
     // Each channel may or may not have sealed; what we lock in here is
@@ -138,6 +142,127 @@ async fn topic_entity_surfaces_after_ingest() {
     // topic. We hard-assert query_topic returns a well-formed response
     // but don't insist on a non-zero hit count — topic extraction is a
     // scorer-level choice out of Phase 4's control.
-    let resp = query_topic(&cfg, "topic:phoenix", None, 10).await.unwrap();
+    let resp = query_topic(&cfg, "topic:phoenix", None, None, 10)
+        .await
+        .unwrap();
     assert!(resp.total >= resp.hits.len());
+}
+
+// ── Phase 4 (#710): embedding + semantic rerank tests ───────────────────
+
+/// Ingest with an inert embedder must populate every kept chunk's
+/// `embedding` column. This guards against regressions where the embed
+/// step is silently skipped (e.g. future refactors threading embeddings
+/// through a different code path).
+#[tokio::test]
+async fn ingest_populates_chunk_embeddings() {
+    use crate::openhuman::memory::tree::score::embed::EMBEDDING_DIM;
+    use crate::openhuman::memory::tree::store::get_chunk_embedding;
+
+    let (_tmp, cfg) = test_config();
+    let out = ingest_chat(&cfg, "slack:#eng", "alice", vec![], chat_about_phoenix(0))
+        .await
+        .unwrap();
+    assert!(out.chunks_written >= 1, "expected at least one kept chunk");
+    for id in &out.chunk_ids {
+        let emb = get_chunk_embedding(&cfg, id).unwrap();
+        let v = emb.unwrap_or_else(|| panic!("embedding missing for chunk_id={id}"));
+        assert_eq!(v.len(), EMBEDDING_DIM, "embedding for {id} has wrong dim");
+    }
+}
+
+/// Seal through the source-tree cascade must populate the summary's
+/// embedding column. We drive large chunks directly through `append_leaf`
+/// to cross the 10k-token seal budget, then inspect the L1 summary row.
+/// This mirrors the bucket-seal unit test pattern — the ingest-driven
+/// path uses the chunker, which caps individual chunk tokens and keeps
+/// the seal from firing on short batches.
+#[tokio::test]
+async fn seal_populates_summary_embedding() {
+    use crate::openhuman::memory::tree::score::embed::EMBEDDING_DIM;
+    use crate::openhuman::memory::tree::source_tree::bucket_seal::{append_leaf, LeafRef};
+    use crate::openhuman::memory::tree::source_tree::registry::get_or_create_source_tree;
+    use crate::openhuman::memory::tree::source_tree::store as src_store;
+    use crate::openhuman::memory::tree::source_tree::summariser::inert::InertSummariser;
+    use crate::openhuman::memory::tree::store::upsert_chunks;
+    use crate::openhuman::memory::tree::types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef};
+
+    let (_tmp, cfg) = test_config();
+    let tree = get_or_create_source_tree(&cfg, "slack:#seal-test").unwrap();
+    let summariser = InertSummariser::new();
+    let ts = Utc.timestamp_millis_opt(1_700_000_000_000).unwrap();
+
+    let mk_chunk = |seq: u32, tokens: u32| Chunk {
+        id: chunk_id(SourceKind::Chat, "slack:#seal-test", seq),
+        content: format!("substantive chunk content {seq}"),
+        metadata: Metadata {
+            source_kind: SourceKind::Chat,
+            source_id: "slack:#seal-test".into(),
+            owner: "alice".into(),
+            timestamp: ts,
+            time_range: (ts, ts),
+            tags: vec![],
+            source_ref: Some(SourceRef::new("slack://x")),
+        },
+        token_count: tokens,
+        seq_in_source: seq,
+        created_at: ts,
+    };
+    let c1 = mk_chunk(0, 6_000);
+    let c2 = mk_chunk(1, 6_000);
+    upsert_chunks(&cfg, &[c1.clone(), c2.clone()]).unwrap();
+
+    let leaf_of = |c: &Chunk| LeafRef {
+        chunk_id: c.id.clone(),
+        token_count: c.token_count,
+        timestamp: c.metadata.timestamp,
+        content: c.content.clone(),
+        entities: vec![],
+        topics: vec![],
+        score: 0.5,
+    };
+    append_leaf(&cfg, &tree, &leaf_of(&c1), &summariser)
+        .await
+        .unwrap();
+    let sealed = append_leaf(&cfg, &tree, &leaf_of(&c2), &summariser)
+        .await
+        .unwrap();
+    assert_eq!(sealed.len(), 1, "expected one seal at the budget crossing");
+
+    let summary = src_store::get_summary(&cfg, &sealed[0]).unwrap().unwrap();
+    let emb = summary
+        .embedding
+        .as_ref()
+        .expect("sealed summary must have embedding");
+    assert_eq!(emb.len(), EMBEDDING_DIM);
+}
+
+/// Setting `query = Some(...)` changes ordering relative to the default
+/// recency sort. We can't easily assert specific similarity scores when
+/// using the inert embedder (all zero vectors → all similarities are 0),
+/// so we instead verify that (a) the path doesn't error out and (b) the
+/// response total/hit counts match the non-semantic path. Semantic
+/// reranking correctness is covered in the per-tool unit tests below.
+#[tokio::test]
+async fn query_source_with_query_returns_same_count() {
+    let (_tmp, cfg) = test_config();
+    ingest_chat(&cfg, "slack:#eng", "alice", vec![], chat_about_phoenix(0))
+        .await
+        .unwrap();
+
+    let recency = query_source(&cfg, None, Some(SourceKind::Chat), None, None, 20)
+        .await
+        .unwrap();
+    let semantic = query_source(
+        &cfg,
+        None,
+        Some(SourceKind::Chat),
+        None,
+        Some("phoenix migration"),
+        20,
+    )
+    .await
+    .unwrap();
+    assert_eq!(recency.total, semantic.total);
+    assert_eq!(recency.hits.len(), semantic.hits.len());
 }
