@@ -75,11 +75,7 @@ mod tests {
     #[test]
     fn short_numeric_ids_not_redacted() {
         // 8-digit order/invoice IDs must NOT be redacted as phone numbers.
-        let cases = [
-            "order #12345678",
-            "invoice 87654321",
-            "ref: 00001234",
-        ];
+        let cases = ["order #12345678", "invoice 87654321", "ref: 00001234"];
         for input in cases {
             let out = redact(input);
             assert!(

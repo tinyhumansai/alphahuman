@@ -368,9 +368,8 @@ impl ItemRow {
         use crate::openhuman::life_capture::types::{Hit, Item, Source};
         let author = self.author_json.and_then(|s| serde_json::from_str(&s).ok());
         let metadata = serde_json::from_str(&self.metadata_json).unwrap_or(serde_json::json!({}));
-        let source: Source =
-            serde_json::from_value(serde_json::Value::String(self.source.clone()))
-                .with_context(|| format!("unknown source value {:?} in items row", self.source))?;
+        let source: Source = serde_json::from_value(serde_json::Value::String(self.source.clone()))
+            .with_context(|| format!("unknown source value {:?} in items row", self.source))?;
         let id = uuid::Uuid::parse_str(&self.id)
             .with_context(|| format!("malformed UUID {:?} in items.id", self.id))?;
         let ts = chrono::DateTime::from_timestamp(self.ts, 0)

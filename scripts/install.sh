@@ -13,12 +13,6 @@ for _arg in "$@"; do
   fi
 done
 
-# Early-exit before any side-effect (variable mutations, sub-shells, function
-# definitions) so sourcing with --source-only in tests is truly a no-op.
-if [[ "${SOURCE_ONLY}" == "1" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
-
 INSTALLER_VERSION="1.0.0"
 REPO="tinyhumansai/openhuman"
 LATEST_JSON_URL="https://github.com/${REPO}/releases/latest/download/latest.json"
@@ -363,6 +357,11 @@ PY
     ASSET_SHA256="${digest}"
   fi
 }
+
+# Exit early after functions are defined so tests can source and call them.
+if [[ "${SOURCE_ONLY}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 if resolve_from_latest_json; then
   log_ok "Resolved latest release via latest.json (${LATEST_VERSION})"
