@@ -852,6 +852,39 @@ impl Config {
             }
         }
 
+        // Phase 4 memory-tree embedding overrides (#710). Setting the env
+        // var to an empty string explicitly clears the default — useful
+        // for CI and other environments that want to opt into the
+        // InertEmbedder fallback without editing config.toml.
+        if let Ok(endpoint) = std::env::var("OPENHUMAN_MEMORY_EMBED_ENDPOINT") {
+            let trimmed = endpoint.trim();
+            self.memory_tree.embedding_endpoint = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
+        if let Ok(model) = std::env::var("OPENHUMAN_MEMORY_EMBED_MODEL") {
+            let trimmed = model.trim();
+            self.memory_tree.embedding_model = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
+        if let Ok(val) = std::env::var("OPENHUMAN_MEMORY_EMBED_TIMEOUT_MS") {
+            if let Ok(timeout_ms) = val.trim().parse::<u64>() {
+                if timeout_ms > 0 {
+                    self.memory_tree.embedding_timeout_ms = Some(timeout_ms);
+                }
+            }
+        }
+        if let Ok(flag) = std::env::var("OPENHUMAN_MEMORY_EMBED_STRICT") {
+            if let Some(strict) = parse_env_bool("OPENHUMAN_MEMORY_EMBED_STRICT", &flag) {
+                self.memory_tree.embedding_strict = strict;
+            }
+        }
+
         // Auto-update overrides
         if let Ok(flag) = std::env::var("OPENHUMAN_AUTO_UPDATE_ENABLED") {
             let normalized = flag.trim().to_ascii_lowercase();
