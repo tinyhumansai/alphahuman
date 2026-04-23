@@ -1,0 +1,19 @@
+processes:
+
+  tauri-dev:
+    command: yarn tauri dev
+
+  skills-watch:
+    command: yarn workspace openhuman-app skills:watch
+
+  typecheck-watch:
+    command: yarn workspace openhuman-app exec tsc --noEmit --watch --preserveWatchOutput
+
+  core-check:
+    command: cargo check --manifest-path Cargo.toml
+
+  core-build:
+    command: cargo build --manifest-path Cargo.toml --bin openhuman
+
+  core-stage:
+    command: yarn workspace openhuman-app core:stage
