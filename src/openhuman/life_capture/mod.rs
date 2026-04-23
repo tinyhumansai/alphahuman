@@ -1,3 +1,4 @@
+pub mod chronicle;
 pub mod embedder;
 pub mod index;
 pub mod migrations;
