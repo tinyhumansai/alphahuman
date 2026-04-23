@@ -1,5 +1,5 @@
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { callCoreRpc } from '../../../services/coreRpcClient';
@@ -39,7 +39,10 @@ async function rpcConnectAccount(accountId: string, email: string): Promise<Gmai
 }
 
 async function rpcDisconnectAccount(accountId: string): Promise<void> {
-  await callCoreRpc({ method: 'openhuman.gmail_disconnect_account', params: { account_id: accountId } });
+  await callCoreRpc({
+    method: 'openhuman.gmail_disconnect_account',
+    params: { account_id: accountId },
+  });
 }
 
 async function rpcSyncNow(accountId: string): Promise<void> {
