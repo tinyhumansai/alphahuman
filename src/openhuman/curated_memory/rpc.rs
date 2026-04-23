@@ -44,6 +44,9 @@ pub async fn handle_replace(
     needle: String,
     replacement: String,
 ) -> Result<RpcOutcome<Value>, String> {
+    if needle.is_empty() {
+        return Err("needle must not be empty".into());
+    }
     let store = pick(&file, rt)?;
     store
         .replace(&needle, &replacement)
@@ -57,6 +60,9 @@ pub async fn handle_remove(
     file: String,
     needle: String,
 ) -> Result<RpcOutcome<Value>, String> {
+    if needle.is_empty() {
+        return Err("needle must not be empty".into());
+    }
     let store = pick(&file, rt)?;
     store
         .remove(&needle)

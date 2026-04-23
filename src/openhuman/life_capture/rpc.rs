@@ -66,11 +66,27 @@ pub async fn handle_search(
     }
     let k = k.clamp(1, 100);
 
+    // The sqlite-vec column is fixed-width; reject mismatched embedders up
+    // front with a clear RPC error instead of a low-level sqlite-vec failure.
+    const INDEX_VECTOR_DIM: usize = 1536;
+    if embedder.dim() != INDEX_VECTOR_DIM {
+        return Err(format!(
+            "embedder dim {} does not match index dim {INDEX_VECTOR_DIM}",
+            embedder.dim()
+        ));
+    }
+
     let mut vecs = embedder
         .embed_batch(&[text.as_str()])
         .await
         .map_err(|e| format!("embed: {e}"))?;
     let query_vec = vecs.pop().ok_or("embedder returned no vectors")?;
+    if query_vec.len() != INDEX_VECTOR_DIM {
+        return Err(format!(
+            "embedding length {} does not match index dim {INDEX_VECTOR_DIM}",
+            query_vec.len()
+        ));
+    }
 
     let reader = IndexReader::new(idx);
     let q = Query::simple(text, k);

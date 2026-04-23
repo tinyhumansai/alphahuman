@@ -203,6 +203,16 @@ impl IndexWriter {
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut guard = conn.blocking_lock();
             let tx = guard.transaction().context("begin upsert_vector tx")?;
+            let exists: i64 = tx
+                .query_row(
+                    "SELECT COUNT(1) FROM items WHERE id = ?1",
+                    rusqlite::params![id],
+                    |row| row.get(0),
+                )
+                .context("check item exists")?;
+            if exists == 0 {
+                anyhow::bail!("cannot upsert vector for unknown item {id}");
+            }
             tx.execute(
                 "DELETE FROM item_vectors WHERE item_id = ?1",
                 rusqlite::params![id],
@@ -311,6 +321,58 @@ impl ItemRow {
     }
 }
 
+/// Sanitize arbitrary user input for FTS5 MATCH. Each whitespace-separated
+/// token is wrapped as a quoted string (with embedded `"` doubled per FTS5
+/// syntax) so operator tokens like `AND`/`OR`/`NEAR`, column filters, and
+/// stray quotes from user input are treated as literals. Tokens are joined
+/// with spaces, which FTS5 interprets as implicit AND — preserving the
+/// pre-sanitization behavior of "all terms must be present".
+fn fts5_quote(input: &str) -> String {
+    let mut out = String::new();
+    for tok in input.split_whitespace() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push('"');
+        for ch in tok.chars() {
+            if ch == '"' {
+                out.push('"');
+                out.push('"');
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push('"');
+    }
+    out
+}
+
+/// Post-filter hits against a Query's `sources`/`since`/`until`. Applied on
+/// the fused output so both legs share a single consistent filter.
+fn apply_query_filters(
+    hits: Vec<crate::openhuman::life_capture::types::Hit>,
+    q: &crate::openhuman::life_capture::types::Query,
+) -> Vec<crate::openhuman::life_capture::types::Hit> {
+    hits.into_iter()
+        .filter(|h| {
+            if !q.sources.is_empty() && !q.sources.contains(&h.item.source) {
+                return false;
+            }
+            if let Some(since) = q.since {
+                if h.item.ts < since {
+                    return false;
+                }
+            }
+            if let Some(until) = q.until {
+                if h.item.ts > until {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect()
+}
+
 impl IndexReader {
     pub fn new(idx: &PersonalIndex) -> Self {
         Self {
@@ -319,12 +381,16 @@ impl IndexReader {
     }
 
     /// Keyword search via FTS5 ranked by bm25 (negated so higher = better).
+    ///
+    /// The query string is wrapped as an FTS5 quoted phrase so special tokens
+    /// like `AND`/`OR`/`NEAR`, quotes, and column specifiers from user input
+    /// are treated as literals instead of FTS5 operators.
     pub async fn keyword_search(
         &self,
         query: &str,
         k: usize,
     ) -> anyhow::Result<Vec<crate::openhuman::life_capture::types::Hit>> {
-        let query = query.to_string();
+        let query = fts5_quote(query);
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
             let guard = conn.blocking_lock();
@@ -360,15 +426,14 @@ impl IndexReader {
         .context("keyword_search task panicked")?
     }
 
-    /// Hybrid search — pulls oversampled candidates from both the keyword and
-    /// vector legs, normalises each leg independently, and re-ranks in app code
-    /// with `0.55 * vec_norm + 0.35 * kw_norm + 0.10 * recency` where recency
-    /// is `exp(-age_days / 30)` (half-life ~21 days).
+    /// Hybrid search via Reciprocal Rank Fusion. Pulls oversampled candidates
+    /// from keyword + vector legs, scores each doc by `w_v/(k+vec_rank) +
+    /// w_k/(k+kw_rank)` (RRF, k=60), plus a recency bump scaled to the same
+    /// magnitude so freshness breaks ties without dominating.
     ///
-    /// Oversample factor `k * 3` (min 20) is enough to catch documents that
-    /// rank well on one signal but not the other. Items missing a vector still
-    /// appear (vec_norm = 0) and items missing keyword hits still appear
-    /// (kw_norm = 0); only documents with neither signal are dropped.
+    /// Why RRF over max-normalisation: BM25 and vector distance live on
+    /// incomparable scales, a single outlier in either leg skews a max-norm,
+    /// and rank-based fusion degrades gracefully when one leg is empty.
     pub async fn hybrid_search(
         &self,
         q: &crate::openhuman::life_capture::types::Query,
@@ -377,42 +442,39 @@ impl IndexReader {
         use crate::openhuman::life_capture::types::Hit;
         use std::collections::HashMap;
 
+        const RRF_K: f32 = 60.0;
+        const W_VEC: f32 = 0.55;
+        const W_KW: f32 = 0.35;
+        const W_RECENCY: f32 = 0.10;
+
         let oversample = (q.k * 3).max(20);
         let kw = self.keyword_search(&q.text, oversample).await?;
         let vc = self.vector_search(query_vector, oversample).await?;
 
-        let max_kw = kw
-            .iter()
-            .map(|h| h.score)
-            .fold(f32::MIN, f32::max)
-            .max(1e-6);
-        let max_vc = vc
-            .iter()
-            .map(|h| h.score)
-            .fold(f32::MIN, f32::max)
-            .max(1e-6);
-
+        // (hit, kw_rrf, vc_rrf)
         let mut by_id: HashMap<uuid::Uuid, (Hit, f32, f32)> = HashMap::new();
-        for h in kw {
-            let s = h.score / max_kw;
+        for (rank0, h) in kw.into_iter().enumerate() {
+            let rrf = 1.0 / (RRF_K + (rank0 + 1) as f32);
             let id = h.item.id;
-            by_id.insert(id, (h, s, 0.0));
+            by_id.insert(id, (h, rrf, 0.0));
         }
-        for h in vc {
-            let s = h.score / max_vc;
+        for (rank0, h) in vc.into_iter().enumerate() {
+            let rrf = 1.0 / (RRF_K + (rank0 + 1) as f32);
             by_id
                 .entry(h.item.id)
-                .and_modify(|(_, _, vs)| *vs = s)
-                .or_insert_with(|| (h.clone(), 0.0, s));
+                .and_modify(|(_, _, vs)| *vs = rrf)
+                .or_insert_with(|| (h.clone(), 0.0, rrf));
         }
 
+        // Put recency on the same order of magnitude as a top-ranked RRF term.
+        let recency_scale = 1.0 / (RRF_K + 1.0);
         let now = chrono::Utc::now().timestamp();
         let mut out: Vec<Hit> = by_id
             .into_values()
-            .map(|(mut hit, kw_n, vc_n)| {
+            .map(|(mut hit, kw_rrf, vc_rrf)| {
                 let age_days = ((now - hit.item.ts.timestamp()).max(0) as f32) / 86400.0;
                 let recency = (-age_days / 30.0).exp();
-                hit.score = 0.55 * vc_n + 0.35 * kw_n + 0.10 * recency;
+                hit.score = W_VEC * vc_rrf + W_KW * kw_rrf + W_RECENCY * recency * recency_scale;
                 hit
             })
             .collect();
@@ -421,6 +483,7 @@ impl IndexReader {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        let mut out = apply_query_filters(out, q);
         out.truncate(q.k);
         Ok(out)
     }
@@ -565,7 +628,9 @@ mod writer_tests {
         let idx = PersonalIndex::open_in_memory().await.unwrap();
         let writer = IndexWriter::new(&idx);
 
-        let id = Uuid::new_v4();
+        let mut items = [sample_item("vec-replace", "text")];
+        writer.upsert(&mut items).await.unwrap();
+        let id = items[0].id;
         let v1: Vec<f32> = (0..1536).map(|i| i as f32 * 0.001).collect();
         let v2: Vec<f32> = (0..1536).map(|i| (i as f32 * 0.001) + 0.5).collect();
 
