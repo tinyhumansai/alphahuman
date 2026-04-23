@@ -7,13 +7,16 @@ static EMAIL: Lazy<Regex> =
 // Catches +1-415-555-0123, (415) 555-0123, 415.555.0123, 4155550123 in 10-15 digit forms.
 // The regex is anchored to require 10-15 total digits (including optional country code prefix)
 // so short numeric sequences like 8-digit invoice/order IDs are not redacted.
+// Matches phone-like runs that REQUIRE separators, so pure digit runs (e.g. 8-digit
+// invoice IDs) don't match. Rust's `regex` crate doesn't support lookaround, so we
+// rely on the mandatory separators plus `redact()` ordering (CC runs before PHONE)
+// to avoid mid-number matches inside longer digit sequences.
 static PHONE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?x)
-        (?<!\d)                         # not preceded by a digit (no mid-number match)
         (?:
             # With country code: +1-NXX-NXX-XXXX or 1-NXX-NXX-XXXX style
-            \+?\d{1,3}[\s\-.]           # country code + separator (mandatory separator)
+            \+?\d{1,3}[\s\-.]           # country code + mandatory separator
             (?:\(\d{2,4}\)|\d{2,4})[\s\-.]?
             \d{3}[\s\-.]?\d{4}          # 7-digit local with separator gives 10+ total
             |
@@ -21,7 +24,6 @@ static PHONE: Lazy<Regex> = Lazy::new(|| {
             (?:\(\d{3}\)|\d{3})[\s\-.]  # area code 3 digits + mandatory separator
             \d{3}[\s\-.]?\d{4}          # 7-digit local = 10 digits total
         )
-        (?!\d)                          # not followed by a digit
     ",
     )
     .unwrap()
