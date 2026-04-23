@@ -22,9 +22,10 @@ pub enum CoreNotificationCategory {
 /// its own notification item structure.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CoreNotificationEvent {
-    /// Stable id used for de-duplication in the center (e.g.
-    /// `"cron:<job_id>:<ts>"`). The frontend keys by this id so repeated
-    /// publishes for the same logical event don't pile up.
+    /// Unique id for this notification publish (e.g. `"cron:<job_id>:<ts>"`).
+    /// Because the timestamp is embedded, each publish produces a distinct id —
+    /// every cron run, webhook failure, or subagent event gets its own entry in
+    /// the notification center rather than replacing a previous one.
     pub id: String,
     pub category: CoreNotificationCategory,
     pub title: String,

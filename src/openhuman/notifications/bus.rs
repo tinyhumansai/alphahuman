@@ -47,19 +47,8 @@ pub fn publish_core_notification(event: CoreNotificationEvent) -> usize {
 
 /// Subscribes to selected DomainEvent variants and translates each into a
 /// [`CoreNotificationEvent`]. Pure translation — no I/O, no locks.
+#[derive(Default)]
 pub struct NotificationBridgeSubscriber;
-
-impl NotificationBridgeSubscriber {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for NotificationBridgeSubscriber {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -81,7 +70,11 @@ pub fn event_to_notification(event: &DomainEvent) -> Option<CoreNotificationEven
             } else {
                 "Cron job failed".into()
             },
-            body: format!("Job {job_id} finished."),
+            body: if *success {
+                format!("Job {job_id} finished successfully.")
+            } else {
+                format!("Job {job_id} did not complete — check your cron schedule.")
+            },
             deep_link: Some("/settings/cron-jobs".into()),
             timestamp_ms: ts,
         }),
@@ -126,6 +119,22 @@ pub fn event_to_notification(event: &DomainEvent) -> Option<CoreNotificationEven
             deep_link: Some("/chat".into()),
             timestamp_ms: ts,
         }),
+        DomainEvent::SubagentFailed {
+            parent_session,
+            task_id,
+            agent_id,
+            error,
+        } => Some(CoreNotificationEvent {
+            id: format!("subagent:{}:{}:{}", parent_session, task_id, ts),
+            category: CoreNotificationCategory::Agents,
+            title: "Sub-agent failed".into(),
+            body: format!(
+                "{agent_id} encountered an error: {}",
+                error.chars().take(100).collect::<String>()
+            ),
+            deep_link: Some("/chat".into()),
+            timestamp_ms: ts,
+        }),
         _ => None,
     }
 }
@@ -154,9 +163,9 @@ impl EventHandler for NotificationBridgeSubscriber {
 pub fn register_notification_bridge_subscriber() {
     use std::sync::Arc;
     if let Some(handle) =
-        crate::core::event_bus::subscribe_global(Arc::new(NotificationBridgeSubscriber::new()))
+        crate::core::event_bus::subscribe_global(Arc::new(NotificationBridgeSubscriber::default()))
     {
-        // Leak so the background task lives for the whole process.
+        // SAFETY: intentional leak; handle's Drop would cancel the subscriber.
         std::mem::forget(handle);
         log::info!("{LOG_PREFIX} notification bridge subscriber registered");
     } else {
@@ -239,6 +248,21 @@ mod tests {
         assert_eq!(n.category, CoreNotificationCategory::Agents);
         assert!(n.body.contains("researcher"));
         assert!(n.body.contains("500"));
+    }
+
+    #[test]
+    fn subagent_failed_produces_agents_notification() {
+        let ev = DomainEvent::SubagentFailed {
+            parent_session: "p".into(),
+            task_id: "t".into(),
+            agent_id: "researcher".into(),
+            error: "context window exceeded".into(),
+        };
+        let n = event_to_notification(&ev).unwrap();
+        assert_eq!(n.category, CoreNotificationCategory::Agents);
+        assert_eq!(n.title, "Sub-agent failed");
+        assert!(n.body.contains("researcher"));
+        assert!(n.body.contains("context window exceeded"));
     }
 
     #[test]

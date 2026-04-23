@@ -48,14 +48,16 @@ function windowIsFocused(): boolean {
 
 function dispatchAndMaybeBanner(
   category: NotificationCategory,
-  item: Omit<NotificationItem, 'category' | 'timestamp' | 'read'>
+  item: Omit<NotificationItem, 'category' | 'timestamp' | 'read'>,
+  timestampOverride?: number
 ): void {
   const prefs = store.getState().notifications.preferences;
   if (!prefs[category]) {
     log('category %s disabled, skipping', category);
     return;
   }
-  const full: NotificationItem = { ...item, category, timestamp: Date.now(), read: false };
+  const timestamp = timestampOverride && timestampOverride > 0 ? timestampOverride : Date.now();
+  const full: NotificationItem = { ...item, category, timestamp, read: false };
   store.dispatch(notificationReceived(full));
   // Only fire OS-level banner when the user isn't already looking at the
   // window — otherwise the in-app center is enough and a native toast is
@@ -106,12 +108,17 @@ export function startNativeNotificationsService(): void {
   coreNotificationListener = (...args: unknown[]) => {
     const p = (args[0] ?? {}) as CoreNotificationPayload;
     if (!p.id || !p.title) return;
-    dispatchAndMaybeBanner(p.category, {
-      id: p.id,
-      title: truncate(p.title, 120),
-      body: truncate(p.body ?? '', 160),
-      deepLink: p.deep_link ?? undefined,
-    });
+    const serverTs = p.timestamp_ms && p.timestamp_ms > 0 ? p.timestamp_ms : Date.now();
+    dispatchAndMaybeBanner(
+      p.category,
+      {
+        id: p.id,
+        title: truncate(p.title, 120),
+        body: truncate(p.body ?? '', 160),
+        deepLink: p.deep_link ?? undefined,
+      },
+      serverTs
+    );
   };
 
   disconnectListener = (...args: unknown[]) => {
@@ -168,12 +175,18 @@ export function __handleChatDoneForTests(payload: ChatDonePayload): void {
 /** Exposed for tests — dispatch as if a core_notification arrived. */
 export function __handleCoreNotificationForTests(payload: CoreNotificationPayload): void {
   if (!payload.id || !payload.title) return;
-  dispatchAndMaybeBanner(payload.category, {
-    id: payload.id,
-    title: truncate(payload.title, 120),
-    body: truncate(payload.body ?? '', 160),
-    deepLink: payload.deep_link ?? undefined,
-  });
+  const serverTs =
+    payload.timestamp_ms && payload.timestamp_ms > 0 ? payload.timestamp_ms : Date.now();
+  dispatchAndMaybeBanner(
+    payload.category,
+    {
+      id: payload.id,
+      title: truncate(payload.title, 120),
+      body: truncate(payload.body ?? '', 160),
+      deepLink: payload.deep_link ?? undefined,
+    },
+    serverTs
+  );
 }
 
 /** Exposed for tests — resets module singletons between runs. */
