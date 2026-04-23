@@ -131,6 +131,7 @@ fn stub_parent_context() -> ParentExecutionContext {
         tool_call_format: openhuman_core::openhuman::context::prompt::ToolCallFormat::PFormat,
         session_key: "test-session".into(),
         session_parent_prefix: None,
+        curated_snapshot: None,
     }
 }
 
