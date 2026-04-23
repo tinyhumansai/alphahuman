@@ -403,12 +403,27 @@ fn forward_native_notification<R: Runtime>(
         );
     }
 
-    // Respect the Web Notification `silent` flag — the in-app mirror event
-    // above still fires, but the OS toast is suppressed.
+    // Respect the Web Notification `silent` flag — the mirror event above
+    // still updates the in-app notification center, but the OS toast is
+    // suppressed so the user is not audibly/visually interrupted for
+    // notifications the page explicitly marked as silent.
     if payload.silent {
         log::debug!(
             "[notify-cef][{}] silent=true, suppressing OS toast",
             account_id
+        );
+        return;
+    }
+
+    let mut builder = app.notification().builder().title(&notify_title);
+    if !body.is_empty() {
+        builder = builder.body(body);
+    }
+    if let Err(e) = builder.show() {
+        log::warn!(
+            "[notify-cef][{}] notification show failed: {}",
+            account_id,
+            e
         );
         return;
     }

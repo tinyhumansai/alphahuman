@@ -140,12 +140,32 @@
     }
   } catch (_) {}
 
-  // Notification.permission — ensure it reads "granted" without replacing the
-  // constructor. Under CEF the native notification shim needs to own
-  // `new Notification(...)` so it can forward payloads over the renderer →
-  // browser process bridge. Overwriting the constructor here breaks that path.
+  // Notification.permission — ensure it reads "granted" even if the V8-level
+  // shim in cef-helper is overwritten or not yet in place for this context.
+  // Some apps (Slack) rebind/inspect the Notification constructor itself,
+  // so wrapping the constructor is more reliable than patching only the
+  // `permission` static descriptor.
+  //
+  // Guard with `window.__OH_NOTIF_SHIM` so repeat evaluations of this script
+  // (e.g. from `Page.addScriptToEvaluateOnNewDocument` plus frame-level
+  // re-injections) don't keep stacking wrappers onto the same globals and
+  // double-proxy `Function.prototype.toString`.
+  if (window.__OH_NOTIF_SHIM) {
+    return;
+  }
   try {
     if (typeof window.Notification === 'function') {
+      var __NativeNotification = window.Notification;
+      var __OHNotification = function (title, options) {
+        try {
+          return new __NativeNotification(title, options);
+        } catch (_) {
+          return {};
+        }
+      };
+      try {
+        __OHNotification.prototype = __NativeNotification.prototype;
+      } catch (_) {}
       try {
         var __nativeFnToString = Function.prototype.toString;
         var __wrappedRequest = function () {
@@ -153,22 +173,33 @@
         };
         Function.prototype.toString = new Proxy(__nativeFnToString, {
           apply: function (target, thisArg, args) {
+            if (thisArg === __OHNotification) {
+              return 'function Notification() { [native code] }';
+            }
             if (thisArg === __wrappedRequest) {
               return 'function requestPermission() { [native code] }';
             }
             return Reflect.apply(target, thisArg, args);
           },
         });
-        window.Notification.requestPermission = __wrappedRequest;
+        __OHNotification.requestPermission = __wrappedRequest;
       } catch (_) {
-        window.Notification.requestPermission = function () {
+        __OHNotification.requestPermission = function () {
           return Promise.resolve('granted');
         };
       }
-      Object.defineProperty(window.Notification, 'permission', {
+      Object.defineProperty(__OHNotification, 'permission', {
         get: function () { return 'granted'; },
         configurable: true,
       });
+      window.Notification = __OHNotification;
+      try {
+        Object.defineProperty(window, 'Notification', {
+          get: function () { return __OHNotification; },
+          set: function () {},
+          configurable: false,
+        });
+      } catch (_) {}
     }
   } catch (_) {}
   window.__OH_NOTIF_SHIM = true;

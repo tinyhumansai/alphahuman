@@ -151,15 +151,21 @@ async fn run_session_cycle(account_id: &str, real_url: &str) -> Result<(), Strin
                     try {\
                         var NativeNotification = window.Notification;\
                         if (typeof NativeNotification === 'function') {\
+                            var OpenHumanNotification = function(title, options){\
+                                try { return new NativeNotification(title, options); }\
+                                catch (_) { return {}; }\
+                            };\
+                            OpenHumanNotification.prototype = NativeNotification.prototype;\
                             try {\
-                                Object.defineProperty(NativeNotification, 'permission', {\
+                                Object.defineProperty(OpenHumanNotification, 'permission', {\
                                     get: function(){ return 'granted'; },\
                                     configurable: true\
                                 });\
                             } catch (_) {}\
-                            NativeNotification.requestPermission = function(){\
+                            OpenHumanNotification.requestPermission = function(){\
                                 return Promise.resolve('granted');\
                             };\
+                            window.Notification = OpenHumanNotification;\
                         }\
                     } catch (_) {}\
                     try {\
