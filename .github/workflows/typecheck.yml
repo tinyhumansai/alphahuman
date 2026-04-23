@@ -45,7 +45,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.pnpm-cache.outputs.cache-hit != 'true'
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Type check TypeScript files
         run: pnpm --filter openhuman-app compile
