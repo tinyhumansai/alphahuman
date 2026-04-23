@@ -5,6 +5,7 @@ use rusqlite::{ffi, Connection, OpenFlags, OptionalExtension};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{debug, trace};
 
 /// r2d2 pool of read-only SQLite connections. Used for file-backed indexes
 /// in production so WAL actually buys us concurrent readers; in-memory test
@@ -488,6 +489,11 @@ impl IndexReader {
         query: &str,
         k: usize,
     ) -> anyhow::Result<Vec<crate::openhuman::life_capture::types::Hit>> {
+        debug!(
+            "[life_capture] keyword_search: query_len={} k={}",
+            query.len(),
+            k
+        );
         let query = fts5_quote(query);
         self.with_read_conn("keyword_search", move |conn| {
             let mut stmt = conn.prepare(
@@ -516,7 +522,9 @@ impl IndexReader {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(rows.into_iter().map(ItemRow::into_hit).collect())
+            let hits: Vec<_> = rows.into_iter().map(ItemRow::into_hit).collect();
+            debug!("[life_capture] keyword_search: {} hits returned", hits.len());
+            Ok(hits)
         })
         .await
     }
@@ -541,6 +549,13 @@ impl IndexReader {
         const W_VEC: f32 = 0.55;
         const W_KW: f32 = 0.35;
         const W_RECENCY: f32 = 0.10;
+
+        debug!(
+            "[life_capture] hybrid_search: query_len={} k={} vec_dim={}",
+            q.text.len(),
+            q.k,
+            query_vector.len()
+        );
 
         let oversample = (q.k * 3).max(20);
         let kw = self.keyword_search(&q.text, oversample).await?;
@@ -570,6 +585,14 @@ impl IndexReader {
                 let age_days = ((now - hit.item.ts.timestamp()).max(0) as f32) / 86400.0;
                 let recency = (-age_days / 30.0).exp();
                 hit.score = W_VEC * vc_rrf + W_KW * kw_rrf + W_RECENCY * recency * recency_scale;
+                trace!(
+                    "[life_capture] hybrid_search: id={} kw_rrf={:.4} vc_rrf={:.4} recency={:.4} score={:.4}",
+                    hit.item.id,
+                    kw_rrf,
+                    vc_rrf,
+                    recency,
+                    hit.score
+                );
                 hit
             })
             .collect();
@@ -580,6 +603,10 @@ impl IndexReader {
         });
         let mut out = apply_query_filters(out, q);
         out.truncate(q.k);
+        debug!(
+            "[life_capture] hybrid_search: {} hits after filter+truncate",
+            out.len()
+        );
         Ok(out)
     }
 
@@ -590,6 +617,11 @@ impl IndexReader {
         vector: &[f32],
         k: usize,
     ) -> anyhow::Result<Vec<crate::openhuman::life_capture::types::Hit>> {
+        debug!(
+            "[life_capture] vector_search: vec_dim={} k={}",
+            vector.len(),
+            k
+        );
         let v_json = serde_json::to_string(vector).context("serialize vector")?;
         self.with_read_conn("vector_search", move |conn| {
             let mut stmt = conn.prepare(
@@ -618,7 +650,9 @@ impl IndexReader {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(rows.into_iter().map(ItemRow::into_hit).collect())
+            let hits: Vec<_> = rows.into_iter().map(ItemRow::into_hit).collect();
+            debug!("[life_capture] vector_search: {} hits returned", hits.len());
+            Ok(hits)
         })
         .await
     }

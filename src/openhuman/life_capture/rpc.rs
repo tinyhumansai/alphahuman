@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use tracing::{debug, warn};
 
 use crate::openhuman::life_capture::embedder::Embedder;
 use crate::openhuman::life_capture::index::{IndexReader, PersonalIndex};
@@ -14,6 +15,7 @@ use crate::rpc::RpcOutcome;
 /// Returns total item count, per-source counts, and the most recent item ts
 /// (unix seconds, or null when the index is empty).
 pub async fn handle_get_stats(idx: &PersonalIndex) -> Result<RpcOutcome<Value>, String> {
+    debug!("[life_capture] handle_get_stats: entry");
     // Stats is a read-only query but it runs through the writer connection
     // rather than the pool: the schema is tiny and we don't want to add a
     // pool-aware helper here just for three count()s. If this ever turns
@@ -52,8 +54,22 @@ pub async fn handle_get_stats(idx: &PersonalIndex) -> Result<RpcOutcome<Value>, 
         }))
     })
     .await
-    .map_err(|e| format!("get_stats task panicked: {e}"))??;
+    .map_err(|e| {
+        warn!("[life_capture] handle_get_stats: task panicked: {e}");
+        format!("get_stats task panicked: {e}")
+    })??;
 
+    debug!(
+        "[life_capture] handle_get_stats: total_items={} by_source_count={}",
+        stats
+            .get("total_items")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        stats
+            .get("by_source")
+            .and_then(|v| v.as_array())
+            .map_or(0, |a| a.len()),
+    );
     Ok(RpcOutcome::new(stats, vec![]))
 }
 
@@ -65,6 +81,12 @@ pub async fn handle_search(
     text: String,
     k: usize,
 ) -> Result<RpcOutcome<Value>, String> {
+    debug!(
+        "[life_capture] handle_search: entry text_len={} k={}",
+        text.len(),
+        k
+    );
+
     if text.trim().is_empty() {
         return Err("search text must not be empty".into());
     }
@@ -74,18 +96,29 @@ pub async fn handle_search(
     // front with a clear RPC error instead of a low-level sqlite-vec failure.
     const INDEX_VECTOR_DIM: usize = 1536;
     if embedder.dim() != INDEX_VECTOR_DIM {
+        warn!(
+            "[life_capture] handle_search: embedder dim {} != index dim {INDEX_VECTOR_DIM}",
+            embedder.dim()
+        );
         return Err(format!(
             "embedder dim {} does not match index dim {INDEX_VECTOR_DIM}",
             embedder.dim()
         ));
     }
 
-    let mut vecs = embedder
-        .embed_batch(&[text.as_str()])
-        .await
-        .map_err(|e| format!("embed: {e}"))?;
-    let query_vec = vecs.pop().ok_or("embedder returned no vectors")?;
+    let mut vecs = embedder.embed_batch(&[text.as_str()]).await.map_err(|e| {
+        warn!("[life_capture] handle_search: embed_batch failed: {e}");
+        format!("embed: {e}")
+    })?;
+    let query_vec = vecs.pop().ok_or_else(|| {
+        warn!("[life_capture] handle_search: embedder returned no vectors");
+        "embedder returned no vectors"
+    })?;
     if query_vec.len() != INDEX_VECTOR_DIM {
+        warn!(
+            "[life_capture] handle_search: embedding len {} != index dim {INDEX_VECTOR_DIM}",
+            query_vec.len()
+        );
         return Err(format!(
             "embedding length {} does not match index dim {INDEX_VECTOR_DIM}",
             query_vec.len()
@@ -94,10 +127,10 @@ pub async fn handle_search(
 
     let reader = IndexReader::new(idx);
     let q = Query::simple(text, k);
-    let hits = reader
-        .hybrid_search(&q, &query_vec)
-        .await
-        .map_err(|e| format!("hybrid_search: {e}"))?;
+    let hits = reader.hybrid_search(&q, &query_vec).await.map_err(|e| {
+        warn!("[life_capture] handle_search: hybrid_search failed: {e}");
+        format!("hybrid_search: {e}")
+    })?;
 
     let payload: Vec<Value> = hits
         .into_iter()
@@ -113,5 +146,9 @@ pub async fn handle_search(
         })
         .collect();
 
+    debug!(
+        "[life_capture] handle_search: {} hits returned",
+        payload.len()
+    );
     Ok(RpcOutcome::new(Value::Array(payload), vec![]))
 }

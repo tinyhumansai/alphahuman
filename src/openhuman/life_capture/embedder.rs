@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 #[async_trait]
 pub trait Embedder: Send + Sync {
@@ -53,6 +54,12 @@ struct EmbedResp {
 impl Embedder for HostedEmbedder {
     async fn embed_batch(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         let url = format!("{}/embeddings", self.base_url.trim_end_matches('/'));
+        debug!(
+            "[embedder] embed_batch: {} text(s) via {} model={}",
+            texts.len(),
+            url,
+            self.model
+        );
         let resp = self
             .http
             .post(&url)
@@ -91,7 +98,9 @@ impl Embedder for HostedEmbedder {
                 );
             }
         }
-        Ok(data.into_iter().map(|d| d.embedding).collect())
+        let out: Vec<Vec<f32>> = data.into_iter().map(|d| d.embedding).collect();
+        debug!("[embedder] embed_batch: {} vectors returned", out.len());
+        Ok(out)
     }
 
     fn dim(&self) -> usize {
