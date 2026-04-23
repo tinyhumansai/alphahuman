@@ -79,7 +79,7 @@ jobs:
         run: cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build frontend
         run: pnpm build
