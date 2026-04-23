@@ -33,6 +33,7 @@ pub mod dev_paths;
 pub mod doctor;
 pub mod embeddings;
 pub mod encryption;
+pub mod eventkit;
 pub mod health;
 pub mod heartbeat;
 pub mod integrations;
