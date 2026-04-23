@@ -25,14 +25,14 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Setup Node.js 24.x
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
           cache: pnpm
-
-      - name: Install pnpm
-        run: npm install -g pnpm
 
       - name: Install Rust (1.93.0)
         uses: dtolnay/rust-toolchain@1.93.0
