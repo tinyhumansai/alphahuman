@@ -58,9 +58,9 @@ function PersistRehydrationScreen() {
           OpenHuman is taking longer than usual to load.
         </p>
         <p className="text-xs text-stone-500 leading-relaxed">
-          Local app state may be corrupted. Resetting will sign you out and
-          clear cached data on this device; you&apos;ll reconnect your
-          accounts on next launch. Your data on the server is not affected.
+          Local app state may be corrupted. Resetting will sign you out and clear cached data on
+          this device; you&apos;ll reconnect your accounts on next launch. Your data on the server
+          is not affected.
         </p>
         <button
           type="button"

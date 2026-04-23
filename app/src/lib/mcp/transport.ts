@@ -65,11 +65,7 @@ export class SocketIOMCPTransportImpl implements SocketIOMCPTransport {
     this.requestHandlers.clear();
     mcpWarn('Rejecting pending MCP requests', { count: handlers.length, reason });
     for (const [id, handler] of handlers) {
-      handler({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32000, message: reason },
-      });
+      handler({ jsonrpc: '2.0', id, error: { code: -32000, message: reason } });
     }
   }
 

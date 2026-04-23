@@ -183,9 +183,7 @@ export async function callCoreRpc<T>({
       });
     } catch (fetchErr) {
       if (controller.signal.aborted) {
-        throw new Error(
-          `Core RPC ${payload.method} timed out after ${CORE_RPC_TIMEOUT_MS}ms`
-        );
+        throw new Error(`Core RPC ${payload.method} timed out after ${CORE_RPC_TIMEOUT_MS}ms`);
       }
       throw fetchErr;
     } finally {
