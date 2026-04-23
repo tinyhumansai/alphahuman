@@ -279,8 +279,26 @@ jobs:
         with:
           ref: ${{ needs.prepare-build.outputs.build_ref }}
           fetch-depth: 1
-          submodules: recursive
+          submodules: false
           token: ${{ steps.app-token.outputs.token }}
+
+      - name: Init submodules (with retry)
+        shell: bash
+        env:
+          SUBMODULE_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config --global url."https://x-access-token:${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          for attempt in 1 2 3; do
+            echo "[submodules] attempt $attempt/3"
+            git submodule update --init --recursive --depth=1 && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "[submodules] all 3 attempts failed"
+              exit 1
+            fi
+            echo "[submodules] failed — waiting 30s before retry"
+            sleep 30
+          done
+          git config --global --unset-all url."https://x-access-token:${SUBMODULE_TOKEN}@github.com/".insteadOf || true
 
       - name: Configure staging app environment
         if: inputs.build_target == 'staging'
