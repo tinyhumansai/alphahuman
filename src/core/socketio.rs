@@ -69,6 +69,9 @@ pub struct WebChannelEvent {
     /// `tool_result` events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Optional citations attached to `chat_done` payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub citations: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
