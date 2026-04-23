@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import Welcome from '../Welcome';
 import { sendEmailMagicLink } from '../../services/api/authApi';
 import { useDeepLinkAuthState } from '../../store/deepLinkAuthState';
 import { isTauri } from '../../utils/tauriCommands';
+import Welcome from '../Welcome';
 
 vi.mock('../../components/RotatingTetrahedronCanvas', () => ({
   default: () => <div data-testid="welcome-logo" />,
@@ -18,13 +18,9 @@ vi.mock('../../components/oauth/providerConfigs', () => ({
   oauthProviderConfigs: [{ id: 'google' }, { id: 'github' }, { id: 'twitter' }],
 }));
 
-vi.mock('../../services/api/authApi', () => ({
-  sendEmailMagicLink: vi.fn(),
-}));
+vi.mock('../../services/api/authApi', () => ({ sendEmailMagicLink: vi.fn() }));
 
-vi.mock('../../store/deepLinkAuthState', () => ({
-  useDeepLinkAuthState: vi.fn(),
-}));
+vi.mock('../../store/deepLinkAuthState', () => ({ useDeepLinkAuthState: vi.fn() }));
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -38,10 +34,7 @@ function createDeferred<T>() {
 
 describe('Welcome email login', () => {
   beforeEach(() => {
-    vi.mocked(useDeepLinkAuthState).mockReturnValue({
-      isProcessing: false,
-      errorMessage: null,
-    });
+    vi.mocked(useDeepLinkAuthState).mockReturnValue({ isProcessing: false, errorMessage: null });
     vi.mocked(isTauri).mockReturnValue(false);
     vi.mocked(sendEmailMagicLink).mockReset();
   });

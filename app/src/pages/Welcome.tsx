@@ -29,7 +29,6 @@ const Welcome = () => {
       // Desktop: redirect back via openhuman:// deep link.
       // Web: redirect to the current origin so the app's hash router picks up the token.
       const frontendRedirectUri = isTauri() ? DESKTOP_FRONTEND_URI : window.location.origin;
-
       await sendEmailMagicLink(email.trim(), frontendRedirectUri);
       setIsSent(true);
     } catch (err) {
@@ -163,7 +162,11 @@ const Welcome = () => {
                   disabled={isSending || !email.trim()}
                   className="w-full py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium text-sm rounded-xl transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                   {isSending ? (
-                    <span role="status" aria-live="polite" aria-atomic="true" className="flex items-center justify-center gap-2">
+                    <span
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                      className="flex items-center justify-center gap-2">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                       Sending link...
                     </span>
