@@ -332,6 +332,14 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
             "Integration notification ingest, triage scoring, listing, read-state, \
              and per-provider routing settings.",
         ),
+        "life_capture" => Some(
+            "Personal life-capture index: ingest, embed, and search items across email, \
+             calendar, Slack, and iMessage sources.",
+        ),
+        "curated_memory" => Some(
+            "Curated memory files (MEMORY.md, USER.md): add, replace, remove, and read \
+             persistent agent-facing notes.",
+        ),
         _ => None,
     }
 }

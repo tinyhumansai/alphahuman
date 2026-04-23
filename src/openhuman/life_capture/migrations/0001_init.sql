@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS items (
     author_json         TEXT,                       -- serialized Person, nullable
     subject             TEXT,
     text                TEXT NOT NULL,              -- normalized body for embedding (semantic)
-    text_keyword        TEXT,                       -- raw values projection for FTS5/BM25 (Onyx pattern)
     metadata_json       TEXT NOT NULL DEFAULT '{}',
     -- ACL tokens, e.g. ["user:local","source:gmail","account:foo@bar"]. Single-user v1 still
     -- sets ["user:local"] so the column is mandatory and team v2 needs no migration.

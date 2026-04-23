@@ -5,12 +5,23 @@ static EMAIL: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").unwrap());
 
 // Catches +1-415-555-0123, (415) 555-0123, 415.555.0123, 4155550123 in 10-15 digit forms.
+// The regex is anchored to require 10-15 total digits (including optional country code prefix)
+// so short numeric sequences like 8-digit invoice/order IDs are not redacted.
 static PHONE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?x)
-        (?:\+?\d{1,3}[\s\-.])?       # optional country code, e.g. '+1-' or '1.'
-        (?:\(\d{2,4}\)|\d{2,4})[\s\-.]?
-        \d{3}[\s\-.]?\d{3,4}
+        (?<!\d)                         # not preceded by a digit (no mid-number match)
+        (?:
+            # With country code: +1-NXX-NXX-XXXX or 1-NXX-NXX-XXXX style
+            \+?\d{1,3}[\s\-.]           # country code + separator (mandatory separator)
+            (?:\(\d{2,4}\)|\d{2,4})[\s\-.]?
+            \d{3}[\s\-.]?\d{4}          # 7-digit local with separator gives 10+ total
+            |
+            # Without country code: must have exactly 10 digits (NXX-NXX-XXXX)
+            (?:\(\d{3}\)|\d{3})[\s\-.]  # area code 3 digits + mandatory separator
+            \d{3}[\s\-.]?\d{4}          # 7-digit local = 10 digits total
+        )
+        (?!\d)                          # not followed by a digit
     ",
     )
     .unwrap()
@@ -59,5 +70,22 @@ mod tests {
     fn idempotent_on_already_redacted_text() {
         let s = "see <EMAIL> and <PHONE>";
         assert_eq!(redact(s), s);
+    }
+
+    #[test]
+    fn short_numeric_ids_not_redacted() {
+        // 8-digit order/invoice IDs must NOT be redacted as phone numbers.
+        let cases = [
+            "order #12345678",
+            "invoice 87654321",
+            "ref: 00001234",
+        ];
+        for input in cases {
+            let out = redact(input);
+            assert!(
+                !out.contains("<PHONE>"),
+                "8-digit ID was falsely redacted: input={input:?} out={out:?}"
+            );
+        }
     }
 }

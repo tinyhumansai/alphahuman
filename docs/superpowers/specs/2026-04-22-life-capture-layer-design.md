@@ -38,7 +38,7 @@ Both are concrete and demoable. Both must work for the wedge to be real.
 
 ## Architecture — the life-capture spine
 
-```
+```text
                          ┌──────────────────────────────────┐
   Gmail (Composio)  ───► │                                  │
   Calendar (Composio)─►  │   Ingestion workers (Rust)       │
