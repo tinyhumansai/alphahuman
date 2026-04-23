@@ -30,9 +30,7 @@ impl MemoryStore {
 
     pub async fn add(&self, entry: &str) -> std::io::Result<()> {
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path)
-            .await
-            .unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path).await?;
         let next = if current.is_empty() {
             entry.to_string()
         } else {
@@ -48,10 +46,14 @@ impl MemoryStore {
     }
 
     pub async fn replace(&self, needle: &str, replacement: &str) -> std::io::Result<()> {
+        if needle.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "needle must not be empty",
+            ));
+        }
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path)
-            .await
-            .unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path).await?;
         let next = current.replace(needle, replacement);
         if next.chars().count() > self.char_limit {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "char limit"));
@@ -60,10 +62,14 @@ impl MemoryStore {
     }
 
     pub async fn remove(&self, needle: &str) -> std::io::Result<()> {
+        if needle.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "needle must not be empty",
+            ));
+        }
         let _g = self.write_lock.lock().await;
-        let current = tokio::fs::read_to_string(&self.file_path)
-            .await
-            .unwrap_or_default();
+        let current = tokio::fs::read_to_string(&self.file_path).await?;
         // Drop any entry containing `needle`.
         let kept: Vec<&str> = current
             .split(ENTRY_SEP)
@@ -84,8 +90,8 @@ pub async fn snapshot_pair(
     user_store: &MemoryStore,
 ) -> std::io::Result<crate::openhuman::curated_memory::types::MemorySnapshot> {
     Ok(crate::openhuman::curated_memory::types::MemorySnapshot {
-        memory: memory_store.read().await.unwrap_or_default(),
-        user: user_store.read().await.unwrap_or_default(),
+        memory: memory_store.read().await?,
+        user: user_store.read().await?,
     })
 }
 
