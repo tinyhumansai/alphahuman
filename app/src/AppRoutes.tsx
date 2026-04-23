@@ -4,11 +4,11 @@ import DefaultRedirect from './components/DefaultRedirect';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicRoute from './components/PublicRoute';
 import Accounts from './pages/Accounts';
-import Agents from './pages/Agents';
 import Channels from './pages/Channels';
 import Home from './pages/Home';
 import Intelligence from './pages/Intelligence';
 import Invites from './pages/Invites';
+import Notifications from './pages/Notifications';
 import Rewards from './pages/Rewards';
 import Settings from './pages/Settings';
 import Skills from './pages/Skills';
@@ -86,6 +86,15 @@ const AppRoutes = () => {
       />
 
       <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute requireAuth={true}>
+            <Notifications />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/rewards"
         element={
           <ProtectedRoute requireAuth={true}>
@@ -95,19 +104,19 @@ const AppRoutes = () => {
       />
 
       <Route
-        path="/agents"
+        path="/webhooks"
         element={
           <ProtectedRoute requireAuth={true}>
-            <Agents />
+            <Webhooks />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/webhooks"
+        path="/notifications"
         element={
           <ProtectedRoute requireAuth={true}>
-            <Webhooks />
+            <Notifications />
           </ProtectedRoute>
         }
       />
