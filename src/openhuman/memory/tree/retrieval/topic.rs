@@ -74,16 +74,44 @@ pub async fn query_topic(
         topic_tree_summary.is_some()
     );
 
-    let mut hits: Vec<RetrievalHit> = Vec::new();
+    // Deduplicate by node_id: the same node can appear multiple times
+    // across the entity index (one row per occurrence) and may also
+    // overlap the topic-tree root summary. Without dedup we inflate
+    // `total` and waste result slots. For duplicates, keep the higher
+    // score; if scores tie, prefer the newer `time_range_end`.
+    // Flagged on PR #831 CodeRabbit review.
+    use std::collections::HashMap;
+    let mut by_node: HashMap<String, RetrievalHit> = HashMap::new();
+
+    let merge = |map: &mut HashMap<String, RetrievalHit>, hit: RetrievalHit| {
+        map.entry(hit.node_id.clone())
+            .and_modify(|existing| {
+                let better = match hit
+                    .score
+                    .partial_cmp(&existing.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                {
+                    std::cmp::Ordering::Greater => true,
+                    std::cmp::Ordering::Less => false,
+                    std::cmp::Ordering::Equal => hit.time_range_end > existing.time_range_end,
+                };
+                if better {
+                    *existing = hit.clone();
+                }
+            })
+            .or_insert(hit);
+    };
+
     if let Some(summary) = topic_tree_summary {
-        hits.push(summary);
+        merge(&mut by_node, summary);
     }
     for h in index_hits {
         if let Some(hit) = entity_hit_to_retrieval_hit(config, &h).await? {
-            hits.push(hit);
+            merge(&mut by_node, hit);
         }
     }
 
+    let mut hits: Vec<RetrievalHit> = by_node.into_values().collect();
     if let Some(days) = time_window_days {
         hits = filter_by_window(hits, days);
     }

@@ -18,6 +18,8 @@
 //! - Leaves have no children; drilling into a leaf id returns empty.
 //! - `limit` is optional; when set, it truncates the final (reranked) output.
 
+use std::collections::VecDeque;
+
 use anyhow::Result;
 
 use crate::openhuman::config::Config;
@@ -162,11 +164,13 @@ fn walk_with_embeddings(
         }
     };
 
-    // BFS frontier: (child_id, depth_from_start)
-    let mut frontier: Vec<(String, u32)> =
+    // BFS frontier: (child_id, depth_from_start). `VecDeque` with
+    // `pop_front` + `push_back` is FIFO; using `Vec::pop` would give DFS
+    // (flagged on PR #831 CodeRabbit review).
+    let mut frontier: VecDeque<(String, u32)> =
         start_children.into_iter().map(|id| (id, 1u32)).collect();
 
-    while let Some((id, depth)) = frontier.pop() {
+    while let Some((id, depth)) = frontier.pop_front() {
         if depth > max_depth {
             continue;
         }
@@ -180,7 +184,7 @@ fn walk_with_embeddings(
             out.push(hit_from_summary(&summary, &scope));
             if depth < max_depth {
                 for next in summary.child_ids {
-                    frontier.push((next, depth + 1));
+                    frontier.push_back((next, depth + 1));
                 }
             }
             continue;

@@ -38,9 +38,20 @@ pub async fn search_entities(
     limit: usize,
 ) -> Result<Vec<EntityMatch>> {
     let limit = normalise_limit(limit);
-    log::info!(
-        "[retrieval::search] search_entities query={:?} kinds={:?} limit={}",
-        query,
+    // Blank/whitespace-only queries would turn into `LIKE '%%'` and dump the
+    // entire entity index. Return empty early instead. Flagged on PR #831
+    // CodeRabbit review.
+    let query = query.trim();
+    if query.is_empty() {
+        log::debug!("[retrieval::search] empty query — returning no matches");
+        return Ok(Vec::new());
+    }
+
+    // Log `query_len` rather than the query itself — the query can be an
+    // email, a handle, or any PII.
+    log::debug!(
+        "[retrieval::search] search_entities query_len={} kinds={:?} limit={}",
+        query.len(),
         kinds
             .as_ref()
             .map(|ks| ks.iter().map(|k| k.as_str()).collect::<Vec<_>>()),

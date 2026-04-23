@@ -63,6 +63,33 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
     ]
 }
 
+/// Flat output shape for all `query_*` tools. Mirrors `QueryResponse`'s
+/// serde layout (three top-level fields) so schema-driven callers see the
+/// same structure the handler actually emits. Flagged on PR #831 CodeRabbit
+/// review — previously declared as a single `response: QueryResponse` field.
+fn query_response_outputs() -> Vec<FieldSchema> {
+    vec![
+        FieldSchema {
+            name: "hits",
+            ty: TypeSchema::Array(Box::new(TypeSchema::Ref("RetrievalHit"))),
+            comment: "Ordered list of hits (summaries and/or leaves).",
+            required: true,
+        },
+        FieldSchema {
+            name: "total",
+            ty: TypeSchema::U64,
+            comment: "Candidate count before truncation by `limit`.",
+            required: true,
+        },
+        FieldSchema {
+            name: "truncated",
+            ty: TypeSchema::Bool,
+            comment: "True when `total > hits.len()`.",
+            required: true,
+        },
+    ]
+}
+
 pub fn schemas(function: &str) -> ControllerSchema {
     match function {
         "query_source" => ControllerSchema {
@@ -110,12 +137,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     required: false,
                 },
             ],
-            outputs: vec![FieldSchema {
-                name: "response",
-                ty: TypeSchema::Ref("QueryResponse"),
-                comment: "Hits plus total-match count for truncation visibility.",
-                required: true,
-            }],
+            outputs: query_response_outputs(),
         },
         "query_global" => ControllerSchema {
             namespace: NAMESPACE,
@@ -129,12 +151,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 comment: "Lookback window in days (e.g. 7 for weekly recap).",
                 required: true,
             }],
-            outputs: vec![FieldSchema {
-                name: "response",
-                ty: TypeSchema::Ref("QueryResponse"),
-                comment: "Zero or one hits; empty until the first daily digest seals.",
-                required: true,
-            }],
+            outputs: query_response_outputs(),
         },
         "query_topic" => ControllerSchema {
             namespace: NAMESPACE,
@@ -172,12 +189,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     required: false,
                 },
             ],
-            outputs: vec![FieldSchema {
-                name: "response",
-                ty: TypeSchema::Ref("QueryResponse"),
-                comment: "Hits across every tree that mentions the entity.",
-                required: true,
-            }],
+            outputs: query_response_outputs(),
         },
         "search_entities" => ControllerSchema {
             namespace: NAMESPACE,

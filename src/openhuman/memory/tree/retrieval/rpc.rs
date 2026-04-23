@@ -61,9 +61,16 @@ pub async fn query_source_rpc(
     .await
     .map_err(|e| format!("query_source: {e}"))?;
     let n = resp.hits.len();
+    // Omit scope / source_id from the log — can carry PII. Log counts only.
     Ok(RpcOutcome::single_log(
         resp,
-        format!("memory_tree: query_source hits={n}"),
+        format!(
+            "memory_tree: query_source has_source_id={} source_kind={:?} has_query={} hits={}",
+            req.source_id.is_some(),
+            req.source_kind,
+            req.query.is_some(),
+            n
+        ),
     ))
 }
 
@@ -118,11 +125,20 @@ pub async fn query_topic_rpc(
     .await
     .map_err(|e| format!("query_topic: {e}"))?;
     let n = resp.hits.len();
+    // entity_id can be an email or handle — log only the kind prefix
+    // ("email:", "handle:", etc.) not the full value.
+    let entity_kind_prefix = req
+        .entity_id
+        .split_once(':')
+        .map(|(k, _)| k)
+        .unwrap_or("unknown");
     Ok(RpcOutcome::single_log(
         resp,
         format!(
-            "memory_tree: query_topic entity_id={} hits={}",
-            req.entity_id, n
+            "memory_tree: query_topic entity_kind={} has_query={} hits={}",
+            entity_kind_prefix,
+            req.query.is_some(),
+            n
         ),
     ))
 }
@@ -147,6 +163,9 @@ pub async fn search_entities_rpc(
     config: &Config,
     req: SearchEntitiesRequest,
 ) -> Result<RpcOutcome<SearchEntitiesResponse>, String> {
+    // Capture logging-friendly summary BEFORE we move fields out of `req`.
+    let query_len = req.query.len();
+    let has_kinds = req.kinds.is_some();
     let kinds = match req.kinds {
         None => None,
         Some(list) => {
@@ -160,9 +179,11 @@ pub async fn search_entities_rpc(
         .await
         .map_err(|e| format!("search_entities: {e}"))?;
     let n = matches.len();
+    // Don't log the raw search query — can be an email, handle, etc. Log
+    // only its length and the kind filter.
     Ok(RpcOutcome::single_log(
         SearchEntitiesResponse { matches },
-        format!("memory_tree: search_entities query={:?} n={}", req.query, n),
+        format!("memory_tree: search_entities query_len={query_len} has_kinds={has_kinds} n={n}"),
     ))
 }
 
@@ -198,11 +219,18 @@ pub async fn drill_down_rpc(
         .await
         .map_err(|e| format!("drill_down: {e}"))?;
     let n = hits.len();
+    // node_id can embed source scope (e.g. "chat:slack:#eng:0") which may
+    // carry workspace hints — log only the structural prefix.
+    let node_kind_prefix = req
+        .node_id
+        .split_once(':')
+        .map(|(k, _)| k)
+        .unwrap_or("unknown");
     Ok(RpcOutcome::single_log(
         DrillDownResponse { hits },
         format!(
-            "memory_tree: drill_down node_id={} depth={} query={} limit={:?} n={}",
-            req.node_id,
+            "memory_tree: drill_down node_kind={} depth={} has_query={} limit={:?} n={}",
+            node_kind_prefix,
             depth,
             req.query.is_some(),
             req.limit,

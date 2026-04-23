@@ -218,11 +218,52 @@ fn select_trees(
     Ok(all)
 }
 
+/// Map from platform prefix → canonical `SourceKind` (as a string). Consulted
+/// by [`scope_matches_kind`] so a scope like `slack:#eng` classifies as a
+/// chat source.
+///
+/// Centralising the mapping here means adding a new integration only touches
+/// one place. Keep this list in sync with the channel/provider registry —
+/// CodeRabbit on PR #831 flagged the original hardcoded 4-platform list as
+/// silently excluding irc/matrix/mattermost/lark/linq/signal/imessage/
+/// dingtalk/qq chat providers.
+const PLATFORM_KINDS: &[(&str, &str)] = &[
+    // Chat platforms
+    ("slack", "chat"),
+    ("discord", "chat"),
+    ("telegram", "chat"),
+    ("whatsapp", "chat"),
+    ("irc", "chat"),
+    ("matrix", "chat"),
+    ("mattermost", "chat"),
+    ("lark", "chat"),
+    ("linq", "chat"),
+    ("signal", "chat"),
+    ("imessage", "chat"),
+    ("dingtalk", "chat"),
+    ("qq", "chat"),
+    ("teams", "chat"),
+    ("rocketchat", "chat"),
+    // Email platforms
+    ("gmail", "email"),
+    ("imap", "email"),
+    ("outlook", "email"),
+    ("fastmail", "email"),
+    ("protonmail", "email"),
+    // Document platforms
+    ("notion", "document"),
+    ("drive", "document"),
+    ("googledoc", "document"),
+    ("doc", "document"),
+    ("dropbox", "document"),
+    ("onedrive", "document"),
+    ("confluence", "document"),
+];
+
 /// Decide whether a tree's `scope` falls under `kind_prefix`. Scope is the
-/// chunk's `source_id` verbatim (e.g. `slack:#eng`, `gmail:abc`). We check
-/// a few conventional patterns:
-/// - "chat:" / "email:" / "document:" literal prefix
-/// - platform-specific shortcuts known to map to a kind
+/// chunk's `source_id` verbatim (e.g. `slack:#eng`, `gmail:abc`). We check:
+/// - Literal `<kind>:` prefix (`chat:`, `email:`, `document:`)
+/// - Platform-specific prefix via [`PLATFORM_KINDS`] registry
 ///
 /// This is inherently heuristic — callers that need exact matching should
 /// pass `source_id` directly.
@@ -231,19 +272,9 @@ fn scope_matches_kind(scope: &str, kind_prefix: &str) -> bool {
     if lower.starts_with(&format!("{kind_prefix}:")) {
         return true;
     }
-    match kind_prefix {
-        "chat" => {
-            lower.starts_with("slack:")
-                || lower.starts_with("discord:")
-                || lower.starts_with("telegram:")
-                || lower.starts_with("whatsapp:")
-        }
-        "email" => lower.starts_with("gmail:") || lower.starts_with("imap:"),
-        "document" => {
-            lower.starts_with("notion:") || lower.starts_with("drive:") || lower.starts_with("doc:")
-        }
-        _ => false,
-    }
+    PLATFORM_KINDS
+        .iter()
+        .any(|(platform, kind)| *kind == kind_prefix && lower.starts_with(&format!("{platform}:")))
 }
 
 /// Keep hits whose `[time_range_start, time_range_end]` overlaps the
