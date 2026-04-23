@@ -51,7 +51,9 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    expect(screen.getByLabelText('Email address')).toHaveAttribute('id', 'email-login-input');
+
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -67,7 +69,7 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -83,7 +85,7 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -103,7 +105,7 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -118,7 +120,7 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -136,7 +138,7 @@ describe('Welcome email login', () => {
 
     render(<Welcome />);
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your email'), {
+    fireEvent.change(screen.getByLabelText('Email address'), {
       target: { value: 'user@example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -148,6 +150,6 @@ describe('Welcome email login', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }));
 
     expect(screen.queryByText('Check your email')).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Enter your email')).toHaveValue('');
+    expect(screen.getByLabelText('Email address')).toHaveValue('');
   });
 });

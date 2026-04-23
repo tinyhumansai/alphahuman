@@ -145,7 +145,11 @@ const Welcome = () => {
                     {emailError}
                   </div>
                 ) : null}
+                <label htmlFor="email-login-input" className="sr-only">
+                  Email address
+                </label>
                 <input
+                  id="email-login-input"
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
