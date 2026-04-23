@@ -6,7 +6,7 @@
 //!
 //! Migration style mirrors `life_capture::migrations` exactly.
 
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,10 +15,7 @@ use crate::openhuman::eventkit::types::CalendarEvent;
 
 // ── Migration table ──────────────────────────────────────────────────────────
 
-const MIGRATIONS: &[(&str, &str)] = &[(
-    "0001_init",
-    include_str!("migrations/0001_init.sql"),
-)];
+const MIGRATIONS: &[(&str, &str)] = &[("0001_init", include_str!("migrations/0001_init.sql"))];
 
 /// Run all pending EventKit migrations against `conn`.  Idempotent.
 pub fn run_migrations(conn: &Connection) -> Result<()> {

@@ -211,12 +211,8 @@ pub fn schemas(function: &str) -> ControllerSchema {
 
 fn handle_list_events(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
-        let start_ts: Option<i64> = params
-            .get("start_ts")
-            .and_then(|v| v.as_i64());
-        let end_ts: Option<i64> = params
-            .get("end_ts")
-            .and_then(|v| v.as_i64());
+        let start_ts: Option<i64> = params.get("start_ts").and_then(|v| v.as_i64());
+        let end_ts: Option<i64> = params.get("end_ts").and_then(|v| v.as_i64());
         let limit: Option<usize> = params
             .get("limit")
             .and_then(|v| v.as_u64())

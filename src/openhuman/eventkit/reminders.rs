@@ -19,18 +19,16 @@ mod imp {
 
     use block2::RcBlock;
     use objc2::runtime::Bool;
-    use objc2_event_kit::{
-        EKAlarm, EKAuthorizationStatus, EKEntityType, EKEventStore, EKReminder,
-    };
+    use objc2_event_kit::{EKAlarm, EKAuthorizationStatus, EKEntityType, EKEventStore, EKReminder};
     use objc2_foundation::{NSDateComponents, NSError, NSString};
 
+    use crate::openhuman::eventkit::runtime::EventStoreHandle;
     use crate::openhuman::eventkit::types::Reminder;
 
     /// Request Reminders write access from EventKit.
     fn request_reminders_access(event_store: &EKEventStore) -> Result<(), String> {
         unsafe {
-            let status =
-                EKEventStore::authorizationStatusForEntityType(EKEntityType::Reminder);
+            let status = EKEventStore::authorizationStatusForEntityType(EKEntityType::Reminder);
             match status {
                 EKAuthorizationStatus::FullAccess | EKAuthorizationStatus::WriteOnly => {
                     log::debug!("[eventkit] reminders access already authorized");
@@ -51,6 +49,17 @@ mod imp {
             let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
             let tx_clone = Arc::clone(&tx);
 
+            // Build the completion block.
+            //
+            // SAFETY (block lifetime): `RcBlock::as_ptr` returns a `*mut Block<F>`
+            // that is valid for as long as the `RcBlock` is alive.  The `RcBlock`
+            // is kept alive on the stack below until `blocking_recv()` returns,
+            // which guarantees the callback has already fired — so the block is
+            // always live for EventKit's entire retention window.
+            //
+            // Using `RcBlock::as_ptr` rather than the previous
+            // `&*block as *const _ as *mut _` cast eliminates the UB that arose
+            // from casting a shared reference to a mutable raw pointer.
             let block = RcBlock::new(move |granted: Bool, _error: *mut NSError| {
                 let mut slot = tx_clone.lock().unwrap();
                 if let Some(sender) = slot.take() {
@@ -63,11 +72,17 @@ mod imp {
                 }
             });
 
-            event_store
-                .requestFullAccessToRemindersWithCompletion(&*block as *const _ as *mut _);
+            event_store.requestFullAccessToRemindersWithCompletion(RcBlock::as_ptr(&block).cast());
 
-            rx.blocking_recv()
-                .map_err(|_| "reminders permission callback never fired".to_string())?
+            // `block` is alive here — EventKit has retained it internally.
+            // `blocking_recv` waits until the callback fires, then we drop.
+            let result = rx
+                .blocking_recv()
+                .map_err(|_| "reminders permission callback never fired".to_string())?;
+
+            // Explicit drop after recv so the compiler does not move it earlier.
+            drop(block);
+            result
         }
     }
 
@@ -111,7 +126,9 @@ mod imp {
     }
 
     /// Create a reminder via EKEventStore and return its identifier.
-    pub fn save_reminder(r: &Reminder) -> Result<String, String> {
+    ///
+    /// `ek_store` is the process-global `EKEventStore` (see `runtime::get_event_store`).
+    pub fn save_reminder(r: &Reminder, ek_store: &EventStoreHandle) -> Result<String, String> {
         log::debug!(
             "[eventkit] save_reminder entry: title={:?} list={:?}",
             r.title,
@@ -119,10 +136,9 @@ mod imp {
         );
 
         unsafe {
-            let event_store = EKEventStore::new();
-            request_reminders_access(&event_store)?;
+            request_reminders_access(&ek_store.0)?;
 
-            let reminder = EKReminder::reminderWithEventStore(&event_store);
+            let reminder = EKReminder::reminderWithEventStore(&ek_store.0);
 
             // Title
             reminder.setTitle(Some(&NSString::from_str(&r.title)));
@@ -150,12 +166,13 @@ mod imp {
             }
 
             // Calendar list
-            if let Some(cal) = find_list(&event_store, r.list_name.as_deref()) {
+            if let Some(cal) = find_list(&ek_store.0, r.list_name.as_deref()) {
                 reminder.setCalendar(Some(&cal));
             }
 
             // Save
-            event_store
+            ek_store
+                .0
                 .saveReminder_commit_error(&reminder, true)
                 .map_err(|err| {
                     let desc = err.localizedDescription().to_string();
@@ -166,9 +183,7 @@ mod imp {
 
             let identifier = reminder.calendarItemIdentifier().to_string();
 
-            log::debug!(
-                "[eventkit] save_reminder exit: created identifier={identifier}"
-            );
+            log::debug!("[eventkit] save_reminder exit: created identifier={identifier}");
             Ok(identifier)
         }
     }
@@ -182,11 +197,17 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub async fn create_reminder(
     reminder: crate::openhuman::eventkit::types::Reminder,
+    ek_store: std::sync::Arc<
+        tokio::sync::Mutex<crate::openhuman::eventkit::runtime::EventStoreHandle>,
+    >,
 ) -> Result<String, String> {
     log::debug!("[eventkit] create_reminder async dispatch");
-    tokio::task::spawn_blocking(move || imp::save_reminder(&reminder))
-        .await
-        .map_err(|e| format!("[eventkit] spawn_blocking panicked: {e}"))?
+    tokio::task::spawn_blocking(move || {
+        let store_guard = ek_store.blocking_lock();
+        imp::save_reminder(&reminder, &store_guard)
+    })
+    .await
+    .map_err(|e| format!("[eventkit] spawn_blocking panicked: {e}"))?
 }
 
 // ── Stub (non-macOS) ─────────────────────────────────────────────────────────
@@ -196,4 +217,28 @@ pub async fn create_reminder(
     _reminder: crate::openhuman::eventkit::types::Reminder,
 ) -> Result<String, String> {
     Err("eventkit::reminders is only supported on macOS".into())
+}
+
+// ── Non-macOS stub tests ─────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod stub_tests {
+    use super::*;
+    use crate::openhuman::eventkit::types::Reminder;
+
+    #[tokio::test]
+    async fn create_reminder_returns_not_supported_on_non_macos() {
+        let r = Reminder {
+            title: "Test".into(),
+            notes: None,
+            due_date: None,
+            priority: None,
+            list_name: None,
+        };
+        let err = create_reminder(r).await.unwrap_err();
+        assert!(
+            err.contains("only supported on macOS"),
+            "unexpected error: {err}"
+        );
+    }
 }

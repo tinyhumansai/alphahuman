@@ -21,11 +21,11 @@ mod imp {
     use block2::RcBlock;
     use objc2::runtime::Bool;
     use objc2::AnyThread as _;
-    use objc2_event_kit::{
-        EKAuthorizationStatus, EKEntityType, EKEventStore,
-    };
+    use objc2_event_kit::{EKAuthorizationStatus, EKEntityType, EKEventStore};
     use objc2_foundation::{NSDate, NSError};
     use tokio::sync::oneshot;
+
+    use crate::openhuman::eventkit::runtime::EventStoreHandle;
 
     use crate::openhuman::eventkit::store;
     use crate::openhuman::eventkit::types::CalendarEvent;
@@ -56,6 +56,18 @@ mod imp {
             let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
             let tx_clone = Arc::clone(&tx);
 
+            // Build the completion block.
+            //
+            // SAFETY (block lifetime): `RcBlock::as_ptr` returns a `*mut Block<F>`
+            // that is valid for as long as the `RcBlock` is alive.  The `RcBlock`
+            // is kept alive on the stack below until `blocking_recv()` returns,
+            // which guarantees the callback has already fired — so the block is
+            // always live for EventKit's entire retention window.
+            //
+            // Using `RcBlock::as_ptr` (a proper `*mut Block<F>`) rather than the
+            // previous `&*block as *const _ as *mut _` cast eliminates the
+            // undefined-behaviour that arose from casting a shared reference to a
+            // mutable raw pointer.
             let block = RcBlock::new(move |granted: Bool, _error: *mut NSError| {
                 let mut slot = tx_clone.lock().unwrap();
                 if let Some(sender) = slot.take() {
@@ -68,10 +80,18 @@ mod imp {
                 }
             });
 
-            event_store.requestFullAccessToEventsWithCompletion(&*block as *const _ as *mut _);
+            event_store.requestFullAccessToEventsWithCompletion(RcBlock::as_ptr(&block).cast());
 
-            rx.blocking_recv()
-                .map_err(|_| "calendar permission callback never fired".to_string())?
+            // `block` is alive here — EventKit has retained it internally.
+            // `blocking_recv` waits until the callback fires and releases its
+            // own reference, at which point EventKit drops its retain too.
+            let result = rx
+                .blocking_recv()
+                .map_err(|_| "calendar permission callback never fired".to_string())?;
+
+            // Explicit drop after recv so the compiler does not move it earlier.
+            drop(block);
+            result
         }
     }
 
@@ -79,38 +99,29 @@ mod imp {
     ///
     /// `start_ts` / `end_ts` are Unix timestamps (seconds, UTC).
     /// `limit` caps the number of events returned.
+    /// `ek_store` is the process-global `EKEventStore` (see `runtime::get_event_store`).
     pub fn fetch_events(
         conn: &rusqlite::Connection,
+        ek_store: &EventStoreHandle,
         start_ts: i64,
         end_ts: i64,
         limit: usize,
     ) -> Result<Vec<CalendarEvent>, String> {
-        log::debug!(
-            "[eventkit] fetch_events entry: start={start_ts} end={end_ts} limit={limit}"
-        );
+        log::debug!("[eventkit] fetch_events entry: start={start_ts} end={end_ts} limit={limit}");
 
         unsafe {
-            let event_store = EKEventStore::new();
-            request_calendar_access(&event_store)?;
+            request_calendar_access(&ek_store.0)?;
 
-            let start = NSDate::initWithTimeIntervalSince1970(
-                NSDate::alloc(),
-                start_ts as f64,
-            );
-            let end = NSDate::initWithTimeIntervalSince1970(
-                NSDate::alloc(),
-                end_ts as f64,
-            );
+            let start = NSDate::initWithTimeIntervalSince1970(NSDate::alloc(), start_ts as f64);
+            let end = NSDate::initWithTimeIntervalSince1970(NSDate::alloc(), end_ts as f64);
 
             // Build a predicate over all calendars for events.
-            let calendars = event_store.calendarsForEntityType(EKEntityType::Event);
-            let predicate = event_store.predicateForEventsWithStartDate_endDate_calendars(
-                &start,
-                &end,
-                Some(&calendars),
-            );
+            let calendars = ek_store.0.calendarsForEntityType(EKEntityType::Event);
+            let predicate = ek_store
+                .0
+                .predicateForEventsWithStartDate_endDate_calendars(&start, &end, Some(&calendars));
 
-            let raw_events = event_store.eventsMatchingPredicate(&predicate);
+            let raw_events = ek_store.0.eventsMatchingPredicate(&predicate);
             log::debug!(
                 "[eventkit] eventsMatchingPredicate returned {} events",
                 raw_events.len()
@@ -127,13 +138,25 @@ mod imp {
                     break;
                 }
 
-                // Pull the stable iCal UID.  EKCalendarItem exposes
-                // calendarItemExternalIdentifier (cross-device stable) and
-                // calendarItemIdentifier (local).  We prefer the external one.
-                let ical_uid = ek_event
-                    .calendarItemExternalIdentifier()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| ek_event.calendarItemIdentifier().to_string());
+                // Prefer `calendarItemExternalIdentifier` (cross-device stable iCal UID).
+                //
+                // DEDUP CORRECTNESS: we intentionally skip events that do not yet have
+                // an external identifier.  Before iCloud hydrates an event the store
+                // returns only the local `calendarItemIdentifier`.  Using the local id
+                // as a fallback would assign hash A on the first sync, then a different
+                // hash B (from the external id) on the next, emitting the same event
+                // twice.  Skipping once-and-logging is safer than silently duping.
+                let ical_uid = match ek_event.calendarItemExternalIdentifier() {
+                    Some(s) => s.to_string(),
+                    None => {
+                        log::info!(
+                            "[eventkit] skipping event without external identifier \
+                             (title={:?}) — iCloud may not have synced yet",
+                            ek_event.title().to_string()
+                        );
+                        continue;
+                    }
+                };
 
                 let calendar = ek_event.calendar();
                 let calendar_id = calendar
@@ -221,19 +244,24 @@ mod imp {
 ///
 /// New events are dedup'd via `(ical_uid, calendar_id)` and cached locally.
 /// Returns only the events that were *new* in this fetch (not already cached).
+///
+/// Events without a `calendarItemExternalIdentifier` (not yet iCloud-hydrated)
+/// are skipped to avoid emitting duplicates on subsequent syncs.
 #[cfg(target_os = "macos")]
 pub async fn list_events(
     conn: std::sync::Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    ek_store: std::sync::Arc<
+        tokio::sync::Mutex<crate::openhuman::eventkit::runtime::EventStoreHandle>,
+    >,
     start_ts: i64,
     end_ts: i64,
     limit: usize,
 ) -> Result<Vec<crate::openhuman::eventkit::types::CalendarEvent>, String> {
-    log::debug!(
-        "[eventkit] list_events async entry: start={start_ts} end={end_ts} limit={limit}"
-    );
+    log::debug!("[eventkit] list_events async entry: start={start_ts} end={end_ts} limit={limit}");
     tokio::task::spawn_blocking(move || {
-        let guard = conn.blocking_lock();
-        imp::fetch_events(&guard, start_ts, end_ts, limit)
+        let conn_guard = conn.blocking_lock();
+        let store_guard = ek_store.blocking_lock();
+        imp::fetch_events(&conn_guard, &store_guard, start_ts, end_ts, limit)
     })
     .await
     .map_err(|e| format!("[eventkit] spawn_blocking panicked: {e}"))?
@@ -249,4 +277,92 @@ pub async fn list_events(
     _limit: usize,
 ) -> Result<Vec<crate::openhuman::eventkit::types::CalendarEvent>, String> {
     Err("eventkit::calendar is only supported on macOS".into())
+}
+
+// ── Non-macOS stub tests ─────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod stub_tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn list_events_returns_not_supported_on_non_macos() {
+        let conn = Arc::new(Mutex::new(rusqlite::Connection::open_in_memory().unwrap()));
+        let err = list_events(conn, 0, 1, 10).await.unwrap_err();
+        assert!(
+            err.contains("only supported on macOS"),
+            "unexpected error: {err}"
+        );
+    }
+}
+
+// ── Dedupe correctness test (platform-independent, uses store module) ────────
+
+#[cfg(test)]
+mod dedup_tests {
+    use crate::openhuman::eventkit::store;
+    use crate::openhuman::eventkit::types::CalendarEvent;
+
+    fn fresh_conn() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        store::run_migrations(&conn).unwrap();
+        conn
+    }
+
+    fn make_event(uid: &str, cal: &str) -> CalendarEvent {
+        CalendarEvent {
+            ical_uid: uid.into(),
+            calendar_id: cal.into(),
+            calendar_title: "Work".into(),
+            title: "Standup".into(),
+            notes: None,
+            start_date: "2026-04-22T09:00:00Z".into(),
+            end_date: "2026-04-22T09:30:00Z".into(),
+            is_all_day: false,
+            organizer: None,
+            location: None,
+            fetched_at: 1_745_000_000,
+        }
+    }
+
+    /// Simulates two back-to-back syncs that return the same `external_id`.
+    /// The second sync must produce zero new events (no duplicate emission).
+    #[test]
+    fn no_dupe_on_resync_with_same_external_id() {
+        let conn = fresh_conn();
+        let external_id = "EXT-UID-001@icloud.com";
+        let cal_id = "cal-primary";
+
+        let ev = make_event(external_id, cal_id);
+
+        // First sync: event is new, should be inserted.
+        assert!(!store::is_known(&conn, external_id, cal_id).unwrap());
+        store::upsert_event(&conn, &ev).unwrap();
+        assert!(store::is_known(&conn, external_id, cal_id).unwrap());
+
+        // Second sync: same external_id returned again — is_known must be true.
+        assert!(
+            store::is_known(&conn, external_id, cal_id).unwrap(),
+            "re-sync must detect the already-cached event"
+        );
+
+        // Total cached events should still be 1.
+        let cached = store::list_cached(&conn, 10).unwrap();
+        assert_eq!(cached.len(), 1, "no duplicate should be stored");
+    }
+
+    /// Confirms that two events with different external ids in the same calendar
+    /// are stored as separate entries (not confused by the dedup key).
+    #[test]
+    fn different_external_ids_stored_separately() {
+        let conn = fresh_conn();
+        let ev1 = make_event("EXT-A@icloud.com", "cal-1");
+        let ev2 = make_event("EXT-B@icloud.com", "cal-1");
+        store::upsert_event(&conn, &ev1).unwrap();
+        store::upsert_event(&conn, &ev2).unwrap();
+        let cached = store::list_cached(&conn, 10).unwrap();
+        assert_eq!(cached.len(), 2);
+    }
 }
