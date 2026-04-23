@@ -5,6 +5,7 @@
 use chrono::Utc;
 use serde_json::{json, Value};
 
+use crate::openhuman::people::address_book::{AddressBookError, SystemContactsSource};
 use crate::openhuman::people::resolver::HandleResolver;
 use crate::openhuman::people::scorer::score;
 use crate::openhuman::people::store::PeopleStore;
@@ -76,6 +77,47 @@ pub async fn handle_resolve(
         }),
         vec![],
     ))
+}
+
+/// Seed the people store from the system address book (CNContactStore on
+/// macOS). Triggers the TCC Contacts permission prompt if not yet granted.
+///
+/// Returns counts of seeded and skipped contacts, plus a `permission_denied`
+/// flag so callers can surface an actionable message to the user.
+pub async fn handle_refresh_address_book(
+    store: &PeopleStore,
+) -> Result<RpcOutcome<Value>, String> {
+    let resolver = HandleResolver::new(store);
+    let source = SystemContactsSource;
+    match resolver.seed_from_address_book(&source).await {
+        Ok((seeded, skipped)) => {
+            tracing::debug!(
+                "[people::rpc] refresh_address_book ok: seeded={seeded} skipped={skipped}"
+            );
+            Ok(RpcOutcome::new(
+                json!({
+                    "seeded": seeded,
+                    "skipped": skipped,
+                    "permission_denied": false,
+                }),
+                vec![],
+            ))
+        }
+        Err(AddressBookError::PermissionDenied) => {
+            tracing::warn!(
+                "[people::rpc] refresh_address_book: contacts permission denied"
+            );
+            Ok(RpcOutcome::new(
+                json!({
+                    "seeded": 0,
+                    "skipped": 0,
+                    "permission_denied": true,
+                }),
+                vec![],
+            ))
+        }
+        Err(AddressBookError::Other(e)) => Err(format!("address_book: {e}")),
+    }
 }
 
 /// Return the component-broken-down score for one person.

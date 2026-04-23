@@ -1,9 +1,10 @@
 //! Controller schemas + handler adapters for the people domain.
 //!
 //! Controllers exposed:
-//!   - `people.list`    — ranked list of known people + component scores
-//!   - `people.resolve` — map a handle to a `PersonId`, optionally minting
-//!   - `people.score`   — component-broken-down score for one person
+//!   - `people.list`                  — ranked list of known people + component scores
+//!   - `people.resolve`               — map a handle to a `PersonId`, optionally minting
+//!   - `people.score`                 — component-broken-down score for one person
+//!   - `people.refresh_address_book`  — seed the store from the system address book
 
 use serde_json::{Map, Value};
 
@@ -14,7 +15,12 @@ use crate::openhuman::people::{rpc, store};
 use crate::rpc::RpcOutcome;
 
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
-    vec![schemas("list"), schemas("resolve"), schemas("score")]
+    vec![
+        schemas("list"),
+        schemas("resolve"),
+        schemas("score"),
+        schemas("refresh_address_book"),
+    ]
 }
 
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
@@ -30,6 +36,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("score"),
             handler: handle_score,
+        },
+        RegisteredController {
+            schema: schemas("refresh_address_book"),
+            handler: handle_refresh_address_book,
         },
     ]
 }
@@ -166,6 +176,34 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 },
             ],
         },
+        "refresh_address_book" => ControllerSchema {
+            namespace: "people",
+            function: "refresh_address_book",
+            description: "Seed the people store from the system address book (macOS CNContactStore). \
+                 Triggers the TCC Contacts permission prompt if not yet granted. \
+                 Returns counts of seeded / skipped contacts plus a permission_denied flag.",
+            inputs: vec![],
+            outputs: vec![
+                FieldSchema {
+                    name: "seeded",
+                    ty: TypeSchema::U64,
+                    comment: "Number of contacts upserted into the people store.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "skipped",
+                    ty: TypeSchema::U64,
+                    comment: "Number of contacts that had no usable handles.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "permission_denied",
+                    ty: TypeSchema::Bool,
+                    comment: "True when the user has denied Contacts access.",
+                    required: true,
+                },
+            ],
+        },
         _ => ControllerSchema {
             namespace: "people",
             function: "unknown",
@@ -179,6 +217,13 @@ pub fn schemas(function: &str) -> ControllerSchema {
             }],
         },
     }
+}
+
+fn handle_refresh_address_book(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let store = store::get().map_err(|e| e.to_string())?;
+        to_json(rpc::handle_refresh_address_book(&store).await?)
+    })
 }
 
 fn handle_list(params: Map<String, Value>) -> ControllerFuture {
@@ -276,12 +321,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_controller_schemas_lists_three_functions() {
+    fn all_controller_schemas_lists_four_functions() {
         let names: Vec<_> = all_controller_schemas()
             .into_iter()
             .map(|s| s.function)
             .collect();
-        assert_eq!(names, vec!["list", "resolve", "score"]);
+        assert_eq!(
+            names,
+            vec!["list", "resolve", "score", "refresh_address_book"]
+        );
     }
 
     #[test]
@@ -305,6 +353,6 @@ mod tests {
     #[test]
     fn registered_controllers_have_handler_per_schema() {
         let regs = all_registered_controllers();
-        assert_eq!(regs.len(), 3);
+        assert_eq!(regs.len(), 4);
     }
 }
