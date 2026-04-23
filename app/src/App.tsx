@@ -12,7 +12,9 @@ import DictationHotkeyManager from './components/DictationHotkeyManager';
 import ErrorFallbackScreen from './components/ErrorFallbackScreen';
 import LocalAIDownloadSnackbar from './components/LocalAIDownloadSnackbar';
 import MeshGradient from './components/MeshGradient';
+import OnboardingOverlay from './components/OnboardingOverlay';
 import OpenhumanLinkModal from './components/OpenhumanLinkModal';
+import PersistRehydrationScreen from './components/PersistRehydrationScreen';
 import RouteLoadingScreen from './components/RouteLoadingScreen';
 import GlobalUpsellBanner from './components/upsell/GlobalUpsellBanner';
 import { isWelcomeLocked } from './lib/coreState/store';
@@ -47,7 +49,7 @@ function App() {
         tagErrorSource(eventId, 'react', componentStack);
       }}>
       <Provider store={store}>
-        <PersistGate loading={<RouteLoadingScreen />} persistor={persistor}>
+        <PersistGate loading={<PersistRehydrationScreen />} persistor={persistor}>
           <CoreStateProvider>
             <SocketProvider>
               <ChatRuntimeProvider>

@@ -1,5 +1,5 @@
 import type { Socket } from 'socket.io-client';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 
 import { SocketIOMCPTransportImpl } from '../transport';
 import type { MCPRequest } from '../types';
