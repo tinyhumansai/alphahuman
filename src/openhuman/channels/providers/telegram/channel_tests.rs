@@ -872,15 +872,15 @@ fn telegram_message_id_handles_zero_message_id() {
 
 #[test]
 fn strip_tool_call_tags_removes_standard_tags() {
-    let input =
-        "Hello <tool>{\"name\":\"shell\",\"arguments\":{\"command\":\"ls\"}}</tool> world";
+    let input = "Hello <tool>{\"name\":\"shell\",\"arguments\":{\"command\":\"ls\"}}</tool> world";
     let result = strip_tool_call_tags(input);
     assert_eq!(result, "Hello  world");
 }
 
 #[test]
 fn strip_tool_call_tags_removes_alias_tags() {
-    let input = "Hello <toolcall>{\"name\":\"shell\",\"arguments\":{\"command\":\"ls\"}}</toolcall> world";
+    let input =
+        "Hello <toolcall>{\"name\":\"shell\",\"arguments\":{\"command\":\"ls\"}}</toolcall> world";
     let result = strip_tool_call_tags(input);
     assert_eq!(result, "Hello  world");
 }
@@ -901,7 +901,8 @@ fn strip_tool_call_tags_removes_tool_call_tags() {
 
 #[test]
 fn strip_tool_call_tags_removes_invoke_tags() {
-    let input = "Hello <invoke>{\"name\":\"shell\",\"arguments\":{\"command\":\"date\"}}</invoke> world";
+    let input =
+        "Hello <invoke>{\"name\":\"shell\",\"arguments\":{\"command\":\"date\"}}</invoke> world";
     let result = strip_tool_call_tags(input);
     assert_eq!(result, "Hello  world");
 }
@@ -936,8 +937,7 @@ fn strip_tool_call_tags_handles_unclosed_tags() {
 
 #[test]
 fn strip_tool_call_tags_handles_unclosed_tool_call_with_json() {
-    let input =
-        "Status:\n<tool_call>\n{\"name\":\"shell\",\"arguments\":{\"command\":\"uptime\"}}";
+    let input = "Status:\n<tool_call>\n{\"name\":\"shell\",\"arguments\":{\"command\":\"uptime\"}}";
     let result = strip_tool_call_tags(input);
     assert_eq!(result, "Status:");
 }

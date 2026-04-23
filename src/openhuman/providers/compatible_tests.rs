@@ -177,8 +177,7 @@ fn responses_extracts_top_level_output_text() {
 
 #[test]
 fn responses_extracts_nested_output_text() {
-    let json =
-        r#"{"output":[{"content":[{"type":"output_text","text":"Hello from nested"}]}]}"#;
+    let json = r#"{"output":[{"content":[{"type":"output_text","text":"Hello from nested"}]}]}"#;
     let response: ResponsesResponse = serde_json::from_str(json).unwrap();
     assert_eq!(
         extract_responses_text(response).as_deref(),
@@ -872,7 +871,8 @@ fn strip_think_tags_drops_tail_for_unclosed_block() {
 #[test]
 fn reasoning_content_fallback_when_content_empty() {
     // Reasoning models (Qwen3, GLM-4) return content: "" with reasoning_content populated
-    let json = r#"{"choices":[{"message":{"content":"","reasoning_content":"Thinking output here"}}]}"#;
+    let json =
+        r#"{"choices":[{"message":{"content":"","reasoning_content":"Thinking output here"}}]}"#;
     let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
     let msg = &resp.choices[0].message;
     assert_eq!(msg.effective_content(), "Thinking output here");
@@ -881,8 +881,7 @@ fn reasoning_content_fallback_when_content_empty() {
 #[test]
 fn reasoning_content_fallback_when_content_null() {
     // Some models may return content: null with reasoning_content
-    let json =
-        r#"{"choices":[{"message":{"content":null,"reasoning_content":"Fallback text"}}]}"#;
+    let json = r#"{"choices":[{"message":{"content":null,"reasoning_content":"Fallback text"}}]}"#;
     let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
     let msg = &resp.choices[0].message;
     assert_eq!(msg.effective_content(), "Fallback text");
@@ -964,8 +963,7 @@ fn parse_sse_line_with_both_prefers_content() {
 
 #[test]
 fn parse_sse_line_with_empty_content_falls_back_to_reasoning_content() {
-    let line =
-        r#"data: {"choices":[{"delta":{"content":"","reasoning_content":"thinking..."}}]}"#;
+    let line = r#"data: {"choices":[{"delta":{"content":"","reasoning_content":"thinking..."}}]}"#;
     let result = parse_sse_line(line).unwrap();
     assert_eq!(result, Some("thinking...".to_string()));
 }
