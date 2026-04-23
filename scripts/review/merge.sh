@@ -127,7 +127,7 @@ ensure_merge_ready() {
 BANNED_RE="${REVIEW_BANNED_COAUTHOR_RE:-copilot|codex|cursor|claude|anthropic|openai|chatgpt|\[bot\]|noreply@github|users\.noreply\.github\.com}"
 
 build_squash_body() {
-  local pr="$1" repo="$2" summary_llm="$3"
+  local pr="$1" repo="$2" summary_llm="$3" closing_issues="${4:-}"
   local data body title me_name me_email
   data=$(gh pr view "$pr" -R "$repo" --json title,body,commits)
   title=$(jq -r '.title' <<<"$data")
@@ -202,9 +202,29 @@ build_squash_body() {
         }
       ')
 
+  # Strip any stray closing-keyword lines the LLM or PR body may have
+  # emitted — we'll append a canonical block below so GitHub sees one
+  # `Closes #N` per linked issue (its regex only matches one ref per keyword,
+  # so `Closes #1, #2` would only close #1).
+  local summary_clean
+  summary_clean=$(printf '%s\n' "$summary_body" \
+    | grep -viE '^[[:space:]]*(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+(#|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#)[0-9]+' \
+    || true)
+
+  local closes_block=""
+  if [ -n "$closing_issues" ]; then
+    local n
+    for n in $closing_issues; do
+      closes_block+="Closes #${n}"$'\n'
+    done
+  fi
+
   {
-    if [ -n "$summary_body" ]; then
-      printf '%s\n\n' "$summary_body"
+    if [ -n "$summary_clean" ]; then
+      printf '%s\n\n' "$summary_clean"
+    fi
+    if [ -n "$closes_block" ]; then
+      printf '%s\n' "$closes_block"
     fi
     if [ -n "$coauthors" ]; then
       printf '%s\n' "$coauthors"
@@ -234,7 +254,7 @@ if [ "$strategy" = "--squash" ]; then
     title="${title} (closes ${joined})"
   fi
 
-  body=$(build_squash_body "$pr" "$repo" "$summary_llm")
+  body=$(build_squash_body "$pr" "$repo" "$summary_llm" "$closing")
   echo "[review] squash commit message:"
   printf -- '----\n%s (#%s)\n\n%s\n----\n' "$title" "$pr" "$body"
   if [ "$dry_run" = "1" ]; then
