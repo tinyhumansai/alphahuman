@@ -120,12 +120,18 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::memory::all_memory_registered_controllers());
     // Memory tree ingestion layer (#707 — canonicalised chunks with provenance)
     controllers.extend(crate::openhuman::memory::all_memory_tree_registered_controllers());
+    // Memory tree retrieval layer (#710 — LLM-callable read tools over the tree)
+    controllers.extend(crate::openhuman::memory::all_retrieval_registered_controllers());
     // Referral and growth tracking
     controllers.extend(crate::openhuman::referral::all_referral_registered_controllers());
     // Billing and subscription management
     controllers.extend(crate::openhuman::billing::all_billing_registered_controllers());
     // Team and role management
     controllers.extend(crate::openhuman::team::all_team_registered_controllers());
+    // Local assistive surfaces over third-party provider apps
+    controllers.extend(
+        crate::openhuman::provider_surfaces::all_provider_surfaces_registered_controllers(),
+    );
     // OS-level text input interactions
     controllers.extend(crate::openhuman::text_input::all_text_input_registered_controllers());
     // Voice transcription and synthesis
@@ -186,9 +192,11 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::tools::all_tools_controller_schemas());
     schemas.extend(crate::openhuman::memory::all_memory_controller_schemas());
     schemas.extend(crate::openhuman::memory::all_memory_tree_controller_schemas());
+    schemas.extend(crate::openhuman::memory::all_retrieval_controller_schemas());
     schemas.extend(crate::openhuman::referral::all_referral_controller_schemas());
     schemas.extend(crate::openhuman::billing::all_billing_controller_schemas());
     schemas.extend(crate::openhuman::team::all_team_controller_schemas());
+    schemas.extend(crate::openhuman::provider_surfaces::all_provider_surfaces_controller_schemas());
     schemas.extend(crate::openhuman::text_input::all_text_input_controller_schemas());
     schemas.extend(crate::openhuman::voice::all_voice_controller_schemas());
     schemas.extend(crate::openhuman::subconscious::all_subconscious_controller_schemas());
@@ -255,6 +263,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "referral" => Some("Referral codes, stats, and apply flows via the hosted backend API."),
         "billing" => Some("Subscription plan, payment links, and credit top-up via the backend."),
         "team" => Some("Team member management, invites, and role changes via the backend."),
+        "provider_surfaces" => Some(
+            "Local-first assistive surfaces for provider events, respond queues, and drafts.",
+        ),
         "voice" => Some("Speech-to-text and text-to-speech using local models."),
         "subconscious" => Some("Periodic local-model background awareness loop."),
         "text_input" => Some("Read, insert, and preview text in the OS-focused input field."),
