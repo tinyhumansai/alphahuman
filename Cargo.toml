@@ -125,6 +125,11 @@ wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = f
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
+# EventKit bindings for Calendar read + Reminders write (A7).
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSCalendar", "NSDate", "NSError", "NSString"] }
+objc2-event-kit = { version = "0.3", features = ["EKAlarm", "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKParticipant", "EKReminder", "EKTypes"] }
+block2 = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = { version = "0.4", optional = true }
