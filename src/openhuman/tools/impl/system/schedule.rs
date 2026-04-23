@@ -269,6 +269,11 @@ impl ScheduleTool {
 
         // ── Agent job (prompt provided) ──────────────────────────────
         if let Some(prompt_text) = prompt {
+            tracing::debug!(
+                action = %action,
+                prompt_len = prompt_text.len(),
+                "[schedule] creating agent job"
+            );
             let schedule = if let Some(expr) = expression {
                 Schedule::Cron {
                     expr: expr.to_string(),
@@ -330,6 +335,12 @@ impl ScheduleTool {
             )?;
 
             let job_name = job.name.as_deref().unwrap_or("(unnamed)");
+            tracing::debug!(
+                job_id = %job.id,
+                job_name = %job_name,
+                next_run = %job.next_run,
+                "[schedule] agent job created"
+            );
             return Ok(ToolResult::success(format!(
                 "Created agent job '{}' (id: {}, next: {})",
                 job_name, job.id, job.next_run,
@@ -417,11 +428,12 @@ fn looks_like_shell_command(input: &str) -> bool {
     }
     // First word is a common CLI executable
     let first_word = trimmed.split_whitespace().next().unwrap_or("");
+    // Exclude ambiguous words (test, find, make, source, head, sort) that
+    // are common English verbs and would misclassify natural-language prompts.
     const SHELL_COMMANDS: &[&str] = &[
         "echo", "cat", "ls", "cd", "cp", "mv", "rm", "mkdir", "grep", "sed", "awk", "curl", "wget",
         "python", "python3", "node", "npm", "yarn", "cargo", "bash", "sh", "zsh", "git", "docker",
-        "kubectl", "make", "env", "export", "source", "test", "find", "sort", "head", "tail", "wc",
-        "tar", "zip", "unzip",
+        "kubectl", "env", "export", "tail", "wc", "tar", "zip", "unzip",
     ];
     SHELL_COMMANDS.contains(&first_word)
 }

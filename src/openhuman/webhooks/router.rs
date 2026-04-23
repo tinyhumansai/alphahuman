@@ -127,10 +127,11 @@ impl WebhookRouter {
 
     /// Register an agent-backed webhook tunnel.
     ///
-    /// Requests arriving on this tunnel are routed directly into the
-    /// triage pipeline rather than the skill runtime. `agent_id`
-    /// optionally pins the target agent definition; when absent the
-    /// triage evaluator selects the agent.
+    /// Requests arriving on this tunnel are routed into the triage
+    /// pipeline rather than the skill runtime. `agent_id` is stored
+    /// for observability and rebind validation; the triage evaluator
+    /// currently selects the target agent dynamically regardless of
+    /// this value.
     pub fn register_agent(
         &self,
         tunnel_uuid: &str,
