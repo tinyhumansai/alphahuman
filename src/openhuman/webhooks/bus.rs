@@ -108,13 +108,12 @@ impl EventHandler for WebhookRequestSubscriber {
                     (resp, None, Some(e.to_string()))
                 } else {
                     let payload = decoded.unwrap();
-                    let envelope =
-                        crate::openhuman::agent::triage::TriggerEnvelope::from_webhook(
-                            &tunnel_uuid,
-                            &method,
-                            &path,
-                            payload,
-                        );
+                    let envelope = crate::openhuman::agent::triage::TriggerEnvelope::from_webhook(
+                        &tunnel_uuid,
+                        &method,
+                        &path,
+                        payload,
+                    );
                     match run_agent_trigger(&envelope).await {
                         Ok(output) => {
                             let resp = build_agent_response(&correlation_id, 200, &output);
