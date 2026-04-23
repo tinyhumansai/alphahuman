@@ -8,13 +8,18 @@
 //! Storage tables and cursor watermark live in the same SQLite database as
 //! the life_capture personal index — see `migrations/0003_chronicle.sql`.
 //!
-//! Out of scope for A3: session bucketing (A4), daily reduction (A6),
-//! entity extraction (A8), LLM calls of any kind.
+//! Session bucketing (A4) lives under `sessions/` — it reads
+//! `chronicle_events` past a watermark and emits `chronicle_sessions` +
+//! `chronicle_minute_buckets`.
+//!
+//! Out of scope for A3/A4: daily reduction (A6), entity extraction (A8),
+//! LLM calls of any kind.
 
 pub mod dispatcher;
 pub mod parser;
 pub mod rpc;
 pub mod schemas;
+pub mod sessions;
 pub mod tables;
 
 pub use schemas::{

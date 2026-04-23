@@ -924,6 +924,14 @@ async fn bootstrap_life_capture(workspace_dir: &std::path::Path) {
             "[life_capture] index initialised at {}",
             index_path.display()
         );
+        // A4: spawn the chronicle session manager ticker. It polls
+        // chronicle_events past its own watermark on TICK_INTERVAL and
+        // writes closed sessions to chronicle_sessions + minute buckets.
+        // Handle is detached (tokio drop-detach semantics); the task
+        // lives for the process lifetime.
+        let _session_handle =
+            crate::openhuman::life_capture::chronicle::sessions::spawn(Arc::clone(&idx));
+        log::info!("[life_capture] chronicle session manager spawned");
     }
 
     let api_key = std::env::var("OPENHUMAN_EMBEDDINGS_KEY")

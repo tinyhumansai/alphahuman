@@ -7,6 +7,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0003_chronicle",
         include_str!("migrations/0003_chronicle.sql"),
     ),
+    (
+        "0004_sessions",
+        include_str!("migrations/0004_sessions.sql"),
+    ),
 ];
 
 /// Run all pending life-capture migrations against an open `rusqlite::Connection`.
