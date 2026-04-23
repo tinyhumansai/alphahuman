@@ -132,6 +132,8 @@ async function main() {
     execFileSync(
       'powershell',
       [
+        '-NoProfile',
+        '-NonInteractive',
         '-Command',
         `Expand-Archive -Path $env:TC_SRC -DestinationPath $env:TC_DEST -Force`,
       ],
