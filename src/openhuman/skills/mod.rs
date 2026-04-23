@@ -2,6 +2,11 @@
 
 pub mod bus;
 pub mod ops;
+pub mod ops_create;
+pub mod ops_discover;
+pub mod ops_install;
+pub mod ops_parse;
+pub mod ops_types;
 pub mod schemas;
 pub mod types;
 
