@@ -5,10 +5,7 @@ import { registry } from './registry';
 
 export const GROUP_ORDER = ['Navigation'] as const;
 
-export function registerGlobalActions(
-  navigate: NavigateFunction,
-  globalScopeSymbol: symbol,
-): void {
+export function registerGlobalActions(navigate: NavigateFunction, globalScopeSymbol: symbol): void {
   const nav = (path: string) => () => {
     navigate(path);
   };
