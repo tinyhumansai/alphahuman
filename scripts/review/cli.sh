@@ -15,8 +15,12 @@ Commands:
                                           Default executor: claude
   fix     <pr> [--executor-llm <tool>]    Sync + pr-reviewer (apply fixes) + pr-manager-lite (push)
                                           Default executor: claude
-  merge   <pr> [--squash|--merge|--rebase] [--dry-run] [--summary-llm <tool>]
+  merge   <pr> [--squash|--merge|--rebase] [--dry-run] [--force] [--admin|--auto] [--summary-llm <tool>]
                                           Merge via gh (default --squash, deletes branch).
+                                          Requires reviewDecision=APPROVED and green required checks
+                                          (mergeStateStatus in CLEAN/UNSTABLE/HAS_HOOKS) — use --force to skip the local gate.
+                                          --admin bypasses branch protection (requires admin rights).
+                                          --auto queues the merge until checks/approvals are satisfied.
                                           --dry-run prints the squash commit message and exits.
                                           Default summary LLM: gemini (use 'none' to skip).
 
