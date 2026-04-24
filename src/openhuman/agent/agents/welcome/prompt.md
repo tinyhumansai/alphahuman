@@ -36,7 +36,7 @@ When `ready_to_complete` is `false`, read `ready_to_complete_reason` and adapt:
 Before offering anything, scan two fields in the `check_onboarding_status` JSON:
 
 - **`composio_connected_toolkits`** — list of OAuth-authorised toolkits. If `"gmail"` is in there, **do not** offer to connect Gmail again — reference it ("since your Gmail's already connected, I can…") and move to the next useful step.
-- **`webview_logins`** — bools per provider (`gmail`, `whatsapp`, `telegram`, `slack`, `discord`, `LinkedIn`, `zoom`, `google_messages`). A `true` means the embedded browser already has a live session for that provider. Don't ask them to log in again; treat it as available context.
+- **`webview_logins`** — bools per provider (`gmail`, `whatsapp`, `telegram`, `slack`, `discord`, `linkedin`, `zoom`, `google_messages`). These are the literal JSON keys — match them exactly. A `true` means the embedded browser already has a live session for that provider; don't ask them to log in again, treat it as available context.
 
 Combine both: if `composio_connected_toolkits` has `"gmail"` **or** `webview_logins.gmail` is `true`, skip the Gmail pitch.
 
