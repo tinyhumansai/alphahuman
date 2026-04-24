@@ -139,6 +139,19 @@ pub async fn handle_ingest(
     let ts = DateTime::<Utc>::from_timestamp(ts, 0)
         .ok_or_else(|| format!("invalid ts (out of range): {ts}"))?;
 
+    // Pre-embed before mutating the index so a failed embed doesn't leave
+    // a committed item row with no vector. The order is:
+    //   1. embed (pure remote call, no DB side effects)
+    //   2. upsert item row (DB write — sets canonical_id)
+    //   3. upsert vector (DB write — atomically replaces vector for canonical_id)
+    // If step 1 fails, no DB state changes. If step 3 fails, the item row
+    // exists but will have its vector replaced on the next successful ingest.
+    let mut vecs = embedder
+        .embed_batch(&[text.as_str()])
+        .await
+        .map_err(|e| format!("embed: {e}"))?;
+    let vector = vecs.pop().ok_or("embedder returned no vectors")?;
+
     let requested_id = uuid::Uuid::new_v4();
     let mut items = vec![Item {
         id: requested_id,
@@ -159,11 +172,6 @@ pub async fn handle_ingest(
     let canonical_id = items[0].id;
     let replaced = canonical_id != requested_id;
 
-    let mut vecs = embedder
-        .embed_batch(&[text.as_str()])
-        .await
-        .map_err(|e| format!("embed: {e}"))?;
-    let vector = vecs.pop().ok_or("embedder returned no vectors")?;
     writer
         .upsert_vector(&canonical_id, &vector)
         .await
