@@ -97,11 +97,11 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: |
-          # Install sentry-cli if not available
+          # Install sentry-cli if not available (container runs as root, no sudo needed)
           if ! command -v sentry-cli &> /dev/null; then
             curl -sSL https://github.com/getsentry/sentry-cli/releases/download/2.34.2/sentry-cli-Linux-x86_64 -o /tmp/sentry-cli
             chmod +x /tmp/sentry-cli
-            sudo mv /tmp/sentry-cli /usr/local/bin/sentry-cli
+            mv /tmp/sentry-cli /usr/local/bin/sentry-cli
           fi
 
           # Create Sentry release and upload debug symbols
@@ -110,13 +110,14 @@ jobs:
 
           echo "Creating Sentry release: ${RELEASE}"
           sentry-cli releases new "${RELEASE}" || true
-          sentry-cli releases set-commits --auto "${RELEASE}"
+          # Use --ignore-missing because fetch-depth: 1 means shallow clone
+          sentry-cli releases set-commits --auto --ignore-missing "${RELEASE}" || true
 
           echo "Uploading debug symbols..."
+          # Debug symbols are indexed by debug-ID, not release-scoped, so no --release flag
           sentry-cli upload-dif \
             --org "$SENTRY_ORG" \
             --project "$SENTRY_PROJECT" \
-            --release "${RELEASE}" \
             --log-level=warning \
             app/src-tauri/target/release/deps/
 

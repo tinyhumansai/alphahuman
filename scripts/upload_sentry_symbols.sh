@@ -92,8 +92,12 @@ ensure_sentry_cli() {
                 x86_64|amd64)
                     os_arch="macos-x86_64"
                     ;;
-                arm64|AppleSilicon)
+                arm64)
                     os_arch="macos-arm64"
+                    ;;
+                *)
+                    log_error "Unsupported architecture on macOS: $(uname -m)"
+                    exit 1
                     ;;
             esac
             ;;
@@ -112,7 +116,8 @@ ensure_sentry_cli() {
     # Create temporary directory for installation
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    trap "rm -rf ${tmp_dir}" EXIT
+    # Use single quotes to prevent early expansion (ShellCheck SC2064)
+    trap 'rm -rf $tmp_dir' EXIT
 
     # Download and install
     log_info "Downloading sentry-cli ${version} for ${os_arch}..."
@@ -172,7 +177,8 @@ upload_symbols() {
     # Create Sentry release
     log_info "Creating/updating Sentry release..."
     sentry-cli releases new "${release_name}" || true
-    sentry-cli releases set-commits --auto "${release_name}"
+    # Use --ignore-missing for shallow clones or CI environments
+    sentry-cli releases set-commits --auto --ignore-missing "${release_name}" || true
 
     # Upload debug symbols
     log_info "Uploading debug symbols..."
@@ -180,13 +186,13 @@ upload_symbols() {
         "upload-dif"
         "--org" "${SENTRY_ORG}"
         "--project" "${SENTRY_PROJECT}"
-        "--release" "${release_name}"
         "--log-level=warning"
     )
 
     # Find and upload all debug symbol files
     if [[ -d "${symbols_path}" ]]; then
         # Upload .dwp (dwarf packages), .debug files, and .pdb files
+        # Debug symbols are indexed by debug-ID, not release-scoped
         log_info "Scanning for debug symbols in ${symbols_path}..."
         sentry-cli "${upload_args[@]}" "${symbols_path}" || {
             log_warn "Some debug symbols may have failed to upload"
