@@ -1,13 +1,13 @@
 name: E2E (Linux) — agent-review
 
+# DISABLED: Linux E2E via tauri-driver requires WebKitWebDriver (webkit2gtk),
+# but this app uses the CEF runtime (tauri-runtime-cef) which has no WebDriver
+# automation support. tauri-driver sessions time out because WebKitWebDriver
+# cannot drive a CEF-backed webview. Re-enable once the CEF fork adds a
+# ChromeDriver-based automation path or an alternative E2E harness is wired.
+# See also: test.yml where the e2e-linux job is commented out for the same reason.
+
 on:
-  pull_request:
-    paths:
-      - "app/test/e2e/specs/agent-review.spec.ts"
-      - "app/test/e2e/helpers/**"
-      - "app/test/wdio.conf.ts"
-      - "app/scripts/e2e-*.sh"
-      - ".github/workflows/e2e-agent-review.yml"
   workflow_dispatch:
 
 permissions:
@@ -39,12 +39,18 @@ jobs:
             echo "agent-review.spec.ts not present — skipping remaining steps."
           fi
 
+      - name: Setup pnpm
+        if: steps.gate.outputs.present == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+          cache: true
+
       - name: Setup Node.js 24.x
         if: steps.gate.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
-          cache: "yarn"
 
       - name: Install Rust (rust-toolchain.toml)
         if: steps.gate.outputs.present == 'true'
@@ -87,7 +93,7 @@ jobs:
 
       - name: Install JS dependencies
         if: steps.gate.outputs.present == 'true'
-        run: yarn install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Ensure .env exists for E2E build
         if: steps.gate.outputs.present == 'true'
@@ -97,7 +103,7 @@ jobs:
 
       - name: Build E2E app
         if: steps.gate.outputs.present == 'true'
-        run: yarn workspace openhuman-app test:e2e:build
+        run: pnpm --filter openhuman-app test:e2e:build
 
       - name: Stage sidecar next to app binary
         if: steps.gate.outputs.present == 'true'
