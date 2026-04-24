@@ -13,11 +13,14 @@ pub struct HostedEmbedder {
     base_url: String,
     api_key: String,
     model: String,
+    /// Dimensionality of vectors produced by `model`. Must match the index
+    /// schema; if the model returns a different width `embed_batch` will bail.
+    dim: usize,
     http: reqwest::Client,
 }
 
 impl HostedEmbedder {
-    pub fn new(base_url: String, api_key: String, model: String) -> Self {
+    pub fn new(base_url: String, api_key: String, model: String, dim: usize) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -27,6 +30,7 @@ impl HostedEmbedder {
             base_url,
             api_key,
             model,
+            dim,
             http,
         }
     }
@@ -95,7 +99,7 @@ impl Embedder for HostedEmbedder {
     }
 
     fn dim(&self) -> usize {
-        1536
+        self.dim
     }
 }
 
@@ -128,6 +132,7 @@ mod tests {
             format!("{}/v1", server.base_url()),
             "test-key".into(),
             "text-embedding-3-small".into(),
+            1536,
         );
         let out = emb.embed_batch(&["hello", "world"]).await.expect("embed");
         assert_eq!(out.len(), 2);

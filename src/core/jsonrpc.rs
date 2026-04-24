@@ -943,11 +943,23 @@ async fn bootstrap_life_capture(workspace_dir: &std::path::Path) {
         .unwrap_or_else(|_| "https://api.openai.com/v1".into());
     let model = std::env::var("OPENHUMAN_EMBEDDINGS_MODEL")
         .unwrap_or_else(|_| "text-embedding-3-small".into());
+    // Resolve dim from env so model and dim stay in sync.
+    // text-embedding-3-small / ada-002 → 1536 (default)
+    // text-embedding-3-large            → 3072
+    // Custom models: override via OPENHUMAN_EMBEDDINGS_DIM.
+    let dim: usize = std::env::var("OPENHUMAN_EMBEDDINGS_DIM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| match model.as_str() {
+            "text-embedding-3-large" => 3072,
+            _ => 1536,
+        });
     let embedder: Arc<dyn crate::openhuman::life_capture::embedder::Embedder> = Arc::new(
         crate::openhuman::life_capture::embedder::HostedEmbedder::new(
             base_url,
             api_key,
             model.clone(),
+            dim,
         ),
     );
     if let Err(e) =
