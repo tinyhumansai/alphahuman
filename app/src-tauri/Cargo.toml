@@ -48,6 +48,10 @@ tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Used by gmail/cdp_fetch for decoding binary IO.read chunks. Base64 is
+# only emitted by CDP IO.read when the stream contains non-UTF-8 bytes,
+# but we opt into the feature to stay robust against unexpected responses.
+base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "process", "sync", "time", "net"] }
 # WebSocket client for the Chrome DevTools Protocol (used to talk to the
 # embedded CEF instance over `--remote-debugging-port=9222` and read

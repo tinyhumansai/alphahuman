@@ -2,22 +2,24 @@
 //!
 //! Strategy per-op:
 //!
-//! * **list_labels** — DOM snapshot of the sidebar. Cheap and reliable:
-//!   Gmail renders labels as `<a role="link" aria-label="…">` inside the
-//!   left nav. We read that tree directly via
-//!   `DOMSnapshot.captureSnapshot` — no JS eval, no network round-trip.
-//! * **list_messages / search / get_message** — scaffolded with
-//!   structured errors for the first cut. These depend on either
-//!   intercepting Gmail's internal batch endpoints via `Network.*` or a
-//!   broader DOM walk; both need careful follow-up work to stay stable
-//!   across Gmail UI churn. See plan §deferred.
+//! * **list_labels** — DOM snapshot of the sidebar. Cheap and reliable.
+//! * **list_messages** — Gmail's stable Atom feed at
+//!   `mail.google.com/mail/u/0/feed/atom[/<label>]`, fetched
+//!   authenticated via the attached CDP session (Network.loadNetworkResource
+//!   + IO.read — no JS eval). Covers the 20 most recent unread messages.
+//! * **search / get_message** — scaffolded with structured errors for
+//!   the first cut. Search needs `Page.navigate('#search/<q>')` plus
+//!   DOM/Network observation; `get_message` can use Gmail's print-view
+//!   endpoint on a per-id basis (follow-up).
 //!
 //! Everything here is CEF-only — CDP requires a remote-debugging port
 //! which wry doesn't expose.
 
+use super::cdp_fetch;
 use super::session;
 use super::types::{GmailLabel, GmailMessage};
 use crate::cdp::Snapshot;
+use crate::gmail::atom;
 
 pub async fn list_labels(account_id: &str) -> Result<Vec<GmailLabel>, String> {
     log::debug!("[gmail][{account_id}] list_labels");
@@ -40,14 +42,66 @@ pub async fn list_labels(account_id: &str) -> Result<Vec<GmailLabel>, String> {
 
 pub async fn list_messages(
     account_id: &str,
-    _limit: u32,
-    _label: Option<String>,
+    limit: u32,
+    label: Option<String>,
 ) -> Result<Vec<GmailMessage>, String> {
-    log::debug!("[gmail][{account_id}] list_messages (not implemented)");
-    Err(format!(
-        "gmail[{account_id}]: list_messages not implemented — follow-up work \
-         per plan §deferred (Network MITM of mail.google.com sync endpoint)"
-    ))
+    log::debug!(
+        "[gmail][{account_id}] list_messages limit={limit} label={:?}",
+        label
+    );
+    let url = atom_feed_url(label.as_deref());
+    let (mut cdp, session_id) = session::attach(account_id).await?;
+    let body = match cdp_fetch::fetch(&mut cdp, &session_id, &url).await {
+        Ok(b) => b,
+        Err(e) => {
+            session::detach(&mut cdp, &session_id).await;
+            return Err(format!(
+                "gmail[{account_id}]: atom-feed fetch failed: {e}"
+            ));
+        }
+    };
+    session::detach(&mut cdp, &session_id).await;
+    let mut messages = atom::parse(&body);
+    log::debug!(
+        "[gmail][{account_id}] list_messages parsed={} (pre-cap)",
+        messages.len()
+    );
+    if (messages.len() as u32) > limit {
+        messages.truncate(limit as usize);
+    }
+    Ok(messages)
+}
+
+/// Build the Atom feed URL for a given label. Gmail exposes a default
+/// inbox feed at `…/feed/atom` and per-label feeds at
+/// `…/feed/atom/<label>`. Unknown labels 404 cleanly, so we don't try
+/// to validate here.
+fn atom_feed_url(label: Option<&str>) -> String {
+    const BASE: &str = "https://mail.google.com/mail/u/0/feed/atom";
+    match label {
+        None | Some("") | Some("INBOX") | Some("inbox") => BASE.to_string(),
+        Some(name) => format!("{BASE}/{}", url_path_escape(name)),
+    }
+}
+
+/// Minimal path-segment percent-escape for Gmail label names. Gmail
+/// allows `/` in user labels (nested), so we only escape the handful
+/// of characters that break URL parsing.
+fn url_path_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            c if c.is_ascii_alphanumeric() => out.push(c),
+            '-' | '_' | '.' | '~' | '/' => out.push(ch),
+            other => {
+                let mut buf = [0u8; 4];
+                for b in other.encode_utf8(&mut buf).bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
 }
 
 pub async fn search(
@@ -61,11 +115,45 @@ pub async fn search(
     ))
 }
 
-pub async fn get_message(account_id: &str, _message_id: String) -> Result<GmailMessage, String> {
-    log::debug!("[gmail][{account_id}] get_message (not implemented)");
-    Err(format!(
-        "gmail[{account_id}]: get_message not implemented — follow-up work"
-    ))
+pub async fn get_message(
+    account_id: &str,
+    message_id: String,
+) -> Result<GmailMessage, String> {
+    log::debug!("[gmail][{account_id}] get_message id={message_id}");
+    let url = print_view_url(&message_id);
+    let (mut cdp, session_id) = session::attach(account_id).await?;
+    let body = match cdp_fetch::fetch(&mut cdp, &session_id, &url).await {
+        Ok(b) => b,
+        Err(e) => {
+            session::detach(&mut cdp, &session_id).await;
+            return Err(format!(
+                "gmail[{account_id}]: print-view fetch failed: {e}"
+            ));
+        }
+    };
+    session::detach(&mut cdp, &session_id).await;
+    super::print_view::parse(&message_id, &body)
+        .ok_or_else(|| format!("gmail[{account_id}]: print-view parse failed"))
+}
+
+/// Gmail's print-view URL — undocumented but stable, returns a clean
+/// plain-HTML rendering of a single message/thread with subject/from/
+/// to/date/body in a predictable structure.
+///
+/// Gmail exposes two id formats on this endpoint:
+///
+/// * Hex thread ids via `th=<hex>` — what the inbox UI uses internally.
+/// * Decimal ids via `permthid=thread-f:<dec>&permmsgid=msg-f:<dec>`
+///   — this is what the Atom feed gives us.
+///
+/// We build the decimal form so the id that `list_messages` returns
+/// flows directly into `get_message` without conversion.
+fn print_view_url(message_id: &str) -> String {
+    let escaped = url_path_escape(message_id);
+    format!(
+        "https://mail.google.com/mail/u/0/?ui=2&view=pt&search=all\
+         &permthid=thread-f:{escaped}&permmsgid=msg-f:{escaped}"
+    )
 }
 
 // ── label scrape ────────────────────────────────────────────────────────

@@ -46,6 +46,12 @@
 pub mod types;
 
 #[cfg(feature = "cef")]
+mod atom;
+#[cfg(feature = "cef")]
+mod cdp_fetch;
+#[cfg(feature = "cef")]
+mod print_view;
+#[cfg(feature = "cef")]
 mod reads;
 #[cfg(feature = "cef")]
 mod session;
