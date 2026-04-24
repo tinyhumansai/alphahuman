@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ingestNotification } from '../../services/notificationService';
 import { store } from '../../store';
 import { addAccount } from '../../store/accountsSlice';
-import { setNotifications } from '../../store/notificationsSlice';
+import { setIntegrationNotifications } from '../../store/notificationSlice';
 import { __handleFiredForTests, __resetForTests, handleNotificationClick } from './service';
 
 vi.mock('../../services/notificationService', () => ({
@@ -25,7 +25,7 @@ describe('webviewNotifications service', () => {
     __resetForTests();
     ingestNotificationMock.mockReset();
     ingestNotificationMock.mockResolvedValue({ skipped: true, reason: 'test-default' });
-    store.dispatch(setNotifications({ items: [], unread_count: 0 }));
+    store.dispatch(setIntegrationNotifications({ items: [], unread_count: 0 }));
     store.dispatch(addAccount(sampleAccount));
   });
 
@@ -78,7 +78,7 @@ describe('webviewNotifications service', () => {
 
     await Promise.resolve();
 
-    const items = store.getState().integrationNotifications.items;
+    const items = store.getState().notifications.integrationItems;
     expect(items.some(item => item.id === 'notif-1')).toBe(true);
   });
 
@@ -95,7 +95,7 @@ describe('webviewNotifications service', () => {
 
     await Promise.resolve();
 
-    const items = store.getState().integrationNotifications.items;
+    const items = store.getState().notifications.integrationItems;
     expect(items).toHaveLength(0);
   });
 
@@ -112,7 +112,7 @@ describe('webviewNotifications service', () => {
 
     await Promise.resolve();
 
-    const items = store.getState().integrationNotifications.items;
+    const items = store.getState().notifications.integrationItems;
     expect(items).toHaveLength(0);
   });
 });
