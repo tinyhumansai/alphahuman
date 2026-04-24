@@ -44,6 +44,7 @@ pub mod notifications;
 pub mod overlay;
 pub mod provider_surfaces;
 pub mod providers;
+pub mod redirect_links;
 pub mod referral;
 pub mod routing;
 pub mod screen_intelligence;
