@@ -22,15 +22,42 @@ function makeSnapshotResult(overrides: Record<string, unknown> = {}) {
 }
 
 function makeTeam(id: string) {
-  return { id, name: `Team ${id}`, role: 'member' };
+  return {
+    team: {
+      _id: id,
+      name: `Team ${id}`,
+      slug: id,
+      createdBy: 'u-0',
+      isPersonal: false,
+      maxMembers: 10,
+      subscription: { plan: 'FREE' as const, hasActiveSubscription: false },
+      usage: { dailyTokenLimit: 0, remainingTokens: 0, activeSessionCount: 0 },
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    },
+    role: 'MEMBER' as const,
+  };
 }
 
 function makeMember(id: string) {
-  return { id, userId: `u-${id}`, role: 'member', joinedAt: '2026-01-01T00:00:00Z' };
+  return {
+    _id: id,
+    user: { _id: `u-${id}` },
+    role: 'MEMBER' as const,
+    joinedAt: '2026-01-01T00:00:00Z',
+  };
 }
 
 function makeInvite(id: string) {
-  return { id, email: `${id}@example.com`, role: 'member', createdAt: '2026-01-01T00:00:00Z' };
+  return {
+    _id: id,
+    code: `code-${id}`,
+    createdBy: 'u-0',
+    expiresAt: '2027-01-01T00:00:00Z',
+    maxUses: 10,
+    currentUses: 0,
+    usageHistory: [],
+  };
 }
 
 // Tests ----------------------------------------------------------------------------
@@ -135,7 +162,7 @@ describe('coreStateApi.listTeams', () => {
 
     expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.team_list_teams' });
     expect(out).toHaveLength(2);
-    expect(out[0].id).toBe('t-1');
+    expect(out[0].team._id).toBe('t-1');
   });
 
   it('returns empty array when no teams exist', async () => {
@@ -164,7 +191,7 @@ describe('coreStateApi.getTeamMembers', () => {
       method: 'openhuman.team_list_members',
       params: { teamId: 't-1' },
     });
-    expect(out[0].id).toBe('m-1');
+    expect(out[0]._id).toBe('m-1');
   });
 
   it('returns the inner result array', async () => {
@@ -194,7 +221,7 @@ describe('coreStateApi.getTeamInvites', () => {
       method: 'openhuman.team_list_invites',
       params: { teamId: 't-1' },
     });
-    expect(out[0].id).toBe('inv-1');
+    expect(out[0]._id).toBe('inv-1');
   });
 
   it('returns empty array when no invites exist', async () => {
