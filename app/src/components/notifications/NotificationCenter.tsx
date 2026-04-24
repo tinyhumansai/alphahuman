@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import { dismissNotification, fetchNotifications, markNotificationRead } from '../../services/notificationService';
+import {
+  dismissNotification,
+  fetchNotifications,
+  markNotificationRead,
+} from '../../services/notificationService';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import {
   dismissIntegrationNotification,
@@ -17,7 +21,11 @@ import NotificationCard from './NotificationCard';
 
 const NotificationCenter = () => {
   const dispatch = useAppDispatch();
-  const { integrationItems: items, integrationLoading: loading, integrationError: error } = useAppSelector(s => s.notifications);
+  const {
+    integrationItems: items,
+    integrationLoading: loading,
+    integrationError: error,
+  } = useAppSelector(s => s.notifications);
   const [selectedProvider, setSelectedProvider] = useState<string | undefined>(undefined);
   // All providers seen across unfiltered loads — kept separate so the filter
   // pill row doesn't collapse when a provider filter is active.
@@ -42,9 +50,7 @@ const NotificationCenter = () => {
       } catch (err) {
         if (!cancelled) {
           dispatch(
-            setIntegrationError(
-              err instanceof Error ? err.message : 'Failed to load notifications'
-            )
+            setIntegrationError(err instanceof Error ? err.message : 'Failed to load notifications')
           );
         }
       }

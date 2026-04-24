@@ -21,7 +21,13 @@ const makeNotification = (
 });
 
 const baseState = notificationReducer(undefined, { type: '@@init' });
-const initialState = { ...baseState, integrationItems: [], integrationUnreadCount: 0, integrationLoading: false, integrationError: null };
+const initialState = {
+  ...baseState,
+  integrationItems: [],
+  integrationUnreadCount: 0,
+  integrationLoading: false,
+  integrationError: null,
+};
 
 describe('notificationSlice — integration notifications', () => {
   describe('setIntegrationNotifications', () => {
