@@ -11,8 +11,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref
-    || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -76,7 +75,6 @@ jobs:
           cargo tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles deb
         env:
           NODE_ENV: production
-<<<<<<< HEAD
           CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
           CARGO_PROFILE_RELEASE_LTO: 'false'
@@ -116,9 +114,3 @@ jobs:
 
           sentry-cli releases finalize "${RELEASE}"
           echo "Sentry symbol upload complete for ${RELEASE}"
-=======
-          CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_STRIP: 'true'
-          CARGO_PROFILE_RELEASE_DEBUG: 'false'
