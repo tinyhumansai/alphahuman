@@ -279,6 +279,11 @@ pub struct WebviewAccountsState {
     /// close/purge so reopen cycles don't stack multiple live loops.
     #[cfg(feature = "cef")]
     cdp_sessions: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// account_id -> 15s `webview-account:load{state:"timeout"}` watchdog.
+    /// Aborted in close/purge so a watchdog spawned for a now-closed
+    /// account can't fire a stale timeout against a freshly-reused id.
+    #[cfg(feature = "cef")]
+    pub(crate) load_watchdogs: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// account_id of webviews that have already emitted their first
     /// `webview-account:load{state:"finished"}` event. Used to dedup
     /// triple-signal fires (native on_page_load, CDP `Page.loadEventFired`,
@@ -722,6 +727,25 @@ pub struct WebviewEvent {
     pub ts: Option<i64>,
 }
 
+/// Strip query string and fragment from a URL before emitting to the log.
+/// Provider URLs occasionally embed auth material (Telegram WebApp data,
+/// OAuth callback codes, sometimes session tokens) and we don't want those
+/// to land in the long-lived shell log file. Returns the original input on
+/// parse failure so we still surface *something* useful for debugging.
+fn redact_url_for_log(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(mut u) => {
+            u.set_query(None);
+            u.set_fragment(None);
+            u.to_string()
+        }
+        Err(_) => {
+            // Fallback: drop everything from the first '?' or '#'.
+            raw.split(['?', '#']).next().unwrap_or(raw).to_string()
+        }
+    }
+}
+
 /// Grow the first-cold-open webview back to its full requested bounds and
 /// notify the frontend — exactly once per account open. Called from the
 /// three independent signals (native `WebviewBuilder::on_page_load`, CDP
@@ -820,11 +844,16 @@ pub(crate) fn emit_load_finished<R: Runtime>(
         }
     }
 
+    // Redact the URL in the log: providers like Telegram (`#tgWebAppData=…`)
+    // and OAuth callbacks embed auth material in the query/fragment. The full
+    // URL still flows to the frontend listener over the Tauri event so any
+    // consumer that needs it has access; we just don't persist it to the
+    // shell's log file.
     log::info!(
         "[webview-accounts][{}] load event state={} url={}",
         account_id,
         state,
-        url
+        redact_url_for_log(url)
     );
     if let Err(err) = app.emit(
         "webview-account:load",
@@ -1288,10 +1317,22 @@ pub async fn webview_account_open<R: Runtime>(
                 args.account_id
             );
         } else {
-            let handle =
+            let cdp::SpawnedSession { session, watchdog } =
                 cdp::spawn_session(app.clone(), args.account_id.clone(), real_url_str.clone());
-            let mut sessions = state.cdp_sessions.lock().unwrap();
-            if let Some(old) = sessions.insert(args.account_id.clone(), handle) {
+            if let Some(old) = state
+                .cdp_sessions
+                .lock()
+                .unwrap()
+                .insert(args.account_id.clone(), session)
+            {
+                old.abort();
+            }
+            if let Some(old) = state
+                .load_watchdogs
+                .lock()
+                .unwrap()
+                .insert(args.account_id.clone(), watchdog)
+            {
                 old.abort();
             }
         }
@@ -1495,6 +1536,18 @@ pub async fn webview_account_close<R: Runtime>(
                 args.account_id
             );
         }
+        if let Some(task) = state
+            .load_watchdogs
+            .lock()
+            .unwrap()
+            .remove(&args.account_id)
+        {
+            task.abort();
+            log::debug!(
+                "[webview-accounts] aborted load watchdog for account={}",
+                args.account_id
+            );
+        }
     }
     // Reset load-overlay bookkeeping so the next open of this account starts
     // with a fresh "not yet loaded" state.
@@ -1575,6 +1628,18 @@ pub async fn webview_account_purge<R: Runtime>(
             task.abort();
             log::debug!(
                 "[cdp-session] purge aborted session task for account={}",
+                args.account_id
+            );
+        }
+        if let Some(task) = state
+            .load_watchdogs
+            .lock()
+            .unwrap()
+            .remove(&args.account_id)
+        {
+            task.abort();
+            log::debug!(
+                "[webview-accounts] purge aborted load watchdog for account={}",
                 args.account_id
             );
         }

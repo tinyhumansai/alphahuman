@@ -69,11 +69,19 @@ pub fn placeholder_data_url(account_id: &str) -> String {
 /// `abort()` it when the account goes away. Without abort the loop
 /// would keep retrying `attach_to_target` against a vanished target
 /// forever and accumulate across reopen cycles.
+/// Per-account spawn result. Both handles are owned by `WebviewAccountsState`
+/// (see `cdp_sessions` and `load_watchdogs`) so close/purge can abort each one
+/// without leaking tasks across reopen cycles.
+pub struct SpawnedSession {
+    pub session: JoinHandle<()>,
+    pub watchdog: JoinHandle<()>,
+}
+
 pub fn spawn_session<R: Runtime>(
     app: AppHandle<R>,
     account_id: String,
     real_url: String,
-) -> JoinHandle<()> {
+) -> SpawnedSession {
     // Load-overlay watchdog — independent of the session loop. Emits a
     // `timeout` signal after LOAD_TIMEOUT so the frontend's loading spinner
     // is always released even if neither the native `on_page_load` nor the
@@ -81,18 +89,21 @@ pub fn spawn_session<R: Runtime>(
     // blocking, CDP socket hiccup).
     //
     // `emit_load_finished` dedups via `WebviewAccountsState.loaded_accounts`
-    // so a late watchdog is a no-op once either signal has fired. Spawned
-    // detached because we only need the one wake-up.
-    {
+    // so a late watchdog is a no-op once either signal has fired. The
+    // returned `JoinHandle` is stored in `WebviewAccountsState.load_watchdogs`
+    // and aborted on close/purge so a watchdog spawned for a vanished
+    // account can't fire a stale timeout against a freshly-reused id.
+    let watchdog = {
         let app = app.clone();
         let account_id = account_id.clone();
         let real_url = real_url.clone();
         tokio::spawn(async move {
             sleep(LOAD_TIMEOUT).await;
             emit_load_finished(&app, &account_id, "timeout", &real_url);
-        });
-    }
-    tokio::spawn(async move { run_session_forever(app, account_id, real_url).await })
+        })
+    };
+    let session = tokio::spawn(async move { run_session_forever(app, account_id, real_url).await });
+    SpawnedSession { session, watchdog }
 }
 
 async fn run_session_forever<R: Runtime>(app: AppHandle<R>, account_id: String, real_url: String) {
