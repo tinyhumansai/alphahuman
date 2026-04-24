@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { IntegrationNotification } from '../../types/notifications';
 import notificationReducer, {
   addIntegrationNotification,
+  dismissIntegrationNotification,
   markIntegrationRead,
   setIntegrationNotifications,
 } from '../notificationSlice';
@@ -109,6 +110,32 @@ describe('notificationSlice — integration notifications', () => {
       const state = notificationReducer(initialState, addIntegrationNotification(n));
       expect(state.integrationUnreadCount).toBe(0);
       expect(state.integrationItems).toHaveLength(1);
+    });
+  });
+
+  describe('dismissIntegrationNotification', () => {
+    it('marks unread notification as dismissed and decrements unread count', () => {
+      const n = makeNotification({ id: 'n-1', status: 'unread' });
+      const loaded = notificationReducer(
+        initialState,
+        setIntegrationNotifications({ items: [n], unread_count: 1 })
+      );
+
+      const state = notificationReducer(loaded, dismissIntegrationNotification('n-1'));
+      expect(state.integrationItems[0].status).toBe('dismissed');
+      expect(state.integrationUnreadCount).toBe(0);
+    });
+
+    it('does not decrement unread count below zero', () => {
+      const n = makeNotification({ id: 'n-1', status: 'dismissed' });
+      const loaded = notificationReducer(
+        initialState,
+        setIntegrationNotifications({ items: [n], unread_count: 0 })
+      );
+
+      const state = notificationReducer(loaded, dismissIntegrationNotification('n-1'));
+      expect(state.integrationItems[0].status).toBe('dismissed');
+      expect(state.integrationUnreadCount).toBe(0);
     });
   });
 });
