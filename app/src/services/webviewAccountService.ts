@@ -10,6 +10,7 @@ import {
   setActiveAccount,
 } from '../store/accountsSlice';
 import { addNotification } from '../store/notificationsSlice';
+import { fetchRespondQueue } from '../store/providerSurfaceSlice';
 import type { AccountProvider, IngestedMessage } from '../types/accounts';
 import { threadApi } from './api/threadApi';
 import { chatSend } from './chatService';
@@ -187,6 +188,9 @@ function handleRecipeEvent(evt: RecipeEventPayload) {
     }));
 
     store.dispatch(appendMessages({ accountId, messages, unread: ingest.unread }));
+
+    // Tauri already forwarded this ingest to core; refresh queue immediately for Agent pane.
+    void store.dispatch(fetchRespondQueue({ silent: true }));
 
     // Fire-and-forget memory write via the existing core RPC.
     // Namespace mirrors the skill-sync convention so the recall pipeline

@@ -3,14 +3,20 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 
 #[cfg(feature = "cef")]
 mod cdp;
+#[cfg(all(feature = "cef", target_os = "macos"))]
+mod cef_preflight;
 mod core_process;
 mod core_update;
 #[cfg(feature = "cef")]
 mod discord_scanner;
 mod gmail;
 #[cfg(feature = "cef")]
+mod gmessages_scanner;
+#[cfg(feature = "cef")]
 mod imessage_scanner;
 mod notification_settings;
+#[cfg(feature = "cef")]
+mod screen_capture;
 #[cfg(feature = "cef")]
 mod slack_scanner;
 #[cfg(feature = "cef")]
@@ -552,6 +558,19 @@ pub fn run() {
         .parse_filters(&default_filter)
         .try_init();
 
+    // CEF cache-lock preflight (macOS only): if another OpenHuman instance
+    // is already holding the CEF user-data-dir, the vendored
+    // `tauri-runtime-cef` panics inside `cef::initialize` with a Rust
+    // backtrace and no actionable message (issue #864). Catch the collision
+    // here and exit cleanly with a message that names the lock-holder PID
+    // and the workaround. Stale locks (PID dead) are removed and we
+    // continue, matching Chromium's own startup recovery.
+    #[cfg(all(feature = "cef", target_os = "macos"))]
+    if let Err(e) = cef_preflight::check_default_cache() {
+        eprintln!("\n[openhuman] {e}\n");
+        std::process::exit(1);
+    }
+
     // Runtime selection: default build uses wry (WKWebView on macOS), the
     // `cef` feature swaps to Chromium Embedded Framework. The switch is at
     // Builder construction only — everything downstream (plugins, commands,
@@ -624,6 +643,10 @@ pub fn run() {
         .manage(notification_settings::NotificationSettingsState::new());
     #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(imessage_scanner::ScannerRegistry::new()));
+    #[cfg(feature = "cef")]
+    let builder = builder.manage(std::sync::Arc::new(
+        gmessages_scanner::ScannerRegistry::new(),
+    ));
     let builder = builder.manage(whatsapp_scanner::ScannerRegistry::new());
     #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(slack_scanner::ScannerRegistry::new()));
@@ -631,6 +654,8 @@ pub fn run() {
     let builder = builder.manage(discord_scanner::ScannerRegistry::new());
     #[cfg(feature = "cef")]
     let builder = builder.manage(telegram_scanner::ScannerRegistry::new());
+    #[cfg(feature = "cef")]
+    let builder = builder.manage(screen_capture::ScreenShareState::new());
     builder
         .setup(move |app| {
             #[cfg(any(windows, target_os = "linux"))]
@@ -726,7 +751,9 @@ pub fn run() {
             //   }
 
             if let Err(err) = setup_tray(app.handle()) {
-                log::error!("[tray] failed to setup tray icon: {err}");
+                log::warn!(
+                    "[tray] failed to setup tray icon (non-fatal in headless environment): {err}"
+                );
             }
 
             // Dev convenience: if OPENHUMAN_DEV_AUTO_WHATSAPP=<account-id>
@@ -1020,6 +1047,12 @@ pub fn run() {
             webview_accounts::webview_set_focused_account,
             notification_settings::notification_settings_get,
             notification_settings::notification_settings_set,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_begin_session,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_thumbnail,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_finalize_session,
             gmail::gmail_list_labels,
             gmail::gmail_list_messages,
             gmail::gmail_search,
