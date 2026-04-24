@@ -56,35 +56,42 @@ async fn ensure_mock_server() -> u16 {
                     Err(_) => return,
                 };
                 let (mut sink, mut stream) = ws.split();
-                while let Some(Ok(Message::Text(text))) = stream.next().await {
-                    let req: Value = serde_json::from_str(&text).unwrap();
-                    let id = req["id"].as_str().unwrap().to_string();
-                    let method = req["method"].as_str().unwrap().to_string();
-                    let resp = match method.as_str() {
-                        "gmail.list_labels" => json!({
-                            "kind": "response",
-                            "id": id,
-                            "ok": true,
-                            "result": [
-                                {"id": "INBOX", "name": "Inbox", "kind": "system", "unread": 3},
-                                {"id": "Receipts", "name": "Receipts", "kind": "user", "unread": null}
-                            ],
-                        }),
-                        "gmail.trash" => json!({
-                            "kind": "response",
-                            "id": id,
-                            "ok": false,
-                            "error": "simulated failure from mock bridge",
-                        }),
-                        _ => json!({
-                            "kind": "response",
-                            "id": id,
-                            "ok": false,
-                            "error": format!("mock bridge: unhandled method '{method}'"),
-                        }),
-                    };
-                    if sink.send(Message::Text(resp.to_string())).await.is_err() {
-                        break;
+                while let Some(msg) = stream.next().await {
+                    match msg {
+                        Ok(Message::Text(text)) => {
+                            let req: Value = serde_json::from_str(&text).unwrap();
+                            let id = req["id"].as_str().unwrap().to_string();
+                            let method = req["method"].as_str().unwrap().to_string();
+                            let resp = match method.as_str() {
+                                "gmail.list_labels" => json!({
+                                    "kind": "response",
+                                    "id": id,
+                                    "ok": true,
+                                    "result": [
+                                        {"id": "INBOX", "name": "Inbox", "kind": "system", "unread": 3},
+                                        {"id": "Receipts", "name": "Receipts", "kind": "user", "unread": null}
+                                    ],
+                                }),
+                                "gmail.trash" => json!({
+                                    "kind": "response",
+                                    "id": id,
+                                    "ok": false,
+                                    "error": "simulated failure from mock bridge",
+                                }),
+                                _ => json!({
+                                    "kind": "response",
+                                    "id": id,
+                                    "ok": false,
+                                    "error": format!("mock bridge: unhandled method '{method}'"),
+                                }),
+                            };
+                            if sink.send(Message::Text(resp.to_string())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(Message::Close(_)) => break,
+                        Ok(_) => continue,
+                        Err(_) => break,
                     }
                 }
             });
