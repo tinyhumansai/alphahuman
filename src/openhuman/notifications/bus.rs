@@ -142,9 +142,9 @@ pub fn event_to_notification(event: &DomainEvent) -> Option<CoreNotificationEven
             provider,
             action,
             importance_score,
-            ..
+            latency_ms,
         } if action == "escalate" || action == "react" => Some(CoreNotificationEvent {
-            id: format!("notification-triaged:{}:{}", id, ts),
+            id: format!("notification-triaged:{}:{}:{}", id, action, latency_ms),
             category: CoreNotificationCategory::Agents,
             title: format!("High-priority {} notification", provider),
             body: format!(

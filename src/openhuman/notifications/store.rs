@@ -299,7 +299,7 @@ pub fn unread_count(config: &Config) -> Result<i64> {
 }
 
 /// Check whether a notification with identical content was received in the
-/// last 60 seconds. Used by `handle_ingest` to drop duplicate fires.
+/// last 60 seconds.
 pub fn exists_recent(
     config: &Config,
     provider: &str,
@@ -332,7 +332,9 @@ pub fn exists_recent(
 }
 
 /// Transition a notification status to 'dismissed'.
-pub fn mark_dismissed(config: &Config, id: &str) -> Result<()> {
+///
+/// Returns `true` when at least one row matched and was updated.
+pub fn mark_dismissed(config: &Config, id: &str) -> Result<bool> {
     with_connection(config, |conn| {
         let updated = conn
             .execute(
@@ -340,17 +342,20 @@ pub fn mark_dismissed(config: &Config, id: &str) -> Result<()> {
                 params![id],
             )
             .context("[notification_intel] mark_dismissed failed")?;
-        if updated == 0 {
+        let matched = updated > 0;
+        if !matched {
             tracing::warn!(id = %id, "[notification_intel] mark_dismissed matched no rows");
         } else {
             tracing::debug!(id = %id, "[notification_intel] mark_dismissed applied");
         }
-        Ok(())
+        Ok(matched)
     })
 }
 
 /// Transition a notification status to 'acted'.
-pub fn mark_acted(config: &Config, id: &str) -> Result<()> {
+///
+/// Returns `true` when at least one row matched and was updated.
+pub fn mark_acted(config: &Config, id: &str) -> Result<bool> {
     with_connection(config, |conn| {
         let updated = conn
             .execute(
@@ -358,12 +363,13 @@ pub fn mark_acted(config: &Config, id: &str) -> Result<()> {
                 params![id],
             )
             .context("[notification_intel] mark_acted failed")?;
-        if updated == 0 {
+        let matched = updated > 0;
+        if !matched {
             tracing::warn!(id = %id, "[notification_intel] mark_acted matched no rows");
         } else {
             tracing::debug!(id = %id, "[notification_intel] mark_acted applied");
         }
-        Ok(())
+        Ok(matched)
     })
 }
 
@@ -703,5 +709,77 @@ mod tests {
         assert!(!updated.enabled);
         assert_eq!(updated.importance_threshold, 0.75);
         assert!(!updated.route_to_orchestrator);
+    }
+
+    #[test]
+    fn exists_recent_detects_with_and_without_account_id() {
+        let dir = TempDir::new().unwrap();
+        let config = test_config(&dir);
+
+        let mut n = sample_notification("acct-1", "slack");
+        n.account_id = Some("acct-main".to_string());
+        insert(&config, &n).unwrap();
+
+        assert!(exists_recent(
+            &config,
+            "slack",
+            Some("acct-main"),
+            "Test notification",
+            "Test body"
+        )
+        .unwrap());
+        assert!(!exists_recent(
+            &config,
+            "slack",
+            Some("acct-other"),
+            "Test notification",
+            "Test body"
+        )
+        .unwrap());
+
+        let n_null = sample_notification("acct-null", "slack");
+        insert(&config, &n_null).unwrap();
+        assert!(exists_recent(&config, "slack", None, "Test notification", "Test body").unwrap());
+    }
+
+    #[test]
+    fn mark_dismissed_and_mark_acted_report_match_and_update_status() {
+        let dir = TempDir::new().unwrap();
+        let config = test_config(&dir);
+        insert(&config, &sample_notification("m1", "gmail")).unwrap();
+        insert(&config, &sample_notification("m2", "gmail")).unwrap();
+
+        assert!(mark_dismissed(&config, "m1").unwrap());
+        assert!(mark_acted(&config, "m2").unwrap());
+        assert!(!mark_dismissed(&config, "missing").unwrap());
+        assert!(!mark_acted(&config, "missing").unwrap());
+
+        let items = list(&config, 10, 0, Some("gmail"), None).unwrap();
+        let m1 = items.iter().find(|n| n.id == "m1").unwrap();
+        let m2 = items.iter().find(|n| n.id == "m2").unwrap();
+        assert_eq!(m1.status, NotificationStatus::Dismissed);
+        assert_eq!(m2.status, NotificationStatus::Acted);
+    }
+
+    #[test]
+    fn stats_returns_correct_aggregates() {
+        let dir = TempDir::new().unwrap();
+        let config = test_config(&dir);
+
+        insert(&config, &sample_notification("s1", "gmail")).unwrap();
+        insert(&config, &sample_notification("s2", "gmail")).unwrap();
+        insert(&config, &sample_notification("s3", "slack")).unwrap();
+        update_triage(&config, "s2", 0.9, "escalate", "urgent").unwrap();
+        update_triage(&config, "s3", 0.2, "drop", "noise").unwrap();
+        mark_read(&config, "s2").unwrap();
+
+        let out = stats(&config).unwrap();
+        assert_eq!(out.total, 3);
+        assert_eq!(out.unread, 2);
+        assert_eq!(out.unscored, 1);
+        assert_eq!(out.by_provider.get("gmail"), Some(&2));
+        assert_eq!(out.by_provider.get("slack"), Some(&1));
+        assert_eq!(out.by_action.get("escalate"), Some(&1));
+        assert_eq!(out.by_action.get("drop"), Some(&1));
     }
 }

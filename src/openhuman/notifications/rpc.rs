@@ -153,10 +153,25 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
                     "[notification_intel] published NotificationTriaged event"
                 );
 
+                // Re-read provider settings right before potential escalation so
+                // runtime toggles apply even while triage is in-flight.
+                let latest_settings = match store::get_settings(&config_for_triage, &req.provider) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!(
+                            id = %id_for_triage,
+                            provider = %req.provider,
+                            error = %e,
+                            "[notification_intel] failed to refresh provider settings for routing gate"
+                        );
+                        return;
+                    }
+                };
+
                 // Auto-escalate high-importance notifications to the orchestrator.
                 if (action == "escalate" || action == "react")
-                    && score >= provider_settings.importance_threshold
-                    && provider_settings.route_to_orchestrator
+                    && score >= latest_settings.importance_threshold
+                    && latest_settings.route_to_orchestrator
                 {
                     if let Err(e) = apply_decision(triage_run, &envelope).await {
                         tracing::warn!(
@@ -287,11 +302,10 @@ pub async fn handle_dismiss(params: Map<String, Value>) -> Result<Value, String>
         .ok_or_else(|| "[notification_intel] missing required param 'id'".to_string())?
         .to_string();
 
-    store::mark_dismissed(&config, &id)
+    let updated = store::mark_dismissed(&config, &id)
         .map_err(|e| format!("[notification_intel] mark_dismissed failed: {e}"))?;
-
-    tracing::debug!(id = %id, "[notification_intel] notification dismissed");
-    let outcome = RpcOutcome::new(json!({ "ok": true }), vec![]);
+    tracing::debug!(id = %id, updated = updated, "[notification_intel] notification dismissed");
+    let outcome = RpcOutcome::new(json!({ "ok": updated }), vec![]);
     outcome.into_cli_compatible_json()
 }
 
@@ -308,11 +322,14 @@ pub async fn handle_mark_acted(params: Map<String, Value>) -> Result<Value, Stri
         .ok_or_else(|| "[notification_intel] missing required param 'id'".to_string())?
         .to_string();
 
-    store::mark_acted(&config, &id)
+    let updated = store::mark_acted(&config, &id)
         .map_err(|e| format!("[notification_intel] mark_acted failed: {e}"))?;
-
-    tracing::debug!(id = %id, "[notification_intel] notification marked acted");
-    let outcome = RpcOutcome::new(json!({ "ok": true }), vec![]);
+    tracing::debug!(
+        id = %id,
+        updated = updated,
+        "[notification_intel] notification marked acted"
+    );
+    let outcome = RpcOutcome::new(json!({ "ok": updated }), vec![]);
     outcome.into_cli_compatible_json()
 }
 
