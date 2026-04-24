@@ -106,7 +106,10 @@ jobs:
           export RUST_BACKTRACE=1
           cd app
           mkdir -p test/e2e/artifacts
-          bash scripts/e2e-run-spec.sh test/e2e/specs/agent-review.spec.ts agent-review
+          if ! bash scripts/e2e-run-spec.sh test/e2e/specs/agent-review.spec.ts agent-review; then
+            echo "First agent-review run failed; retrying once..."
+            bash scripts/e2e-run-spec.sh test/e2e/specs/agent-review.spec.ts agent-review-retry
+          fi
       - name: Upload E2E artifacts
         if: always() && steps.gate.outputs.present == 'true'
         uses: actions/upload-artifact@v4

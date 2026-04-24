@@ -684,6 +684,17 @@ mod tests {
     }
 
     #[test]
+    fn exists_recent_rejects_expired_notification() {
+        let dir = TempDir::new().unwrap();
+        let config = test_config(&dir);
+        let mut n = sample_notification("old1", "slack");
+        n.received_at = Utc::now() - chrono::Duration::seconds(120);
+        insert(&config, &n).unwrap();
+
+        assert!(!exists_recent(&config, "slack", None, "Test notification", "Test body").unwrap());
+    }
+
+    #[test]
     fn settings_roundtrip_defaults_and_upsert() {
         let dir = TempDir::new().unwrap();
         let config = test_config(&dir);

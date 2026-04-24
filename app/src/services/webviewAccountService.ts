@@ -9,7 +9,7 @@ import {
   setAccountStatus,
   setActiveAccount,
 } from '../store/accountsSlice';
-import { addNotification } from '../store/notificationsSlice';
+import { addIntegrationNotification } from '../store/notificationSlice';
 import { fetchRespondQueue } from '../store/providerSurfaceSlice';
 import type { AccountProvider, IngestedMessage } from '../types/accounts';
 import { threadApi } from './api/threadApi';
@@ -214,7 +214,7 @@ function handleRecipeEvent(evt: RecipeEventPayload) {
       .then(result => {
         if (result.skipped) return;
         store.dispatch(
-          addNotification({
+          addIntegrationNotification({
             id: result.id,
             provider: evt.provider,
             account_id: accountId,
