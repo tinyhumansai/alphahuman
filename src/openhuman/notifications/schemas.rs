@@ -291,12 +291,38 @@ pub fn schemas(function: &str) -> ControllerSchema {
             function: "stats",
             description: "Return aggregate statistics for the notification intelligence pipeline.",
             inputs: vec![],
-            outputs: vec![FieldSchema {
-                name: "total",
-                ty: TypeSchema::I64,
-                comment: "Total notification count.",
-                required: true,
-            }],
+            outputs: vec![
+                FieldSchema {
+                    name: "total",
+                    ty: TypeSchema::I64,
+                    comment: "Total notification count.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "unread",
+                    ty: TypeSchema::I64,
+                    comment: "Count of unread notifications.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "unscored",
+                    ty: TypeSchema::I64,
+                    comment: "Count of notifications pending triage scoring.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "by_provider",
+                    ty: TypeSchema::Map(Box::new(TypeSchema::I64)),
+                    comment: "Notification counts grouped by provider slug.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "by_action",
+                    ty: TypeSchema::Map(Box::new(TypeSchema::I64)),
+                    comment: "Notification counts grouped by triage action.",
+                    required: true,
+                },
+            ],
         },
 
         _other => ControllerSchema {
