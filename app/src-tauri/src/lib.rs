@@ -21,14 +21,14 @@ mod whatsapp_scanner;
 
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use tauri::WindowEvent;
 #[cfg(not(all(target_os = "linux", feature = "cef")))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow};
-#[cfg(target_os = "macos")]
-use tauri::WindowEvent;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -738,11 +738,11 @@ pub fn run() {
             //       let _ = window.show();
             //   }
 
-        // Tray icon setup moved to RunEvent::Ready (see below) — GTK is only
-        // initialized after the event loop starts, so we must delay tray creation
-        // until the Ready event fires. Creating the tray here would panic on
-        // Linux with "GTK has not been initialized".
-        log::info!("[tray] deferring tray setup to RunEvent::Ready");
+            // Tray icon setup moved to RunEvent::Ready (see below) — GTK is only
+            // initialized after the event loop starts, so we must delay tray creation
+            // until the Ready event fires. Creating the tray here would panic on
+            // Linux with "GTK has not been initialized".
+            log::info!("[tray] deferring tray setup to RunEvent::Ready");
 
             // Dev convenience: if OPENHUMAN_DEV_AUTO_WHATSAPP=<account-id>
             // is set, spawn that account's webview at startup so the
@@ -1047,21 +1047,21 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-    .run(move |app_handle, event| match event {
-        RunEvent::Ready => {
-            log::info!("[app] RunEvent::Ready — GTK initialized, setting up tray");
-            if let Err(err) = setup_tray(app_handle) {
-                log::warn!(
+        .run(move |app_handle, event| match event {
+            RunEvent::Ready => {
+                log::info!("[app] RunEvent::Ready — GTK initialized, setting up tray");
+                if let Err(err) = setup_tray(app_handle) {
+                    log::warn!(
                     "[tray] failed to setup tray icon (non-fatal in headless environment): {err}"
                 );
+                }
             }
-        }
-        #[cfg(target_os = "macos")]
-        RunEvent::WindowEvent {
-            label,
-            event: WindowEvent::CloseRequested { api, .. },
-            ..
-        } if label == "main" => {
+            #[cfg(target_os = "macos")]
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
                 log::info!(
                     "[window] close requested on main window — hiding instead of destroying"
                 );
