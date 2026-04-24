@@ -97,6 +97,11 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const welcomeLocked = isWelcomeLocked(snapshot);
   const chatOnboardingCompleted = snapshot.chatOnboardingCompleted;
   const previousChatOnboardingCompletedRef = useRef<boolean | null>(null);
+  // Guard against the mount-time `loadThreads()` promise resolving AFTER
+  // the welcome-lock unlock transition creates a fresh thread. Without
+  // this, the stale `.then(...)` would re-select the old welcome thread
+  // and clobber the auto-created one (#883 CodeRabbit feedback).
+  const skipInitialThreadSelectionRef = useRef(false);
 
   const [showSidebar, setShowSidebar] = useState(true);
   const [inputValue, setInputValue] = useState('');
@@ -184,7 +189,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     void dispatch(loadThreads())
       .unwrap()
       .then(data => {
-        if (cancelled) return;
+        if (cancelled || skipInitialThreadSelectionRef.current) return;
         if (data.threads.length > 0) {
           const mostRecent = data.threads[0];
           dispatch(setSelectedThread(mostRecent.id));
@@ -216,6 +221,10 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     const prev = previousChatOnboardingCompletedRef.current;
     previousChatOnboardingCompletedRef.current = chatOnboardingCompleted;
     if (prev === false && chatOnboardingCompleted === true) {
+      // Signal the mount-time `loadThreads()` promise to bail if it is
+      // still pending — otherwise its stale resolution would overwrite
+      // our freshly created thread selection.
+      skipInitialThreadSelectionRef.current = true;
       console.debug('[welcome-lock] chat onboarding completed — opening new thread');
       void handleCreateNewThread();
     }
@@ -397,6 +406,13 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const handleSlashCommand = (command: string): boolean => {
     const cmd = command.toLowerCase();
     if (cmd === '/new' || cmd === '/clear') {
+      // Welcome lockdown (#883) — consume the command so it is not sent
+      // to the agent, but skip thread creation/reset so the user cannot
+      // escape the welcome conversation via `/new` or `/clear`.
+      if (welcomeLocked) {
+        setInputValue('');
+        return true;
+      }
       setInputValue('');
       void handleCreateNewThread();
       return true;
