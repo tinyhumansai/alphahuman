@@ -187,7 +187,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 },
                 FieldSchema {
                     name: "metadata",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    ty: TypeSchema::Option(Box::new(TypeSchema::Json)),
                     comment: "Optional JSON object with source-specific metadata.",
                     required: false,
                 },
