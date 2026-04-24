@@ -73,6 +73,7 @@ vi.mock('../utils/tauriCommands', () => ({
 vi.mock('../utils/config', () => ({
   CORE_RPC_URL: 'http://127.0.0.1:7788/rpc',
   IS_DEV: true,
+  IS_PROD: false,
   DEV_FORCE_ONBOARDING: false,
   SKILLS_GITHUB_REPO: 'test/skills',
   SENTRY_DSN: undefined,

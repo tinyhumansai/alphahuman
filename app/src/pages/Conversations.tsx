@@ -43,6 +43,7 @@ import {
 } from '../utils/tauriCommands';
 import { formatTimelineEntry } from '../utils/toolTimelineFormatting';
 import { AgentMessageBubble, BubbleMarkdown } from './conversations/components/AgentMessageBubble';
+import { CitationChips, type MessageCitation } from './conversations/components/CitationChips';
 import { LimitPill } from './conversations/components/LimitPill';
 import { ToolTimelineBlock } from './conversations/components/ToolTimelineBlock';
 import {
@@ -932,6 +933,21 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                               );
                             }
                           )}
+                          {(() => {
+                            const raw = msg.extraMetadata?.citations;
+                            if (!Array.isArray(raw)) return null;
+                            const citations = raw.filter(
+                              (item): item is MessageCitation =>
+                                typeof item === 'object' &&
+                                item !== null &&
+                                typeof (item as MessageCitation).id === 'string' &&
+                                typeof (item as MessageCitation).key === 'string' &&
+                                typeof (item as MessageCitation).snippet === 'string' &&
+                                typeof (item as MessageCitation).timestamp === 'string'
+                            );
+                            if (citations.length === 0) return null;
+                            return <CitationChips citations={citations} />;
+                          })()}
                           {latestVisibleMessage?.id === msg.id && (
                             <p className="px-1 text-[10px] text-stone-400">
                               {formatRelativeTime(msg.createdAt)}

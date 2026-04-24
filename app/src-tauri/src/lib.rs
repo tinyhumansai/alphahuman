@@ -3,6 +3,8 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 
 #[cfg(feature = "cef")]
 mod cdp;
+#[cfg(all(feature = "cef", target_os = "macos"))]
+mod cef_preflight;
 mod core_process;
 mod core_update;
 #[cfg(feature = "cef")]
@@ -555,6 +557,19 @@ pub fn run() {
     let _ = env_logger::Builder::new()
         .parse_filters(&default_filter)
         .try_init();
+
+    // CEF cache-lock preflight (macOS only): if another OpenHuman instance
+    // is already holding the CEF user-data-dir, the vendored
+    // `tauri-runtime-cef` panics inside `cef::initialize` with a Rust
+    // backtrace and no actionable message (issue #864). Catch the collision
+    // here and exit cleanly with a message that names the lock-holder PID
+    // and the workaround. Stale locks (PID dead) are removed and we
+    // continue, matching Chromium's own startup recovery.
+    #[cfg(all(feature = "cef", target_os = "macos"))]
+    if let Err(e) = cef_preflight::check_default_cache() {
+        eprintln!("\n[openhuman] {e}\n");
+        std::process::exit(1);
+    }
 
     // Runtime selection: default build uses wry (WKWebView on macOS), the
     // `cef` feature swaps to Chromium Embedded Framework. The switch is at

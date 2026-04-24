@@ -15,38 +15,27 @@
 //! `openhuman_core::openhuman::webview_apis::client`.
 
 use std::net::SocketAddr;
-use std::sync::Mutex;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use tokio::runtime::{Builder, Runtime};
+use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 
 use openhuman_core::openhuman::webview_apis::{client, types::GmailLabel};
 
 /// The webview_apis client caches its WebSocket connection (and the
 /// reader/writer tasks that service it) in a process-global `OnceLock`.
-/// Those tasks are pinned to whichever tokio runtime opens the
-/// connection first. A `#[tokio::test]` creates a runtime per test and
-/// drops it on return, which kills the cached reader — subsequent
-/// tests then either race `Sender::is_closed()` or hang waiting on
-/// responses that no reader is listening for.
-///
-/// We side-step the whole mess by running every test on ONE shared
-/// multi-thread runtime that lives for the duration of the test binary.
-/// The mock server loop and the client's reader/writer tasks all live
-/// on the same runtime, so they stay alive across tests.
-static RUNTIME: once_cell::sync::Lazy<Runtime> = once_cell::sync::Lazy::new(|| {
-    Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_all()
-        .build()
-        .expect("build shared test runtime")
-});
-
-static MOCK_SERVER_PORT: once_cell::sync::Lazy<Mutex<Option<u16>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(None));
+/// Those tasks are pinned to the tokio runtime that opens the
+/// connection first, so running two `#[tokio::test]`s in a row races
+/// runtime teardown against the cached reader and produces the 15s
+/// `[webview_apis] gmail.list_labels: timed out after 15s` panic we
+/// saw in CI. We fuse the scenarios into one async test and guard
+/// against incidental parallel `client::request` callers with a lock.
+static MOCK_SERVER_PORT: once_cell::sync::Lazy<std::sync::Mutex<Option<u16>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+static REQUEST_LOCK: once_cell::sync::Lazy<Mutex<()>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(()));
 
 async fn ensure_mock_server() -> u16 {
     let mut guard = MOCK_SERVER_PORT.lock().unwrap();
@@ -61,6 +50,7 @@ async fn ensure_mock_server() -> u16 {
     *guard = Some(port);
     tokio::spawn(async move {
         loop {
+            tracing::debug!("[webview_apis_bridge:test] waiting for mock ws client");
             let (stream, _peer) = match listener.accept().await {
                 Ok(v) => v,
                 Err(_) => continue,
@@ -71,12 +61,23 @@ async fn ensure_mock_server() -> u16 {
                     Err(_) => return,
                 };
                 let (mut sink, mut stream) = ws.split();
+                tracing::debug!("[webview_apis_bridge:test] mock ws client connected");
                 while let Some(msg) = stream.next().await {
                     match msg {
                         Ok(Message::Text(text)) => {
                             let req: Value = serde_json::from_str(&text).unwrap();
                             let id = req["id"].as_str().unwrap().to_string();
                             let method = req["method"].as_str().unwrap().to_string();
+                            let redacted_id = if id.len() <= 4 {
+                                "***".to_string()
+                            } else {
+                                format!("***{}", &id[id.len() - 4..])
+                            };
+                            tracing::debug!(
+                                id = %redacted_id,
+                                method = %method,
+                                "[webview_apis_bridge:test] handling text rpc message"
+                            );
                             let resp = match method.as_str() {
                                 "gmail.list_labels" => json!({
                                     "kind": "response",
@@ -101,12 +102,31 @@ async fn ensure_mock_server() -> u16 {
                                 }),
                             };
                             if sink.send(Message::Text(resp.to_string())).await.is_err() {
+                                tracing::warn!(
+                                    id = %redacted_id,
+                                    method = %method,
+                                    "[webview_apis_bridge:test] failed to send mock response"
+                                );
                                 break;
                             }
                         }
-                        Ok(Message::Close(_)) => break,
-                        Ok(_) => continue,
-                        Err(_) => break,
+                        Ok(Message::Close(_)) => {
+                            tracing::debug!("[webview_apis_bridge:test] client closed connection");
+                            break;
+                        }
+                        Ok(_) => {
+                            tracing::debug!(
+                                "[webview_apis_bridge:test] ignoring non-text ws message"
+                            );
+                            continue;
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                error = %err,
+                                "[webview_apis_bridge:test] websocket receive error"
+                            );
+                            break;
+                        }
                     }
                 }
             });
@@ -115,36 +135,28 @@ async fn ensure_mock_server() -> u16 {
     port
 }
 
-#[test]
-fn request_round_trips_list_labels_through_mock_server() {
-    RUNTIME.block_on(async {
-        let _port = ensure_mock_server().await;
-        let labels: Vec<GmailLabel> = client::request(
-            "gmail.list_labels",
-            serde_json::from_value(json!({"account_id": "gmail"})).unwrap(),
-        )
-        .await
-        .expect("mock bridge call");
-        assert_eq!(labels.len(), 2);
-        assert_eq!(labels[0].id, "INBOX");
-        assert_eq!(labels[0].unread, Some(3));
-        assert_eq!(labels[1].kind, "user");
-    });
-}
-
-#[test]
-fn request_surfaces_bridge_error_verbatim() {
-    RUNTIME.block_on(async {
-        let _port = ensure_mock_server().await;
-        let err: Result<Vec<GmailLabel>, String> = client::request(
-            "gmail.trash",
-            serde_json::from_value(json!({"account_id": "gmail", "message_id": "m1"})).unwrap(),
-        )
-        .await;
-        let e = err.expect_err("expected bridge-side error");
-        assert!(
-            e.contains("simulated failure from mock bridge"),
-            "unexpected error: {e}"
-        );
-    });
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_round_trips_and_surfaces_errors_through_mock_server() {
+    let _request_guard = REQUEST_LOCK.lock().await;
+    let _port = ensure_mock_server().await;
+    let labels: Vec<GmailLabel> = client::request(
+        "gmail.list_labels",
+        serde_json::from_value(json!({"account_id": "gmail"})).unwrap(),
+    )
+    .await
+    .expect("mock bridge call");
+    assert_eq!(labels.len(), 2);
+    assert_eq!(labels[0].id, "INBOX");
+    assert_eq!(labels[0].unread, Some(3));
+    assert_eq!(labels[1].kind, "user");
+    let err: Result<Vec<GmailLabel>, String> = client::request(
+        "gmail.trash",
+        serde_json::from_value(json!({"account_id": "gmail", "message_id": "m1"})).unwrap(),
+    )
+    .await;
+    let e = err.expect_err("expected bridge-side error");
+    assert!(
+        e.contains("simulated failure from mock bridge"),
+        "unexpected error: {e}"
+    );
 }
