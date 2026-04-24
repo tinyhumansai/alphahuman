@@ -76,8 +76,9 @@ function getPlatformCapabilities(): Record<string, unknown>[] {
 }
 
 /** Port for the automation driver: tauri-driver (4444) or Appium (4723). */
+const isLinuxDriver = process.platform === 'linux';
 const driverPort =
-  process.platform === 'linux'
+  isLinuxDriver
     ? parseInt(process.env.TAURI_DRIVER_PORT || '4444', 10)
     : parseInt(process.env.APPIUM_PORT || '4723', 10);
 
@@ -91,8 +92,10 @@ export const config: Options.Testrunner & Record<string, unknown> = {
   logLevel: 'warn',
   bail: 0,
   waitforTimeout: 10_000,
-  connectionRetryTimeout: 120_000,
-  connectionRetryCount: 3,
+  // Linux tauri-driver can take longer to establish the initial session on
+  // loaded CI runners; keep macOS defaults while giving Linux more headroom.
+  connectionRetryTimeout: isLinuxDriver ? 240_000 : 120_000,
+  connectionRetryCount: isLinuxDriver ? 5 : 3,
   // No appium/tauri-driver service — driver is started externally via scripts.
   framework: 'mocha',
   reporters: ['spec'],
