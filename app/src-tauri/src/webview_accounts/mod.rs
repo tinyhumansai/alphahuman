@@ -48,7 +48,6 @@ const UA_SPOOF_JS: &str = include_str!("ua_spoof.js");
 const LINKEDIN_RECIPE_JS: &str = include_str!("../../recipes/linkedin/recipe.js");
 const GMAIL_RECIPE_JS: &str = include_str!("../../recipes/gmail/recipe.js");
 const GOOGLE_MEET_RECIPE_JS: &str = include_str!("../../recipes/google-meet/recipe.js");
-const ZOOM_RECIPE_JS: &str = include_str!("../../recipes/zoom/recipe.js");
 
 /// User agent we pretend to be for all external services. Web-app services
 /// (WhatsApp, Gmail, Google's login flow) reject "unknown" WebView UAs with
@@ -91,7 +90,6 @@ fn provider_recipe_js(provider: &str) -> Option<&'static str> {
         "linkedin" => Some(LINKEDIN_RECIPE_JS),
         "gmail" => Some(GMAIL_RECIPE_JS),
         "google-meet" => Some(GOOGLE_MEET_RECIPE_JS),
-        "zoom" => Some(ZOOM_RECIPE_JS),
         _ => None,
     }
 }
@@ -1767,11 +1765,12 @@ mod tests {
     }
 
     #[test]
-    fn zoom_registered_in_recipe_js() {
-        let recipe = provider_recipe_js("zoom").expect("zoom recipe present");
-        // Basic sanity: recipe identifies itself so we don't accidentally
-        // wire the wrong constant.
-        assert!(recipe.contains("zoom-recipe"));
+    fn zoom_has_no_recipe_js_injection() {
+        // Per the CLAUDE.md "no new JS injection" rule for CEF child
+        // webviews, Zoom must rely solely on Rust `on_navigation` +
+        // `on_new_window` (plus CDP from scanner modules, if any) — no
+        // `recipe.js` should be registered.
+        assert!(provider_recipe_js("zoom").is_none());
     }
 
     #[test]
