@@ -34,8 +34,8 @@ export default function RespondQueuePanel({
   onRefresh,
 }: RespondQueuePanelProps) {
   return (
-    <aside className="w-80 flex-none border-l border-stone-200 bg-white">
-      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+    <aside className="flex w-80 flex-none flex-col border-l border-stone-200 bg-white">
+      <div className="flex flex-none items-center justify-between border-b border-stone-100 px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold text-stone-800">Respond queue</h3>
           <p className="text-xs text-stone-500">{count} pending</p>
@@ -47,7 +47,7 @@ export default function RespondQueuePanel({
           Refresh
         </button>
       </div>
-      <div className="h-[calc(100%-57px)] overflow-y-auto px-3 py-3">
+      <div className="flex-1 overflow-y-auto px-3 py-3">
         {status === 'loading' && items.length === 0 ? (
           <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">Loading queue…</p>
         ) : null}
