@@ -57,7 +57,7 @@ enum ToolDecision {
 /// slugs default to `Write` so the sandbox gate errs on the side of
 /// blocking rather than letting a potentially-mutating action slip
 /// through uncategorised.
-async fn resolve_action_scope(slug: &str) -> ToolScope {
+pub(super) async fn resolve_action_scope(slug: &str) -> ToolScope {
     let Some(toolkit) = toolkit_from_slug(slug) else {
         return ToolScope::Write;
     };
