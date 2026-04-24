@@ -138,49 +138,68 @@ pub async fn handle_ingest(params: Map<String, Value>) -> Result<Value, String> 
                     .signed_duration_since(ingest_started_at)
                     .num_milliseconds()
                     .max(0) as u64;
+
+                let mut routed = false;
+                let route_candidate = action == "escalate" || action == "react";
+                if route_candidate {
+                    // Re-read provider settings right before potential escalation so
+                    // runtime toggles apply even while triage is in-flight.
+                    let latest_settings = match store::get_settings(
+                        &config_for_triage,
+                        &req.provider,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                id = %id_for_triage,
+                                provider = %req.provider,
+                                error = %e,
+                                "[notification_intel] failed to refresh provider settings for routing gate"
+                            );
+                            publish_global(DomainEvent::NotificationTriaged {
+                                id: id_for_triage.clone(),
+                                provider: req.provider.clone(),
+                                action: action.clone(),
+                                importance_score: score,
+                                latency_ms,
+                                routed: false,
+                            });
+                            return;
+                        }
+                    };
+
+                    // Auto-escalate high-importance notifications to the orchestrator.
+                    if score >= latest_settings.importance_threshold
+                        && latest_settings.route_to_orchestrator
+                    {
+                        if let Err(e) = apply_decision(triage_run, &envelope).await {
+                            tracing::warn!(
+                                id = %id_for_triage,
+                                error = %e,
+                                "[notification_intel] apply_decision failed"
+                            );
+                        } else {
+                            routed = true;
+                        }
+                    }
+                }
+
                 publish_global(DomainEvent::NotificationTriaged {
                     id: id_for_triage.clone(),
                     provider: req.provider.clone(),
                     action: action.clone(),
                     importance_score: score,
                     latency_ms,
+                    routed,
                 });
                 tracing::debug!(
                     id = %id_for_triage,
                     action = %action,
                     score = score,
                     latency_ms = latency_ms,
+                    routed = routed,
                     "[notification_intel] published NotificationTriaged event"
                 );
-
-                // Re-read provider settings right before potential escalation so
-                // runtime toggles apply even while triage is in-flight.
-                let latest_settings = match store::get_settings(&config_for_triage, &req.provider) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(
-                            id = %id_for_triage,
-                            provider = %req.provider,
-                            error = %e,
-                            "[notification_intel] failed to refresh provider settings for routing gate"
-                        );
-                        return;
-                    }
-                };
-
-                // Auto-escalate high-importance notifications to the orchestrator.
-                if (action == "escalate" || action == "react")
-                    && score >= latest_settings.importance_threshold
-                    && latest_settings.route_to_orchestrator
-                {
-                    if let Err(e) = apply_decision(triage_run, &envelope).await {
-                        tracing::warn!(
-                            id = %id_for_triage,
-                            error = %e,
-                            "[notification_intel] apply_decision failed"
-                        );
-                    }
-                }
             }
             Err(e) => {
                 tracing::warn!(

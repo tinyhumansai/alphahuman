@@ -325,6 +325,8 @@ pub enum DomainEvent {
         action: String,
         importance_score: f32,
         latency_ms: u64,
+        /// True when the triage result was actually routed to the orchestrator path.
+        routed: bool,
     },
 
     // ── System lifecycle ────────────────────────────────────────────────
@@ -788,6 +790,7 @@ mod tests {
                     action: "escalate".into(),
                     importance_score: 0.9,
                     latency_ms: 150,
+                    routed: true,
                 },
                 "notification",
             ),
