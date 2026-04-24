@@ -65,6 +65,7 @@ tokio-tungstenite = { version = "0.24", default-features = false, features = ["c
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rand = "0.9"
 semver = "1"
 
 log = "0.4"

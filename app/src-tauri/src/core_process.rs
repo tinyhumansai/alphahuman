@@ -1,6 +1,7 @@
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
@@ -46,6 +47,20 @@ pub enum CoreRunMode {
     ChildProcess,
 }
 
+/// Generate a 256-bit cryptographically-random bearer token as a hex string.
+pub fn generate_rpc_token() -> String {
+    use rand::RngCore as _;
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+static CURRENT_RPC_TOKEN: OnceLock<String> = OnceLock::new();
+
+pub fn current_rpc_token() -> Option<&'static str> {
+    CURRENT_RPC_TOKEN.get().map(String::as_str)
+}
+
 #[derive(Clone)]
 pub struct CoreProcessHandle {
     child: Arc<Mutex<Option<Child>>>,
@@ -56,10 +71,15 @@ pub struct CoreProcessHandle {
     /// Override path set by the auto-updater after staging a new binary.
     core_bin_override: Arc<Mutex<Option<PathBuf>>>,
     run_mode: CoreRunMode,
+    /// Bearer token passed to the core via `OPENHUMAN_CORE_TOKEN` and returned
+    /// to the frontend so every RPC request can include `Authorization: Bearer`.
+    rpc_token: Arc<String>,
 }
 
 impl CoreProcessHandle {
     pub fn new(port: u16, core_bin: Option<PathBuf>, run_mode: CoreRunMode) -> Self {
+        let rpc_token = generate_rpc_token();
+        let _ = CURRENT_RPC_TOKEN.set(rpc_token.clone());
         Self {
             child: Arc::new(Mutex::new(None)),
             task: Arc::new(Mutex::new(None)),
@@ -68,7 +88,13 @@ impl CoreProcessHandle {
             core_bin,
             core_bin_override: Arc::new(Mutex::new(None)),
             run_mode,
+            rpc_token: Arc::new(rpc_token),
         }
+    }
+
+    /// The bearer token the core process uses to authenticate inbound RPC requests.
+    pub fn rpc_token(&self) -> &str {
+        &self.rpc_token
     }
 
     pub fn rpc_url(&self) -> String {
@@ -158,6 +184,7 @@ impl CoreProcessHandle {
                     };
                     apply_core_color_env(&mut cmd);
                     apply_core_no_window(&mut cmd);
+                    cmd.env("OPENHUMAN_CORE_TOKEN", self.rpc_token.as_str());
                     let child = cmd
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
@@ -197,6 +224,7 @@ impl CoreProcessHandle {
 
                     apply_core_color_env(&mut cmd);
                     apply_core_no_window(&mut cmd);
+                    cmd.env("OPENHUMAN_CORE_TOKEN", self.rpc_token.as_str());
                     let child = cmd
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
@@ -648,5 +676,11 @@ mod tests {
             result.is_ok(),
             "ensure_running should fast-path: {result:?}"
         );
+    }
+
+    #[test]
+    fn current_rpc_token_matches_handle_token() {
+        let handle = CoreProcessHandle::new(7788, None, CoreRunMode::ChildProcess);
+        assert_eq!(super::current_rpc_token(), Some(handle.rpc_token()));
     }
 }
