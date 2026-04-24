@@ -156,6 +156,13 @@ export function stopWebviewAccountService(): void {
     unlistenLoad();
     unlistenLoad = null;
   }
+  // Drop module-level state so a subsequent start (HMR / shutdown→restart)
+  // doesn't see stale per-account entries that survived the listener
+  // teardown. Otherwise an account whose webview was destroyed mid-load
+  // would resurface as "still loading" on restart and silently drop bounds
+  // updates because `loadingAccounts.has(...)` is true.
+  lastBoundsByAccount.clear();
+  loadingAccounts.clear();
   started = false;
 }
 

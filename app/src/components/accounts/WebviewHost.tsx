@@ -37,7 +37,13 @@ const WebviewHost = ({ accountId, provider }: WebviewHostProps) => {
   );
   const openedRef = useRef(false);
   const status = useAppSelector(s => s.accounts.accounts[accountId]?.status);
-  const isLoading = status === undefined || LOADING_STATUSES.has(status);
+  // Only render the spinner when the account is *actively* loading. We used
+  // to also treat `status === undefined` as loading, but that meant a host
+  // mounted for an account that's not in the store (e.g. a render race with
+  // `addAccount`) would spin forever. The brief microtask between mount and
+  // the `setAccountStatus('pending')` dispatch in `openWebviewAccount` is
+  // visually indistinguishable from no overlay, so this is safe.
+  const isLoading = status !== undefined && LOADING_STATUSES.has(status);
 
   // Spawn / show + keep bounds synced on every layout change.
   // IMPORTANT: both refs are reset on cleanup so switching accountIds
