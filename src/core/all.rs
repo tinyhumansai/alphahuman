@@ -74,6 +74,9 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::composio::all_composio_registered_controllers());
     // Scheduled job management
     controllers.extend(crate::openhuman::cron::all_cron_registered_controllers());
+    // Webview APIs bridge — proxies connector calls (Gmail, …) through
+    // a WebSocket to the Tauri shell so curl reaches the live webview.
+    controllers.extend(crate::openhuman::webview_apis::all_webview_apis_registered_controllers());
     // Agent definition and prompt inspection
     controllers.extend(crate::openhuman::agent::all_agent_registered_controllers());
     // System and process health monitoring
@@ -122,6 +125,9 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::memory::all_memory_tree_registered_controllers());
     // Memory tree retrieval layer (#710 — LLM-callable read tools over the tree)
     controllers.extend(crate::openhuman::memory::all_retrieval_registered_controllers());
+    // Link shortener for long tracking URLs — saves LLM tokens
+    controllers
+        .extend(crate::openhuman::redirect_links::all_redirect_links_registered_controllers());
     // Referral and growth tracking
     controllers.extend(crate::openhuman::referral::all_referral_registered_controllers());
     // Billing and subscription management
@@ -168,6 +174,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::app_state::all_app_state_controller_schemas());
     schemas.extend(crate::openhuman::composio::all_composio_controller_schemas());
     schemas.extend(crate::openhuman::cron::all_cron_controller_schemas());
+    schemas.extend(crate::openhuman::webview_apis::all_webview_apis_controller_schemas());
     schemas.extend(crate::openhuman::agent::all_agent_controller_schemas());
     schemas.extend(crate::openhuman::health::all_health_controller_schemas());
     schemas.extend(crate::openhuman::doctor::all_doctor_controller_schemas());
@@ -193,6 +200,7 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     schemas.extend(crate::openhuman::memory::all_memory_controller_schemas());
     schemas.extend(crate::openhuman::memory::all_memory_tree_controller_schemas());
     schemas.extend(crate::openhuman::memory::all_retrieval_controller_schemas());
+    schemas.extend(crate::openhuman::redirect_links::all_redirect_links_controller_schemas());
     schemas.extend(crate::openhuman::referral::all_referral_controller_schemas());
     schemas.extend(crate::openhuman::billing::all_billing_controller_schemas());
     schemas.extend(crate::openhuman::team::all_team_controller_schemas());
@@ -260,6 +268,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "memory_tree" => Some(
             "Canonical chunk ingestion, provenance capture, and chunk retrieval for source-grounded memory.",
         ),
+        "redirect_links" => Some(
+            "Shorten long tracking URLs to `openhuman://link/<id>` placeholders (SQLite-backed) to save tokens in prompts, with round-trip rewrite helpers.",
+        ),
         "referral" => Some("Referral codes, stats, and apply flows via the hosted backend API."),
         "billing" => Some("Subscription plan, payment links, and credit top-up via the backend."),
         "team" => Some("Team member management, invites, and role changes via the backend."),
@@ -272,6 +283,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "webhooks" => {
             Some("Webhook tunnel registrations and captured request/response debug logs.")
         }
+        "webview_apis" => Some(
+            "Typed connector APIs (Gmail, …) proxied over a loopback WebSocket to the Tauri shell so core-side JSON-RPC reaches live-webview CDP operations.",
+        ),
         "update" => {
             Some("Self-update: check GitHub Releases for newer core binary and stage updates.")
         }
@@ -549,6 +563,7 @@ mod tests {
     fn namespace_description_known_namespaces() {
         assert!(namespace_description("memory").is_some());
         assert!(namespace_description("memory_tree").is_some());
+        assert!(namespace_description("redirect_links").is_some());
         assert!(namespace_description("billing").is_some());
         assert!(namespace_description("config").is_some());
         assert!(namespace_description("health").is_some());

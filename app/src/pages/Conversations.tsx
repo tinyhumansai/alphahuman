@@ -1,12 +1,14 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
+import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
+import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useUsageState } from '../hooks/useUsageState';
 import { chatCancel, chatSend, useRustChat } from '../services/chatService';
 import {
@@ -27,6 +29,7 @@ import {
   setActiveThread,
   setSelectedThread,
 } from '../store/threadSlice';
+import type { ConfirmationModal as ConfirmationModalType } from '../types/intelligence';
 import type { ThreadMessage } from '../types/thread';
 import { splitAgentMessageIntoBubbles } from '../utils/agentMessageBubbles';
 import {
@@ -40,6 +43,7 @@ import {
 } from '../utils/tauriCommands';
 import { formatTimelineEntry } from '../utils/toolTimelineFormatting';
 import { AgentMessageBubble, BubbleMarkdown } from './conversations/components/AgentMessageBubble';
+import { CitationChips, type MessageCitation } from './conversations/components/CitationChips';
 import { LimitPill } from './conversations/components/LimitPill';
 import { ToolTimelineBlock } from './conversations/components/ToolTimelineBlock';
 import {
@@ -126,8 +130,14 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     currentTier,
   } = useUsageState();
   const [showLimitModal, setShowLimitModal] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<ConfirmationModalType>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -195,11 +205,12 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     }
   }, [selectedThreadId, messages.length, dispatch]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+  const location = useLocation();
+  const { containerRef: messagesContainerRef, endRef: messagesEndRef } = useStickToBottom(
+    messages,
+    selectedThreadId,
+    location.pathname
+  );
 
   useEffect(() => {
     const onDictationInsert = (event: Event) => {
@@ -397,7 +408,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
 
     const sendingThreadId = selectedThreadId;
     const userMessage: ThreadMessage = {
-      id: `msg_${Date.now()}_${Math.random()}`,
+      id: `msg_${globalThis.crypto.randomUUID()}`,
       content: trimmed,
       type: 'text',
       extraMetadata: {},
@@ -739,13 +750,23 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               <p className="px-4 py-6 text-xs text-stone-400 text-center">No threads yet</p>
             ) : (
               sortedThreads.map(thread => (
-                <button
+                <div
                   key={thread.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     dispatch(setSelectedThread(thread.id));
                     void dispatch(loadThreadMessages(thread.id));
                   }}
-                  className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group ${
+                  onKeyDown={e => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      dispatch(setSelectedThread(thread.id));
+                      void dispatch(loadThreadMessages(thread.id));
+                    }
+                  }}
+                  className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group cursor-pointer ${
                     selectedThreadId === thread.id
                       ? 'bg-primary-50 border-l-2 border-l-primary-500'
                       : 'hover:bg-stone-50'
@@ -762,7 +783,18 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                     <button
                       onClick={e => {
                         e.stopPropagation();
-                        void dispatch(deleteThread(thread.id));
+                        setDeleteModal({
+                          isOpen: true,
+                          title: 'Delete thread',
+                          message: `Are you sure you want to delete "${thread.title || 'Untitled thread'}"? This cannot be undone.`,
+                          confirmText: 'Delete',
+                          cancelText: 'Cancel',
+                          destructive: true,
+                          onConfirm: () => {
+                            void dispatch(deleteThread(thread.id));
+                          },
+                          onCancel: () => {},
+                        });
                       }}
                       className="ml-2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-stone-200 text-stone-400 hover:text-coral-500 transition-all flex-shrink-0"
                       title="Delete thread">
@@ -790,7 +822,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                       </span>
                     )}
                   </div> */}
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -833,7 +865,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-5 py-4 bg-[#f6f6f6]">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-5 py-4 bg-[#f6f6f6]">
           {isLoadingMessages ? (
             <div className="space-y-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -901,6 +933,21 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                               );
                             }
                           )}
+                          {(() => {
+                            const raw = msg.extraMetadata?.citations;
+                            if (!Array.isArray(raw)) return null;
+                            const citations = raw.filter(
+                              (item): item is MessageCitation =>
+                                typeof item === 'object' &&
+                                item !== null &&
+                                typeof (item as MessageCitation).id === 'string' &&
+                                typeof (item as MessageCitation).key === 'string' &&
+                                typeof (item as MessageCitation).snippet === 'string' &&
+                                typeof (item as MessageCitation).timestamp === 'string'
+                            );
+                            if (citations.length === 0) return null;
+                            return <CitationChips citations={citations} />;
+                          })()}
                           {latestVisibleMessage?.id === msg.id && (
                             <p className="px-1 text-[10px] text-stone-400">
                               {formatRelativeTime(msg.createdAt)}
@@ -1387,6 +1434,10 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         isBudgetExhausted={isBudgetExhausted}
         resetTime={isBudgetExhausted ? teamUsage?.cycleEndsAt : teamUsage?.fiveHourResetsAt}
         currentTier={currentTier}
+      />
+      <ConfirmationModal
+        modal={deleteModal}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
       />
     </div>
   );
