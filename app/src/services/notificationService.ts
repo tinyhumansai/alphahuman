@@ -48,13 +48,6 @@ export async function markNotificationRead(id: string): Promise<void> {
 }
 
 type NotificationIngestResult = { id: string; skipped?: false } | { skipped: true; reason: string };
-type NotificationStats = {
-  total: number;
-  unread: number;
-  unscored: number;
-  by_provider: Record<string, number>;
-  by_action: Record<string, number>;
-};
 
 /**
  * Ingest a new notification via the core RPC pipeline.

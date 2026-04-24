@@ -68,7 +68,7 @@ describe('Agent review — canonical onboarding + privacy flow', () => {
   after(async () => {
     resetMockBehavior();
     await stopMockServer();
-     
+
     console.log(`[agent-review] artifacts: ${getArtifactDir()}`);
   });
 
@@ -87,7 +87,7 @@ describe('Agent review — canonical onboarding + privacy flow', () => {
   it('02 advances past welcome step', async () => {
     const clicked =
       (await tryClick("Let's Start")) || (await tryClick('Continue')) || (await tryClick('Skip'));
-     
+
     console.log(`[agent-review] welcome advance clicked=${clicked}`);
     await browser.pause(2_000);
     await captureCheckpoint('post-welcome');

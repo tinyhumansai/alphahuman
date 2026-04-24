@@ -67,7 +67,7 @@ export function handleNotificationClick(accountId: string): void {
 }
 
 function handleFired(payload: WebviewNotificationFired): void {
-  const { account_id: accountId, provider, title, body, tag } = payload;
+  const { account_id: accountId, provider, title, body } = payload;
   const redactedAccountId = redactAccountId(accountId);
   log(
     'fired account=%s provider=%s title_chars=%d body_chars=%d',
