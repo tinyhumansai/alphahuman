@@ -15,8 +15,12 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
+use openhuman_core::core::auth::{init_rpc_token, CORE_TOKEN_ENV_VAR};
 use openhuman_core::core::jsonrpc::build_core_http_router;
 use openhuman_core::openhuman::memory::all_memory_tree_registered_controllers;
+
+const TEST_RPC_TOKEN: &str = "json-rpc-e2e-local-token";
+static JSON_RPC_AUTH_INIT: OnceLock<()> = OnceLock::new();
 
 struct EnvVarGuard {
     key: &'static str,
@@ -426,6 +430,7 @@ async fn serve_on_ephemeral(
     SocketAddr,
     tokio::task::JoinHandle<Result<(), std::io::Error>>,
 ) {
+    ensure_test_rpc_auth();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -448,6 +453,7 @@ async fn post_json_rpc(rpc_base: &str, id: i64, method: &str, params: Value) -> 
     let url = format!("{}/rpc", rpc_base.trim_end_matches('/'));
     let resp = client
         .post(&url)
+        .header(AUTHORIZATION, format!("Bearer {TEST_RPC_TOKEN}"))
         .json(&body)
         .send()
         .await
@@ -471,6 +477,7 @@ async fn read_first_sse_event(events_url: &str) -> Value {
         .expect("client");
     let resp = client
         .get(events_url)
+        .header(AUTHORIZATION, format!("Bearer {TEST_RPC_TOKEN}"))
         .send()
         .await
         .unwrap_or_else(|e| panic!("GET {events_url}: {e}"));
@@ -517,6 +524,7 @@ async fn read_sse_event_by_type(events_url: &str, target_event: &str) -> Value {
         .expect("client");
     let resp = client
         .get(events_url)
+        .header(AUTHORIZATION, format!("Bearer {TEST_RPC_TOKEN}"))
         .send()
         .await
         .unwrap_or_else(|e| panic!("GET {events_url}: {e}"));
@@ -642,6 +650,14 @@ enabled = false
 
     let _: openhuman_core::openhuman::config::Config =
         toml::from_str(&cfg).expect("config toml must match Config schema");
+}
+
+fn ensure_test_rpc_auth() {
+    std::env::set_var(CORE_TOKEN_ENV_VAR, TEST_RPC_TOKEN);
+    JSON_RPC_AUTH_INIT.get_or_init(|| {
+        let token_dir = std::env::temp_dir().join("openhuman-json-rpc-e2e-auth");
+        init_rpc_token(&token_dir).expect("init rpc auth token for json_rpc_e2e");
+    });
 }
 
 #[tokio::test]
