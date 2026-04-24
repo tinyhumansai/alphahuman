@@ -300,7 +300,7 @@ const ReferralRewardsSection = () => {
             <h3 className="text-sm font-semibold text-stone-900 mb-2">Referral activity</h3>
             {stats.referrals.length === 0 ? (
               <p className="text-sm text-stone-500 rounded-xl border border-dashed border-stone-200 px-4 py-6 text-center">
-                No referrals yet. Share your link to get started.
+                No referrals yet. Share your code to get started.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-stone-200">
