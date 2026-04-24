@@ -65,9 +65,13 @@ async fn ensure_runtime_and_bridge() -> (Arc<PersonalIndex>, Arc<dyn Embedder>) 
     std::mem::forget(workspace);
 
     let idx = Arc::new(PersonalIndex::open(&db_path).await.expect("open index"));
-    let _ = runtime::init_index(Arc::clone(&idx)).await;
+    runtime::init_index(Arc::clone(&idx))
+        .await
+        .expect("life_capture runtime index must be uninitialized at e2e test start");
     let embedder: Arc<dyn Embedder> = Arc::new(DeterministicEmbedder { dim: 1536 });
-    let _ = runtime::init_embedder(Arc::clone(&embedder)).await;
+    runtime::init_embedder(Arc::clone(&embedder))
+        .await
+        .expect("life_capture runtime embedder must be uninitialized at e2e test start");
 
     register_life_capture_composio_bridge(Arc::clone(&idx), Arc::clone(&embedder));
 
