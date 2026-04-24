@@ -48,6 +48,13 @@ export async function markNotificationRead(id: string): Promise<void> {
 }
 
 type NotificationIngestResult = { id: string; skipped?: false } | { skipped: true; reason: string };
+type NotificationStats = {
+  total: number;
+  unread: number;
+  unscored: number;
+  by_provider: Record<string, number>;
+  by_action: Record<string, number>;
+};
 
 /**
  * Ingest a new notification via the core RPC pipeline.
@@ -137,10 +144,20 @@ export async function markNotificationActed(id: string): Promise<void> {
 
 export async function fetchNotificationStats(): Promise<NotificationStats> {
   log('fetchNotificationStats');
-  const result = await callCoreRpc<NotificationStats>({
-    method: 'openhuman.notification_stats',
-    params: {},
-  });
-  log('fetchNotificationStats result: total=%d unread=%d', result.total, result.unread);
-  return result;
+  try {
+    const result = await callCoreRpc<NotificationStats>({
+      method: 'openhuman.notification_stats',
+      params: {},
+    });
+    log(
+      'fetchNotificationStats ok total=%d unread=%d unscored=%d',
+      result.total,
+      result.unread,
+      result.unscored
+    );
+    return result;
+  } catch (err) {
+    errLog('fetchNotificationStats failed: %o', err);
+    throw err;
+  }
 }
