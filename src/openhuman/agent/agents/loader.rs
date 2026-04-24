@@ -371,7 +371,11 @@ mod tests {
         assert_eq!(def.sandbox_mode, SandboxMode::ReadOnly);
         match &def.tools {
             ToolScope::Named(tools) => {
-                assert_eq!(tools.len(), 3, "welcome should have exactly three tools");
+                assert_eq!(tools.len(), 4, "welcome should have exactly four tools");
+                assert!(
+                    tools.iter().any(|t| t == "check_onboarding_status"),
+                    "welcome needs check_onboarding_status"
+                );
                 assert!(
                     tools.iter().any(|t| t == "complete_onboarding"),
                     "welcome needs complete_onboarding"

@@ -107,6 +107,7 @@ pub fn all_tools_with_runtime(
         // returns a single text result. See
         // `agent::harness::subagent_runner` for the dispatch path.
         Box::new(SpawnSubagentTool::new()),
+        Box::new(CheckOnboardingStatusTool::new()),
         Box::new(CompleteOnboardingTool::new()),
         Box::new(CurrentTimeTool::new()),
         Box::new(CronAddTool::new(config.clone(), security.clone())),
@@ -403,6 +404,10 @@ mod tests {
         assert!(
             names.contains(&"complete_onboarding"),
             "complete_onboarding must be registered in the default tool list; got: {names:?}"
+        );
+        assert!(
+            names.contains(&"check_onboarding_status"),
+            "check_onboarding_status must be registered in the default tool list; got: {names:?}"
         );
     }
 
