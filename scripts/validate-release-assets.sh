@@ -82,7 +82,14 @@ except json.JSONDecodeError as e:
 asset_names = [a.get("name", "") for a in release.get("assets", [])]
 latest_platforms = latest.get("platforms", {}) or {}
 
-missing_latest = [p for p in SUPPORTED if p not in latest_platforms]
+# Mirror scripts/install.sh's fallback chain: accept the bare platform key
+# OR a `-appimage` / `-app` suffixed variant, matching what the Tauri
+# updater manifest may emit. Without this the validator false-flags a
+# correctly-shipped release that uses the suffix form.
+def _has_platform(key):
+    return key in latest_platforms or f"{key}-appimage" in latest_platforms or f"{key}-app" in latest_platforms
+
+missing_latest = [p for p in SUPPORTED if not _has_platform(p)]
 missing_assets = [
     p for p in SUPPORTED
     if not any(re.search(ASSET_PATTERNS[p], n) for n in asset_names)
