@@ -325,7 +325,7 @@ static LINUX_NOTIFY_TX: OnceLock<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + 
 #[cfg(all(feature = "cef", target_os = "linux"))]
 fn enqueue_linux_notification(job: Box<dyn FnOnce() + Send>) {
     let tx = LINUX_NOTIFY_TX.get_or_init(|| {
-        let (tx, rx) = sync_channel(LINUX_NOTIFY_QUEUE_CAP);
+        let (tx, rx) = sync_channel::<Box<dyn FnOnce() + Send>>(LINUX_NOTIFY_QUEUE_CAP);
         std::thread::Builder::new()
             .name("openhuman-linux-notify".to_string())
             .spawn(move || {

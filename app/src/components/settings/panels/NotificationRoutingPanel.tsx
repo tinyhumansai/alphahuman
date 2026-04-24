@@ -227,7 +227,7 @@ const NotificationRoutingPanel = () => {
                   </label>
                   {hasLoadError ? (
                     <p className="text-xs text-red-600">
-                      Failed to load settings. Retry from this panel.
+                      Failed to load settings. Reopen this panel to retry.
                     </p>
                   ) : null}
                 </div>
