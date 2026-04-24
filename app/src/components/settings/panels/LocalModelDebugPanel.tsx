@@ -35,6 +35,7 @@ import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import ModelDownloadSection from './local-model/ModelDownloadSection';
 import ModelStatusSection from './local-model/ModelStatusSection';
+import CustomModelSection from './local-model/CustomModelSection';
 
 const statusTone = (state: string): string => {
   switch (state) {
@@ -443,6 +444,8 @@ const LocalModelDebugPanel = () => {
           onSetTtsOutputPath={setTtsOutputPath}
           onRunTtsTest={() => void runTtsTest()}
         />
+
+        <CustomModelSection />
       </div>
     </div>
   );
