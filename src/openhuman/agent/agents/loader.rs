@@ -453,7 +453,6 @@ mod tests {
         assert_eq!(def.sandbox_mode, SandboxMode::ReadOnly);
         match &def.tools {
             ToolScope::Named(tools) => {
-                assert_eq!(tools.len(), 3, "welcome should have exactly three tools");
                 assert!(
                     tools.iter().any(|t| t == "complete_onboarding"),
                     "welcome needs complete_onboarding"
@@ -466,6 +465,18 @@ mod tests {
                     tools.iter().any(|t| t == "composio_authorize"),
                     "welcome needs composio_authorize"
                 );
+                assert!(
+                    tools.iter().any(|t| t == "gitbooks_search"),
+                    "welcome needs gitbooks_search to answer 'how does X work' during onboarding"
+                );
+                assert!(
+                    tools.iter().any(|t| t == "gitbooks_get_page"),
+                    "welcome needs gitbooks_get_page for full-page lookups"
+                );
+                // Welcome must not gain write/exec power; onboarding stays read-only.
+                assert!(!tools.iter().any(|t| t == "shell"));
+                assert!(!tools.iter().any(|t| t == "file_write"));
+                assert!(!tools.iter().any(|t| t == "curl"));
             }
             ToolScope::Wildcard => panic!("welcome must have a Named tool scope"),
         }
