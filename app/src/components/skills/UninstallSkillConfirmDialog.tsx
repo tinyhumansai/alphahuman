@@ -72,11 +72,14 @@ export default function UninstallSkillConfirmDialog({ skill, onClose, onUninstal
   }, [onClose, submitting]);
 
   const handleConfirm = useCallback(async () => {
-    log('confirm: name=%s', skill.name);
+    log('confirm: id=%s name=%s', skill.id, skill.name);
     setSubmitting(true);
     setError(null);
     try {
-      const result = await skillsApi.uninstallSkill(skill.name);
+      // `skill.id` is the on-disk slug (directory under ~/.openhuman/skills/).
+      // `skill.name` is the frontmatter display name and may diverge from the
+      // slug — the backend resolves by slug, so pass `id`.
+      const result = await skillsApi.uninstallSkill(skill.id);
       log('confirm: done removedPath=%s', result.removedPath);
       onUninstalled(result);
       onClose();
@@ -86,7 +89,7 @@ export default function UninstallSkillConfirmDialog({ skill, onClose, onUninstal
       setError(`Couldn't uninstall skill: ${msg}`);
       setSubmitting(false);
     }
-  }, [skill.name, onUninstalled, onClose]);
+  }, [skill.id, skill.name, onUninstalled, onClose]);
 
   return createPortal(
     <div

@@ -59,6 +59,39 @@ describe('UninstallSkillConfirmDialog', () => {
     expect(screen.getByRole('button', { name: /^Uninstall$/ })).toBeInTheDocument();
   });
 
+  it('Confirm uses skill.id (slug), not skill.name (display), when they diverge', async () => {
+    // Regression test for #781: `Skill.name` comes from SKILL.md frontmatter
+    // and can differ from the on-disk directory. The uninstall RPC resolves
+    // by slug — the UI must pass `skill.id` (the slug).
+    const onClose = vi.fn();
+    const onUninstalled = vi.fn();
+    const { skillsApi } = await import('../../../services/api/skillsApi');
+    vi.mocked(skillsApi.uninstallSkill).mockResolvedValueOnce({
+      name: 'weather-helper',
+      removedPath: '/Users/me/.openhuman/skills/weather-helper',
+      scope: 'user',
+    });
+
+    const divergent: SkillSummary = {
+      ...fixture,
+      id: 'weather-helper',
+      name: 'Weather Helper (Pro)',
+    };
+    render(
+      <UninstallSkillConfirmDialog
+        skill={divergent}
+        onClose={onClose}
+        onUninstalled={onUninstalled}
+      />
+    );
+    fireEvent.click(screen.getByTestId('uninstall-skill-confirm'));
+
+    await waitFor(() => {
+      expect(vi.mocked(skillsApi.uninstallSkill)).toHaveBeenCalledWith('weather-helper');
+    });
+    expect(vi.mocked(skillsApi.uninstallSkill)).not.toHaveBeenCalledWith('Weather Helper (Pro)');
+  });
+
   it('Cancel fires onClose without calling the RPC', async () => {
     const onClose = vi.fn();
     const { skillsApi } = await import('../../../services/api/skillsApi');
@@ -96,6 +129,10 @@ describe('UninstallSkillConfirmDialog', () => {
     await waitFor(() => {
       expect(vi.mocked(skillsApi.uninstallSkill)).toHaveBeenCalledWith('weather-helper');
     });
+    // Assert the caller passed the slug (`id`) — not the frontmatter
+    // display name. Regression guard for the #781 fix that swapped
+    // `skill.name` → `skill.id` in the confirm handler.
+    expect(vi.mocked(skillsApi.uninstallSkill)).toHaveBeenCalledWith(fixture.id);
     await waitFor(() => {
       expect(onUninstalled).toHaveBeenCalledWith({
         name: 'weather-helper',

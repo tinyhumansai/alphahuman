@@ -97,8 +97,17 @@ struct SkillSummary {
 
 impl From<Skill> for SkillSummary {
     fn from(s: Skill) -> Self {
+        // `id` is the on-disk slug the uninstall RPC resolves against.
+        // Prefer `dir_name`, but fall back to `name` for back-compat on
+        // deserialised `Skill` values written before `dir_name` existed
+        // (default empty string).
+        let id = if s.dir_name.is_empty() {
+            s.name.clone()
+        } else {
+            s.dir_name.clone()
+        };
         SkillSummary {
-            id: s.name.clone(),
+            id,
             name: s.name,
             description: s.description,
             version: s.version,
@@ -369,7 +378,7 @@ pub fn skills_schemas(function: &str) -> ControllerSchema {
             inputs: vec![FieldSchema {
                 name: "name",
                 ty: TypeSchema::String,
-                comment: "Exact slug of the installed skill (matches SkillSummary.id / Skill.name).",
+                comment: "Exact on-disk slug of the installed skill — matches SkillSummary.id (the directory under ~/.openhuman/skills/), which may differ from the frontmatter display name in Skill.name.",
                 required: true,
             }],
             outputs: vec![
