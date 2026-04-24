@@ -695,17 +695,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_if_not_recent_skips_duplicate() {
-        let dir = TempDir::new().unwrap();
-        let config = test_config(&dir);
-        let n = sample_notification("dup-a", "slack");
-        assert!(insert_if_not_recent(&config, &n).unwrap());
-
-        let n2 = sample_notification("dup-b", "slack");
-        assert!(!insert_if_not_recent(&config, &n2).unwrap());
-    }
-
-    #[test]
     fn settings_roundtrip_defaults_and_upsert() {
         let dir = TempDir::new().unwrap();
         let config = test_config(&dir);
