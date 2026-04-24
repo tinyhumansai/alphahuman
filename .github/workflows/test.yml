@@ -33,19 +33,18 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.10.0
-          cache: true
+- name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        cache: true
 
-      - name: Setup Node.js 24.x
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.x
+    - name: Setup Node.js 24.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24.x
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
 
       - name: Run tests with coverage
         run: pnpm test:coverage
@@ -248,30 +247,31 @@ jobs:
 #           fetch-depth: 1
 #           submodules: recursive
 
-#       - name: Setup Node.js 24.x
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 24.x
-#           cache: "yarn"
+      # - name: Setup pnpm
+      #   uses: pnpm/action-setup@v4
+      #   with:
+      #     cache: true
 
-#       - name: Install Rust (rust-toolchain.toml)
-#         uses: dtolnay/rust-toolchain@1.93.0
+      # - name: Setup Node.js 24.x
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 24.x
 
-#       - name: Install dependencies
-#         run: yarn install --frozen-lockfile
+      # - name: Install dependencies
+      #   run: pnpm install --frozen-lockfile
 
-#       - name: Ensure .env exists for E2E build
-#         run: |
-#           touch .env
-#           touch app/.env
+      # - name: Ensure .env exists for E2E build
+      #   run: |
+      #     touch .env
+      #     touch app/.env
 
-#       - name: Install Appium and mac2 driver
-#         run: |
-#           npm install -g appium
-#           appium driver install mac2
+      # - name: Install Appium and mac2 driver
+      #   run: |
+      #     pnpm install -g appium
+      #     appium driver install mac2
 
-#       - name: Build E2E app bundle
-#         run: yarn workspace openhuman-app test:e2e:build
+      # - name: Build E2E app bundle
+      #   run: pnpm --filter openhuman-app test:e2e:build
 
-#       - name: Run all E2E flows
-#         run: yarn workspace openhuman-app test:e2e:all:flows
+      # - name: Run all E2E flows
+      #   run: pnpm --filter openhuman-app test:e2e:all:flows

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   aiGetConfig,
@@ -21,7 +21,7 @@ const AIPanel = () => {
   const [error, setError] = useState<string>('');
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus | null>(null);
 
-  const loadAIPreview = async () => {
+  const loadAIPreview = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -36,16 +36,16 @@ const AIPanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadLocalAiStatus = async () => {
+  const loadLocalAiStatus = useCallback(async () => {
     try {
       const result = await openhumanLocalAiStatus();
       setLocalAiStatus(result.result);
     } catch {
       setLocalAiStatus(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadAIPreview();

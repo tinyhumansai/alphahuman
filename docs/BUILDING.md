@@ -100,20 +100,25 @@ pnpm tauri build --target aarch64-unknown-linux-gnu
 
 The binary requires the CEF library path to be set:
 
+### Option 1 — Direct invocation
+
 ```bash
-# Option 1: Direct invocation
 REL_DIR=app/src-tauri/target/aarch64-unknown-linux-gnu/release
 CEF_DIR=$(ls -d "$REL_DIR"/build/cef-dll-sys-*/out/cef_linux_aarch64 2>/dev/null | head -n1)
-export LD_LIBRARY_PATH="$CEF_DIR:$REL_DIR/deps:$REL_DIR"
-$REL_DIR/OpenHuman --no-sandbox
+export LD_LIBRARY_PATH="$CEF_DIR:$REL_DIR/deps:$REL_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+"$REL_DIR/OpenHuman" --no-sandbox
+```
 
-# Option 2: Wrapper script (recommended)
-# Create ~/bin/openhuman:
+### Option 2 — Wrapper script (recommended)
+
+Save to `~/bin/openhuman` and make it executable (`chmod +x ~/bin/openhuman`):
+
+```bash
 #!/bin/bash
 REL_DIR=/path/to/app/src-tauri/target/aarch64-unknown-linux-gnu/release
 CEF_DIR=$(ls -d "$REL_DIR"/build/cef-dll-sys-*/out/cef_linux_aarch64 2>/dev/null | head -n1)
-export LD_LIBRARY_PATH="$CEF_DIR:$REL_DIR/deps:$REL_DIR"
-exec $REL_DIR/OpenHuman --no-sandbox "$@"
+export LD_LIBRARY_PATH="$CEF_DIR:$REL_DIR/deps:$REL_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$REL_DIR/OpenHuman" --no-sandbox "$@"
 ```
 
 ### DEB package install

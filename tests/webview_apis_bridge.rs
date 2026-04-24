@@ -62,16 +62,22 @@ async fn ensure_mock_server() -> u16 {
             let port = listener.local_addr().unwrap().port();
             port_tx.send(port).expect("send mock server port");
 
-            loop {
-                let (stream, _peer) = match listener.accept().await {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                tokio::spawn(async move {
-                    let ws = match tokio_tungstenite::accept_async(stream).await {
-                        Ok(w) => w,
-                        Err(_) => return,
-                    };
+loop {
+      let (stream, _peer) = match listener.accept().await {
+        Ok(v) => v,
+        Err(e) => {
+          eprintln!("[mock server] listener.accept failed: {}", e);
+          continue;
+        }
+      };
+      tokio::spawn(async move {
+        let ws = match tokio_tungstenite::accept_async(stream).await {
+          Ok(w) => w,
+          Err(e) => {
+            eprintln!("[mock server] accept_async handshake failed: {}", e);
+            return;
+          }
+        };
                     let (mut sink, mut stream) = ws.split();
                     while let Some(Ok(Message::Text(text))) = stream.next().await {
                         let req: Value = serde_json::from_str(&text).unwrap();
@@ -110,35 +116,12 @@ async fn ensure_mock_server() -> u16 {
     });
 
     let port = port_rx.recv().expect("receive mock server port");
-    std::env::set_var("OPENHUMAN_WEBVIEW_APIS_PORT", port.to_string());
-*guard = Some(port);
-    port
-}
-                        }
-                        Ok(Message::Close(_)) => {
-                            tracing::debug!("[webview_apis_bridge:test] client closed connection");
-                            break;
-                        }
-                        Ok(_) => {
-                            tracing::debug!(
-                                "[webview_apis_bridge:test] ignoring non-text ws message"
-                            );
-                            continue;
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                error = %err,
-                                "[webview_apis_bridge:test] websocket receive error"
-                            );
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-    });
-=======
->>>>>>> 2587b8bb (chore: migrate from yarn to pnpm)
+    // SAFETY: This is safe because it's a mock server port (not a secret),
+    // and the test controls concurrency (single-threaded test runner).
+    unsafe {
+        std::env::set_var("OPENHUMAN_WEBVIEW_APIS_PORT", port.to_string());
+    }
+    *guard = Some(port);
     port
 }
 

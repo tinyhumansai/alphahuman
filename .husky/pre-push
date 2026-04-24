@@ -38,7 +38,7 @@ set -e
 
 # Enforce scoped cmd-* tokens in components/commands/
 set +e
-yarn --cwd app lint:commands-tokens
+pnpm --dir app run lint:commands-tokens
 CMD_TOKENS_EXIT=$?
 set -e
 

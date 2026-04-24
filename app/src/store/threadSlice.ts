@@ -138,7 +138,9 @@ export const addInferenceResponse = createAsyncThunk(
     if (!targetThreadId) return rejectWithValue('No target thread');
 
     const message: ThreadMessage = {
-      id: payload.messageId ?? `inference-${Date.now()}-${Math.random()}`,
+      id:
+        payload.messageId ??
+        `msg_${globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       content: payload.content,
       type: payload.type ?? 'text',
       extraMetadata: payload.extraMetadata ?? {},

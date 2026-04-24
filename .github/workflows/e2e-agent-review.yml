@@ -39,12 +39,11 @@ jobs:
             echo "agent-review.spec.ts not present — skipping remaining steps."
           fi
 
-      - name: Setup pnpm
-        if: steps.gate.outputs.present == 'true'
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.10.0
-          cache: true
+- name: Setup pnpm
+      if: steps.gate.outputs.present == 'true'
+      uses: pnpm/action-setup@v4
+      with:
+        cache: true
 
       - name: Setup Node.js 24.x
         if: steps.gate.outputs.present == 'true'
@@ -91,9 +90,9 @@ jobs:
         if: steps.gate.outputs.present == 'true'
         run: cargo install tauri-driver --version 2.0.5
 
-      - name: Install JS dependencies
-        if: steps.gate.outputs.present == 'true'
-        run: pnpm install --no-frozen-lockfile
+- name: Install JS dependencies
+      if: steps.gate.outputs.present == 'true'
+      run: pnpm install --frozen-lockfile
 
       - name: Ensure .env exists for E2E build
         if: steps.gate.outputs.present == 'true'
