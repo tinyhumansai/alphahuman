@@ -85,14 +85,21 @@ impl MemoryStore {
 /// back to the stores, so subsequent `add` / `replace` / `remove` calls leave
 /// the snapshot frozen. Designed to be taken once at session start and reused
 /// across turns to preserve LLM prefix-cache hits.
+///
+/// Both write locks are held for the duration of both reads so no write can
+/// interleave between the two `read_to_string` calls, guaranteeing the
+/// snapshot is consistent.
 pub async fn snapshot_pair(
     memory_store: &MemoryStore,
     user_store: &MemoryStore,
 ) -> std::io::Result<crate::openhuman::curated_memory::types::MemorySnapshot> {
-    Ok(crate::openhuman::curated_memory::types::MemorySnapshot {
-        memory: memory_store.read().await?,
-        user: user_store.read().await?,
-    })
+    // Acquire locks in a stable order (memory before user) to avoid deadlock
+    // if two concurrent snapshot_pair calls were ever issued.
+    let _gm = memory_store.write_lock.lock().await;
+    let _gu = user_store.write_lock.lock().await;
+    let memory = tokio::fs::read_to_string(&memory_store.file_path).await?;
+    let user = tokio::fs::read_to_string(&user_store.file_path).await?;
+    Ok(crate::openhuman::curated_memory::types::MemorySnapshot { memory, user })
 }
 
 async fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
