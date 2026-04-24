@@ -472,7 +472,32 @@ pub fn default_core_bin() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("OPENHUMAN_CORE_BIN") {
         let candidate = PathBuf::from(path);
         if candidate.exists() {
+            log::info!(
+                "[core] default_core_bin: using OPENHUMAN_CORE_BIN override {}",
+                candidate.display()
+            );
             return Some(candidate);
+        }
+        log::warn!(
+            "[core] default_core_bin: OPENHUMAN_CORE_BIN override does not exist: {}",
+            candidate.display()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let packaged_candidates = [
+            PathBuf::from("/usr/bin/openhuman-core"),
+            PathBuf::from("/usr/lib/OpenHuman/openhuman-core"),
+        ];
+        for candidate in packaged_candidates {
+            if candidate.exists() {
+                log::info!(
+                    "[core] default_core_bin: using packaged linux core binary {}",
+                    candidate.display()
+                );
+                return Some(candidate);
+            }
         }
     }
 
@@ -513,6 +538,10 @@ pub fn default_core_bin() -> Option<PathBuf> {
     let standalone = exe_dir.join("openhuman-core");
 
     if standalone.exists() && !same_executable_path(&standalone, &exe) {
+        log::info!(
+            "[core] default_core_bin: found standalone sibling binary {}",
+            standalone.display()
+        );
         return Some(standalone);
     }
 
@@ -522,20 +551,29 @@ pub fn default_core_bin() -> Option<PathBuf> {
     let legacy_standalone = exe_dir.join("openhuman-core");
 
     if legacy_standalone.exists() && !same_executable_path(&legacy_standalone, &exe) {
+        log::info!(
+            "[core] default_core_bin: found legacy standalone binary {}",
+            legacy_standalone.display()
+        );
         return Some(legacy_standalone);
     }
 
     // Sidecar layout: bundle.externalBin("binaries/openhuman-core") is emitted as
     // openhuman-core-<target-triple>(.exe) under app resources.
     let search_dirs = {
-        let mut dirs = vec![exe_dir.to_path_buf()];
+        let dirs = vec![exe_dir.to_path_buf()];
         #[cfg(target_os = "macos")]
         {
+            let mut dirs = dirs;
             if let Some(resources_dir) = exe_dir.parent().map(|p| p.join("Resources")) {
                 dirs.push(resources_dir);
             }
+            dirs
         }
-        dirs
+        #[cfg(not(target_os = "macos"))]
+        {
+            dirs
+        }
     };
 
     for dir in search_dirs {
@@ -559,11 +597,16 @@ pub fn default_core_bin() -> Option<PathBuf> {
                 || file_name.starts_with("openhuman-core-");
 
             if matches && !same_executable_path(&path, &exe) {
+                log::info!(
+                    "[core] default_core_bin: found bundled sidecar {}",
+                    path.display()
+                );
                 return Some(path);
             }
         }
     }
 
+    log::warn!("[core] default_core_bin: no dedicated core binary found");
     None
 }
 
