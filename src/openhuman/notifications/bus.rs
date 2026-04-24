@@ -142,25 +142,28 @@ pub fn event_to_notification(event: &DomainEvent) -> Option<CoreNotificationEven
             provider,
             action,
             importance_score,
-            ..
-        } if action == "escalate" || action == "react" => Some(CoreNotificationEvent {
-            id: format!("notification-triaged:{}:{}", id, ts),
-            category: CoreNotificationCategory::Agents,
-            title: format!("High-priority {} notification", provider),
-            body: if action == "escalate" {
-                format!(
-                    "Action: escalate (score: {:.0}%). Routed to orchestrator.",
-                    importance_score * 100.0
-                )
-            } else {
-                format!(
-                    "Action: react (score: {:.0}%). Routed for follow-up.",
-                    importance_score * 100.0
-                )
-            },
-            deep_link: Some("/notifications".into()),
-            timestamp_ms: ts,
-        }),
+            latency_ms,
+            routed,
+        } if *routed && (action == "escalate" || action == "react") => {
+            Some(CoreNotificationEvent {
+                id: format!("notification-triaged:{}:{}:{}", id, action, latency_ms),
+                category: CoreNotificationCategory::Agents,
+                title: format!("High-priority {} notification", provider),
+                body: if action == "escalate" {
+                    format!(
+                        "Action: escalate (score: {:.0}%). Routed to orchestrator.",
+                        importance_score * 100.0
+                    )
+                } else {
+                    format!(
+                        "Action: react (score: {:.0}%). Routed for follow-up.",
+                        importance_score * 100.0
+                    )
+                },
+                deep_link: Some("/notifications".into()),
+                timestamp_ms: ts,
+            })
+        }
         _ => None,
     }
 }
@@ -311,6 +314,7 @@ mod tests {
             action: "escalate".into(),
             importance_score: 0.9,
             latency_ms: 100,
+            routed: true,
         };
         let n = event_to_notification(&ev).expect("should produce notification");
         assert_eq!(n.category, CoreNotificationCategory::Agents);
@@ -326,6 +330,7 @@ mod tests {
             action: "react".into(),
             importance_score: 0.7,
             latency_ms: 120,
+            routed: true,
         };
         let n = event_to_notification(&ev).expect("should produce notification");
         assert_eq!(n.category, CoreNotificationCategory::Agents);
@@ -340,6 +345,20 @@ mod tests {
             action: "drop".into(),
             importance_score: 0.1,
             latency_ms: 50,
+            routed: false,
+        };
+        assert!(event_to_notification(&ev).is_none());
+    }
+
+    #[test]
+    fn notification_triaged_unrouted_escalate_is_silent() {
+        let ev = DomainEvent::NotificationTriaged {
+            id: "n1".into(),
+            provider: "slack".into(),
+            action: "escalate".into(),
+            importance_score: 0.9,
+            latency_ms: 100,
+            routed: false,
         };
         assert!(event_to_notification(&ev).is_none());
     }

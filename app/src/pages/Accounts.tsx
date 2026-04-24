@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import AddAccountModal from '../components/accounts/AddAccountModal';
 import { AgentIcon, ProviderIcon } from '../components/accounts/providerIcons';
+import RespondQueuePanel from '../components/accounts/RespondQueuePanel';
 import WebviewHost from '../components/accounts/WebviewHost';
 import {
   hideWebviewAccount,
@@ -11,6 +12,7 @@ import {
 } from '../services/webviewAccountService';
 import { addAccount, removeAccount, setActiveAccount } from '../store/accountsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { fetchRespondQueue } from '../store/providerSurfaceSlice';
 import type { Account, AccountProvider, ProviderDescriptor } from '../types/accounts';
 import { AGENT_ACCOUNT_ID as AGENT_ID } from '../utils/accountsFullscreen';
 import { AgentChatPanel } from './Conversations';
@@ -75,6 +77,10 @@ const Accounts = () => {
   const order = useAppSelector(state => state.accounts.order);
   const activeAccountId = useAppSelector(state => state.accounts.activeAccountId);
   const unreadByAccount = useAppSelector(state => state.accounts.unread);
+  const respondQueue = useAppSelector(state => state.providerSurfaces.queue);
+  const respondQueueCount = useAppSelector(state => state.providerSurfaces.count);
+  const respondQueueStatus = useAppSelector(state => state.providerSurfaces.status);
+  const respondQueueError = useAppSelector(state => state.providerSurfaces.error);
 
   const [addOpen, setAddOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
@@ -82,6 +88,14 @@ const Accounts = () => {
   useEffect(() => {
     startWebviewAccountService();
   }, []);
+
+  useEffect(() => {
+    void dispatch(fetchRespondQueue());
+    const id = window.setInterval(() => {
+      void dispatch(fetchRespondQueue({ silent: true }));
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [dispatch]);
 
   const accounts: Account[] = useMemo(
     () => order.map(id => accountsById[id]).filter((a): a is Account => Boolean(a)),
@@ -203,7 +217,20 @@ const Accounts = () => {
       {/* Main pane */}
       <main className="flex min-w-0 flex-1 flex-col">
         {isAgentSelected ? (
-          <AgentChatPanel />
+          <div className="flex h-full min-w-0">
+            <div className="min-w-0 flex-1">
+              <AgentChatPanel />
+            </div>
+            <RespondQueuePanel
+              items={respondQueue}
+              count={respondQueueCount}
+              status={respondQueueStatus}
+              error={respondQueueError}
+              onRefresh={() => {
+                void dispatch(fetchRespondQueue());
+              }}
+            />
+          </div>
         ) : active ? (
           <div className="flex-1">
             <WebviewHost accountId={active.id} provider={active.provider} />

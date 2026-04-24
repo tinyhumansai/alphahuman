@@ -17,6 +17,12 @@ const errLog = debug('webview-notifications:error');
 let started = false;
 let unlisten: UnlistenFn | null = null;
 
+function redactAccountId(accountId: string): string {
+  if (!accountId) return 'redacted';
+  if (accountId.length <= 4) return '***';
+  return `***${accountId.slice(-4)}`;
+}
+
 /**
  * Subscribe to `webview-notification:fired` events from the Tauri shell and
  * mirror each fire into Redux so the sidebar can bump an unread badge on
@@ -61,10 +67,11 @@ export function handleNotificationClick(accountId: string): void {
 }
 
 function handleFired(payload: WebviewNotificationFired): void {
-  const { account_id: accountId, provider, title, body, tag } = payload;
+  const { account_id: accountId, provider, title, body } = payload;
+  const redactedAccountId = redactAccountId(accountId);
   log(
     'fired account=%s provider=%s title_chars=%d body_chars=%d',
-    accountId,
+    redactedAccountId,
     provider,
     title.length,
     body.length
@@ -73,16 +80,16 @@ function handleFired(payload: WebviewNotificationFired): void {
 
   // Mirror into the core triage pipeline — fire-and-forget.
   log(
-    '[notification_intel] forwarding to core ingest provider=%s account_present=%s',
+    '[notification_intel] forwarding to core ingest provider=%s account=%s',
     provider,
-    accountId ? 'yes' : 'no'
+    redactedAccountId
   );
   void ingestNotification({
     provider,
     account_id: accountId,
     title,
     body,
-    raw_payload: { tag, provider, account_id: accountId },
+    raw_payload: payload as unknown as Record<string, unknown>,
   })
     .then(result => {
       if (!result.skipped) {
@@ -94,9 +101,13 @@ function handleFired(payload: WebviewNotificationFired): void {
             account_id: accountId,
             title,
             body,
-            raw_payload: { tag, provider, account_id: accountId },
+            raw_payload: payload as unknown as Record<string, unknown>,
             status: 'unread',
             received_at: new Date().toISOString(),
+            importance_score: undefined,
+            triage_action: undefined,
+            triage_reason: undefined,
+            scored_at: undefined,
           })
         );
       } else {

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
+import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
@@ -28,6 +29,7 @@ import {
   setActiveThread,
   setSelectedThread,
 } from '../store/threadSlice';
+import type { ConfirmationModal as ConfirmationModalType } from '../types/intelligence';
 import type { ThreadMessage } from '../types/thread';
 import { splitAgentMessageIntoBubbles } from '../utils/agentMessageBubbles';
 import {
@@ -41,6 +43,7 @@ import {
 } from '../utils/tauriCommands';
 import { formatTimelineEntry } from '../utils/toolTimelineFormatting';
 import { AgentMessageBubble, BubbleMarkdown } from './conversations/components/AgentMessageBubble';
+import { CitationChips, type MessageCitation } from './conversations/components/CitationChips';
 import { LimitPill } from './conversations/components/LimitPill';
 import { ToolTimelineBlock } from './conversations/components/ToolTimelineBlock';
 import {
@@ -127,6 +130,13 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     currentTier,
   } = useUsageState();
   const [showLimitModal, setShowLimitModal] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<ConfirmationModalType>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
 
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -398,7 +408,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
 
     const sendingThreadId = selectedThreadId;
     const userMessage: ThreadMessage = {
-      id: `msg_${Date.now()}_${Math.random()}`,
+      id: `msg_${globalThis.crypto.randomUUID()}`,
       content: trimmed,
       type: 'text',
       extraMetadata: {},
@@ -773,7 +783,18 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                     <button
                       onClick={e => {
                         e.stopPropagation();
-                        void dispatch(deleteThread(thread.id));
+                        setDeleteModal({
+                          isOpen: true,
+                          title: 'Delete thread',
+                          message: `Are you sure you want to delete "${thread.title || 'Untitled thread'}"? This cannot be undone.`,
+                          confirmText: 'Delete',
+                          cancelText: 'Cancel',
+                          destructive: true,
+                          onConfirm: () => {
+                            void dispatch(deleteThread(thread.id));
+                          },
+                          onCancel: () => {},
+                        });
                       }}
                       className="ml-2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-stone-200 text-stone-400 hover:text-coral-500 transition-all flex-shrink-0"
                       title="Delete thread">
@@ -912,6 +933,21 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                               );
                             }
                           )}
+                          {(() => {
+                            const raw = msg.extraMetadata?.citations;
+                            if (!Array.isArray(raw)) return null;
+                            const citations = raw.filter(
+                              (item): item is MessageCitation =>
+                                typeof item === 'object' &&
+                                item !== null &&
+                                typeof (item as MessageCitation).id === 'string' &&
+                                typeof (item as MessageCitation).key === 'string' &&
+                                typeof (item as MessageCitation).snippet === 'string' &&
+                                typeof (item as MessageCitation).timestamp === 'string'
+                            );
+                            if (citations.length === 0) return null;
+                            return <CitationChips citations={citations} />;
+                          })()}
                           {latestVisibleMessage?.id === msg.id && (
                             <p className="px-1 text-[10px] text-stone-400">
                               {formatRelativeTime(msg.createdAt)}
@@ -1398,6 +1434,10 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         isBudgetExhausted={isBudgetExhausted}
         resetTime={isBudgetExhausted ? teamUsage?.cycleEndsAt : teamUsage?.fiveHourResetsAt}
         currentTier={currentTier}
+      />
+      <ConfirmationModal
+        modal={deleteModal}
+        onClose={() => setDeleteModal(prev => ({ ...prev, isOpen: false }))}
       />
     </div>
   );
