@@ -2,6 +2,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 import { threadApi } from '../services/api/threadApi';
 import type { Thread, ThreadMessage } from '../types/thread';
+import { IS_DEV } from '../utils/config';
 import { isTauri, openhumanLocalAiSuggestQuestions } from '../utils/tauriCommands';
 
 interface ThreadState {
@@ -123,7 +124,13 @@ export const addMessageLocal = createAsyncThunk(
 export const addInferenceResponse = createAsyncThunk(
   'thread/addInferenceResponse',
   async (
-    payload: { content: string; threadId?: string; messageId?: string; type?: string },
+    payload: {
+      content: string;
+      threadId?: string;
+      messageId?: string;
+      type?: string;
+      extraMetadata?: Record<string, unknown>;
+    },
     { getState, rejectWithValue }
   ) => {
     const state = getState() as { thread: ThreadState };
@@ -134,7 +141,7 @@ export const addInferenceResponse = createAsyncThunk(
       id: payload.messageId ?? `inference-${Date.now()}-${Math.random()}`,
       content: payload.content,
       type: payload.type ?? 'text',
-      extraMetadata: {},
+      extraMetadata: payload.extraMetadata ?? {},
       sender: 'agent',
       createdAt: new Date().toISOString(),
     };
@@ -166,7 +173,7 @@ export const generateThreadTitleIfNeeded = createAsyncThunk(
     try {
       await dispatch(loadThreads()).unwrap();
     } catch (error) {
-      if (import.meta.env.DEV) {
+      if (IS_DEV) {
         console.debug('[threadSlice] generateThreadTitleIfNeeded refresh failed', {
           threadId: payload.threadId,
           error,
