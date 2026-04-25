@@ -330,6 +330,42 @@ async fn restart_core_process(
     state.inner().restart().await
 }
 
+/// Fire the proactive welcome agent on a detached core-side task.
+///
+/// Returns immediately; the agent runs in the background and publishes
+/// its messages over the proactive channel. The renderer calls this
+/// once the chat surface is ready (e.g. after onboarding completes and
+/// `/home` mounts) instead of relying on the core to auto-spawn the
+/// welcome on a config-flag transition.
+#[tauri::command]
+async fn spawn_welcome_agent() -> Result<(), String> {
+    let url = core_rpc_url();
+    log::info!("[welcome] spawn_welcome_agent: invoking openhuman.agent_spawn_welcome via {url}");
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "openhuman.agent_spawn_welcome",
+        "params": {},
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("build reqwest client: {e}"))?;
+    let resp = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("POST {url} failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let txt = resp.text().await.unwrap_or_default();
+        return Err(format!("core returned {status}: {txt}"));
+    }
+    Ok(())
+}
+
 /// Information about an available shell-app update returned to the frontend.
 #[derive(Debug, Clone, serde::Serialize)]
 struct AppUpdateInfo {
@@ -1230,6 +1266,7 @@ pub fn run() {
             check_app_update,
             apply_app_update,
             restart_core_process,
+            spawn_welcome_agent,
             service_install_direct,
             service_start_direct,
             service_stop_direct,

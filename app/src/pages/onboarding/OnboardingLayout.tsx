@@ -1,3 +1,4 @@
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useCallback, useMemo, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 
@@ -48,6 +49,18 @@ const OnboardingLayout = () => {
     } catch (e) {
       console.error('[onboarding] Failed to persist onboarding_completed', e);
       throw e;
+    }
+
+    // Trigger the proactive welcome agent now that onboarding is done.
+    // The core no longer auto-fires it on the config-flag transition —
+    // the renderer owns the timing so we can fire after `/home` is the
+    // active surface and the chat UI is ready to receive the messages.
+    if (isTauri()) {
+      try {
+        await invoke('spawn_welcome_agent');
+      } catch (e) {
+        console.warn('[onboarding] failed to spawn welcome agent', e);
+      }
     }
 
     navigate('/home', { replace: true });

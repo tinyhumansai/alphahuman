@@ -6,6 +6,7 @@ description = "Core RPC URL, sidecar restart, dictation hotkey, webview-account,
 allow = [
     "core_rpc_url",
     "restart_core_process",
+    "spawn_welcome_agent",
     "service_install_direct",
     "service_start_direct",
     "service_stop_direct",

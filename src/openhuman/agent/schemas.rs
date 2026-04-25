@@ -23,6 +23,7 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("get_definition"),
         schemas("reload_definitions"),
         schemas("triage_evaluate"),
+        schemas("spawn_welcome"),
     ]
 }
 
@@ -55,6 +56,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("triage_evaluate"),
             handler: handle_triage_evaluate,
+        },
+        RegisteredController {
+            schema: schemas("spawn_welcome"),
+            handler: handle_spawn_welcome,
         },
     ]
 }
@@ -141,6 +146,22 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 },
             ],
             outputs: vec![json_output("result", "Triage evaluation result.")],
+        },
+        "spawn_welcome" => ControllerSchema {
+            namespace: "agent",
+            function: "spawn_welcome",
+            description: "Fire-and-forget: spawn the proactive welcome agent on a detached \
+                          tokio task. Returns immediately; the welcome runs in the background \
+                          and publishes its messages over the proactive channel. Triggered \
+                          explicitly by the Tauri shell once the renderer is ready to show \
+                          the welcome conversation.",
+            inputs: vec![],
+            outputs: vec![FieldSchema {
+                name: "spawned",
+                ty: TypeSchema::Bool,
+                comment: "Always true once the task has been scheduled.",
+                required: true,
+            }],
         },
         _ => ControllerSchema {
             namespace: "agent",
@@ -245,6 +266,21 @@ struct TriageEvaluateParams {
     display_label: String,
     payload: Value,
     dry_run: Option<bool>,
+}
+
+fn handle_spawn_welcome(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let config = config_rpc::load_config_with_timeout().await?;
+        tracing::info!(
+            "[rpc][agent] spawn_welcome — firing proactive welcome on detached task"
+        );
+        crate::openhuman::agent::welcome_proactive::spawn_proactive_welcome(config);
+        RpcOutcome::new(
+            serde_json::json!({ "spawned": true }),
+            vec!["proactive welcome agent dispatched".into()],
+        )
+        .into_cli_compatible_json()
+    })
 }
 
 fn handle_triage_evaluate(params: Map<String, Value>) -> ControllerFuture {
@@ -403,6 +439,7 @@ mod tests {
                 "get_definition",
                 "reload_definitions",
                 "triage_evaluate",
+                "spawn_welcome",
             ]
         );
         assert_eq!(schemas.len(), all_registered_controllers().len());

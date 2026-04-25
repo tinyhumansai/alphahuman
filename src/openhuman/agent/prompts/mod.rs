@@ -158,9 +158,19 @@ impl SystemPromptBuilder {
             output.push_str(part.trim_end());
             output.push_str("\n\n");
         }
+        output.push_str(GLOBAL_STYLE_SUFFIX);
+        output.push('\n');
         Ok(output)
     }
 }
+
+/// Global style rules appended to every assembled system prompt, regardless
+/// of which sections the agent opts in/out of. Kept tiny and byte-stable so
+/// it doesn't bust the inference backend's prefix cache.
+pub const GLOBAL_STYLE_SUFFIX: &str = "## Output style\n\n\
+    - Do **not** use em-dashes (`—`). Replace them with commas, colons, \
+    parentheses, or two short sentences. This applies to every output \
+    you produce: chat replies, summaries, tool args, and file contents.\n";
 
 /// Sub-agent role prompt — pre-loaded text from an
 /// [`crate::openhuman::agent::harness::definition::AgentDefinition`]'s

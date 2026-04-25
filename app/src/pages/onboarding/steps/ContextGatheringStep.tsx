@@ -1,11 +1,17 @@
 /**
  * Onboarding step that gathers user context from connected integrations.
  *
- * Calls the Rust-side `learning.linkedin_enrichment` controller which
- * runs the full pipeline: Composio Gmail search -> LinkedIn extraction
- * -> Apify scrape -> LLM summarisation -> PROFILE.md. The frontend shows
- * a progress animation while the pipeline runs and displays the log when
- * it finishes.
+ * Orchestrates the LinkedIn-enrichment pipeline directly in TypeScript:
+ *
+ *   1. Composio Gmail search (`tools_composio_execute` -> `GMAIL_FETCH_EMAILS`)
+ *      to find a LinkedIn profile URL in the user's recent mail.
+ *   2. Parallel web search (`tools_web_search`) for the profile slug to
+ *      collect public summary excerpts (no Apify involvement).
+ *   3. Persist the assembled markdown via `learning_save_profile` with
+ *      `summarize=true` so the core LLM compresses it into PROFILE.md.
+ *
+ * External calls still go through core (auth, proxy, billing). Only the
+ * stage-by-stage orchestration lives in the renderer.
  */
 import { useRef, useState } from 'react';
 
@@ -33,43 +39,108 @@ function unwrapCliEnvelope<T>(value: unknown): T {
   return value as T;
 }
 
-interface EnrichmentResult {
-  profile_url: string | null;
-  profile_data: unknown | null;
-  log: string[];
-}
-
 interface Stage {
-  id: string;
+  id: 'gmail-search' | 'web-search' | 'build-profile';
   label: string;
-  doneSignal: string;
-  errorSignal?: string;
-  skipSignal?: string;
 }
 
 const STAGES: Stage[] = [
-  {
-    id: 'gmail-search',
-    label: 'Indexing your GMail',
-    doneSignal: 'Found LinkedIn profile',
-    errorSignal: 'Gmail search failed',
-    skipSignal: 'No LinkedIn profile URL',
-  },
-  {
-    id: 'apify-scrape',
-    label: 'Finding your LinkedIn',
-    doneSignal: 'profile scraped successfully',
-    errorSignal: 'scrape failed',
-  },
-  {
-    id: 'build-profile',
-    label: 'Building your profile',
-    doneSignal: 'PROFILE.md written',
-    errorSignal: 'Failed to write PROFILE',
-  },
+  { id: 'gmail-search', label: 'Reading your Gmail' },
+  { id: 'web-search', label: 'Researching you online' },
+  { id: 'build-profile', label: 'Building your profile' },
 ];
 
 type StageStatus = 'pending' | 'active' | 'done' | 'skipped' | 'error';
+
+// LinkedIn `comm/in/<slug>` (notification-email form) and `in/<slug>`
+// (canonical) — same regex as `src/openhuman/learning/linkedin_enrichment.rs`.
+const LINKEDIN_RE = /https?:\/\/(?:www\.|[a-z]{2,3}\.)?linkedin\.com\/(?:comm\/)?in\/([a-zA-Z0-9_-]+)/;
+
+function canonicalLinkedInUrl(slug: string): string {
+  return `https://www.linkedin.com/in/${slug}`;
+}
+
+/** URL-safe base64 → utf-8 string (Gmail body parts arrive in this form). */
+function decodeBase64Url(s: string): string {
+  try {
+    const padded = s.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+    const bin = atob(padded + pad);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Walk a Gmail-API-shaped message payload, decoding any base64 body parts,
+ * and concatenate everything into a single searchable string.
+ */
+function extractSearchableText(message: unknown): string {
+  const parts: string[] = [];
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.messageText === 'string') parts.push(obj.messageText);
+    if (typeof obj.snippet === 'string') parts.push(obj.snippet);
+    const body = obj.body as Record<string, unknown> | undefined;
+    if (body && typeof body.data === 'string') parts.push(decodeBase64Url(body.data));
+    const subParts = obj.parts;
+    if (Array.isArray(subParts)) for (const p of subParts) visit(p);
+    const payload = obj.payload;
+    if (payload) visit(payload);
+  };
+  visit(message);
+  return parts.join('\n');
+}
+
+interface ComposioExecuteResult {
+  successful: boolean;
+  data: unknown;
+  error?: string | null;
+}
+
+async function findLinkedInUrlViaComposio(): Promise<string | null> {
+  console.debug('[onboarding:context] composio GMAIL_FETCH_EMAILS');
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.tools_composio_execute',
+    params: {
+      action: 'GMAIL_FETCH_EMAILS',
+      params: { query: 'from:linkedin.com', max_results: 10 },
+    },
+  });
+  const result = unwrapCliEnvelope<ComposioExecuteResult>(raw);
+  if (!result.successful) {
+    throw new Error(result.error ?? 'GMAIL_FETCH_EMAILS failed');
+  }
+  const data = result.data as { messages?: unknown[] } | null;
+  const messages = Array.isArray(data?.messages) ? data!.messages : [];
+  for (const msg of messages) {
+    const text = extractSearchableText(msg);
+    const m = text.match(LINKEDIN_RE);
+    if (m) return canonicalLinkedInUrl(m[1]);
+  }
+  return null;
+}
+
+async function apifyScrapeLinkedIn(profileUrl: string): Promise<string> {
+  console.debug('[onboarding:context] apify_linkedin_scrape', { profileUrl });
+  const raw = await callCoreRpc<unknown>({
+    method: 'openhuman.tools_apify_linkedin_scrape',
+    params: { profile_url: profileUrl },
+  });
+  const result = unwrapCliEnvelope<{ data: unknown; markdown: string }>(raw);
+  return result.markdown ?? '';
+}
+
+async function saveProfile(markdown: string): Promise<void> {
+  await callCoreRpc<unknown>({
+    method: 'openhuman.learning_save_profile',
+    params: { markdown, summarize: true },
+  });
+}
 
 const ContextGatheringStep = ({
   connectedSources,
@@ -88,6 +159,11 @@ const ContextGatheringStep = ({
   const ranRef = useRef(false);
 
   const hasGmail = connectedSources.some(s => s.includes('gmail'));
+
+  const setStage = (id: Stage['id'], status: StageStatus, detail?: string) => {
+    setStageStatuses(prev => ({ ...prev, [id]: status }));
+    if (detail !== undefined) setStageDetails(prev => ({ ...prev, [id]: detail }));
+  };
 
   const handleStart = () => {
     if (ranRef.current) return;
@@ -108,72 +184,60 @@ const ContextGatheringStep = ({
 
   async function runPipeline() {
     console.debug('[onboarding:context] runPipeline started');
-    setStageStatuses(prev => ({ ...prev, 'gmail-search': 'active' }));
 
+    // Stage 1 — Gmail
+    setStage('gmail-search', 'active');
+    let profileUrl: string | null;
     try {
-      const raw = await callCoreRpc<unknown>({
-        method: 'openhuman.learning_linkedin_enrichment',
-        params: {},
-      });
-      const result = unwrapCliEnvelope<EnrichmentResult>(raw);
-      console.debug('[onboarding:context] enrichment result', {
-        profileUrl: result.profile_url,
-        logLines: result.log.length,
-        hasProfileData: result.profile_data !== null,
-      });
-      applyLogToStages(result.log, result.profile_url);
+      profileUrl = await findLinkedInUrlViaComposio();
+      if (profileUrl) {
+        setStage('gmail-search', 'done', profileUrl);
+      } else {
+        setStage('gmail-search', 'skipped', 'No LinkedIn URL found in mailbox');
+        setStage('web-search', 'skipped');
+        setStage('build-profile', 'skipped');
+        setFinished(true);
+        return;
+      }
     } catch (e) {
-      console.debug('[onboarding:context] enrichment error', e);
-      const errMsg = e instanceof Error ? e.message : 'Pipeline failed';
-      setStageStatuses(prev => {
-        const next = { ...prev };
-        for (const s of STAGES) {
-          if (next[s.id] === 'pending' || next[s.id] === 'active') {
-            next[s.id] = 'error';
-          }
-        }
-        return next;
-      });
-      setStageDetails(prev => ({ ...prev, 'gmail-search': errMsg }));
+      console.warn('[onboarding:context] gmail stage failed', e);
+      setStage('gmail-search', 'error', e instanceof Error ? e.message : String(e));
+      setStage('web-search', 'skipped');
+      setStage('build-profile', 'skipped');
+      setFinished(true);
+      return;
+    }
+
+    // Stage 2 — Apify LinkedIn scrape
+    setStage('web-search', 'active');
+    let scrapedMarkdown = '';
+    try {
+      scrapedMarkdown = await apifyScrapeLinkedIn(profileUrl);
+      setStage(
+        'web-search',
+        scrapedMarkdown.trim() ? 'done' : 'skipped',
+        scrapedMarkdown.trim() ? 'Profile scraped' : 'No scraped data'
+      );
+    } catch (e) {
+      console.warn('[onboarding:context] apify_linkedin_scrape stage failed', e);
+      setStage('web-search', 'error', e instanceof Error ? e.message : String(e));
+      // Continue — save_profile can still write a URL-only file.
+    }
+
+    // Stage 3 — summarize + persist via core LLM compressor
+    setStage('build-profile', 'active');
+    try {
+      const body = scrapedMarkdown.trim()
+        ? scrapedMarkdown
+        : `# User Profile\n\nLinkedIn: ${profileUrl}\n\n_Scrape returned no data._`;
+      await saveProfile(body);
+      setStage('build-profile', 'done', 'PROFILE.md saved');
+    } catch (e) {
+      console.warn('[onboarding:context] save_profile failed', e);
+      setStage('build-profile', 'error', e instanceof Error ? e.message : String(e));
     }
 
     setFinished(true);
-  }
-
-  function applyLogToStages(log: string[], profileUrl: string | null) {
-    const nextStatusPatch: Record<string, StageStatus> = {};
-    const nextDetailPatch: Record<string, string> = {};
-
-    for (const stage of STAGES) {
-      let status: StageStatus = 'skipped';
-      let detail = '';
-      for (const line of log) {
-        if (stage.skipSignal && line.includes(stage.skipSignal)) {
-          status = 'skipped';
-          detail = line;
-          break;
-        }
-        if (stage.errorSignal && line.includes(stage.errorSignal)) {
-          status = 'error';
-          detail = line;
-          break;
-        }
-        if (line.includes(stage.doneSignal)) {
-          status = 'done';
-          detail = line;
-          break;
-        }
-      }
-      nextStatusPatch[stage.id] = status;
-      if (detail) nextDetailPatch[stage.id] = detail;
-    }
-
-    if (profileUrl && !nextDetailPatch['gmail-search']) {
-      nextDetailPatch['gmail-search'] = profileUrl;
-    }
-
-    setStageStatuses(prev => ({ ...prev, ...nextStatusPatch }));
-    setStageDetails(prev => ({ ...prev, ...nextDetailPatch }));
   }
 
   const completedCount = STAGES.filter(s => {
