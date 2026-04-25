@@ -735,6 +735,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const activeSubagentTimelineEntry = selectedThreadToolTimeline.find(
     entry => entry.status === 'running' && entry.name.startsWith('subagent:')
   );
+  const activeToolTimelineEntry = [...selectedThreadToolTimeline]
+    .reverse()
+    .find(entry => entry.status === 'running' && !entry.name.startsWith('subagent:'));
   const selectedInferenceStatus = selectedThreadId
     ? (inferenceStatusByThread[selectedThreadId] ?? null)
     : null;
@@ -1178,7 +1181,16 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                         ? `Thinking (iteration ${selectedInferenceStatus.iteration})...`
                         : 'Thinking...')}
                     {selectedInferenceStatus.phase === 'tool_use' &&
-                      `Running ${selectedInferenceStatus.activeTool ?? 'tool'}...`}
+                      `${
+                        formatTimelineEntry(
+                          activeToolTimelineEntry ?? {
+                            id: 'active-tool',
+                            name: selectedInferenceStatus.activeTool ?? 'tool',
+                            round: selectedInferenceStatus.iteration,
+                            status: 'running',
+                          }
+                        ).title
+                      }...`}
                     {selectedInferenceStatus.phase === 'subagent' &&
                       `${
                         formatTimelineEntry(
