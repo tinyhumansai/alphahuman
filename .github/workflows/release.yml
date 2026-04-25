@@ -379,7 +379,6 @@ jobs:
         shell: bash
         env:
           MATRIX_PLATFORM: ${{ matrix.settings.platform }}
-          UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY || vars.UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -388,10 +387,9 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$UPDATER_PUBLIC_KEY" ]; then
-            echo "Missing UPDATER_PUBLIC_KEY (set as secret or repo/environment variable)."
-            exit 1
-          fi
+          # The minisign pubkey is now baked into the static
+          # `app/src-tauri/tauri.conf.json`, not injected from secrets.
+          # Only the private key still has to come from secrets.
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "Missing TAURI_SIGNING_PRIVATE_KEY (or fallback UPDATER_PRIVATE_KEY)."
             exit 1
@@ -406,12 +404,12 @@ jobs:
           fi
       - name: Define Tauri configuration overrides
         id: config-overrides
+        # `prepareTauriConfig.js` only reads `WITH_UPDATER` (flips
+        # `bundle.createUpdaterArtifacts` on for the release pipeline) and
+        # `KEYPAIR_ALIAS` (Windows DigiCert sign command). Pubkey + endpoint
+        # come from the static `app/src-tauri/tauri.conf.json`.
         uses: actions/github-script@v7
         env:
-          BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
-          UPDATER_PUBLIC_KEY: ${{ secrets.UPDATER_PUBLIC_KEY || vars.UPDATER_PUBLIC_KEY }}
-          UPDATER_ENDPOINT: ${{ vars.UPDATER_ENDPOINT }}
-          UPDATER_REPO: tinyhumansai/openhuman
           WITH_UPDATER: "true"
         with:
           script: |
@@ -524,7 +522,6 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || secrets.UPDATER_PRIVATE_KEY }}
-          WITH_UPDATER: "true"
           VITE_MINIMUM_SUPPORTED_APP_VERSION: ${{ vars.VITE_MINIMUM_SUPPORTED_APP_VERSION }}
           VITE_LATEST_APP_DOWNLOAD_URL: ${{ vars.VITE_LATEST_APP_DOWNLOAD_URL }}
           TAURI_CONFIG_OVERRIDE: ${{ steps.config-overrides.outputs.json }}
