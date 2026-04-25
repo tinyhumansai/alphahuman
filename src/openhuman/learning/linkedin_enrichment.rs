@@ -84,15 +84,38 @@ pub async fn run_linkedin_enrichment(
     config: &Config,
     preset_profile_url: Option<String>,
 ) -> anyhow::Result<LinkedInEnrichmentResult> {
-    let client = build_client(config)
-        .ok_or_else(|| anyhow::anyhow!("no integration client — user not signed in"))?;
-
     let mut result = LinkedInEnrichmentResult {
         profile_url: None,
         profile_data: None,
         stages: Vec::new(),
         log: Vec::new(),
     };
+
+    // Short-circuit: if PROFILE.md is already on disk from a previous
+    // enrichment run, skip the entire pipeline. The welcome agent reads
+    // PROFILE.md straight from the workspace, so re-running stages 1-3
+    // would just churn quota for the same output.
+    let profile_path = config.workspace_dir.join("PROFILE.md");
+    if profile_path.is_file() {
+        tracing::info!(
+            path = %profile_path.display(),
+            "[linkedin_enrichment] PROFILE.md already exists — skipping pipeline"
+        );
+        result
+            .log
+            .push("PROFILE.md already exists — skipping enrichment.".into());
+        for id in ["gmail-search", "apify-scrape", "build-profile"] {
+            result.stages.push(EnrichmentStage {
+                id: id.into(),
+                status: StageStatus::Skipped,
+                detail: Some("PROFILE.md already on disk".into()),
+            });
+        }
+        return Ok(result);
+    }
+
+    let client = build_client(config)
+        .ok_or_else(|| anyhow::anyhow!("no integration client — user not signed in"))?;
 
     // ── Stage 1: search Gmail for LinkedIn emails ───────────────────
     let profile_url = if let Some(url) = preset_profile_url {
