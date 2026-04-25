@@ -43,6 +43,7 @@ use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::agent::Agent;
 use crate::openhuman::config::Config;
 use crate::openhuman::tools::implementations::agent::onboarding_status::build_status_snapshot;
+use std::collections::HashSet;
 
 /// Event-bus `source` label attached to the proactive welcome message.
 /// Kept as a constant so tests and channel-side filters have a stable
@@ -197,6 +198,7 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     let mut agent = Agent::from_config_for_agent(&config, "welcome").map_err(|e| {
         anyhow::anyhow!("build welcome agent: {e} — ensure AgentDefinitionRegistry is initialised")
     })?;
+    agent.set_visible_tool_names(HashSet::from([String::from("check_onboarding_status")]));
     agent.set_event_context(
         format!("proactive:{PROACTIVE_WELCOME_JOB_NAME}"),
         "proactive",

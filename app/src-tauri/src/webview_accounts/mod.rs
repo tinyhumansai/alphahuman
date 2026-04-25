@@ -292,7 +292,10 @@ fn is_google_auth_popup(url: &Url) -> bool {
     }
 
     let path = url.path().to_ascii_lowercase();
-    if path.contains("signin") || path.contains("accountchooser") || path.contains("chooseaccount")
+    if path.contains("signin")
+        || path.contains("servicelogin")
+        || path.contains("accountchooser")
+        || path.contains("chooseaccount")
     {
         return true;
     }
@@ -301,7 +304,10 @@ fn is_google_auth_popup(url: &Url) -> bool {
         let k = key.to_ascii_lowercase();
         let v = value.to_ascii_lowercase();
         matches!(k.as_str(), "flowname" | "service" | "continue")
-            && (v.contains("signin") || v.contains("accountchooser") || v.contains("chooseaccount"))
+            && (v.contains("signin")
+                || v.contains("servicelogin")
+                || v.contains("accountchooser")
+                || v.contains("chooseaccount"))
     })
 }
 
@@ -1347,7 +1353,7 @@ pub async fn webview_account_open<R: Runtime>(
         if let Some(target) = popup_should_navigate_parent(&popup_provider, &url) {
             log::info!(
                 "[webview-accounts] new-window {} → navigate parent (provider={})",
-                url,
+                redact_navigation_url(&url),
                 popup_provider
             );
             let app = popup_app.clone();
@@ -2523,6 +2529,21 @@ mod tests {
             &url("https://accounts.google.com/signin/v2/identifier"),
         )
         .is_some());
+    }
+
+    #[test]
+    fn gmail_service_login_popup_navigates_parent() {
+        assert_eq!(
+            popup_should_navigate_parent(
+                "gmail",
+                &url("https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"),
+            )
+            .map(|u| u.to_string()),
+            Some(
+                "https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"
+                    .to_string()
+            )
+        );
     }
 
     #[test]

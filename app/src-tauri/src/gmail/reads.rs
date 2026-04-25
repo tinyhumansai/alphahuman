@@ -124,8 +124,8 @@ pub async fn search(
     limit: u32,
 ) -> Result<Vec<GmailMessage>, String> {
     log::info!(
-        "[gmail][{account_id}] search query={:?} limit={}",
-        query,
+        "[gmail][{account_id}] search query_len={} limit={}",
+        query.len(),
         limit
     );
     let limit = if limit == 0 { 10 } else { limit.min(50) };
@@ -195,8 +195,8 @@ async fn run_search(
     }
 
     log::info!(
-        "[gmail][{account_id}] search ok query={:?} rows={}",
-        query,
+        "[gmail][{account_id}] search ok query_len={} rows={}",
+        query.len(),
         messages.len()
     );
     Ok(messages)
@@ -433,11 +433,23 @@ pub async fn find_linkedin_profile_url(account_id: &str) -> Result<Option<String
         };
         let rows = collect_row_click_targets(&snap, ROWS_PER_QUERY);
         log::info!(
-            "[gmail][{account_id}] find: query {:?} -> {} clickable rows",
-            q,
+            "[gmail][{account_id}] find: query_len={} -> {} clickable rows",
+            q.len(),
             rows.len()
         );
         if rows.is_empty() {
+            if snapshot_has_gmail_auth_interstitial(&snap) {
+                log::warn!(
+                    "[gmail][{account_id}] find: Gmail auth/interstitial detected while searching"
+                );
+                continue;
+            }
+            if !snapshot_has_gmail_no_results_marker(&snap) {
+                log::warn!(
+                    "[gmail][{account_id}] find: empty result rows without a Gmail no-results marker"
+                );
+                continue;
+            }
             continue;
         }
         for (i, rect) in rows.iter().enumerate() {
@@ -550,20 +562,38 @@ fn scrape_linkedin_url_from_dom(snap: &crate::cdp::Snapshot) -> Option<String> {
             return Some(u);
         }
         // Google click-tracker `https://www.google.com/url?q=<dest>&...`.
-        if let Some(q_start) = href.find("?q=") {
-            let after = &href[q_start + 3..];
-            let dest_end = after.find('&').unwrap_or(after.len());
-            let dest_raw = &after[..dest_end];
-            // Lightweight URL-decode: only `%2F`, `%3A`, etc. show up
-            // in the q= param; we just need the LinkedIn substring to
-            // resolve.
-            let dest = dest_raw.replace("%2F", "/").replace("%3A", ":");
+        if let Some(dest) = extract_google_redirect_target(href) {
             if let Some(u) = extract_linkedin_url(&dest) {
                 return Some(u);
             }
         }
     }
     None
+}
+
+fn extract_google_redirect_target(href: &str) -> Option<String> {
+    let url = reqwest::Url::parse(href).ok()?;
+    let host = url.host_str()?;
+    if host != "www.google.com" && host != "google.com" {
+        return None;
+    }
+    url.query_pairs()
+        .find(|(key, _)| key == "q")
+        .map(|(_, value)| value.into_owned())
+}
+
+fn snapshot_has_gmail_auth_interstitial(snap: &crate::cdp::Snapshot) -> bool {
+    let text = snap.text_content(0).to_ascii_lowercase();
+    text.contains("choose an account")
+        || text.contains("sign in")
+        || text.contains("to continue to gmail")
+}
+
+fn snapshot_has_gmail_no_results_marker(snap: &crate::cdp::Snapshot) -> bool {
+    let text = snap.text_content(0).to_ascii_lowercase();
+    text.contains("no messages matched your search")
+        || text.contains("no conversations matched your search")
+        || text.contains("no results found")
 }
 
 /// Pull a LinkedIn profile URL out of an email body. Tries the
@@ -814,6 +844,27 @@ mod tests {
     #[test]
     fn extract_linkedin_url_returns_none_without_match() {
         assert_eq!(extract_linkedin_url("nothing relevant here"), None);
+    }
+
+    #[test]
+    fn extract_google_redirect_target_returns_decoded_q_param() {
+        let href = "https://www.google.com/url?q=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fjane-doe&sa=D";
+        assert_eq!(
+            extract_google_redirect_target(href),
+            Some("https://www.linkedin.com/in/jane-doe".into())
+        );
+    }
+
+    #[test]
+    fn extract_google_redirect_target_ignores_non_google_or_missing_q() {
+        assert_eq!(
+            extract_google_redirect_target("https://example.com/url?q=https://www.linkedin.com/in/nope"),
+            None
+        );
+        assert_eq!(
+            extract_google_redirect_target("https://www.google.com/url?sa=D"),
+            None
+        );
     }
 
     #[test]

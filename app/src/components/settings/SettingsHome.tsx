@@ -69,6 +69,7 @@ const SettingsHome = () => {
       await clearAllAppData(); // This will redirect to login
     } catch (_error) {
       setError('Failed to clear data and logout. Please try again.');
+    } finally {
       setIsLoading(false);
     }
   };

@@ -163,14 +163,13 @@ pub async fn cdp_add_label(
 }
 
 /// Find the user's own LinkedIn profile URL by searching Gmail for any
-/// `from:linkedin.com` mail and regex-matching the body for
-/// `comm/in/<username>` (LinkedIn notification footer) or `/in/<username>`.
+/// `from:linkedin.com` mail, clicking live result rows, and scraping the
+/// rendered thread DOM for `comm/in/<username>` (LinkedIn notification
+/// footer) or `/in/<username>`.
 ///
-/// Search is driven through the live Gmail UI via `Input.dispatchKeyEvent`
-/// — no JS injection. Bodies are fetched via the print-view URL pattern
-/// (cookie-authenticated GET through the attached CDP session). Returns
-/// `None` when the search returns no rows or no row contains a parsable
-/// profile URL.
+/// Search and extraction are driven through the live Gmail UI via CDP
+/// input + DOM snapshot calls, with no page-world JS injection. Returns
+/// `None` when the search surfaces no parsable profile URL.
 ///
 /// Used by the onboarding LinkedIn-enrichment pipeline as a stand-in
 /// for the Composio Gmail OAuth path that no longer ships.

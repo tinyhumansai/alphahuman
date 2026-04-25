@@ -271,6 +271,14 @@ struct TriageEvaluateParams {
 fn handle_spawn_welcome(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let config = config_rpc::load_config_with_timeout().await?;
+        if !config.onboarding_completed {
+            tracing::info!("[rpc][agent] spawn_welcome skipped — onboarding_completed still false");
+            return RpcOutcome::new(
+                serde_json::json!({ "spawned": false }),
+                vec!["proactive welcome skipped: desktop onboarding not completed".into()],
+            )
+            .into_cli_compatible_json();
+        }
         if config.chat_onboarding_completed {
             tracing::info!(
                 "[rpc][agent] spawn_welcome skipped — chat_onboarding_completed already true"
@@ -431,6 +439,7 @@ fn to_json<T: serde::Serialize>(outcome: RpcOutcome<T>) -> Result<Value, String>
 mod tests {
     use super::*;
     use crate::core::TypeSchema;
+    use crate::openhuman::config::TEST_ENV_LOCK as ENV_LOCK;
     use serde_json::json;
 
     #[test]
@@ -501,6 +510,84 @@ mod tests {
             TypeSchema::Option(_)
         ));
         assert!(matches!(json_output("result", "x").ty, TypeSchema::Json));
+    }
+
+    #[tokio::test]
+    async fn spawn_welcome_skips_until_desktop_onboarding_completes() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+
+        let mut config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .expect("load config");
+        config.onboarding_completed = false;
+        config.chat_onboarding_completed = false;
+        config.save().await.expect("save config");
+
+        let result = handle_spawn_welcome(Map::new())
+            .await
+            .expect("spawn_welcome response");
+        assert_eq!(
+            result
+                .get("result")
+                .and_then(|value| value.get("spawned"))
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        let logs = result
+            .get("logs")
+            .and_then(Value::as_array)
+            .expect("logs array");
+        assert!(logs.iter().any(|entry| {
+            entry.as_str()
+                == Some("proactive welcome skipped: desktop onboarding not completed")
+        }));
+
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_welcome_skips_when_chat_onboarding_already_completed() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+        }
+
+        let mut config = crate::openhuman::config::Config::load_or_init()
+            .await
+            .expect("load config");
+        config.onboarding_completed = true;
+        config.chat_onboarding_completed = true;
+        config.save().await.expect("save config");
+
+        let result = handle_spawn_welcome(Map::new())
+            .await
+            .expect("spawn_welcome response");
+        assert_eq!(
+            result
+                .get("result")
+                .and_then(|value| value.get("spawned"))
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        let logs = result
+            .get("logs")
+            .and_then(Value::as_array)
+            .expect("logs array");
+        assert!(logs.iter().any(|entry| {
+            entry.as_str()
+                == Some("proactive welcome skipped: chat onboarding already completed")
+        }));
+
+        unsafe {
+            std::env::remove_var("OPENHUMAN_WORKSPACE");
+        }
     }
 
     #[tokio::test]
