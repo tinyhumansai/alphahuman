@@ -171,7 +171,7 @@ pub struct Config {
     ///   `channels::runtime::dispatch::resolve_target_agent`). The
     ///   welcome agent inspects the user's setup, delivers a
     ///   personalized greeting, and (when the essentials are in
-    ///   place) calls `complete_onboarding(action="complete")` which
+    ///   place) calls `complete_onboarding` which
     ///   flips this flag to `true`.
     /// * **`true`** — the welcome agent has already run; future chat
     ///   turns route to the orchestrator.

@@ -716,6 +716,26 @@ pub fn run() {
                 core_run_mode,
             );
             std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
+
+            // Expose the shared CEF cookies SQLite path to the core sidecar
+            // so `check_onboarding_status` can detect which webview
+            // providers (gmail, whatsapp, slack, …) already have a live
+            // session cookie. Best-effort — if we can't resolve the path
+            // the core treats every provider as logged_out.
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                let cookies_db = cache_dir.join("cef").join("Default").join("Cookies");
+                log::debug!("[webview_accounts] exposing cookies DB path to core");
+                std::env::set_var("OPENHUMAN_CEF_COOKIES_DB", &cookies_db);
+            } else {
+                // Clear any inherited value so the core can't pick up a
+                // stale path from a previous run or the parent shell.
+                std::env::remove_var("OPENHUMAN_CEF_COOKIES_DB");
+                log::warn!(
+                    "[webview_accounts] could not resolve app_cache_dir — core \
+                     will report all webview providers as logged_out"
+                );
+            }
+
             app.manage(core_handle.clone());
             let app_handle_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
