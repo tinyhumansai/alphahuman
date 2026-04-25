@@ -214,8 +214,7 @@ fn handle_save_profile(params: Map<String, Value>) -> ControllerFuture {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("create workspace dir failed: {e}"))?;
         }
-        std::fs::write(&path, &body)
-            .map_err(|e| format!("write PROFILE.md failed: {e}"))?;
+        std::fs::write(&path, &body).map_err(|e| format!("write PROFILE.md failed: {e}"))?;
 
         let bytes = body.len();
         let path_display = path.display().to_string();

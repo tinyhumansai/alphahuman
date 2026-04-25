@@ -54,7 +54,8 @@ type StageStatus = 'pending' | 'active' | 'done' | 'skipped' | 'error';
 
 // LinkedIn `comm/in/<slug>` (notification-email form) and `in/<slug>`
 // (canonical) — same regex as `src/openhuman/learning/linkedin_enrichment.rs`.
-const LINKEDIN_RE = /https?:\/\/(?:www\.|[a-z]{2,3}\.)?linkedin\.com\/(?:comm\/)?in\/([a-zA-Z0-9_-]+)/;
+const LINKEDIN_RE =
+  /https?:\/\/(?:www\.|[a-z]{2,3}\.)?linkedin\.com\/(?:comm\/)?in\/([a-zA-Z0-9_-]+)/;
 
 function canonicalLinkedInUrl(slug: string): string {
   return `https://www.linkedin.com/in/${slug}`;

@@ -272,19 +272,17 @@ fn handle_apify_linkedin_scrape(params: Map<String, Value>) -> ControllerFuture 
             "Apify scrape unavailable — no backend session token. Sign in first.".to_string()
         })?;
 
-        let data =
-            crate::openhuman::learning::linkedin_enrichment::scrape_linkedin_profile(
-                &client,
-                &profile_url,
-            )
-            .await
-            .map_err(|e| format!("Apify LinkedIn scrape failed: {e:#}"))?;
+        let data = crate::openhuman::learning::linkedin_enrichment::scrape_linkedin_profile(
+            &client,
+            &profile_url,
+        )
+        .await
+        .map_err(|e| format!("Apify LinkedIn scrape failed: {e:#}"))?;
 
-        let markdown =
-            crate::openhuman::learning::linkedin_enrichment::render_profile_markdown(
-                &profile_url,
-                &data,
-            );
+        let markdown = crate::openhuman::learning::linkedin_enrichment::render_profile_markdown(
+            &profile_url,
+            &data,
+        );
 
         let payload = json!({ "data": data, "markdown": markdown });
         let log = vec![format!(
@@ -314,7 +312,10 @@ mod tests {
         let s = tools_schemas("tools_apify_linkedin_scrape");
         assert_eq!(s.namespace, "tools");
         assert_eq!(s.function, "apify_linkedin_scrape");
-        assert!(s.inputs.iter().any(|f| f.name == "profile_url" && f.required));
+        assert!(s
+            .inputs
+            .iter()
+            .any(|f| f.name == "profile_url" && f.required));
     }
 
     #[test]

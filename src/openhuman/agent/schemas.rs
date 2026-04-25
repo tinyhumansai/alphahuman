@@ -271,9 +271,7 @@ struct TriageEvaluateParams {
 fn handle_spawn_welcome(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let config = config_rpc::load_config_with_timeout().await?;
-        tracing::info!(
-            "[rpc][agent] spawn_welcome — firing proactive welcome on detached task"
-        );
+        tracing::info!("[rpc][agent] spawn_welcome — firing proactive welcome on detached task");
         crate::openhuman::agent::welcome_proactive::spawn_proactive_welcome(config);
         RpcOutcome::new(
             serde_json::json!({ "spawned": true }),
