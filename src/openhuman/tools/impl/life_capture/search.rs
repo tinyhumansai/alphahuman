@@ -1,4 +1,4 @@
-use crate::openhuman::life_capture::{runtime as life_capture_runtime, rpc as life_capture_rpc};
+use crate::openhuman::life_capture::{rpc as life_capture_rpc, runtime as life_capture_runtime};
 use crate::openhuman::tools::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -84,7 +84,11 @@ impl Tool for LifeCaptureSearchTool {
         .await
         {
             Ok(o) => o,
-            Err(e) => return Ok(ToolResult::error(format!("life_capture search failed: {e}"))),
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "life_capture search failed: {e}"
+                )))
+            }
         };
 
         let hits = outcome
