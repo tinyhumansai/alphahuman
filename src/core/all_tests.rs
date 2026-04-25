@@ -408,8 +408,7 @@ fn validate_registry_rejects_duplicate_registered_controllers() {
 
 #[tokio::test]
 async fn try_invoke_registered_rpc_returns_none_for_unknown_method() {
-    let out =
-        try_invoke_registered_rpc("openhuman.not_a_real_method_xyz_123", Map::new()).await;
+    let out = try_invoke_registered_rpc("openhuman.not_a_real_method_xyz_123", Map::new()).await;
     assert!(out.is_none(), "unknown methods must return None");
 }
 

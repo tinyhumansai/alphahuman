@@ -330,4 +330,3 @@ fn pick_source_contribution(
 #[cfg(test)]
 #[path = "digest_tests.rs"]
 mod tests;
-

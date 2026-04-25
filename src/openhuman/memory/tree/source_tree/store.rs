@@ -483,4 +483,3 @@ fn row_to_buffer(row: &rusqlite::Row<'_>) -> rusqlite::Result<Buffer> {
 #[cfg(test)]
 #[path = "store_tests.rs"]
 mod tests;
-

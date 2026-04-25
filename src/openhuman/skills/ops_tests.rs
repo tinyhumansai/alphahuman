@@ -803,8 +803,8 @@ fn validate_install_url_rejects_malformed() {
 
 #[test]
 fn normalize_install_url_rewrites_github_blob_to_raw() {
-    let out = normalize_install_url("https://github.com/owner/repo/blob/main/path/to/SKILL.md")
-        .unwrap();
+    let out =
+        normalize_install_url("https://github.com/owner/repo/blob/main/path/to/SKILL.md").unwrap();
     assert_eq!(
         out,
         "https://raw.githubusercontent.com/owner/repo/main/path/to/SKILL.md"
@@ -813,9 +813,8 @@ fn normalize_install_url_rewrites_github_blob_to_raw() {
 
 #[test]
 fn normalize_install_url_rewrites_github_blob_nested_path() {
-    let out =
-        normalize_install_url("https://github.com/owner/repo/blob/feat/x/dir/sub/SKILL.md")
-            .unwrap();
+    let out = normalize_install_url("https://github.com/owner/repo/blob/feat/x/dir/sub/SKILL.md")
+        .unwrap();
     assert_eq!(
         out,
         "https://raw.githubusercontent.com/owner/repo/feat/x/dir/sub/SKILL.md"
@@ -830,8 +829,7 @@ fn normalize_install_url_passes_raw_github_through() {
 
 #[test]
 fn normalize_install_url_rejects_tree_urls() {
-    let err =
-        normalize_install_url("https://github.com/owner/repo/tree/main/path").unwrap_err();
+    let err = normalize_install_url("https://github.com/owner/repo/tree/main/path").unwrap_err();
     assert!(err.contains("unsupported url form"), "{err}");
     assert!(err.contains("tree/dir"), "{err}");
 }

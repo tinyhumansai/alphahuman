@@ -488,4 +488,3 @@ async fn wait_for_connection_active(
 #[cfg(test)]
 #[path = "bus_tests.rs"]
 mod tests;
-

@@ -48,9 +48,7 @@ async fn append_below_budget_does_not_seal() {
 #[tokio::test]
 async fn crossing_budget_triggers_seal() {
     use crate::openhuman::memory::tree::store::upsert_chunks;
-    use crate::openhuman::memory::tree::types::{
-        chunk_id, Chunk, Metadata, SourceKind, SourceRef,
-    };
+    use crate::openhuman::memory::tree::types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef};
     use chrono::TimeZone;
 
     let (_tmp, cfg) = test_config();

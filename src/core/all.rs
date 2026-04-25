@@ -457,4 +457,3 @@ fn validate_registry(
 #[cfg(test)]
 #[path = "all_tests.rs"]
 mod tests;
-

@@ -290,10 +290,9 @@ async fn env_workspace_override_wins_via_seam() {
     let env = MapEnv::default().with("OPENHUMAN_WORKSPACE", ws_path.to_str().unwrap());
 
     let default_workspace = root.join("workspace");
-    let (oh_dir, ws_dir, source) =
-        resolve_runtime_config_dirs_with(root, &default_workspace, &env)
-            .await
-            .unwrap();
+    let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs_with(root, &default_workspace, &env)
+        .await
+        .unwrap();
 
     let (expected_oh, expected_ws) = resolve_config_dir_for_workspace(&ws_path);
     assert_eq!(source, ConfigResolutionSource::EnvWorkspace);
@@ -309,10 +308,9 @@ async fn empty_env_workspace_falls_through_to_active_user() {
     let env = MapEnv::default().with("OPENHUMAN_WORKSPACE", "");
 
     let default_workspace = root.join("workspace");
-    let (oh_dir, ws_dir, source) =
-        resolve_runtime_config_dirs_with(root, &default_workspace, &env)
-            .await
-            .unwrap();
+    let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs_with(root, &default_workspace, &env)
+        .await
+        .unwrap();
 
     let expected = root.join("users").join("u-fallthrough");
     assert_eq!(source, ConfigResolutionSource::ActiveUser);
@@ -327,10 +325,9 @@ async fn missing_env_workspace_uses_pre_login_default() {
     let env = MapEnv::default(); // no OPENHUMAN_WORKSPACE, no active user
 
     let default_workspace = root.join("workspace");
-    let (oh_dir, ws_dir, source) =
-        resolve_runtime_config_dirs_with(root, &default_workspace, &env)
-            .await
-            .unwrap();
+    let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs_with(root, &default_workspace, &env)
+        .await
+        .unwrap();
 
     let expected = root.join("users").join(PRE_LOGIN_USER_ID);
     assert_eq!(source, ConfigResolutionSource::DefaultConfigDir);
@@ -346,8 +343,7 @@ fn resolve_config_dir_for_workspace_returns_parent_and_workspace() {
     let (config_dir, workspace_dir) = resolve_config_dir_for_workspace(&ws);
     // Config dir is the parent of workspace.
     assert!(
-        config_dir.ends_with(".openhuman")
-            || config_dir == PathBuf::from("/home/test/.openhuman")
+        config_dir.ends_with(".openhuman") || config_dir == PathBuf::from("/home/test/.openhuman")
     );
     assert!(workspace_dir.ends_with("workspace"));
 }
@@ -448,9 +444,7 @@ fn env_overlay_reasoning_enabled_recognises_truthy_falsy_and_ignores_garbage() {
 
     for truthy in ["1", "true", "yes", "on", "TRUE", " On "] {
         cfg.runtime.reasoning_enabled = None;
-        cfg.apply_env_overlay_with(
-            &HashMapEnv::new().with("OPENHUMAN_REASONING_ENABLED", truthy),
-        );
+        cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_REASONING_ENABLED", truthy));
         assert_eq!(
             cfg.runtime.reasoning_enabled,
             Some(true),
@@ -460,9 +454,7 @@ fn env_overlay_reasoning_enabled_recognises_truthy_falsy_and_ignores_garbage() {
 
     for falsy in ["0", "false", "no", "off", "OFF"] {
         cfg.runtime.reasoning_enabled = Some(true);
-        cfg.apply_env_overlay_with(
-            &HashMapEnv::new().with("OPENHUMAN_REASONING_ENABLED", falsy),
-        );
+        cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_REASONING_ENABLED", falsy));
         assert_eq!(
             cfg.runtime.reasoning_enabled,
             Some(false),
@@ -505,9 +497,7 @@ fn env_overlay_web_search_limits_validated() {
     assert_eq!(cfg.web_search.max_results, 7);
     assert_eq!(cfg.web_search.timeout_secs, 25);
 
-    cfg.apply_env_overlay_with(
-        &HashMapEnv::new().with("OPENHUMAN_WEB_SEARCH_MAX_RESULTS", "11"),
-    );
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_WEB_SEARCH_MAX_RESULTS", "11"));
     assert_eq!(cfg.web_search.max_results, 7);
 
     // Bare aliases also accepted when the OPENHUMAN-prefixed variant is absent.
@@ -807,10 +797,9 @@ async fn resolve_runtime_config_dirs_with_env_workspace_override() {
     let custom_ws = tmp.path().join("custom_ws");
     let env = HashMapEnv::new().with("OPENHUMAN_WORKSPACE", custom_ws.to_str().unwrap());
 
-    let (oh_dir, ws_dir, source) =
-        resolve_runtime_config_dirs_with(root, &default_workspace, &env)
-            .await
-            .unwrap();
+    let (oh_dir, ws_dir, source) = resolve_runtime_config_dirs_with(root, &default_workspace, &env)
+        .await
+        .unwrap();
 
     assert_eq!(source, ConfigResolutionSource::EnvWorkspace);
     // resolve_config_dir_for_workspace: no config.toml and basename ≠

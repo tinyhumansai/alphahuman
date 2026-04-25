@@ -412,4 +412,3 @@ impl DomainEvent {
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod tests;
-

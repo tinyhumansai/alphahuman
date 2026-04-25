@@ -452,4 +452,3 @@ fn hydrate_summary_inputs(config: &Config, summary_ids: &[String]) -> Result<Vec
 #[cfg(test)]
 #[path = "bucket_seal_tests.rs"]
 mod tests;
-

@@ -125,8 +125,7 @@ fn runtime_context(workspace_dir: PathBuf) -> ChannelRuntimeContext {
         route_overrides: RouteSelectionMap::default(),
         api_url: None,
         reliability: Arc::new(crate::openhuman::config::ReliabilityConfig::default()),
-        provider_runtime_options: crate::openhuman::providers::ProviderRuntimeOptions::default(
-        ),
+        provider_runtime_options: crate::openhuman::providers::ProviderRuntimeOptions::default(),
         workspace_dir: Arc::new(workspace_dir),
         message_timeout_secs: 60,
         multimodal: crate::openhuman::config::MultimodalConfig::default(),

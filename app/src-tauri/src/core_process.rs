@@ -613,4 +613,3 @@ pub fn default_core_bin() -> Option<PathBuf> {
 #[cfg(test)]
 #[path = "core_process_tests.rs"]
 mod tests;
-

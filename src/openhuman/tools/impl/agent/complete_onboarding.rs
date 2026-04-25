@@ -137,4 +137,3 @@ async fn complete() -> anyhow::Result<ToolResult> {
 #[cfg(test)]
 #[path = "complete_onboarding_tests.rs"]
 mod tests;
-

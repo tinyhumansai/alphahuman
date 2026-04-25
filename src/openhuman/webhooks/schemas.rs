@@ -533,4 +533,3 @@ fn json_output(name: &'static str, comment: &'static str) -> FieldSchema {
 #[cfg(test)]
 #[path = "schemas_tests.rs"]
 mod tests;
-
