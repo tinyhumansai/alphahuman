@@ -2,6 +2,9 @@
   "name": "openhuman-app",
   "version": "0.53.1",
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "dev:web": "vite",
