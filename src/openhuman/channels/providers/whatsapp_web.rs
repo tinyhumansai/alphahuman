@@ -48,6 +48,7 @@ use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// WhatsApp Web channel.
@@ -71,6 +72,10 @@ pub struct WhatsAppWebChannel {
     bot_handle: Arc<Mutex<Option<whatsapp_rust::bot::BotHandle>>>,
     /// Live client used for outbound calls; populated after `Bot::build` returns.
     client: Arc<Mutex<Option<Arc<whatsapp_rust::Client>>>>,
+    /// Liveness signal driven by upstream `Event::Connected` / `LoggedOut` /
+    /// `StreamError`. Used by `health_check` so a dropped session no longer
+    /// reports healthy until process shutdown.
+    connected: Arc<AtomicBool>,
     /// Sink for inbound `ChannelMessage`s. Populated when [`Channel::listen`]
     /// is called and shared with the event-handler closure.
     tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<ChannelMessage>>>>,
@@ -93,6 +98,7 @@ impl WhatsAppWebChannel {
             allowed_numbers,
             bot_handle: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
+            connected: Arc::new(AtomicBool::new(false)),
             tx: Arc::new(Mutex::new(None)),
         }
     }
@@ -101,6 +107,40 @@ impl WhatsAppWebChannel {
     fn is_number_allowed(&self, phone: &str) -> bool {
         self.allowed_numbers.is_empty()
             || self.allowed_numbers.iter().any(|n| n == "*" || n == phone)
+    }
+
+    /// Pick the address downstream replies should be sent back to.
+    ///
+    /// Group chats are addressed by the group JID (`...@g.us`); a reply that
+    /// targeted the participant's phone instead would leak the conversation
+    /// into a private DM.
+    fn compute_reply_target(chat_jid: &str, sender_normalized: &str) -> String {
+        if chat_jid.ends_with("@g.us") {
+            chat_jid.to_string()
+        } else {
+            sender_normalized.to_string()
+        }
+    }
+
+    /// Mask the middle digits of an E.164 number so logs only carry a coarse
+    /// fingerprint instead of the full identifier.
+    fn redact_phone(phone: &str) -> String {
+        let prefix = if phone.starts_with('+') { "+" } else { "" };
+        if phone.len() <= prefix.len() + 4 {
+            return format!("{prefix}****");
+        }
+        let tail = &phone[phone.len() - 4..];
+        format!("{prefix}***{tail}")
+    }
+
+    /// Pull the displayable text out of an inbound WhatsApp Message proto.
+    /// Falls back from `conversation` to `extended_text_message.text`, then
+    /// to an empty string for non-text payloads.
+    fn extract_message_text(conversation: Option<&str>, extended_text: Option<&str>) -> String {
+        conversation
+            .or(extended_text)
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     }
 
     /// Render an arbitrary recipient string as E.164 with a leading `+`,
@@ -205,6 +245,7 @@ impl Channel for WhatsAppWebChannel {
 
         let tx_for_handler = tx.clone();
         let allowed_numbers = self.allowed_numbers.clone();
+        let connected_for_handler = Arc::clone(&self.connected);
 
         let mut builder = Bot::builder()
             .with_backend(backend)
@@ -214,6 +255,7 @@ impl Channel for WhatsAppWebChannel {
             .on_event(move |event, _client| {
                 let tx_inner = tx_for_handler.clone();
                 let allowed_numbers = allowed_numbers.clone();
+                let connected = Arc::clone(&connected_for_handler);
                 async move {
                     match event {
                         Event::Message(msg, info) => {
@@ -225,12 +267,12 @@ impl Channel for WhatsAppWebChannel {
                                 return;
                             }
 
-                            let text = msg.conversation.clone().unwrap_or_else(|| {
+                            let text = Self::extract_message_text(
+                                msg.conversation.as_deref(),
                                 msg.extended_text_message
                                     .as_ref()
-                                    .and_then(|e| e.text.clone())
-                                    .unwrap_or_default()
-                            });
+                                    .and_then(|e| e.text.as_deref()),
+                            );
 
                             // Sender JID can use either the legacy `s.whatsapp.net`
                             // server (phone-number addressing) or the newer `lid`
@@ -244,11 +286,23 @@ impl Channel for WhatsAppWebChannel {
                                 format!("+{sender_user}")
                             };
                             let chat = info.source.chat.to_string();
+                            let reply_target = Self::compute_reply_target(&chat, &normalized);
 
+                            // Routine logs only carry coarse metadata — no raw
+                            // sender identifier, no message body — so PII does
+                            // not leak into application logs. Full payload is
+                            // available at trace level for narrow debugging.
                             tracing::info!(
-                                "📨 WhatsApp message from {} in {}: {}",
-                                normalized,
+                                "📨 WhatsApp inbound: chat={} sender={} text_len={}",
                                 chat,
+                                Self::redact_phone(&normalized),
+                                text.len()
+                            );
+                            tracing::trace!(
+                                target: "openhuman::whatsapp::inbound",
+                                "WhatsApp inbound (raw): chat={} sender={} text={}",
+                                chat,
+                                normalized,
                                 text
                             );
 
@@ -260,7 +314,7 @@ impl Channel for WhatsAppWebChannel {
                                         id: uuid::Uuid::new_v4().to_string(),
                                         channel: "whatsapp".to_string(),
                                         sender: normalized.clone(),
-                                        reply_target: normalized.clone(),
+                                        reply_target,
                                         content: text,
                                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
                                         thread_ts: None,
@@ -275,30 +329,48 @@ impl Channel for WhatsAppWebChannel {
                             } else {
                                 tracing::warn!(
                                     "WhatsApp Web: message from {} not in allowed list",
-                                    normalized
+                                    Self::redact_phone(&normalized)
                                 );
                             }
                         }
                         Event::Connected(_) => {
+                            connected.store(true, Ordering::Release);
                             tracing::info!("✅ WhatsApp Web connected successfully!");
                         }
                         Event::LoggedOut(_) => {
+                            connected.store(false, Ordering::Release);
                             tracing::warn!("❌ WhatsApp Web was logged out!");
                         }
                         Event::StreamError(stream_error) => {
+                            connected.store(false, Ordering::Release);
                             tracing::error!("❌ WhatsApp Web stream error: {:?}", stream_error);
                         }
+                        // The pair code and QR payload are short-lived link
+                        // credentials — anyone reading the logs while they
+                        // are valid can hijack the session. Surface only a
+                        // non-sensitive notice; raw values are emitted at
+                        // trace level for narrow opt-in debugging.
                         Event::PairingCode { code, .. } => {
-                            tracing::info!("🔑 Pair code received: {}", code);
                             tracing::info!(
-                                "Link your phone by entering this code in WhatsApp > Linked Devices"
+                                "🔑 WhatsApp Web pair code received. Enter the code shown on \
+                                 your linking surface into WhatsApp > Linked Devices."
+                            );
+                            tracing::trace!(
+                                target: "openhuman::whatsapp::pairing",
+                                "pair code: {}",
+                                code
                             );
                         }
                         Event::PairingQrCode { code, .. } => {
                             tracing::info!(
-                                "📱 QR code received (scan with WhatsApp > Linked Devices)"
+                                "📱 WhatsApp Web QR code received. Render via QR generator and \
+                                 scan with WhatsApp > Linked Devices."
                             );
-                            tracing::debug!("QR code: {}", code);
+                            tracing::trace!(
+                                target: "openhuman::whatsapp::pairing",
+                                "qr code: {}",
+                                code
+                            );
                         }
                         _ => {}
                     }
@@ -327,6 +399,7 @@ impl Channel for WhatsAppWebChannel {
         tokio::signal::ctrl_c().await.ok();
         tracing::info!("WhatsApp Web channel received Ctrl+C — shutting down");
 
+        self.connected.store(false, Ordering::Release);
         *self.client.lock() = None;
         if let Some(handle) = self.bot_handle.lock().take() {
             handle.abort();
@@ -336,7 +409,7 @@ impl Channel for WhatsAppWebChannel {
     }
 
     async fn health_check(&self) -> bool {
-        self.bot_handle.lock().is_some()
+        self.connected.load(Ordering::Acquire)
     }
 
     async fn start_typing(&self, recipient: &str) -> Result<()> {
@@ -515,5 +588,88 @@ mod tests {
     async fn whatsapp_web_health_check_disconnected() {
         let ch = make_channel();
         assert!(!ch.health_check().await);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "whatsapp-web")]
+    async fn whatsapp_web_health_check_tracks_connected_flag() {
+        let ch = make_channel();
+        assert!(!ch.health_check().await);
+        ch.connected.store(true, Ordering::Release);
+        assert!(ch.health_check().await);
+        ch.connected.store(false, Ordering::Release);
+        assert!(!ch.health_check().await);
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_compute_reply_target_dm_pn() {
+        assert_eq!(
+            WhatsAppWebChannel::compute_reply_target("123@s.whatsapp.net", "+1234567890"),
+            "+1234567890"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_compute_reply_target_dm_lid() {
+        assert_eq!(
+            WhatsAppWebChannel::compute_reply_target("abc@lid", "+1234567890"),
+            "+1234567890"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_compute_reply_target_group() {
+        assert_eq!(
+            WhatsAppWebChannel::compute_reply_target("987654@g.us", "+1234567890"),
+            "987654@g.us"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_phone_e164() {
+        assert_eq!(WhatsAppWebChannel::redact_phone("+1234567890"), "+***7890");
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_phone_no_plus() {
+        assert_eq!(WhatsAppWebChannel::redact_phone("1234567890"), "***7890");
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_phone_short_input() {
+        // Pathological short inputs collapse to a generic mask rather than
+        // exposing the entire identifier.
+        assert_eq!(WhatsAppWebChannel::redact_phone("+12"), "+****");
+        assert_eq!(WhatsAppWebChannel::redact_phone("12"), "****");
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_extract_message_text_prefers_conversation() {
+        assert_eq!(
+            WhatsAppWebChannel::extract_message_text(Some("hello"), Some("ignored")),
+            "hello"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_extract_message_text_falls_back_to_extended() {
+        assert_eq!(
+            WhatsAppWebChannel::extract_message_text(None, Some("from extended")),
+            "from extended"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_extract_message_text_empty_when_missing() {
+        assert_eq!(WhatsAppWebChannel::extract_message_text(None, None), "");
     }
 }
