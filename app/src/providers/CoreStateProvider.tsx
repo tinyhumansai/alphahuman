@@ -391,9 +391,11 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
 
       const nextIdentity = snapshotIdentity(getCoreStateSnapshot().snapshot);
       if (nextIdentity && previousIdentity !== nextIdentity) {
+        const mask = (s: string | null) =>
+          s == null ? 'none' : s.length > 4 ? `****${s.slice(-4)}` : '****';
         console.debug('[core-state] user changed; restarting app to switch CEF profile', {
-          previousIdentity,
-          nextIdentity,
+          previousIdentity: mask(previousIdentity),
+          nextIdentity: mask(nextIdentity),
         });
         await restartApp();
       }

@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 pub const CEF_CACHE_PATH_ENV: &str = "OPENHUMAN_CEF_CACHE_PATH";
 const ACTIVE_USER_STATE_FILE: &str = "active_user.toml";
-const PENDING_PURGE_STATE_FILE: &str = "pending_cef_purge.toml";
+/// Sibling of the OpenHuman data dir (not under it) so the marker survives
+/// `reset_local_data` removing the whole `default_openhuman_dir` tree.
+const PENDING_PURGE_STATE_FILE: &str = "openhuman_pending_cef_purge.toml";
+/// Pre–sibling-layout marker (lived under the data root; `reset_local_data` removed it).
+const LEGACY_PENDING_PURGE_IN_TREE: &str = "pending_cef_purge.toml";
 const PRE_LOGIN_USER_ID: &str = "local";
 
 #[derive(Debug, Deserialize)]
@@ -57,16 +61,54 @@ fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
     }
 }
 
-fn user_openhuman_dir(default_openhuman_dir: &Path, user_id: &str) -> PathBuf {
-    default_openhuman_dir.join("users").join(user_id)
+/// Returns a single safe path segment for `users/<id>/…`. Rejects traversal, separators,
+/// and other inputs that would escape the intended profile root.
+fn validate_user_id_for_path(user_id: &str) -> Result<String, String> {
+    let trimmed = user_id.trim();
+    if trimmed.is_empty() {
+        return Err("user_id is empty after trim".to_string());
+    }
+    if matches!(trimmed, "." | "..") {
+        return Err("user_id must not be '.' or '..'".to_string());
+    }
+    if trimmed.contains("..")
+        || trimmed
+            .chars()
+            .any(|c| matches!(c, '/' | '\\' | '\0' | char::REPLACEMENT_CHARACTER) || c.is_control())
+    {
+        return Err("user_id must not contain path components or control characters".to_string());
+    }
+    #[cfg(windows)]
+    if trimmed.contains(':') {
+        return Err("user_id must not contain ':' (Windows path roots)".to_string());
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '@' || c == '.')
+    {
+        return Err("user_id must only use [A-Za-z0-9._@-] (after trim)".to_string());
+    }
+    Ok(trimmed.to_string())
 }
 
-fn cache_dir_for_user(default_openhuman_dir: &Path, user_id: &str) -> PathBuf {
-    user_openhuman_dir(default_openhuman_dir, user_id).join("cef")
+fn user_openhuman_dir(default_openhuman_dir: &Path, user_id: &str) -> Result<PathBuf, String> {
+    let id = validate_user_id_for_path(user_id)?;
+    Ok(default_openhuman_dir.join("users").join(&id))
 }
 
-fn pending_purge_marker_path(default_openhuman_dir: &Path) -> PathBuf {
-    default_openhuman_dir.join(PENDING_PURGE_STATE_FILE)
+fn cache_dir_for_user(default_openhuman_dir: &Path, user_id: &str) -> Result<PathBuf, String> {
+    Ok(user_openhuman_dir(default_openhuman_dir, user_id)?.join("cef"))
+}
+
+/// Marker file lives in the **parent** of the OpenHuman data root so a full
+/// `remove_dir_all(default_openhuman_dir)` (e.g. from core `reset_local_data`) does
+/// not delete the pending-purge list before it is processed.
+fn pending_purge_marker_path(default_openhuman_dir: &Path) -> Result<PathBuf, String> {
+    let parent = default_openhuman_dir.parent().ok_or_else(|| {
+        "default OpenHuman data dir has no parent; cannot place CEF purge marker outside the data tree"
+            .to_string()
+    })?;
+    Ok(parent.join(PENDING_PURGE_STATE_FILE))
 }
 
 pub fn configured_cache_path_from_env() -> Option<PathBuf> {
@@ -78,15 +120,46 @@ pub fn configured_cache_path_from_env() -> Option<PathBuf> {
 }
 
 fn load_pending_purge_state(default_openhuman_dir: &Path) -> Result<PendingCefPurgeState, String> {
-    let path = pending_purge_marker_path(default_openhuman_dir);
-    if !path.exists() {
-        return Ok(PendingCefPurgeState::default());
+    let path = pending_purge_marker_path(default_openhuman_dir)?;
+    if path.exists() {
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|error| format!("read pending CEF purge marker {}: {error}", path.display()))?;
+        return toml::from_str(&raw)
+            .map_err(|error| format!("parse pending CEF purge marker {}: {error}", path.display()));
     }
 
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|error| format!("read pending CEF purge marker {}: {error}", path.display()))?;
-    toml::from_str(&raw)
-        .map_err(|error| format!("parse pending CEF purge marker {}: {error}", path.display()))
+    // One-time read from the legacy in-tree file (older app versions).
+    let legacy = default_openhuman_dir.join(LEGACY_PENDING_PURGE_IN_TREE);
+    if !legacy.exists() {
+        return Ok(PendingCefPurgeState::default());
+    }
+    let raw = std::fs::read_to_string(&legacy).map_err(|error| {
+        format!(
+            "read legacy pending CEF purge marker {}: {error}",
+            legacy.display()
+        )
+    })?;
+    let state: PendingCefPurgeState = toml::from_str(&raw).map_err(|error| {
+        format!(
+            "parse legacy pending CEF purge marker {}: {error}",
+            legacy.display()
+        )
+    })?;
+    match save_pending_purge_state(default_openhuman_dir, &state) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&legacy);
+            log::info!(
+                "[cef-profile] migrated pending CEF purge list from {} to {}",
+                legacy.display(),
+                path.display()
+            );
+        }
+        Err(err) => log::warn!(
+            "[cef-profile] could not write migrated pending CEF purge marker to {}: {err}",
+            path.display()
+        ),
+    }
+    Ok(state)
 }
 
 fn save_pending_purge_state(
@@ -100,7 +173,15 @@ fn save_pending_purge_state(
         )
     })?;
 
-    let path = pending_purge_marker_path(default_openhuman_dir);
+    let path = pending_purge_marker_path(default_openhuman_dir)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "create parent of pending CEF purge marker {}: {error}",
+                path.display()
+            )
+        })?;
+    }
     let raw = toml::to_string_pretty(state)
         .map_err(|error| format!("serialize pending CEF purge marker: {error}"))?;
     std::fs::write(&path, raw)
@@ -113,7 +194,7 @@ pub fn queue_profile_purge_for_user(user_id: Option<&str>) -> Result<PathBuf, St
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(PRE_LOGIN_USER_ID);
-    let purge_path = cache_dir_for_user(&default_openhuman_dir, user_id);
+    let purge_path = cache_dir_for_user(&default_openhuman_dir, user_id)?;
 
     let mut state = load_pending_purge_state(&default_openhuman_dir)?;
     let mut unique = BTreeSet::new();
@@ -137,9 +218,19 @@ pub fn prepare_process_cache_path() -> Result<PathBuf, String> {
     let default_openhuman_dir = default_root_openhuman_dir()?;
     drain_pending_purges(&default_openhuman_dir)?;
 
-    let user_id = read_active_user_id(&default_openhuman_dir)
+    let user_id_raw = read_active_user_id(&default_openhuman_dir)
         .unwrap_or_else(|| PRE_LOGIN_USER_ID.to_string());
-    let cache_dir = cache_dir_for_user(&default_openhuman_dir, &user_id);
+    let user_id = match validate_user_id_for_path(&user_id_raw) {
+        Ok(id) => id,
+        Err(why) => {
+            log::warn!(
+                "[cef-profile] invalid user_id in active user state: {why}; using {}",
+                PRE_LOGIN_USER_ID
+            );
+            PRE_LOGIN_USER_ID.to_string()
+        }
+    };
+    let cache_dir = cache_dir_for_user(&default_openhuman_dir, &user_id)?;
     std::fs::create_dir_all(&cache_dir)
         .map_err(|error| format!("create CEF cache dir {}: {error}", cache_dir.display()))?;
     std::env::set_var(CEF_CACHE_PATH_ENV, &cache_dir);
@@ -152,8 +243,8 @@ pub fn prepare_process_cache_path() -> Result<PathBuf, String> {
 }
 
 fn drain_pending_purges(default_openhuman_dir: &Path) -> Result<(), String> {
-    let marker_path = pending_purge_marker_path(default_openhuman_dir);
-    let state = load_pending_purge_state(default_openhuman_dir)?;
+    let marker_path = pending_purge_marker_path(default_openhuman_dir)?;
+    let mut state = load_pending_purge_state(default_openhuman_dir)?;
     if state.paths.is_empty() {
         if marker_path.exists() {
             let _ = std::fs::remove_file(&marker_path);
@@ -161,6 +252,7 @@ fn drain_pending_purges(default_openhuman_dir: &Path) -> Result<(), String> {
         return Ok(());
     }
 
+    let mut remaining: Vec<String> = Vec::new();
     for raw_path in &state.paths {
         let target = PathBuf::from(raw_path);
         if !target.exists() {
@@ -183,8 +275,20 @@ fn drain_pending_purges(default_openhuman_dir: &Path) -> Result<(), String> {
                     target.display(),
                     error
                 );
+                remaining.push(raw_path.clone());
             }
         }
+    }
+
+    if !remaining.is_empty() {
+        state.paths = remaining;
+        save_pending_purge_state(default_openhuman_dir, &state)?;
+        log::warn!(
+            "[cef-profile] not removing pending CEF purge marker: {} path(s) still fail purge (will retry) marker={}",
+            state.paths.len(),
+            marker_path.display()
+        );
+        return Ok(());
     }
 
     if marker_path.exists() {
@@ -213,8 +317,27 @@ mod tests {
     fn cache_dir_for_user_nests_under_users_tree() {
         let root = PathBuf::from("/tmp/openhuman");
         assert_eq!(
-            cache_dir_for_user(&root, "u-123"),
+            cache_dir_for_user(&root, "u-123").unwrap(),
             PathBuf::from("/tmp/openhuman/users/u-123/cef")
+        );
+    }
+
+    #[test]
+    fn validate_user_id_rejects_path_traversal() {
+        assert!(validate_user_id_for_path("..").is_err());
+        assert!(validate_user_id_for_path("a/../b").is_err());
+        assert!(validate_user_id_for_path("x/y").is_err());
+    }
+
+    #[test]
+    fn validate_user_id_accepts_typical_ids() {
+        assert_eq!(
+            validate_user_id_for_path("u-123").unwrap(),
+            "u-123"
+        );
+        assert_eq!(
+            validate_user_id_for_path("user@ex.com").unwrap(),
+            "user@ex.com"
         );
     }
 }

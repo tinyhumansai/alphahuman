@@ -781,8 +781,10 @@ pub fn run() {
     match cef_profile::prepare_process_cache_path() {
         Ok(path) => log::debug!("[cef-profile] startup cache path={}", path.display()),
         Err(error) => {
-            log::warn!("[cef-profile] failed to configure startup cache path: {error}");
-            std::env::remove_var(cef_profile::CEF_CACHE_PATH_ENV);
+            log::error!(
+                "[cef-profile] failed to configure per-user CEF cache; refusing to start with shared/global cache: {error}"
+            );
+            std::process::exit(1);
         }
     }
 
