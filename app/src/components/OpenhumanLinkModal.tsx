@@ -14,8 +14,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import { showNativeNotification } from '../lib/nativeNotifications/tauriBridge';
+import { purgeWebviewAccount } from '../services/webviewAccountService';
+import { addAccount, removeAccount } from '../store/accountsSlice';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import type { Account, AccountProvider } from '../types/accounts';
+import { PROVIDERS } from '../types/accounts';
 import { openUrl } from '../utils/openUrl';
 import ChannelSetupModal from './channels/ChannelSetupModal';
+import { ProviderIcon } from './accounts/providerIcons';
 
 interface OpenhumanLinkEvent {
   path: string;
@@ -133,6 +139,8 @@ function titleForPath(path: string): string {
       return 'Integrations';
     case 'community/discord':
       return 'Join the community';
+    case 'accounts/setup':
+      return 'Connect your apps';
     default:
       return 'Settings';
   }
@@ -152,6 +160,8 @@ function renderBody(path: string, close: () => void) {
       return null;
     case 'community/discord':
       return <DiscordBody close={close} />;
+    case 'accounts/setup':
+      return <AccountsSetupBody close={close} />;
     default:
       return (
         <div className="space-y-3 text-sm text-stone-700">
@@ -279,6 +289,122 @@ const DiscordBody = ({ close }: { close: () => void }) => {
         Open Discord invite
       </button>
       <DoneFooter close={close} skipLabel="Maybe later" />
+    </div>
+  );
+};
+
+// ── Accounts setup (multi-channel toggle list) ──────────────────────────
+
+/**
+ * Curated list of providers shown in the welcome flow's "Connect your apps"
+ * step. Excludes call-only surfaces (`google-meet`, `zoom`) and dev-only
+ * (`browserscan`) — those still appear in the full Add Account modal but
+ * aren't a "set this up during onboarding" target.
+ */
+const ACCOUNTS_SETUP_PROVIDERS: readonly AccountProvider[] = [
+  'whatsapp',
+  'telegram',
+  'slack',
+  'discord',
+  'gmail',
+  'linkedin',
+];
+
+function makeAccountId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  if (c && typeof c.getRandomValues === 'function') {
+    const bytes = new Uint8Array(4);
+    c.getRandomValues(bytes);
+    const suffix = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `acct-${Date.now().toString(36)}-${suffix}`;
+  }
+  return `acct-${Date.now().toString(36)}`;
+}
+
+const AccountsSetupBody = ({ close }: { close: () => void }) => {
+  const dispatch = useAppDispatch();
+  const accountsById = useAppSelector(s => s.accounts.accounts);
+  const order = useAppSelector(s => s.accounts.order);
+
+  // Map provider → first existing account (one provider, one row).
+  const accountByProvider = useMemo(() => {
+    const map = new Map<AccountProvider, Account>();
+    for (const id of order) {
+      const acct = accountsById[id];
+      if (acct && !map.has(acct.provider)) map.set(acct.provider, acct);
+    }
+    return map;
+  }, [accountsById, order]);
+
+  const providerDescriptors = useMemo(
+    () => ACCOUNTS_SETUP_PROVIDERS.map(id => PROVIDERS.find(p => p.id === id)).filter(Boolean) as
+      typeof PROVIDERS,
+    []
+  );
+
+  const handleToggle = (providerId: AccountProvider, label: string, currentlyOn: boolean) => {
+    if (currentlyOn) {
+      const existing = accountByProvider.get(providerId);
+      if (!existing) return;
+      // Best-effort tear down the webview if one was already spun up.
+      void purgeWebviewAccount(existing.id).catch(() => {});
+      dispatch(removeAccount({ accountId: existing.id }));
+      return;
+    }
+    const acct: Account = {
+      id: makeAccountId(),
+      provider: providerId,
+      label,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    };
+    dispatch(addAccount(acct));
+  };
+
+  return (
+    <div className="space-y-4 text-sm text-stone-700">
+      <p>
+        Pick the chat apps and inboxes you already use. We'll add them as built-in webviews here so
+        you can ditch six browser tabs and stick with one app, and the agent can listen in across
+        all of them in the background.
+      </p>
+      <div className="space-y-2">
+        {providerDescriptors.map(p => {
+          const on = accountByProvider.has(p.id);
+          return (
+            <div
+              key={p.id}
+              className="flex items-center gap-3 rounded-xl border border-stone-100 bg-white p-3">
+              <ProviderIcon provider={p.id} className="h-5 w-5 flex-none" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-stone-900">{p.label}</div>
+                <p className="line-clamp-1 text-xs text-stone-500">{p.description}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                aria-label={`${on ? 'Disconnect' : 'Connect'} ${p.label}`}
+                onClick={() => handleToggle(p.id, p.label, on)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  on ? 'bg-primary-500' : 'bg-stone-200'
+                }`}>
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                    on ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-stone-400">
+        Toggling on creates a private webview here. You'll sign in the first time you open it from
+        the sidebar — credentials stay on your device.
+      </p>
+      <DoneFooter close={close} />
     </div>
   );
 };

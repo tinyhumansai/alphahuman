@@ -11,30 +11,19 @@ import {
 } from '../utils/format';
 
 /**
- * Inline navigation pill rendered for `<openhuman-link path="...">label</openhuman-link>`
- * tags inside agent messages. Uses react-router's navigate so the click
- * stays in-app (no host-browser deep link round-trip).
+ * Pill rendered below an agent bubble for each
+ * `<openhuman-link path="...">label</openhuman-link>` tag the agent
+ * emits. Click dispatches an `OPENHUMAN_LINK_EVENT` window event that
+ * `OpenhumanLinkModal` listens for, so the chat stays in view.
  */
-function OpenhumanLinkPill({
-  path,
-  label,
-  tone,
-}: {
-  path: string;
-  label: string;
-  tone: 'agent' | 'user';
-}) {
-  const palette =
-    tone === 'user'
-      ? 'border-white/40 bg-white/15 text-white hover:bg-white/25'
-      : 'border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100';
+function OpenhumanLinkPill({ path, label }: { path: string; label: string }) {
   return (
     <button
       type="button"
       onClick={() =>
         window.dispatchEvent(new CustomEvent(OPENHUMAN_LINK_EVENT, { detail: { path } }))
       }
-      className={`mx-0.5 inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${palette}`}>
+      className="inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100">
       {label}
       <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M13 6l6 6-6 6" />
@@ -55,47 +44,30 @@ export function BubbleMarkdown({
       ? 'prose-invert prose-p:text-white prose-li:text-white prose-a:text-white prose-code:text-white prose-strong:text-white prose-headings:text-white [&_li::marker]:text-white/85'
       : 'prose-a:text-primary-500 prose-code:text-primary-700 prose-headings:text-sm [&_li::marker]:text-stone-700';
 
-  const segments = parseBubbleSegments(content);
-
   return (
     <div
       className={`text-sm prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:rounded-lg prose-code:text-xs prose-headings:font-semibold prose-ul:my-0 prose-ol:my-0 prose-li:my-0 ${proseTone} ${
         tone === 'user' ? 'prose-pre:bg-white/10' : 'prose-pre:bg-stone-300/50'
       } [&_ul]:my-0 [&_ol]:my-0 [&_ul]:pl-0 [&_ol]:pl-0 [&_ul]:list-inside [&_ol]:list-inside [&_li]:my-0 [&_li]:pl-0 [&_li_p]:inline [&_li_p]:m-0`}>
-      {segments.map((segment, idx) => {
-        if (segment.kind === 'link') {
-          return (
-            <OpenhumanLinkPill
-              key={`pill-${idx}`}
-              path={segment.path}
-              label={segment.label}
-              tone={tone}
-            />
-          );
-        }
-        return (
-          <Markdown
-            key={`md-${idx}`}
-            components={{
-              a: ({ href, children }) => (
-                <a
-                  href={href}
-                  onClick={e => {
-                    e.preventDefault();
-                    if (!href || !isAllowedExternalHref(href)) return;
-                    void openUrl(href).catch(() => {
-                      // Ignore launcher errors from OS URL handler failures.
-                    });
-                  }}
-                  className="cursor-pointer underline">
-                  {children}
-                </a>
-              ),
-            }}>
-            {segment.text}
-          </Markdown>
-        );
-      })}
+      <Markdown
+        components={{
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              onClick={e => {
+                e.preventDefault();
+                if (!href || !isAllowedExternalHref(href)) return;
+                void openUrl(href).catch(() => {
+                  // Ignore launcher errors from OS URL handler failures.
+                });
+              }}
+              className="cursor-pointer underline">
+              {children}
+            </a>
+          ),
+        }}>
+        {content}
+      </Markdown>
     </div>
   );
 }
@@ -133,7 +105,17 @@ export function AgentMessageBubble({
   content: string;
   position?: AgentBubblePosition;
 }) {
-  const table = parseMarkdownTable(content);
+  const segments = parseBubbleSegments(content);
+  const textContent = segments
+    .filter(s => s.kind === 'text')
+    .map(s => s.text)
+    .join('')
+    .trim();
+  const linkSegments = segments.filter(
+    (s): s is Extract<typeof s, { kind: 'link' }> => s.kind === 'link'
+  );
+
+  const table = parseMarkdownTable(textContent);
   const bubbleChrome = getAgentBubbleChrome(position);
 
   if (table) {
@@ -175,8 +157,23 @@ export function AgentMessageBubble({
   }
 
   return (
-    <div className={`bg-stone-200/80 px-4 py-2.5 text-stone-900 ${bubbleChrome}`}>
-      <BubbleMarkdown content={content} />
-    </div>
+    <>
+      {textContent && (
+        <div className={`bg-stone-200/80 px-4 py-2.5 text-stone-900 ${bubbleChrome}`}>
+          <BubbleMarkdown content={textContent} />
+        </div>
+      )}
+      {linkSegments.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {linkSegments.map((segment, idx) => (
+            <OpenhumanLinkPill
+              key={`pill-${idx}-${segment.path}`}
+              path={segment.path}
+              label={segment.label}
+            />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
