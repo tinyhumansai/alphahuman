@@ -2239,13 +2239,21 @@ mod tests {
             .lock()
             .unwrap()
             .insert("acct-1".into(), watchdog_task);
-        state.browser_ids.lock().unwrap().insert("acct-1".into(), 42);
+        state
+            .browser_ids
+            .lock()
+            .unwrap()
+            .insert("acct-1".into(), 42);
         state
             .inner
             .lock()
             .unwrap()
             .insert("acct-1".into(), "acct_1".into());
-        state.loaded_accounts.lock().unwrap().insert("acct-1".into());
+        state
+            .loaded_accounts
+            .lock()
+            .unwrap()
+            .insert("acct-1".into());
         state.requested_bounds.lock().unwrap().insert(
             "acct-1".into(),
             Bounds {
