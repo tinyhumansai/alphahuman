@@ -47,7 +47,7 @@ const Mnemonic = () => {
     setError(null);
     setImportValid(null);
     setImportWords(Array(IMPORT_SLOTS_INITIAL).fill(''));
-  }, []);
+  }, [mode]);
 
   const handleCopy = useCallback(async () => {
     try {

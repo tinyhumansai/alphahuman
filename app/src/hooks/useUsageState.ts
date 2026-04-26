@@ -71,7 +71,7 @@ export function useUsageState(): UsageState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [_fetchCount]);
 
   const currentTier: PlanTier = currentPlan?.plan ?? 'FREE';
   const isFreeTier = currentTier === 'FREE';
