@@ -417,10 +417,7 @@ mod tests {
     fn legacy_purge_marker_migrates_to_sibling_file() {
         let (_tmp, data_root) = test_data_hierarchy();
         let legacy = data_root.join(LEGACY_PENDING_PURGE_IN_TREE);
-        let sibling = data_root
-            .parent()
-            .unwrap()
-            .join(PENDING_PURGE_STATE_FILE);
+        let sibling = data_root.parent().unwrap().join(PENDING_PURGE_STATE_FILE);
         let body = r#"paths = []"#;
         std::fs::write(&legacy, body).unwrap();
         assert!(!sibling.exists());
@@ -439,9 +436,7 @@ mod tests {
         std::fs::write(cef.join("x.txt"), b"x").unwrap();
         let cef_s = cef.to_string_lossy().to_string();
 
-        let state = PendingCefPurgeState {
-            paths: vec![cef_s],
-        };
+        let state = PendingCefPurgeState { paths: vec![cef_s] };
         save_pending_purge_state(&data_root, &state).unwrap();
 
         drain_pending_purges(&data_root).unwrap();
@@ -520,10 +515,7 @@ mod tests {
         drain_pending_purges(&data_root).unwrap();
 
         // Restore for cleanup
-        let _ = std::fs::set_permissions(
-            &cef,
-            std::fs::Permissions::from_mode(0o700),
-        );
+        let _ = std::fs::set_permissions(&cef, std::fs::Permissions::from_mode(0o700));
         let _ = std::fs::remove_dir_all(&cef);
 
         let after = load_pending_purge_state(&data_root).unwrap();
