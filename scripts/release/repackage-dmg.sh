@@ -80,11 +80,34 @@ rm -f "$DMG_RW"
 DMG_RW=""
 
 echo "[dmg] Notarizing DMG..."
+DMG_SUBMIT_OUT="$(mktemp /tmp/notarize-dmg-XXXXXX.json)"
+set +e
 xcrun notarytool submit "$DMG_PATH" \
   --apple-id "$APPLE_ID" \
   --password "$APPLE_PASSWORD" \
   --team-id "$APPLE_TEAM_ID" \
-  --wait
+  --output-format json \
+  --wait > "$DMG_SUBMIT_OUT"
+DMG_SUBMIT_RC=$?
+set -e
+cat "$DMG_SUBMIT_OUT"
+
+DMG_SUBMISSION_ID="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$DMG_SUBMIT_OUT" 2>/dev/null || true)"
+DMG_SUBMISSION_STATUS="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$DMG_SUBMIT_OUT" 2>/dev/null || true)"
+rm -f "$DMG_SUBMIT_OUT"
+
+if [ -n "$DMG_SUBMISSION_ID" ]; then
+  echo "[dmg] Fetching notarytool developer log for $DMG_SUBMISSION_ID:"
+  xcrun notarytool log "$DMG_SUBMISSION_ID" \
+    --apple-id "$APPLE_ID" \
+    --password "$APPLE_PASSWORD" \
+    --team-id "$APPLE_TEAM_ID" || true
+fi
+
+if [ "$DMG_SUBMISSION_STATUS" != "Accepted" ] || [ "$DMG_SUBMIT_RC" -ne 0 ]; then
+  echo "[dmg] ERROR: DMG notarization did not succeed (status=$DMG_SUBMISSION_STATUS, rc=$DMG_SUBMIT_RC)" >&2
+  exit 1
+fi
 
 xcrun stapler staple "$DMG_PATH"
 echo "[dmg] DMG notarization complete: $DMG_PATH"
