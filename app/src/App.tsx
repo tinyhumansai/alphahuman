@@ -23,7 +23,12 @@ import SocketProvider from './providers/SocketProvider';
 import { tagErrorSource } from './services/errorReportQueue';
 import { startWebviewAccountService } from './services/webviewAccountService';
 import { persistor, store } from './store';
-import { useAppSelector } from './store/hooks';
+import { useAppDispatch, useAppSelector } from './store/hooks';
+import {
+  clearSelectedThread,
+  deleteThread,
+  setWelcomeThreadId,
+} from './store/threadSlice';
 import { isAccountsFullscreen } from './utils/accountsFullscreen';
 import { DEV_FORCE_ONBOARDING } from './utils/config';
 
@@ -106,6 +111,23 @@ function AppShell() {
     location.pathname,
     navigate,
   ]);
+
+  // After the welcome agent calls `complete_onboarding` and
+  // `chat_onboarding_completed` flips false→true, discard the transient
+  // welcome thread we created in `OnboardingLayout`. The next user
+  // message will route to the orchestrator and create its own thread.
+  const dispatch = useAppDispatch();
+  const welcomeThreadId = useAppSelector(state => state.thread.welcomeThreadId);
+  const chatOnboardingCompleted = snapshot.chatOnboardingCompleted;
+  useEffect(() => {
+    if (!chatOnboardingCompleted || !welcomeThreadId) return;
+    console.debug(
+      `[welcome-cleanup] chat_onboarding_completed=true — deleting welcome thread ${welcomeThreadId}`
+    );
+    void dispatch(deleteThread(welcomeThreadId));
+    dispatch(clearSelectedThread());
+    dispatch(setWelcomeThreadId(null));
+  }, [chatOnboardingCompleted, welcomeThreadId, dispatch]);
 
   // Welcome lockdown (#883) — force any route other than `/chat` back to
   // `/chat` while the welcome-agent conversation is still in progress.

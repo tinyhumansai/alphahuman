@@ -4,6 +4,8 @@ import { Outlet, useNavigate } from 'react-router-dom';
 
 import { useCoreState } from '../../providers/CoreStateProvider';
 import { userApi } from '../../services/api/userApi';
+import { useAppDispatch } from '../../store/hooks';
+import { createNewThread, setSelectedThread, setWelcomeThreadId } from '../../store/threadSlice';
 import { getDefaultEnabledTools } from '../../utils/toolDefinitions';
 import BetaBanner from './components/BetaBanner';
 import { OnboardingContext, type OnboardingDraft } from './OnboardingContext';
@@ -15,6 +17,7 @@ import { OnboardingContext, type OnboardingDraft } from './OnboardingContext';
  */
 const OnboardingLayout = () => {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const { setOnboardingCompletedFlag, setOnboardingTasks, snapshot } = useCoreState();
   const [draft, setDraftState] = useState<OnboardingDraft>({ connectedSources: [] });
 
@@ -51,8 +54,25 @@ const OnboardingLayout = () => {
       throw e;
     }
 
+    // Open a fresh chat thread for the welcome conversation so the
+    // proactive messages don't pile onto whatever thread the user had
+    // open before onboarding. The proactive subscriber resolves the
+    // `proactive:welcome` thread_id to whichever thread is currently
+    // selected, so we just need to create + select a new one before
+    // firing the agent.
+    try {
+      const newThread = await dispatch(createNewThread()).unwrap();
+      dispatch(setSelectedThread(newThread.id));
+      // Track this thread so the post-onboarding watcher can delete it
+      // once `chat_onboarding_completed` flips. The welcome conversation
+      // is transient — we don't keep it in the user's thread list.
+      dispatch(setWelcomeThreadId(newThread.id));
+    } catch (e) {
+      console.warn('[onboarding] failed to create welcome thread', e);
+    }
+
     // Trigger the proactive welcome agent now that onboarding is done.
-    // The core no longer auto-fires it on the config-flag transition —
+    // The core no longer auto-fires it on the config-flag transition;
     // the renderer owns the timing so we can fire after `/home` is the
     // active surface and the chat UI is ready to receive the messages.
     if (isTauri()) {
@@ -64,7 +84,14 @@ const OnboardingLayout = () => {
     }
 
     navigate('/home', { replace: true });
-  }, [draft.connectedSources, navigate, setOnboardingCompletedFlag, setOnboardingTasks, snapshot]);
+  }, [
+    draft.connectedSources,
+    dispatch,
+    navigate,
+    setOnboardingCompletedFlag,
+    setOnboardingTasks,
+    snapshot,
+  ]);
 
   const value = useMemo(
     () => ({ draft, setDraft, completeAndExit }),

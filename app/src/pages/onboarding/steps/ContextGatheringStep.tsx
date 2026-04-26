@@ -45,9 +45,9 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
-  { id: 'gmail-search', label: 'Reading your Gmail' },
-  { id: 'linkedin-scrape', label: 'Researching you online' },
-  { id: 'build-profile', label: 'Building your profile' },
+  { id: 'gmail-search', label: 'Processing your Gmail' },
+  { id: 'linkedin-scrape', label: 'Working on your LinkedIn' },
+  { id: 'build-profile', label: 'Building your Profile' },
 ];
 
 type StageStatus = 'pending' | 'active' | 'done' | 'skipped' | 'error';
@@ -266,7 +266,7 @@ const ContextGatheringStep = ({
         <div className="text-center mb-5">
           <h1 className="text-xl font-bold mb-2 text-stone-900">Getting To Know You</h1>
           <p className="text-stone-500 text-sm leading-relaxed max-w-sm mx-auto">
-            I'm going to build a short profile about you so the first conversation isn't cold.
+            I'm going to build a short profile about you so the first conversation is warm.
           </p>
         </div>
         <div className="rounded-xl border border-stone-100 bg-stone-50 p-4 mb-5 text-sm text-stone-600 leading-relaxed">
@@ -295,7 +295,7 @@ const ContextGatheringStep = ({
     <div className="rounded-2xl border border-stone-200 bg-white p-8 shadow-soft animate-fade-up">
       <div className="text-center mb-5">
         <h1 className="text-xl font-bold mb-2 text-stone-900">
-          {finished ? 'Context Ready' : 'Reading your connected accounts'}
+          {finished ? 'Context Ready' : 'Building Memory From Your Connections'}
         </h1>
         <p className="text-stone-500 text-sm">
           {finished

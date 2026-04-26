@@ -14,11 +14,7 @@ const ConnectionIndicator = ({
   const storeStatus = useAppSelector(selectSocketStatus);
   const status = overrideStatus || storeStatus;
   const statusConfig = {
-    connected: {
-      color: 'bg-sage-500',
-      textColor: 'text-sage-500',
-      text: 'Connected to OpenHuman AI 🚀',
-    },
+    connected: { color: 'bg-sage-500', textColor: 'text-sage-600', text: 'Agent is Online 🚀' },
     disconnected: { color: 'bg-coral-500', textColor: 'text-coral-500', text: 'Disconnected' },
     connecting: { color: 'bg-amber-500', textColor: 'text-amber-500', text: 'Connecting' },
   };
