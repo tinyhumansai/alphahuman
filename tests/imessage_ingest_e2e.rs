@@ -60,6 +60,13 @@ impl Embedder for DeterministicEmbedder {
     }
 }
 
+/// Serialises tests in this binary. Tokio defaults to running #[tokio::test]
+/// in parallel, but the OnceCell-backed runtime is process-shared, so two
+/// tests racing to ingest into the same index produces flaky `total_items`
+/// assertions. Holding this lock for the body of each test enforces the
+/// "tests run serially" contract that the OnceCell setup was designed for.
+static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn ensure_runtime_initialised() {
     // Each call is idempotent: OnceCell::set returns Err on the second attempt
     // and we just ignore it. The first test that runs wins; that's fine because
@@ -123,9 +130,17 @@ fn rpc_result_body(envelope: &Value) -> &Value {
 #[tokio::test]
 #[ignore]
 async fn ingest_then_search_then_reingest_is_idempotent() {
+    let _lock = TEST_LOCK.lock().await;
     ensure_runtime_initialised().await;
     let (addr, _join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let base = format!("http://{}", addr);
+
+    // Baseline: capture total_items before this test ingests anything. Other
+    // serialised tests in this binary may have left items in the shared index.
+    let env_baseline = post_rpc(&base, "openhuman.life_capture_get_stats", json!({})).await;
+    let baseline_total = rpc_result_body(&env_baseline)["total_items"]
+        .as_i64()
+        .expect("baseline total_items");
 
     let unique_marker = "ledgercontractdraft9f3a2b";
     let transcript = format!(
@@ -160,9 +175,9 @@ async fn ingest_then_search_then_reingest_is_idempotent() {
     let env_stats1 = post_rpc(&base, "openhuman.life_capture_get_stats", json!({})).await;
     let stats1 = rpc_result_body(&env_stats1);
     assert_eq!(
-        stats1["total_items"],
-        json!(1),
-        "expected total_items=1 after first ingest, got {stats1}"
+        stats1["total_items"].as_i64(),
+        Some(baseline_total + 1),
+        "expected total_items to grow by 1 after first ingest (baseline={baseline_total}), got {stats1}"
     );
 
     // Search — must surface the marker.
@@ -225,6 +240,7 @@ async fn ingest_then_search_then_reingest_is_idempotent() {
 async fn search_response_shape_matches_schema() {
     // Regression guard for obs 3165: search RPC must return `{"hits": [...]}`,
     // not a bare array. Schema declares wrapping, callers depend on it.
+    let _lock = TEST_LOCK.lock().await;
     ensure_runtime_initialised().await;
     let (addr, _join) = serve_on_ephemeral(build_core_http_router(false)).await;
     let base = format!("http://{}", addr);
