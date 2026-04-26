@@ -4,10 +4,10 @@ use crate::core::event_bus::{
     publish_global, request_native_global, DomainEvent, NativeRequestError,
 };
 use crate::openhuman::agent::bus::{AgentTurnRequest, AgentTurnResponse, AGENT_RUN_TURN_METHOD};
-use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::agent::harness::definition::{
     AgentDefinition, AgentDefinitionRegistry, ToolScope,
 };
+use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::channels::context::{
     build_memory_context, compact_sender_history, conversation_history_key,
     conversation_memory_key, is_context_window_overflow_error, ChannelRuntimeContext,
@@ -860,9 +860,9 @@ pub(crate) async fn process_channel_message(
                             };
 
                             if should_update {
-                                if let Err(e) =
-                                    channel.update_draft(&reply_target, &draft_id, "Thinking...")
-                                        .await
+                                if let Err(e) = channel
+                                    .update_draft(&reply_target, &draft_id, "Thinking...")
+                                    .await
                                 {
                                     tracing::debug!("Thinking update failed: {e}");
                                 }
@@ -873,7 +873,11 @@ pub(crate) async fn process_channel_message(
                     AgentProgress::ToolCallStarted { tool_name, .. } => {
                         if accumulated.is_empty() {
                             let _ = channel
-                                .update_draft(&reply_target, &draft_id, &format!("Working ({})...", tool_name))
+                                .update_draft(
+                                    &reply_target,
+                                    &draft_id,
+                                    &format!("Working ({})...", tool_name),
+                                )
                                 .await;
                         }
                     }
