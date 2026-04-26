@@ -69,13 +69,30 @@ APP_NAME="$(basename "$APP_PATH")"
 rm -rf "$MOUNT_DIR/$APP_NAME"
 ditto "$APP_PATH" "$MOUNT_DIR/$APP_NAME"
 
-# Unmount
-hdiutil detach "$MOUNT_DIR"
+# Unmount. `-force` plus a sync + brief settle window prevents the
+# intermittent "hdiutil: convert failed - internal error" that fires when
+# the writable image's resource handles are still being released.
+hdiutil detach "$MOUNT_DIR" -force
 rmdir "$MOUNT_DIR"
 MOUNT_DIR=""
+sync
+sleep 2
 
-# 3. Convert back to compressed format (UDZO)
-hdiutil convert "$DMG_RW" -format UDZO -ov -o "$DMG_PATH"
+# 3. Convert back to compressed format (UDZO).
+# `hdiutil convert` is occasionally flaky on macOS even after a clean detach
+# ("internal error" with no further detail). Retry a couple of times before
+# failing the release.
+convert_attempts=0
+until hdiutil convert "$DMG_RW" -format UDZO -ov -o "$DMG_PATH"; do
+  convert_attempts=$((convert_attempts + 1))
+  if [ "$convert_attempts" -ge 3 ]; then
+    echo "[dmg] ERROR: hdiutil convert to UDZO failed after $convert_attempts attempts" >&2
+    exit 1
+  fi
+  echo "[dmg] hdiutil convert failed (attempt $convert_attempts) — retrying after settle..." >&2
+  sync
+  sleep $((convert_attempts * 5))
+done
 rm -f "$DMG_RW"
 DMG_RW=""
 
