@@ -324,7 +324,10 @@ fn store_handles_labels_and_inference() {
         assert_eq!(t1.labels, vec!["custom"]);
     }
     {
-        let mb = threads.iter().find(|t| t.id == "proactive:morning_briefing").unwrap();
+        let mb = threads
+            .iter()
+            .find(|t| t.id == "proactive:morning_briefing")
+            .unwrap();
         assert_eq!(mb.labels, vec!["briefing"]);
     }
     {
