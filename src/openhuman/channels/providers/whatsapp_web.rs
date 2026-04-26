@@ -345,9 +345,14 @@ impl Channel for WhatsAppWebChannel {
                             // Routine logs only carry coarse metadata — no raw
                             // sender identifier, no message body — so PII does
                             // not leak into application logs at any level.
+                            // For DM chats `chat` is `<phone>@s.whatsapp.net`,
+                            // which still carries the participant's phone
+                            // number. Redact the user part so the routine
+                            // log keeps only the server suffix (DM vs group)
+                            // and a coarse identifier tail.
                             tracing::info!(
                                 "📨 WhatsApp inbound: chat={} sender={} text_len={}",
-                                chat,
+                                Self::redact_recipient(&chat),
                                 Self::redact_phone(&normalized),
                                 text.len()
                             );
