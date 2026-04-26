@@ -82,6 +82,7 @@ const AutoRechargeSection = ({
         <div className="w-10 h-5 rounded-full bg-stone-700/60 animate-pulse" />
       ) : (
         <button
+          type="button"
           onClick={onArToggle}
           disabled={arSaving}
           role="switch"
@@ -187,6 +188,7 @@ const AutoRechargeSection = ({
           <div className="flex gap-1.5 flex-wrap">
             {THRESHOLD_OPTIONS.map(v => (
               <button
+                type="button"
                 key={v}
                 onClick={() => setArThreshold(v)}
                 className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
@@ -206,6 +208,7 @@ const AutoRechargeSection = ({
           <div className="flex gap-1.5 flex-wrap">
             {RECHARGE_OPTIONS.map(v => (
               <button
+                type="button"
                 key={v}
                 onClick={() => setArAmount(v)}
                 className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
@@ -225,6 +228,7 @@ const AutoRechargeSection = ({
           <div className="flex gap-1.5 flex-wrap">
             {WEEKLY_LIMIT_OPTIONS.map(v => (
               <button
+                type="button"
                 key={v}
                 onClick={() => setArWeeklyLimit(v)}
                 className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
@@ -248,6 +252,7 @@ const AutoRechargeSection = ({
         {/* Save button */}
         {arDirty && (
           <button
+            type="button"
             onClick={onArSave}
             disabled={arSaving || arAmount <= arThreshold}
             className={`w-full py-1.5 text-xs font-medium rounded-lg transition-colors ${
@@ -266,6 +271,7 @@ const AutoRechargeSection = ({
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-medium text-stone-600">Payment Methods</p>
         <button
+          type="button"
           onClick={onAddCard}
           className="text-[11px] text-primary-400 hover:text-primary-300 font-medium transition-colors">
           + Add card on Stripe
@@ -343,6 +349,7 @@ const AutoRechargeSection = ({
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {!card.isDefault && (
                     <button
+                      type="button"
                       onClick={() => onSetDefault(card.id)}
                       disabled={!!settingDefaultId || !!deletingCardId}
                       className="text-[10px] text-stone-500 hover:text-stone-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed px-1.5 py-1">
@@ -353,12 +360,14 @@ const AutoRechargeSection = ({
                   {isConfirming ? (
                     <div className="flex items-center gap-1">
                       <button
+                        type="button"
                         onClick={() => onDeleteCard(card.id)}
                         disabled={isDeleting}
                         className="text-[10px] text-coral-400 hover:text-coral-300 font-medium transition-colors disabled:opacity-40 px-1.5 py-1">
                         {isDeleting ? '…' : 'Confirm'}
                       </button>
                       <button
+                        type="button"
                         onClick={() => setConfirmDeleteId(null)}
                         className="text-[10px] text-stone-500 hover:text-stone-400 transition-colors px-1 py-1">
                         Cancel
@@ -366,6 +375,7 @@ const AutoRechargeSection = ({
                     </div>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setConfirmDeleteId(card.id)}
                       disabled={isDeleting || !!settingDefaultId}
                       className="text-[10px] text-stone-500 hover:text-coral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed px-1.5 py-1">

@@ -6,7 +6,7 @@ interface FrameInternal extends ScopeFrame {
 }
 
 function isEditableTarget(e: KeyboardEvent): boolean {
-  const path = (e.composedPath && e.composedPath()) || [];
+  const path = e.composedPath?.() || [];
   const nodes = path.length ? path : [e.target as EventTarget | null];
   for (const node of nodes) {
     if (!node || !(node as HTMLElement).tagName) continue;

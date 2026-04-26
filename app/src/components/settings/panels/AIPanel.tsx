@@ -118,11 +118,13 @@ const AIPanel = () => {
             <h3 className="text-sm font-semibold text-stone-900">Local Model Runtime</h3>
             <div className="flex items-center gap-4">
               <button
+                type="button"
                 onClick={() => navigateToSettings('local-model')}
                 className="text-sm text-primary-500 hover:text-primary-600 transition-colors">
                 Open Manager
               </button>
               <button
+                type="button"
                 onClick={async () => {
                   await openhumanLocalAiDownload(true);
                   await loadLocalAiStatus();
@@ -160,6 +162,7 @@ const AIPanel = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-stone-900">SOUL Persona Configuration</h3>
             <button
+              type="button"
               onClick={() => refreshConfig('soul')}
               className="text-sm text-primary-500 hover:text-primary-600 transition-colors disabled:opacity-50"
               disabled={refreshingComponent === 'soul'}>
@@ -225,6 +228,7 @@ const AIPanel = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-stone-900">TOOLS Configuration</h3>
             <button
+              type="button"
               onClick={() => refreshConfig('tools')}
               className="text-sm text-primary-500 hover:text-primary-600 transition-colors disabled:opacity-50"
               disabled={refreshingComponent === 'tools'}>
@@ -279,6 +283,7 @@ const AIPanel = () => {
         <section className="space-y-4">
           <div className="flex items-center justify-center">
             <button
+              type="button"
               onClick={() => refreshConfig('all')}
               className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
               disabled={refreshingComponent === 'all'}>

@@ -387,10 +387,10 @@ export default function Skills() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     configurableChannels,
-    channelConnections,
     composioCatalogToolkits,
     composioConnectionByToolkit,
     discoveredSkills,
+    bestChannelStatus,
   ]);
 
   const availableCategories: SkillCategory[] = useMemo(() => {
@@ -518,14 +518,14 @@ export default function Skills() {
                               ctaVariant={screenIntelligenceStatus.ctaVariant}
                               onCtaClick={() => {
                                 if (screenIntelligenceStatus.platformUnsupported) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 if (
                                   screenIntelligenceStatus.connectionStatus === 'connected' ||
                                   screenIntelligenceStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setScreenIntelligenceModalOpen(true);
@@ -552,7 +552,7 @@ export default function Skills() {
                                   autocompleteStatus.connectionStatus === 'connected' ||
                                   autocompleteStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setAutocompleteModalOpen(true);
@@ -579,7 +579,7 @@ export default function Skills() {
                                   voiceStatus.connectionStatus === 'connecting' ||
                                   voiceStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setVoiceModalOpen(true);
@@ -594,12 +594,13 @@ export default function Skills() {
                             title={item.name}
                             description={item.description}
                             ctaLabel="Settings"
-                            onCtaClick={() => navigate(item.route!)}
+                            onCtaClick={() => item.route && navigate(item.route)}
                           />
                         );
                       }
                       if (item.kind === 'channel') {
-                        const status = item.channelStatus!;
+                        const status = item.channelStatus;
+                        if (!status) return null;
                         return (
                           <UnifiedSkillCard
                             key={item.id}
@@ -610,9 +611,11 @@ export default function Skills() {
                             statusLabel={channelStatusLabel(status)}
                             statusColor={channelStatusColor(status)}
                             ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
-                            onCtaClick={() => setChannelModalDef(item.channelDef!)}
+                            onCtaClick={() =>
+                              item.channelDef && setChannelModalDef(item.channelDef)
+                            }
                             badge={
-                              isMessagingId(item.channelDef!.id) ? (
+                              item.channelDef?.id && isMessagingId(item.channelDef.id) ? (
                                 <ConnectionBadge kind="messaging" />
                               ) : undefined
                             }
@@ -620,7 +623,8 @@ export default function Skills() {
                         );
                       }
                       if (item.kind === 'discovered') {
-                        const skill = item.discoveredSkill!;
+                        const skill = item.discoveredSkill;
+                        if (!skill) return null;
                         const scopeLabel = skill.legacy
                           ? 'Legacy'
                           : skill.scope === 'user'
@@ -693,7 +697,8 @@ export default function Skills() {
                         );
                       }
                       if (item.kind === 'composio') {
-                        const meta = item.composioToolkit!;
+                        const meta = item.composioToolkit;
+                        if (!meta) return null;
                         const connection = item.composioConnection;
                         const hasComposioError = Boolean(composioError);
                         const state = hasComposioError ? 'error' : deriveComposioState(connection);

@@ -204,6 +204,7 @@ const TeamPanel = () => {
         <div className="flex items-center gap-2 flex-shrink-0">
           {canManage && (
             <button
+              type="button"
               onClick={() => navigateToTeamManagement(team._id)}
               className="px-2.5 py-1 text-xs font-medium rounded-lg bg-primary-50 hover:bg-primary-100 text-primary-600 transition-colors">
               Manage Team
@@ -211,6 +212,7 @@ const TeamPanel = () => {
           )}
           {!isActive && (
             <button
+              type="button"
               onClick={() => handleSwitchTeam(team._id)}
               disabled={isSwitching === team._id}
               className="px-2.5 py-1 text-xs font-medium rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors disabled:opacity-50">
@@ -219,6 +221,7 @@ const TeamPanel = () => {
           )}
           {canLeave && (
             <button
+              type="button"
               onClick={() => handleLeaveTeam(entry)}
               disabled={isLeaving === team._id}
               className="px-2.5 py-1 text-xs font-medium rounded-lg text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50">
@@ -300,6 +303,7 @@ const TeamPanel = () => {
                   className="flex-1 px-3 py-2 text-sm bg-white border border-stone-200 rounded-xl text-stone-900 placeholder-stone-400 focus:outline-none focus:border-primary-500/50"
                 />
                 <button
+                  type="button"
                   onClick={handleCreateTeam}
                   disabled={isCreating || !newTeamName.trim()}
                   className="px-4 py-2 text-xs font-medium rounded-xl bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -323,6 +327,7 @@ const TeamPanel = () => {
                   className="flex-1 px-3 py-2 text-sm bg-white border border-stone-200 rounded-xl text-stone-900 placeholder-stone-400 focus:outline-none focus:border-primary-500/50 font-mono"
                 />
                 <button
+                  type="button"
                   onClick={handleJoinTeam}
                   disabled={isJoining || !joinCode.trim()}
                   className="px-4 py-2 text-xs font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -358,12 +363,14 @@ const TeamPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setTeamToLeave(null)}
                       disabled={isLeaving === teamToLeave.team._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={confirmLeaveTeam}
                       disabled={isLeaving === teamToLeave.team._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50">

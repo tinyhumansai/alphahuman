@@ -23,6 +23,7 @@ export default function BillingHistoryTab({
         <div className="flex items-center justify-between gap-3">
           {hasActive && (
             <button
+              type="button"
               onClick={onManageSubscription}
               className="text-sm font-semibold text-primary-600 transition-colors hover:text-primary-700">
               Open billing portal

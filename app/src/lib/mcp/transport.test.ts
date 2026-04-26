@@ -23,7 +23,7 @@ function makeSocket(overrides: { connected?: boolean } = {}) {
     emit: vi.fn(),
     on(event: string, handler: EventHandler) {
       if (!handlers.has(event)) handlers.set(event, []);
-      handlers.get(event)!.push(handler);
+      handlers.get(event)?.push(handler);
     },
     off(event: string, handler: EventHandler) {
       const list = handlers.get(event) ?? [];

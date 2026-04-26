@@ -89,6 +89,7 @@ export default function UsageLimitModal({
 
         <div className="flex flex-col gap-2">
           <button
+            type="button"
             onClick={() => {
               onClose();
               navigate('/settings/billing');
@@ -97,6 +98,7 @@ export default function UsageLimitModal({
             Upgrade Plan
           </button>
           <button
+            type="button"
             onClick={onClose}
             className="w-full py-2 text-sm text-stone-500 hover:text-stone-700 transition-colors">
             Not Now

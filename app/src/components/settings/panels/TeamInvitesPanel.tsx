@@ -120,6 +120,7 @@ const TeamInvitesPanel = () => {
           {/* Generate button */}
           {isAdmin && (
             <button
+              type="button"
               onClick={handleGenerate}
               disabled={isGenerating}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-50">
@@ -239,6 +240,7 @@ const TeamInvitesPanel = () => {
                       <div className="flex items-center gap-1.5">
                         {/* Copy */}
                         <button
+                          type="button"
                           onClick={() => handleCopy(invite.code, invite._id)}
                           disabled={status !== 'active'}
                           className={`p-1.5 rounded-lg transition-colors ${
@@ -278,6 +280,7 @@ const TeamInvitesPanel = () => {
                         {/* Revoke - only for active invites */}
                         {isAdmin && status === 'active' && (
                           <button
+                            type="button"
                             onClick={() => handleRevoke(invite._id, invite.code)}
                             disabled={revokingId === invite._id}
                             className="p-1.5 rounded-lg text-stone-500 hover:text-coral-400 hover:bg-coral-500/10 transition-colors disabled:opacity-50"
@@ -362,12 +365,14 @@ const TeamInvitesPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setInviteToRevoke(null)}
                       disabled={revokingId === inviteToRevoke.id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={confirmRevokeInvite}
                       disabled={revokingId === inviteToRevoke.id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-coral-500 hover:bg-coral-600 text-white transition-colors disabled:opacity-50">

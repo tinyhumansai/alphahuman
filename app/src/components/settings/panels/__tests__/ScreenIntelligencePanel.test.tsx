@@ -156,10 +156,11 @@ describe('ScreenIntelligencePanel', () => {
   });
 
   it('shows permission restart guidance and unsupported-platform messaging', async () => {
+    if (!baseState.status) throw new Error('Test setup failed: baseState.status is null');
     renderPanel({
       ...baseState,
       status: {
-        ...baseState.status!,
+        ...baseState.status,
         platform_supported: false,
         permissions: {
           screen_recording: 'denied',

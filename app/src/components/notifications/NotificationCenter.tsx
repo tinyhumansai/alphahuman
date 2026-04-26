@@ -111,6 +111,7 @@ const NotificationCenter = () => {
         </div>
         {filteredUnreadCount > 0 && (
           <button
+            type="button"
             onClick={() => {
               void handleMarkAllRead();
             }}
@@ -124,6 +125,7 @@ const NotificationCenter = () => {
       {allProviders.length > 1 && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-stone-100 overflow-x-auto">
           <button
+            type="button"
             onClick={() => setSelectedProvider(undefined)}
             className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
               selectedProvider === undefined
@@ -134,6 +136,7 @@ const NotificationCenter = () => {
           </button>
           {allProviders.map(p => (
             <button
+              type="button"
               key={p}
               onClick={() => setSelectedProvider(p === selectedProvider ? undefined : p)}
               className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${

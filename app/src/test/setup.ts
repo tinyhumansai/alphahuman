@@ -12,7 +12,6 @@ import { cleanup } from '@testing-library/react';
 import type React from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
-// @ts-expect-error - test-only JS module outside app/src
 import {
   clearRequestLog,
   resetMockBehavior,

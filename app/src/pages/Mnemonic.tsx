@@ -47,7 +47,7 @@ const Mnemonic = () => {
     setError(null);
     setImportValid(null);
     setImportWords(Array(IMPORT_SLOTS_INITIAL).fill(''));
-  }, [mode]);
+  }, []);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -214,6 +214,7 @@ const Mnemonic = () => {
 
               {/* Copy Button */}
               <button
+                type="button"
                 onClick={handleCopy}
                 className="w-full flex items-center justify-center gap-2 border border-stone-200 hover:bg-stone-50 text-stone-700 font-medium py-2.5 text-sm rounded-xl transition-all duration-200 mb-3">
                 {copied ? (
@@ -249,6 +250,7 @@ const Mnemonic = () => {
 
               {/* Import existing link */}
               <button
+                type="button"
                 onClick={() => setMode('import')}
                 className="w-full text-center text-sm text-primary-500 hover:text-primary-600 transition-colors mb-3">
                 I already have a recovery phrase
@@ -325,6 +327,7 @@ const Mnemonic = () => {
 
               {/* Back to generate link */}
               <button
+                type="button"
                 onClick={() => setMode('generate')}
                 className="w-full text-center text-sm text-primary-500 hover:text-primary-600 transition-colors mb-3">
                 Generate a new recovery phrase instead
@@ -336,6 +339,7 @@ const Mnemonic = () => {
 
           {/* Continue Button */}
           <button
+            type="button"
             onClick={handleContinue}
             disabled={!canContinue || loading}
             className="w-full flex items-center justify-center space-x-3 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 text-sm rounded-xl transition-all duration-300 hover:shadow-medium">

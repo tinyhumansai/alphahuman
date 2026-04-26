@@ -218,8 +218,6 @@ export const useSettingsNavigation = (): SettingsNavigationHook => {
       case 'notifications':
       case 'notification-routing':
         return [settingsCrumb];
-
-      case 'home':
       default:
         return [];
     }

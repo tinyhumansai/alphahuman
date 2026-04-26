@@ -202,7 +202,7 @@ export const persistReaction = createAsyncThunk(
     const message = stored.find(e => e.id === payload.messageId);
     if (!message) return rejectWithValue('Message not found');
 
-    const prev = (message.extraMetadata['myReactions'] as string[] | undefined) ?? [];
+    const prev = (message.extraMetadata.myReactions as string[] | undefined) ?? [];
     const idx = prev.indexOf(payload.emoji);
     const next = idx >= 0 ? prev.filter(e => e !== payload.emoji) : [...prev, payload.emoji];
     const extraMetadata = { ...message.extraMetadata, myReactions: next };

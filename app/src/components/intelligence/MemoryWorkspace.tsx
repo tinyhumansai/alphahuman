@@ -357,6 +357,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               void Promise.all([loadWorkspace(), refetchStats()]);
             }}
@@ -394,6 +395,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
       {/* Collapsible: Files & Management */}
       <div className="rounded-xl border border-stone-200 bg-stone-50">
         <button
+          type="button"
           onClick={() => setManageOpen(!manageOpen)}
           className="w-full flex items-center justify-between p-4 text-left hover:bg-stone-100 transition-colors rounded-xl">
           <div className="flex items-center gap-2">
@@ -424,6 +426,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
                   ) : (
                     memoryFilesList.map(filePath => (
                       <button
+                        type="button"
                         key={filePath}
                         onClick={() => setSelectedFile(filePath)}
                         className={`w-full text-left px-2 py-1.5 rounded text-xs mb-1 border transition-colors ${
@@ -479,12 +482,14 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
                 />
                 <div className="flex gap-2 mb-3">
                   <button
+                    type="button"
                     onClick={() => void handleQueryNamespace()}
                     disabled={!selectedNamespace || !queryInput.trim() || queryLoading}
                     className="px-3 py-1.5 text-xs rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-stone-200 disabled:opacity-40">
                     {queryLoading ? 'Querying...' : 'Run Query'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => void handleRecallNamespace()}
                     disabled={!selectedNamespace || recallLoading}
                     className="px-3 py-1.5 text-xs rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-stone-200 disabled:opacity-40">
@@ -501,6 +506,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
                   placeholder="Store a durable user fact, preference, or decision"
                 />
                 <button
+                  type="button"
                   onClick={() => void handleSaveMemoryNote()}
                   disabled={!memoryNote.trim() || memoryNoteSaving}
                   className="px-3 py-1.5 text-xs rounded-lg border border-primary-500/40 bg-primary-500/20 hover:bg-primary-500/30 text-primary-200 disabled:opacity-40">
@@ -549,6 +555,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
                         </div>
                       </div>
                       <button
+                        type="button"
                         onClick={() => void handleDeleteMemoryDoc(doc)}
                         className="text-[11px] px-2 py-1 rounded border border-coral-500/30 text-coral-300 hover:bg-coral-500/10 shrink-0">
                         Delete

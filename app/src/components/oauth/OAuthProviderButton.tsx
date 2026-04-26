@@ -56,6 +56,7 @@ const OAuthProviderButton = ({
 
   return (
     <button
+      type="button"
       onClick={handleOAuthLogin}
       disabled={isDisabled}
       className={`flex min-w-0 items-center justify-center space-x-3 ${provider.color} ${provider.hoverColor} text-sm font-medium py-2.5 px-4 rounded-xl transition-all duration-300 hover:shadow-medium hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>

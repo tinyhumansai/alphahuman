@@ -98,7 +98,7 @@ function WelcomeThinkingTypewriter() {
     }, delayMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [text.length, visibleChars]);
+  }, [visibleChars]);
 
   return (
     <p className="flex items-center text-sm text-stone-600 font-mono tracking-tight">
@@ -240,7 +240,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+  }, [dispatch, handleCreateNewThread]);
 
   useEffect(() => {
     if (selectedThreadId) {
@@ -268,7 +268,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     // handleCreateNewThread is stable for the component lifetime (only
     // uses `dispatch`); the ref guards against duplicate fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatOnboardingCompleted]);
+  }, [chatOnboardingCompleted, handleCreateNewThread]);
 
   const location = useLocation();
   const { containerRef: messagesContainerRef, endRef: messagesEndRef } = useStickToBottom(
@@ -344,7 +344,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     // armSilenceTimer is stable (refs + dispatch); depending on the
     // selector reference is enough to rearm on every progress event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inferenceStatusByThread]);
+  }, [inferenceStatusByThread, armSilenceTimer]);
 
   useEffect(() => {
     if (
@@ -812,6 +812,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
           <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
             <h2 className="text-sm font-semibold text-stone-700">Threads</h2>
             <button
+              type="button"
               onClick={() => void handleCreateNewThread()}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 transition-colors"
               title="New thread">
@@ -861,6 +862,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                       {thread.title}
                     </p>
                     <button
+                      type="button"
                       onClick={e => {
                         e.stopPropagation();
                         setDeleteModal({
@@ -924,6 +926,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
             {!welcomeLocked && (
               <button
+                type="button"
                 onClick={() => setShowSidebar(prev => !prev)}
                 className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 transition-colors"
                 title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}>
@@ -943,6 +946,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
             <TokenUsagePill />
             {!welcomeLocked && (
               <button
+                type="button"
                 onClick={() => void handleCreateNewThread()}
                 className="px-2.5 py-1 rounded-lg text-xs font-medium text-primary-600 hover:bg-primary-50 transition-colors"
                 title="New thread (/new)">
@@ -981,6 +985,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               <p className="text-sm text-stone-400 mb-1">Failed to load messages</p>
               <p className="text-xs text-stone-600 mb-3 text-center">{messagesError}</p>
               <button
+                type="button"
                 onClick={() => window.location.reload()}
                 className="text-xs text-primary-400 hover:text-primary-300 transition-colors">
                 Reload
@@ -1051,6 +1056,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                         </div>
                       )}
                       <button
+                        type="button"
                         onClick={() => handleCopyMessage(msg.id, msg.content)}
                         className={`absolute -top-1 ${msg.sender === 'user' ? '-left-8' : '-right-8'} p-1 rounded-md opacity-0 group-hover/msg:opacity-100 hover:bg-stone-100 text-stone-400 hover:text-stone-600 transition-all`}
                         title="Copy message">
@@ -1093,6 +1099,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                           <div className="mt-1 flex items-center gap-1 flex-wrap min-h-[20px]">
                             {myReactions.map(emoji => (
                               <button
+                                type="button"
                                 key={emoji}
                                 onClick={() =>
                                   selectedThreadId &&
@@ -1114,6 +1121,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                                 <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-stone-100">
                                   {['👍', '❤️', '😂', '🔥', '👀', '🎯'].map(emoji => (
                                     <button
+                                      type="button"
                                       key={emoji}
                                       onClick={() => {
                                         if (selectedThreadId) {
@@ -1133,6 +1141,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                                     </button>
                                   ))}
                                   <button
+                                    type="button"
                                     onClick={() => setReactionPickerMsgId(null)}
                                     className="ml-0.5 text-stone-600 hover:text-stone-400 text-xs px-0.5">
                                     ✕
@@ -1140,6 +1149,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                                 </div>
                               ) : (
                                 <button
+                                  type="button"
                                   onClick={() => setReactionPickerMsgId(msg.id)}
                                   className="opacity-0 group-hover/msg:opacity-100 flex items-center px-1.5 py-0.5 rounded-full bg-stone-50 hover:bg-stone-200 text-stone-500 hover:text-stone-300 text-xs transition-all"
                                   title="Add reaction">
@@ -1247,6 +1257,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               {isSending && rustChat && (
                 <div className="flex justify-start px-1">
                   <button
+                    type="button"
                     onClick={() => {
                       if (selectedThreadId) void chatCancel(selectedThreadId);
                     }}
@@ -1321,6 +1332,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   </div>
                   {shouldShowBudgetCompletedMessage && (
                     <button
+                      type="button"
                       onClick={() => navigate('/settings/billing')}
                       className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
                       Top Up
@@ -1409,6 +1421,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                 {(sendError.code === 'stt_not_ready' ||
                   sendError.code === 'voice_transcription') && (
                   <button
+                    type="button"
                     onClick={() => {
                       setSendError(null);
                       navigate('/settings/local-model');
@@ -1418,6 +1431,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => setSendError(null)}
                   className="text-xs text-stone-500 hover:text-stone-700 transition-colors">
                   Dismiss
@@ -1448,6 +1462,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                 {/* Voice input mic hidden per #717 (inputMode='voice' path retained). */}
               </div>
               <button
+                type="button"
                 onClick={() => {
                   void handleSendMessage();
                 }}

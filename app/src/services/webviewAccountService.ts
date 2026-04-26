@@ -391,7 +391,7 @@ async function persistWhatsappChatDay(accountId: string, ingest: IngestPayload):
 
   const transcriptLines = sorted.map(m => {
     const tsSec = m.timestamp ?? 0;
-    const hhmm = tsSec ? new Date(tsSec * 1000).toISOString().slice(11, 16) + 'Z' : '--:--';
+    const hhmm = tsSec ? `${new Date(tsSec * 1000).toISOString().slice(11, 16)}Z` : '--:--';
     const who = m.fromMe ? 'me' : (m.from ?? '?');
     const body = (m.body ?? '').replace(/\r?\n/g, ' ').trim();
     const kind = m.type && m.type !== 'chat' ? ` [${m.type}]` : '';
@@ -790,7 +790,7 @@ function renderTranscript(
   }
 
   const lines = segments.map(seg => {
-    const hhmm = new Date(seg.startTs).toISOString().slice(11, 19) + 'Z';
+    const hhmm = `${new Date(seg.startTs).toISOString().slice(11, 19)}Z`;
     return `**${seg.speaker}** ${hhmm}\n${seg.text}\n`;
   });
 

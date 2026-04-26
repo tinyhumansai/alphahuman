@@ -101,7 +101,7 @@ describe('edge cases', () => {
   });
 
   it('handles exactly 81 characters with a paragraph break — may split', () => {
-    const text = 'a'.repeat(40) + '\n\n' + 'b'.repeat(40);
+    const text = `${'a'.repeat(40)}\n\n${'b'.repeat(40)}`;
     const result = segmentMessage(text);
     // Both paragraphs are >= MIN_SEGMENT_CHARS so should split
     expect(result.length).toBeGreaterThanOrEqual(1);

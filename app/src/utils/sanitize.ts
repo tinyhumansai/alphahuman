@@ -108,7 +108,7 @@ export function sanitizeForLogging(data: unknown): unknown {
         ...(typeof sanitized === 'object' && sanitized !== null
           ? { _truncated: true, _size: jsonStr.length }
           : {}),
-        _preview: jsonStr.substring(0, 200) + '...',
+        _preview: `${jsonStr.substring(0, 200)}...`,
       };
     }
 
@@ -140,7 +140,7 @@ export function createSafeLogData(
     if (jsonStr.length <= 500) {
       safe.data = sanitized;
     } else {
-      safe.dataPreview = jsonStr.substring(0, 200) + '...';
+      safe.dataPreview = `${jsonStr.substring(0, 200)}...`;
     }
   } else {
     safe.hasData = false;

@@ -176,7 +176,7 @@ export default function ComposioConnectModal({
     // intentionally run once on mount — startPolling has stable deps and
     // re-running this on every identity change would restart the poller.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startPolling, initialState]);
 
   const handleConnect = useCallback(async () => {
     setPhase('authorizing');
@@ -305,7 +305,9 @@ export default function ComposioConnectModal({
           animationFillMode: 'both',
         }}
         tabIndex={-1}
-        onClick={e => e.stopPropagation()}>
+        role="presentation"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}>
         {/* Header */}
         <div className="p-4 border-b border-stone-200">
           <div className="flex items-start justify-between">

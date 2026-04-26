@@ -45,6 +45,7 @@ function ConnectionOptionRow({
 
   return (
     <button
+      type="button"
       onClick={() => onConnect(option)}
       disabled={isDisabled}
       className={`group w-full flex items-center justify-between p-4 bg-white text-left transition-colors duration-150 ${

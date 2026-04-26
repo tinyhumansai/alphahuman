@@ -636,7 +636,13 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
       rtLog('unsubscribe_chat_events');
       cleanup();
     };
-  }, [dispatch, resolveVisibleThreadForProactive, socketStatus]);
+  }, [
+    dispatch,
+    resolveVisibleThreadForProactive,
+    socketStatus,
+    proactiveMessageDigest,
+    markChatEventSeen,
+  ]);
 
   return <>{children}</>;
 };

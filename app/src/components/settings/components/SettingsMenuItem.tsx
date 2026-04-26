@@ -30,6 +30,7 @@ const SettingsMenuItem = ({
 
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`w-full flex items-center justify-between py-3 px-4 bg-white ${borderClasses} hover:bg-stone-50 transition-all duration-200 text-left ${roundedClasses} focus:outline-none focus:ring-0 focus:border-inherit`}>
       <div className={`w-5 h-5 opacity-60 flex-shrink-0 mr-3 ${iconColor}`}>{icon}</div>

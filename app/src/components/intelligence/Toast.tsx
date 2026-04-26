@@ -104,6 +104,7 @@ export function Toast({ notification, onRemove }: ToastProps) {
         {/* Action button */}
         {notification.action && (
           <button
+            type="button"
             onClick={notification.action.handler}
             className="text-xs font-medium underline hover:no-underline flex-shrink-0">
             {notification.action.label}
@@ -112,6 +113,7 @@ export function Toast({ notification, onRemove }: ToastProps) {
 
         {/* Close button */}
         <button
+          type="button"
           onClick={handleRemove}
           className="flex-shrink-0 text-white/70 hover:text-white transition-colors">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

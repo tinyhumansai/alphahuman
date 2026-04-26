@@ -85,15 +85,15 @@
 
   /* Complete focus outline suppression - no borders, no rings, no outlines */
   * {
-    outline: none !important;
-    -webkit-tap-highlight-color: transparent !important;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   *:focus {
-    outline: none !important;
-    box-shadow: none !important;
-    border: inherit !important;
-    border-color: inherit !important;
+    outline: none;
+    box-shadow: none;
+    border: inherit;
+    border-color: inherit;
   }
 
   /* Specific overrides for common elements that might show blue outlines */
@@ -104,9 +104,9 @@
   select:focus,
   [role="button"]:focus,
   [tabindex]:focus {
-    outline: none !important;
-    box-shadow: none !important;
-    border-color: inherit !important;
+    outline: none;
+    box-shadow: none;
+    border-color: inherit;
   }
 
   /* Smooth scrolling */
@@ -422,7 +422,7 @@
   .cmd-palette-exit,
   .cmd-help-enter,
   .cmd-help-exit {
-    animation: none !important;
-    transition: none !important;
+    animation: none;
+    transition: none;
   }
 }

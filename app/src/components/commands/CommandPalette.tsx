@@ -33,7 +33,7 @@ export default function CommandPalette({ open, onOpenChange }: Props) {
     for (const a of actions) {
       const g = a.group ?? 'Actions';
       if (!byGroup.has(g)) byGroup.set(g, []);
-      byGroup.get(g)!.push(a);
+      byGroup.get(g)?.push(a);
     }
     const order = ['Navigation', 'Help'];
     const keys = [...byGroup.keys()].sort((a, b) => {
@@ -44,7 +44,11 @@ export default function CommandPalette({ open, onOpenChange }: Props) {
       if (bi === -1) return -1;
       return ai - bi;
     });
-    return keys.map(k => [k, byGroup.get(k)!] as const);
+    return keys.map(k => {
+      const group = byGroup.get(k);
+      if (!group) throw new Error(`Group ${k} not found`);
+      return [k, group] as const;
+    });
   }, [actions]);
 
   function runAction(action: RegisteredAction): void {

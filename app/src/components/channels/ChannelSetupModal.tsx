@@ -77,7 +77,9 @@ export default function ChannelSetupModal({ definition, onClose }: ChannelSetupM
           animationFillMode: 'both',
         }}
         tabIndex={-1}
-        onClick={e => e.stopPropagation()}>
+        role="presentation"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}>
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-stone-200">
           <div className="flex items-start justify-between">
@@ -94,6 +96,7 @@ export default function ChannelSetupModal({ definition, onClose }: ChannelSetupM
               <p className="text-xs text-stone-500 mt-1.5">{definition.description}</p>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-1 text-stone-400 hover:text-stone-900 transition-colors rounded-lg hover:bg-stone-100 flex-shrink-0">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

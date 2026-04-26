@@ -72,7 +72,7 @@ const NotificationRoutingPanel = () => {
       setLoadedProviders(nextLoadedProviders);
       setLoadErrors(nextLoadErrors);
     });
-  }, [providers]);
+  }, []);
 
   const updateSetting = async (
     provider: string,

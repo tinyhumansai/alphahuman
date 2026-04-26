@@ -32,7 +32,9 @@ export function ConfirmationModal({ modal, onClose }: ConfirmationModalProps) {
       onClick={handleCancel}>
       <div
         className="bg-white rounded-2xl max-w-md w-full shadow-large border border-stone-200 animate-slide-up"
-        onClick={e => e.stopPropagation()}>
+        role="presentation"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}>
         {/* Header */}
         <div className="p-6 pb-4">
           <div className="flex items-center gap-3">
@@ -77,11 +79,13 @@ export function ConfirmationModal({ modal, onClose }: ConfirmationModalProps) {
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 p-6 pt-4 border-t border-stone-200">
           <button
+            type="button"
             onClick={handleCancel}
             className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors">
             {modal.cancelText || 'Cancel'}
           </button>
           <button
+            type="button"
             onClick={handleConfirm}
             className={`
               px-4 py-2 text-sm font-medium rounded-lg transition-colors

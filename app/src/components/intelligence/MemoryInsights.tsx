@@ -184,7 +184,11 @@ export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
 
     return categoryOrder
       .filter(cat => (buckets.get(cat)?.length ?? 0) > 0)
-      .map(cat => ({ category: cat, ...CATEGORY_CONFIG[cat], items: buckets.get(cat)! }));
+      .map(cat => {
+        const items = buckets.get(cat);
+        if (!items) throw new Error(`Category ${cat} not found in buckets`);
+        return { category: cat, ...CATEGORY_CONFIG[cat], items };
+      });
   }, [relations]);
 
   if (loading) {
@@ -234,6 +238,7 @@ export function MemoryInsights({ relations, loading }: MemoryInsightsProps) {
                 isExpanded ? 'col-span-2 lg:col-span-3' : ''
               }`}>
               <button
+                type="button"
                 onClick={() => setExpandedCategory(isExpanded ? null : group.category)}
                 className="flex items-center gap-2 w-full text-left mb-2">
                 <div

@@ -58,7 +58,11 @@ describe('useHotkey', () => {
     function Inner() {
       const [n, setN] = useState(0);
       useHotkey('k', () => calls.push(`v${n}`));
-      return <button onClick={() => setN(v => v + 1)}>bump</button>;
+      return (
+        <button type="button" onClick={() => setN(v => v + 1)}>
+          bump
+        </button>
+      );
     }
     const { getByText } = render(
       <Wrapper frame={frame}>

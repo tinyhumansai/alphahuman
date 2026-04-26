@@ -148,7 +148,7 @@ const LocalModelDebugPanel = () => {
       void loadStatus();
     }, 1500);
     return () => clearInterval(timer);
-  }, []);
+  }, [loadStatus]);
 
   const triggerDownload = async (force: boolean) => {
     setIsTriggeringDownload(true);

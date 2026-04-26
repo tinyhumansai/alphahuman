@@ -49,6 +49,7 @@ const RailButton = ({
   children,
 }: RailButtonProps) => (
   <button
+    type="button"
     onClick={onClick}
     onContextMenu={onContextMenu}
     className={`group relative flex h-11 w-11 items-center justify-center rounded-xl transition-all ${
@@ -224,6 +225,7 @@ const Accounts = () => {
           ))}
 
           <button
+            type="button"
             onClick={() => setAddOpen(true)}
             className="group relative mt-2 flex h-11 w-11 items-center justify-center rounded-xl border border-dashed border-stone-300 text-stone-400 hover:bg-stone-50 hover:text-stone-600"
             aria-label="Add app">
@@ -285,6 +287,7 @@ const Accounts = () => {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onMouseDown={e => e.stopPropagation()}>
           <button
+            type="button"
             onClick={() => void handleLogout(ctxMenu.accountId)}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-coral-600 hover:bg-stone-100">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

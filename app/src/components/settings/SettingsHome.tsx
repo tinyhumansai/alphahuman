@@ -332,6 +332,7 @@ const SettingsHome = () => {
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => {
                   setShowLogoutAndClearModal(false);
                   setError(null);
@@ -341,6 +342,7 @@ const SettingsHome = () => {
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleLogoutAndClearData}
                 disabled={isLoading}
                 className="flex-1 px-4 py-2 rounded-sm bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2">

@@ -191,7 +191,7 @@ const AutocompleteDebugPanel = () => {
     void load();
     void loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load, loadHistory]);
 
   // -------------------------------------------------------------------------
   // Status polling
@@ -230,7 +230,7 @@ const AutocompleteDebugPanel = () => {
     }, 1200);
     return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshStatus]);
 
   // -------------------------------------------------------------------------
   // Runtime controls

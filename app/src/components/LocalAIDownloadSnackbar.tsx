@@ -115,6 +115,7 @@ const LocalAIDownloadSnackbar = () => {
     return createPortal(
       <div className="fixed bottom-4 right-4 z-[9998] animate-fade-up">
         <button
+          type="button"
           onClick={handleToggleCollapse}
           className="flex items-center gap-2 bg-stone-900 border border-stone-700/50 rounded-full px-3 py-2 shadow-large hover:border-stone-600 transition-colors"
           aria-label="Expand download progress">
@@ -152,6 +153,7 @@ const LocalAIDownloadSnackbar = () => {
           </div>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={handleToggleCollapse}
               className="p-1 text-stone-500 hover:text-stone-300 transition-colors"
               aria-label="Collapse download progress">
@@ -160,6 +162,7 @@ const LocalAIDownloadSnackbar = () => {
               </svg>
             </button>
             <button
+              type="button"
               onClick={handleDismiss}
               className="p-1 text-stone-500 hover:text-stone-300 transition-colors"
               aria-label="Dismiss download notification">

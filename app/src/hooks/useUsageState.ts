@@ -44,7 +44,7 @@ export function useUsageState(): UsageState {
   const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
   const [currentPlan, setCurrentPlan] = useState<CurrentPlanData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [fetchCount, setFetchCount] = useState(0);
+  const [_fetchCount, setFetchCount] = useState(0);
 
   const refresh = useCallback(() => {
     _cache = null;
@@ -71,7 +71,7 @@ export function useUsageState(): UsageState {
     return () => {
       cancelled = true;
     };
-  }, [fetchCount]);
+  }, []);
 
   const currentTier: PlanTier = currentPlan?.plan ?? 'FREE';
   const isFreeTier = currentTier === 'FREE';

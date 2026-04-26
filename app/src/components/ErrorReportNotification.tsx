@@ -116,6 +116,7 @@ function NotificationCard({
 
         {/* Close button */}
         <button
+          type="button"
           onClick={handleDismiss}
           className="flex-shrink-0 p-1 text-stone-500 hover:text-stone-300 transition-colors rounded"
           aria-label="Dismiss error notification">
@@ -128,6 +129,7 @@ function NotificationCard({
       {/* Expand toggle */}
       {report.sentryEvent && (
         <button
+          type="button"
           onClick={() => setExpanded(prev => !prev)}
           className="text-xs text-stone-500 hover:text-stone-300 transition-colors px-4 pb-2">
           {expanded ? 'Hide details' : 'View details'}
@@ -146,6 +148,7 @@ function NotificationCard({
       {/* Actions */}
       <div className="flex items-center justify-end gap-2 px-4 pb-4">
         <button
+          type="button"
           onClick={handleDismiss}
           className="bg-stone-700 hover:bg-stone-600 text-white text-xs rounded-lg px-3 py-1.5 transition-colors">
           Dismiss
@@ -157,6 +160,7 @@ function NotificationCard({
           <span className="text-xs text-stone-500 px-3 py-1.5">Console only</span>
         ) : !analyticsEnabled ? (
           <button
+            type="button"
             disabled
             className="bg-stone-700/50 text-stone-500 text-xs rounded-lg px-3 py-1.5 cursor-not-allowed"
             title="Enable analytics in Settings to report errors">
@@ -164,6 +168,7 @@ function NotificationCard({
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleReport}
             className="bg-coral-500 hover:bg-coral-600 text-white text-xs rounded-lg px-3 py-1.5 transition-colors">
             Report

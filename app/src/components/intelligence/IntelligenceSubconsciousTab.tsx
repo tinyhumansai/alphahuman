@@ -200,6 +200,7 @@ export default function IntelligenceSubconsciousTab({
             </select>
           </div>
           <button
+            type="button"
             onClick={() => void handleRunTick()}
             disabled={triggering}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-stone-50 hover:bg-stone-100 disabled:opacity-40 border border-stone-200 rounded-lg text-stone-600 transition-colors">
@@ -255,18 +256,21 @@ export default function IntelligenceSubconsciousTab({
                   <div className="flex gap-2 ml-3 flex-shrink-0">
                     {isSkillRelated(esc.title, esc.description) ? (
                       <button
+                        type="button"
                         onClick={() => handleFixInSkills(esc.id)}
                         className="px-3 py-1.5 text-xs bg-primary-500 hover:bg-primary-600 text-white rounded-lg transition-colors">
                         Fix in Connections
                       </button>
                     ) : (
                       <button
+                        type="button"
                         onClick={() => void handleApproveEscalation(esc.id)}
                         className="px-3 py-1.5 text-xs bg-sage-500 hover:bg-sage-600 text-white rounded-lg transition-colors">
                         Go ahead
                       </button>
                     )}
                     <button
+                      type="button"
                       onClick={() => void handleDismissEscalation(esc.id)}
                       className="px-3 py-1.5 text-xs bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg transition-colors">
                       Skip

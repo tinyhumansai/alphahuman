@@ -141,7 +141,11 @@ const AgentChatPanel = () => {
               value={input}
               onChange={event => setInput(event.target.value)}
             />
-            <button className="btn btn-primary" onClick={sendMessage} disabled={sending}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={sendMessage}
+              disabled={sending}>
               {sending ? 'Sending…' : 'Send Message'}
             </button>
           </div>

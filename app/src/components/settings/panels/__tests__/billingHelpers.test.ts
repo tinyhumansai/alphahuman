@@ -23,7 +23,8 @@ describe('PLANS', () => {
   });
 
   it('should have FREE plan at $0', () => {
-    const free = PLANS.find(p => p.tier === 'FREE')!;
+    const free = PLANS.find(p => p.tier === 'FREE');
+    if (!free) throw new Error('Test setup failed: free not found');
     expect(free.monthlyPrice).toBe(0);
     expect(free.annualPrice).toBe(0);
     expect(free.discountPercent).toBe(0);
@@ -33,7 +34,8 @@ describe('PLANS', () => {
   });
 
   it('should have BASIC plan aligned with backend config', () => {
-    const basic = PLANS.find(p => p.tier === 'BASIC')!;
+    const basic = PLANS.find(p => p.tier === 'BASIC');
+    if (!basic) throw new Error('Test setup failed: basic not found');
     expect(basic.monthlyPrice).toBe(19.99);
     expect(basic.annualPrice).toBe(199);
     expect(basic.discountPercent).toBe(20);
@@ -43,7 +45,8 @@ describe('PLANS', () => {
   });
 
   it('should have PRO plan aligned with backend config', () => {
-    const pro = PLANS.find(p => p.tier === 'PRO')!;
+    const pro = PLANS.find(p => p.tier === 'PRO');
+    if (!pro) throw new Error('Test setup failed: pro not found');
     expect(pro.monthlyPrice).toBe(199.99);
     expect(pro.annualPrice).toBe(1799.99);
     expect(pro.discountPercent).toBe(40);
@@ -100,9 +103,12 @@ describe('buildPlanId', () => {
 });
 
 describe('displayPrice', () => {
-  const basicPlan = PLANS.find(p => p.tier === 'BASIC')!;
-  const proPlan = PLANS.find(p => p.tier === 'PRO')!;
-  const freePlan = PLANS.find(p => p.tier === 'FREE')!;
+  const basicPlan = PLANS.find(p => p.tier === 'BASIC');
+  if (!basicPlan) throw new Error('Test setup failed: basicPlan not found');
+  const proPlan = PLANS.find(p => p.tier === 'PRO');
+  if (!proPlan) throw new Error('Test setup failed: proPlan not found');
+  const freePlan = PLANS.find(p => p.tier === 'FREE');
+  if (!freePlan) throw new Error('Test setup failed: freePlan not found');
 
   describe('monthly billing', () => {
     it('should return $0 for FREE plan', () => {
@@ -151,9 +157,12 @@ describe('displayPrice', () => {
 });
 
 describe('annualSavings', () => {
-  const basicPlan = PLANS.find(p => p.tier === 'BASIC')!;
-  const proPlan = PLANS.find(p => p.tier === 'PRO')!;
-  const freePlan = PLANS.find(p => p.tier === 'FREE')!;
+  const basicPlan = PLANS.find(p => p.tier === 'BASIC');
+  if (!basicPlan) throw new Error('Test setup failed: basicPlan not found');
+  const proPlan = PLANS.find(p => p.tier === 'PRO');
+  if (!proPlan) throw new Error('Test setup failed: proPlan not found');
+  const freePlan = PLANS.find(p => p.tier === 'FREE');
+  if (!freePlan) throw new Error('Test setup failed: freePlan not found');
 
   it('should return null for FREE plan regardless of interval', () => {
     expect(annualSavings(freePlan, 'annual')).toBeNull();

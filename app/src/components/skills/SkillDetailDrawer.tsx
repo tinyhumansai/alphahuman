@@ -50,7 +50,6 @@ function scopePill(scope: SkillSummary['scope'], legacy: boolean): { label: stri
         // Amber tones for project-scope (trust-gated surface).
         cls: 'bg-amber-50 text-amber-700 border-amber-200',
       };
-    case 'legacy':
     default:
       return {
         label: 'Legacy',

@@ -38,7 +38,7 @@ class MiniGl {
               const t = new Date();
               t - _miniGl.lastDebugMsg > 1e3 && console.log('---'),
                 console.log(
-                  t.toLocaleTimeString() + Array(Math.max(0, 32 - e.length)).join(' ') + e + ': ',
+                  `${t.toLocaleTimeString() + Array(Math.max(0, 32 - e.length)).join(' ') + e}: `,
                   ...Array.from(arguments).slice(1)
                 ),
                 (_miniGl.lastDebugMsg = t);
@@ -99,11 +99,11 @@ class MiniGl {
                 ? Object.entries(uniforms).forEach(([name, uniform]) => {
                     this.attachUniforms(name, uniform);
                   })
-                : 'array' == uniforms.type
+                : 'array' === uniforms.type
                   ? uniforms.value.forEach((uniform, i) =>
                       this.attachUniforms(`${name}[${i}]`, uniform)
                     )
-                  : 'struct' == uniforms.type
+                  : 'struct' === uniforms.type
                     ? Object.entries(uniforms.value).forEach(([uniform, i]) =>
                         this.attachUniforms(`${name}.${uniform}`, i)
                       )
@@ -279,7 +279,7 @@ class MiniGl {
                 );
             }
             remove() {
-              _miniGl.meshes = _miniGl.meshes.filter(e => e != this);
+              _miniGl.meshes = _miniGl.meshes.filter(e => e !== this);
             }
           },
         },
@@ -378,7 +378,7 @@ function e(object, propertyName, val) {
 
 //Gradient object
 class Gradient {
-  constructor(...t) {
+  constructor(..._t) {
     e(this, 'el', void 0),
       e(this, 'cssVarRetries', 0),
       e(this, 'maxCssVarRetries', 200),
@@ -594,11 +594,11 @@ class Gradient {
       (this.mesh = new this.minigl.Mesh(this.geometry, this.material));
   }
   shouldSkipFrame(e) {
-    return !!window.document.hidden || !this.conf.playing || parseInt(e, 10) % 2 == 0 || void 0;
+    return !!window.document.hidden || !this.conf.playing || parseInt(e, 10) % 2 === 0 || void 0;
   }
   updateFrequency(e) {
     (this.freqX += e), (this.freqY += e);
-    if (this.uniforms && this.uniforms.u_global) {
+    if (this.uniforms?.u_global) {
       this.uniforms.u_global.value.noiseFreq.value = [this.freqX, this.freqY];
     }
   }

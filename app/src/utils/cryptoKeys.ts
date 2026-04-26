@@ -58,7 +58,7 @@ export function deriveEvmAddressFromMnemonic(mnemonic: string): string {
   const hash = keccak_256(pubKey.slice(1));
   const addressBytes = hash.slice(-20);
   const hex = bytesToHex(addressBytes);
-  return toChecksumAddress('0x' + hex);
+  return toChecksumAddress(`0x${hex}`);
 }
 
 /** Simple checksum: lowercase with 0x, then capitalize by hash. */

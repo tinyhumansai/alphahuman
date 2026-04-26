@@ -53,5 +53,6 @@ export function useRegisterAction(action: Action): void {
     action.repeat,
     action.preventDefault,
     frame,
+    action,
   ]);
 }

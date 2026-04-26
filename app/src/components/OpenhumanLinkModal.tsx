@@ -55,11 +55,14 @@ const OpenhumanLinkModal = () => {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={close}
+      onKeyDown={e => e.key === 'Escape' && close()}
       role="dialog"
       aria-modal="true">
       <div
+        role="document"
         className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden"
-        onClick={e => e.stopPropagation()}>
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3">
           <h2 className="text-sm font-semibold text-stone-900">{titleForPath(activePath)}</h2>
           <button
@@ -107,10 +110,15 @@ const MessagingSetupBridge = ({ onClose }: { onClose: () => void }) => {
     return (
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        onClick={onClose}>
+        onClick={onClose}
+        onKeyDown={e => e.key === 'Escape' && onClose()}
+        role="dialog"
+        aria-modal="true">
         <div
+          role="document"
           className="rounded-2xl bg-white p-6 text-sm text-stone-700 shadow-xl max-w-sm"
-          onClick={e => e.stopPropagation()}>
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}>
           <p>
             Telegram channel definition isn't available right now. Try again from Settings →
             Messaging.

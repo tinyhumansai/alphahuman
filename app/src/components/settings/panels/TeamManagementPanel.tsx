@@ -157,6 +157,7 @@ const TeamManagementPanel = () => {
 
             {/* Members */}
             <button
+              type="button"
               onClick={() => navigateToSettings(`team/manage/${teamId}/members`)}
               className="w-full flex items-center justify-between p-3 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 transition-all text-left">
               <div className="flex items-center gap-3">
@@ -193,6 +194,7 @@ const TeamManagementPanel = () => {
 
             {/* Invites */}
             <button
+              type="button"
               onClick={() => navigateToSettings(`team/manage/${teamId}/invites`)}
               className="w-full flex items-center justify-between p-3 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 transition-all text-left">
               <div className="flex items-center gap-3">
@@ -229,6 +231,7 @@ const TeamManagementPanel = () => {
 
             {/* Edit Team Settings */}
             <button
+              type="button"
               onClick={handleEditTeam}
               className="w-full flex items-center justify-between p-3 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 transition-all text-left">
               <div className="flex items-center gap-3">
@@ -266,6 +269,7 @@ const TeamManagementPanel = () => {
             {/* Delete Team */}
             {!teamEntry?.team.isPersonal && (
               <button
+                type="button"
                 onClick={() => setIsDeleteModalOpen(true)}
                 className="w-full flex items-center justify-between p-3 rounded-xl border border-coral-500/30 bg-coral-500/5 hover:bg-coral-500/10 transition-all text-left">
                 <div className="flex items-center gap-3">
@@ -331,12 +335,14 @@ const TeamManagementPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setIsEditModalOpen(false)}
                       disabled={isUpdating}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={handleUpdateTeam}
                       disabled={isUpdating || !editTeamName.trim()}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-50">
@@ -373,12 +379,14 @@ const TeamManagementPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setIsDeleteModalOpen(false)}
                       disabled={isDeleting}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={handleDeleteTeam}
                       disabled={isDeleting}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-coral-500 hover:bg-coral-600 text-white transition-colors disabled:opacity-50">

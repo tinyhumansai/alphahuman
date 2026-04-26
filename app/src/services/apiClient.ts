@@ -79,7 +79,7 @@ class ApiClient {
 
       // Handle non-JSON responses
       const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
+      if (!contentType?.includes('application/json')) {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }

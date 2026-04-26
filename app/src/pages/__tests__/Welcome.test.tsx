@@ -11,7 +11,9 @@ vi.mock('../../components/RotatingTetrahedronCanvas', () => ({
 }));
 
 vi.mock('../../components/oauth/OAuthProviderButton', () => ({
-  default: ({ provider }: { provider: { id: string } }) => <button>{provider.id}</button>,
+  default: ({ provider }: { provider: { id: string } }) => (
+    <button type="button">{provider.id}</button>
+  ),
 }));
 
 vi.mock('../../components/oauth/providerConfigs', () => ({

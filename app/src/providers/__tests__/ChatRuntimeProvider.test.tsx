@@ -90,7 +90,7 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
         listeners.onToolCall?.(event);
       });
 
-      const timeline = store.getState().chatRuntime.toolTimelineByThread['t1'] ?? [];
+      const timeline = store.getState().chatRuntime.toolTimelineByThread.t1 ?? [];
       expect(timeline).toHaveLength(1);
       expect(timeline[0]?.name).toBe('search');
       expect(timeline[0]?.status).toBe('running');
@@ -144,7 +144,7 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
         });
       });
 
-      const timeline = store.getState().chatRuntime.toolTimelineByThread['t1'] ?? [];
+      const timeline = store.getState().chatRuntime.toolTimelineByThread.t1 ?? [];
       expect(timeline).toHaveLength(2);
       expect(timeline.map(e => e.round)).toEqual([0, 1]);
     });

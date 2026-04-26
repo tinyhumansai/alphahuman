@@ -34,13 +34,17 @@ const AddAccountModal = ({ open, onClose, onPick, connectedProviders }: AddAccou
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      onClick={onClose}>
+      onClick={onClose}
+      onKeyDown={e => e.key === 'Escape' && onClose()}>
       <div
         className="w-[420px] max-w-[90vw] rounded-2xl bg-white p-6 shadow-strong"
-        onClick={e => e.stopPropagation()}>
+        role="presentation"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-stone-900">Add account</h2>
           <button
+            type="button"
             ref={closeBtnRef}
             onClick={onClose}
             className="rounded p-1 text-stone-500 hover:bg-stone-100"
@@ -64,6 +68,7 @@ const AddAccountModal = ({ open, onClose, onPick, connectedProviders }: AddAccou
           ) : (
             available.map(p => (
               <button
+                type="button"
                 key={p.id}
                 onClick={() => onPick(p)}
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-stone-100">
