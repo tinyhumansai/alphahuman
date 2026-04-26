@@ -5,11 +5,7 @@ import { isComposerInteractionBlocked } from '../Conversations';
 describe('isComposerInteractionBlocked', () => {
   it('blocks composer interaction while the welcome agent loader is visible', () => {
     expect(
-      isComposerInteractionBlocked({
-        activeThreadId: null,
-        welcomePending: true,
-        rustChat: true,
-      })
+      isComposerInteractionBlocked({ activeThreadId: null, welcomePending: true, rustChat: true })
     ).toBe(true);
   });
 
@@ -25,11 +21,7 @@ describe('isComposerInteractionBlocked', () => {
 
   it('allows composer interaction when chat is idle and ready', () => {
     expect(
-      isComposerInteractionBlocked({
-        activeThreadId: null,
-        welcomePending: false,
-        rustChat: true,
-      })
+      isComposerInteractionBlocked({ activeThreadId: null, welcomePending: false, rustChat: true })
     ).toBe(false);
   });
 });

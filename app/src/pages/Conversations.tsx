@@ -1265,14 +1265,14 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
             // the first agent message lands (which flips us into the
             // `hasVisibleMessages` branch above).
             <div className="flex-1 flex flex-col items-center justify-center h-full gap-3">
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
-              <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
-              <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+              </div>
+              <WelcomeThinkingTypewriter />
             </div>
-            <WelcomeThinkingTypewriter />
-          </div>
-        ) : (
+          ) : (
             <div className="flex-1 flex items-center justify-center h-full">
               <p className="text-sm text-stone-600">No messages yet</p>
             </div>

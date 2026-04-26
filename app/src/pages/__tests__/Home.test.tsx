@@ -8,9 +8,7 @@ vi.mock('../../components/ConnectionIndicator', () => ({
   default: () => <div>Connection Indicator</div>,
 }));
 
-vi.mock('../../hooks/useUser', () => ({
-  useUser: () => mockUseUser(),
-}));
+vi.mock('../../hooks/useUser', () => ({ useUser: () => mockUseUser() }));
 
 vi.mock('../../utils/config', async importOriginal => {
   const actual = await importOriginal<typeof import('../../utils/config')>();
@@ -23,9 +21,7 @@ describe('resolveHomeUserName', () => {
   });
 
   it('falls back to snake_case name fields from core snapshot payloads', () => {
-    expect(resolveHomeUserName({ first_name: 'Ada', last_name: 'Lovelace' })).toBe(
-      'Ada Lovelace'
-    );
+    expect(resolveHomeUserName({ first_name: 'Ada', last_name: 'Lovelace' })).toBe('Ada Lovelace');
   });
 
   it('falls back to username when no name fields are present', () => {

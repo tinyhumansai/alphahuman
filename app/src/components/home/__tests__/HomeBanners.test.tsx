@@ -1,13 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  DiscordBanner,
-  PromotionalCreditsBanner,
-  UsageLimitBanner,
-} from '../HomeBanners';
 import { DISCORD_INVITE_URL } from '../../../utils/links';
 import { openUrl } from '../../../utils/openUrl';
+import { DiscordBanner, PromotionalCreditsBanner, UsageLimitBanner } from '../HomeBanners';
 
 vi.mock('../../../utils/openUrl', () => ({ openUrl: vi.fn() }));
 

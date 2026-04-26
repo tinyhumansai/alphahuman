@@ -78,7 +78,9 @@ function snapshotIdentity(snapshot: CoreAppSnapshot): string | null {
 function normalizeSnapshot(
   result: Awaited<ReturnType<typeof fetchCoreAppSnapshot>>
 ): CoreAppSnapshot {
-  const currentUser = (result.currentUser ?? result.auth.user ?? null) as CoreAppSnapshot['currentUser'];
+  const currentUser = (result.currentUser ??
+    result.auth.user ??
+    null) as CoreAppSnapshot['currentUser'];
 
   return {
     auth: result.auth,
