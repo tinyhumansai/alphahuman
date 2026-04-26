@@ -24,7 +24,6 @@ import {
   addMessageLocal,
   createNewThread,
   deleteThread,
-  fetchSuggestedQuestions,
   loadThreadMessages,
   loadThreads,
   persistReaction,
@@ -88,13 +87,18 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     messages,
     isLoadingMessages,
     messagesError,
-    suggestedQuestions,
-    isLoadingSuggestions,
     activeThreadId,
+    welcomeThreadId,
   } = useAppSelector(state => state.thread);
 
   const { snapshot } = useCoreState();
   const welcomeLocked = isWelcomeLocked(snapshot);
+  // While the proactive welcome agent is running and hasn't published its
+  // first message yet, hide the composer (and a few other non-message
+  // chrome bits) so the user just sees the "Your agent is thinking..."
+  // loader. Flips off the moment the first agent message arrives.
+  const welcomePending =
+    !!welcomeThreadId && selectedThreadId === welcomeThreadId && messages.length === 0;
   const chatOnboardingCompleted = snapshot.chatOnboardingCompleted;
   const previousChatOnboardingCompletedRef = useRef<boolean | null>(null);
   // Guard against the mount-time `loadThreads()` promise resolving AFTER
@@ -232,12 +236,6 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     // uses `dispatch`); the ref guards against duplicate fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatOnboardingCompleted]);
-
-  useEffect(() => {
-    if (selectedThreadId && messages.length === 0) {
-      dispatch(fetchSuggestedQuestions(selectedThreadId));
-    }
-  }, [selectedThreadId, messages.length, dispatch]);
 
   const location = useLocation();
   const { containerRef: messagesContainerRef, endRef: messagesEndRef } = useStickToBottom(
@@ -735,6 +733,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const activeSubagentTimelineEntry = selectedThreadToolTimeline.find(
     entry => entry.status === 'running' && entry.name.startsWith('subagent:')
   );
+  const activeToolTimelineEntry = [...selectedThreadToolTimeline]
+    .reverse()
+    .find(entry => entry.status === 'running' && !entry.name.startsWith('subagent:'));
   const selectedInferenceStatus = selectedThreadId
     ? (inferenceStatusByThread[selectedThreadId] ?? null)
     : null;
@@ -880,10 +881,10 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
             : 'flex-1 flex flex-col min-w-0 max-w-2xl bg-white rounded-2xl shadow-soft border border-stone-200 overflow-hidden'
         }>
         {/* Chat header — only shown in page mode; the sidebar embed uses the
-            parent page's chrome instead. During welcome lockdown (#883)
-            the sidebar toggle and "+ New" are hidden because the user has
-            no sidebar to toggle and cannot spawn new threads. */}
-        {!isSidebar && (
+            parent page's chrome instead. Hidden entirely during welcome
+            lockdown (#883) so the onboarding chat is just the conversation
+            with no chrome around it. */}
+        {!isSidebar && !welcomeLocked && (
           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
             {!welcomeLocked && (
               <button
@@ -1178,7 +1179,16 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                         ? `Thinking (iteration ${selectedInferenceStatus.iteration})...`
                         : 'Thinking...')}
                     {selectedInferenceStatus.phase === 'tool_use' &&
-                      `Running ${selectedInferenceStatus.activeTool ?? 'tool'}...`}
+                      `${
+                        formatTimelineEntry(
+                          activeToolTimelineEntry ?? {
+                            id: 'active-tool',
+                            name: selectedInferenceStatus.activeTool ?? 'tool',
+                            round: selectedInferenceStatus.iteration,
+                            status: 'running',
+                          }
+                        ).title
+                      }...`}
                     {selectedInferenceStatus.phase === 'subagent' &&
                       `${
                         formatTimelineEntry(
@@ -1211,6 +1221,19 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               )}
               <div ref={messagesEndRef} />
             </div>
+          ) : welcomeThreadId && selectedThreadId === welcomeThreadId ? (
+            // Welcome thread, no messages yet — the proactive welcome agent
+            // is running in the background. Show a friendly loader until
+            // the first agent message lands (which flips us into the
+            // `hasVisibleMessages` branch above).
+            <div className="flex-1 flex flex-col items-center justify-center h-full gap-3">
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+              </div>
+              <p className="text-sm text-stone-600">Your agent is thinking...</p>
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center h-full">
               <p className="text-sm text-stone-600">No messages yet</p>
@@ -1218,141 +1241,128 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
           )}
         </div>
 
-        {!hasVisibleMessages && suggestedQuestions.length > 0 && !isLoadingSuggestions && (
-          <div className="flex-shrink-0 px-4 py-3">
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-              {suggestedQuestions.map((s, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => {
-                    void handleSendMessage(s.text);
-                  }}
-                  disabled={isSending || !rustChat}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[12px] whitespace-nowrap bg-white text-stone-500 border border-stone-200 hover:bg-stone-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                  {s.text}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="flex-shrink-0 border-t border-stone-200 px-4 py-3">
-          {isNearLimit &&
-            !isAtLimit &&
-            isFreeTier &&
-            shouldShowBanner('conversations-warning', 24 * 60 * 60 * 1000) && (
-              <div className="mb-3">
-                <UpsellBanner
-                  variant="warning"
-                  title="Approaching usage limit"
-                  message={`You've used ${Math.round(Math.max(usagePct10h, usagePct7d) * 100)}% of your inference budget. Upgrade for higher limits.`}
-                  ctaLabel="Upgrade"
-                  onCtaClick={() => navigate('/settings/billing')}
-                  dismissible
-                  onDismiss={() => dismissBanner('conversations-warning')}
-                />
-              </div>
-            )}
-          {teamUsage && (shouldShowBudgetCompletedMessage || isRateLimited) && (
-            <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <svg
-                  className="w-4 h-4 text-coral-400 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                <p className="text-xs text-coral-600 truncate">
-                  {shouldShowBudgetCompletedMessage
-                    ? teamUsage.cycleBudgetUsd > 0
-                      ? `You've hit your weekly limit.${teamUsage.cycleEndsAt ? ` Resets ${formatResetTime(teamUsage.cycleEndsAt)}.` : ''} Top up to continue.`
-                      : 'Your included budget is complete. Add credits or upgrade to continue.'
-                    : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
-                </p>
-              </div>
-              {shouldShowBudgetCompletedMessage && (
-                <button
-                  onClick={() => navigate('/settings/billing')}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
-                  Top Up
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2 mb-2">
-            {(isLoadingBudget || teamUsage) && (
-              <div className="relative group">
-                {teamUsage ? (
-                  <div className="flex items-center gap-2">
-                    {!teamUsage.bypassCycleLimit && (
-                      <LimitPill
-                        label="5h"
-                        usedPct={
-                          teamUsage.fiveHourCapUsd > 0
-                            ? Math.min(1, teamUsage.cycleLimit5hr / teamUsage.fiveHourCapUsd)
-                            : 0
-                        }
-                      />
-                    )}
-                    <LimitPill
-                      label="7d"
-                      usedPct={
-                        teamUsage.cycleBudgetUsd > 0
-                          ? Math.min(
-                              1,
-                              (teamUsage.cycleBudgetUsd - teamUsage.remainingUsd) /
-                                teamUsage.cycleBudgetUsd
-                            )
-                          : 0
-                      }
+          {!welcomeLocked && !welcomePending && (
+            <>
+              {isNearLimit &&
+                !isAtLimit &&
+                isFreeTier &&
+                shouldShowBanner('conversations-warning', 24 * 60 * 60 * 1000) && (
+                  <div className="mb-3">
+                    <UpsellBanner
+                      variant="warning"
+                      title="Approaching usage limit"
+                      message={`You've used ${Math.round(Math.max(usagePct10h, usagePct7d) * 100)}% of your inference budget. Upgrade for higher limits.`}
+                      ctaLabel="Upgrade"
+                      onCtaClick={() => navigate('/settings/billing')}
+                      dismissible
+                      onDismiss={() => dismissBanner('conversations-warning')}
                     />
                   </div>
-                ) : (
-                  <span className="text-[10px] text-stone-400 animate-pulse">loading…</span>
                 )}
-                {teamUsage && (
-                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
-                    <div className="bg-stone-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg whitespace-nowrap space-y-1.5">
-                      {!teamUsage.bypassCycleLimit && (
-                        <div className="flex items-center justify-between gap-4">
-                          <span className="text-stone-400">5-hour limit</span>
-                          <span>
-                            ${(teamUsage.cycleLimit5hr ?? 0).toFixed(2)} / $
-                            {(teamUsage.fiveHourCapUsd ?? 0).toFixed(2)}
-                            {teamUsage.fiveHourResetsAt && (
-                              <span className="text-stone-400 ml-1">
-                                — resets {formatResetTime(teamUsage.fiveHourResetsAt)}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="text-stone-400">Weekly limit</span>
-                        <span>
-                          ${(teamUsage.remainingUsd ?? 0).toFixed(2)} / $
-                          {(teamUsage.cycleBudgetUsd ?? 0).toFixed(2)} left
-                          {teamUsage.cycleEndsAt && (
-                            <span className="text-stone-400 ml-1">
-                              — resets {formatResetTime(teamUsage.cycleEndsAt)}
-                            </span>
-                          )}
-                        </span>
+              {teamUsage && (shouldShowBudgetCompletedMessage || isRateLimited) && (
+                <div className="mb-3 p-3 rounded-xl bg-coral-50 border border-coral-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg
+                      className="w-4 h-4 text-coral-400 flex-shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                    <p className="text-xs text-coral-600 truncate">
+                      {shouldShowBudgetCompletedMessage
+                        ? teamUsage.cycleBudgetUsd > 0
+                          ? `You've hit your weekly limit.${teamUsage.cycleEndsAt ? ` Resets ${formatResetTime(teamUsage.cycleEndsAt)}.` : ''} Top up to continue.`
+                          : 'Your included budget is complete. Add credits or upgrade to continue.'
+                        : `10-hour rate limit reached.${teamUsage.fiveHourResetsAt ? ` Resets ${formatResetTime(teamUsage.fiveHourResetsAt)}.` : ''}`}
+                    </p>
+                  </div>
+                  {shouldShowBudgetCompletedMessage && (
+                    <button
+                      onClick={() => navigate('/settings/billing')}
+                      className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
+                      Top Up
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Quota / usage pills — hidden during welcome lockdown so the
+                  onboarding chat doesn't surface billing affordances. */}
+              <div className="flex items-center justify-end gap-2 mb-2">
+                {(isLoadingBudget || teamUsage) && (
+                  <div className="relative group">
+                    {teamUsage ? (
+                      <div className="flex items-center gap-2">
+                        {!teamUsage.bypassCycleLimit && (
+                          <LimitPill
+                            label="5h"
+                            usedPct={
+                              teamUsage.fiveHourCapUsd > 0
+                                ? Math.min(1, teamUsage.cycleLimit5hr / teamUsage.fiveHourCapUsd)
+                                : 0
+                            }
+                          />
+                        )}
+                        <LimitPill
+                          label="7d"
+                          usedPct={
+                            teamUsage.cycleBudgetUsd > 0
+                              ? Math.min(
+                                  1,
+                                  (teamUsage.cycleBudgetUsd - teamUsage.remainingUsd) /
+                                    teamUsage.cycleBudgetUsd
+                                )
+                              : 0
+                          }
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <span className="text-[10px] text-stone-400 animate-pulse">loading…</span>
+                    )}
+                    {teamUsage && (
+                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
+                        <div className="bg-stone-900 text-white text-[10px] rounded-lg px-3 py-2 shadow-lg whitespace-nowrap space-y-1.5">
+                          {!teamUsage.bypassCycleLimit && (
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-stone-400">5-hour limit</span>
+                              <span>
+                                ${(teamUsage.cycleLimit5hr ?? 0).toFixed(2)} / $
+                                {(teamUsage.fiveHourCapUsd ?? 0).toFixed(2)}
+                                {teamUsage.fiveHourResetsAt && (
+                                  <span className="text-stone-400 ml-1">
+                                    — resets {formatResetTime(teamUsage.fiveHourResetsAt)}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-stone-400">Weekly limit</span>
+                            <span>
+                              ${(teamUsage.remainingUsd ?? 0).toFixed(2)} / $
+                              {(teamUsage.cycleBudgetUsd ?? 0).toFixed(2)} left
+                              {teamUsage.cycleEndsAt && (
+                                <span className="text-stone-400 ml-1">
+                                  — resets {formatResetTime(teamUsage.cycleEndsAt)}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            </>
+          )}
 
           {sendError && (
             <div className="flex items-center justify-between mb-2">

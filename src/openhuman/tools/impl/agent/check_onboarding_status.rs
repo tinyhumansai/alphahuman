@@ -12,7 +12,7 @@ use crate::openhuman::tools::traits::{PermissionLevel, Tool, ToolResult, ToolSco
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::onboarding_status::{build_status_snapshot, compute_state};
+use super::onboarding_status::{compute_state, format_status_markdown};
 
 pub struct CheckOnboardingStatusTool;
 
@@ -35,64 +35,42 @@ impl Tool for CheckOnboardingStatusTool {
     }
 
     fn description(&self) -> &str {
-        "Read-only JSON snapshot of the user's workspace setup state. \
+        "Read-only markdown snapshot of the user's workspace setup. \
          No side effects, no flag flips. Takes no arguments. Call this \
          ONCE on your first iteration to craft a personalised welcome \
          and decide when to call `complete_onboarding`.\n\
          \n\
-         The returned JSON has this shape:\n\
+         Returns a compact markdown bulleted list:\n\
          ```\n\
-         {\n\
-           \"authenticated\": true,                       // bool — JWT present\n\
-           \"auth_source\": \"session_token\",            // \"session_token\" | null\n\
-           \"default_model\": \"reasoning-v1\",           // string\n\
-           \"channels_connected\": [\"telegram\"],        // string[] — connected messaging platforms\n\
-           \"active_channel\": \"web\",                   // preferred channel for proactive messages\n\
-           \"integrations\": {                             // bool flags for each capability\n\
-             \"composio\": true,\n\
-             \"browser\": false,\n\
-             \"web_search\": true,\n\
-             \"http_request\": true,\n\
-             \"local_ai\": true\n\
-           },\n\
-           \"composio_connected_toolkits\": [\"gmail\"], // Composio toolkits the user has authorised\n\
-           \"webview_logins\": {                          // per-provider CEF cookie presence\n\
-             \"gmail\": true, \"whatsapp\": false, \"telegram\": false,\n\
-             \"slack\": false, \"discord\": false, \"linkedin\": false,\n\
-             \"zoom\": false, \"google_messages\": false\n\
-           },\n\
-           \"memory\": { \"backend\": \"sqlite\", \"auto_save\": true },\n\
-           \"delegate_agents\": [\"researcher\", \"coder\"],\n\
-           \"ui_onboarding_completed\": true,             // React wizard flag\n\
-           \"chat_onboarding_completed\": false,          // still false until complete_onboarding succeeds\n\
-           \"exchange_count\": 1,                         // how many user messages handled so far\n\
-           \"ready_to_complete\": false,                  // true when criteria for complete_onboarding are met\n\
-           \"ready_to_complete_reason\": \"fewer_than_min_exchanges_and_no_skills_connected\",\n\
-           \"onboarding_status\": \"pending\"             // \"pending\" | \"already_complete\" | \"unauthenticated\"\n\
-         }\n\
+         # Onboarding Status\n\
+         \n\
+         - **status:** pending (ready_to_complete: false, reason: fewer_than_min_exchanges_and_no_skills_connected)\n\
+         - **auth:** yes (session_token)\n\
+         - **exchanges:** 1\n\
+         - **composio:** gmail\n\
+         - **webview logins:** gmail\n\
+         - **channels:** telegram (active: web)\n\
+         - **flags:** ui_onboarding=true, chat_onboarding=false\n\
          ```\n\
          \n\
-         **Two fields matter for what to offer next:**\n\
-         * `composio_connected_toolkits` lists OAuth-authorised skills \
-           (e.g. gmail). Don't re-pitch a toolkit that's already here.\n\
-         * `webview_logins` reports whether the embedded browser \
-           already has a live session cookie for each provider. A \
-           `true` means the user is signed in to that webview — don't \
-           ask them to log in again, just reference it.\n\
+         `composio` and `webview logins` are only listed when something is \
+         connected/active — an empty list means none. Don't re-pitch a \
+         toolkit that already appears under `composio`. A name under \
+         `webview logins` means the embedded browser already has a live \
+         session cookie for that provider; reference it instead of asking \
+         them to log in again.\n\
          \n\
-         `ready_to_complete` is `true` when at least one of:\n\
+         `ready_to_complete` flips true when at least one of:\n\
          * The user has had at least 3 back-and-forth exchanges, or\n\
          * The user has connected at least one Composio integration.\n\
          \n\
-         `onboarding_status`:\n\
-         * `\"pending\"` — authenticated, conversation in progress. \
-           Check `ready_to_complete` to know if you may call \
-           `complete_onboarding`.\n\
-         * `\"already_complete\"` — `chat_onboarding_completed` is \
-           already `true`. Welcome the user as a returning visitor.\n\
-         * `\"unauthenticated\"` — the user has no valid session. \
-           Explain the auth problem, point them at the desktop login \
-           flow, and stop."
+         `status`:\n\
+         * `pending` — authenticated, conversation in progress. Check \
+           `ready_to_complete` before calling `complete_onboarding`.\n\
+         * `already_complete` — `chat_onboarding_completed` is already \
+           true. Welcome the user as a returning visitor.\n\
+         * `unauthenticated` — no valid session. Explain the auth problem, \
+           point them at the desktop login flow, and stop."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -140,17 +118,15 @@ async fn check_status() -> anyhow::Result<ToolResult> {
         "[check_onboarding_status] snapshot built"
     );
 
-    let snapshot = build_status_snapshot(
+    let payload = format_status_markdown(
         &config,
         state.onboarding_status,
         state.exchange_count,
         state.ready_to_complete,
         &state.ready_to_complete_reason,
         &state.composio_connected_toolkits,
-        webview_logins,
+        &webview_logins,
     );
-    let payload = serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| anyhow::anyhow!("Failed to serialize status snapshot: {e}"))?;
 
     Ok(ToolResult::success(payload))
 }
@@ -171,15 +147,15 @@ mod tests {
     }
 
     #[test]
-    fn description_documents_new_fields() {
+    fn description_documents_markdown_fields() {
         let desc = CheckOnboardingStatusTool::new().description().to_string();
         assert!(
-            desc.contains("composio_connected_toolkits"),
-            "description should document the composio toolkits field"
+            desc.contains("**composio:**"),
+            "description should document the composio bullet"
         );
         assert!(
-            desc.contains("webview_logins"),
-            "description should document the webview logins field"
+            desc.contains("**webview logins:**"),
+            "description should document the webview logins bullet"
         );
         assert!(desc.contains("ready_to_complete"));
     }

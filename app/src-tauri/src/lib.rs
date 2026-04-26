@@ -5,6 +5,8 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 mod cdp;
 #[cfg(all(feature = "cef", target_os = "macos"))]
 mod cef_preflight;
+#[cfg(feature = "cef")]
+mod cef_profile;
 mod core_process;
 mod core_update;
 #[cfg(feature = "cef")]
@@ -328,6 +330,19 @@ async fn restart_core_process(
     let _guard = state.inner().restart_lock().await;
     log::debug!("[core] restart_core_process: acquired restart lock");
     state.inner().restart().await
+}
+
+#[tauri::command]
+async fn restart_app(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
+    log::info!("[app] restart_app invoked from frontend");
+    app.restart();
+}
+
+#[cfg(feature = "cef")]
+#[tauri::command]
+async fn schedule_cef_profile_purge(user_id: Option<String>) -> Result<String, String> {
+    let queued = cef_profile::queue_profile_purge_for_user(user_id.as_deref())?;
+    Ok(queued.display().to_string())
 }
 
 /// Information about an available shell-app update returned to the frontend.
@@ -711,6 +726,14 @@ pub fn run() {
         .parse_filters(&default_filter)
         .try_init();
 
+    // The vendored tauri-cef dev-server proxy builds a reqwest 0.13 client
+    // (see vendor/tauri-cef/crates/tauri/src/protocol/tauri.rs) which calls
+    // rustls 0.23's `CryptoProvider::get_default()`. rustls 0.23 no longer
+    // picks a provider implicitly — without one installed, the proxy panics
+    // with "No provider set" the first time `tauri dev` forwards a request.
+    // Install the ring provider once before any HTTPS client is built.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // CEF cache-lock preflight (macOS only): if another OpenHuman instance
     // is already holding the CEF user-data-dir, the vendored
     // `tauri-runtime-cef` panics inside `cef::initialize` with a Rust
@@ -718,6 +741,17 @@ pub fn run() {
     // here and exit cleanly with a message that names the lock-holder PID
     // and the workaround. Stale locks (PID dead) are removed and we
     // continue, matching Chromium's own startup recovery.
+    #[cfg(feature = "cef")]
+    match cef_profile::prepare_process_cache_path() {
+        Ok(path) => log::debug!("[cef-profile] startup cache path={}", path.display()),
+        Err(error) => {
+            log::error!(
+                "[cef-profile] failed to configure per-user CEF cache; refusing to start with shared/global cache: {error}"
+            );
+            std::process::exit(1);
+        }
+    }
+
     #[cfg(all(feature = "cef", target_os = "macos"))]
     if let Err(e) = cef_preflight::check_default_cache() {
         eprintln!("\n[openhuman] {e}\n");
@@ -742,11 +776,20 @@ pub fn run() {
         // manager. Both are no-ops on Windows/Linux, so safe to always set.
         //
         // In debug builds we additionally expose the Chrome DevTools
-        // Protocol on localhost:9222 so every CEF webview can be inspected
-        // from a regular browser (right-click "Inspect" does not propagate
-        // to CEF child webviews on macOS). Release builds intentionally do
-        // NOT open the CDP port — it would let any process on the machine
-        // drive the embedded WhatsApp/Slack/etc. webviews.
+        // Protocol on localhost:19222 so every CEF webview can be
+        // inspected from a regular browser (right-click "Inspect" does
+        // not propagate to CEF child webviews on macOS). Release builds
+        // intentionally do NOT open the CDP port — it would let any
+        // process on the machine drive the embedded WhatsApp/Slack/etc.
+        // webviews.
+        //
+        // The port was 9222 (Chromium's default) but ollama's
+        // OpenAI-compatible server squats on 127.0.0.1:9222 in some
+        // installs, which silently broke CDP attach (our client hit
+        // ollama, the WS handshake failed, child webviews stayed at
+        // about:blank → black screen). Picked 19222 to dodge that
+        // collision; if you change it here also update
+        // `cdp::CDP_PORT` and `whatsapp_scanner::CDP_PORT`.
         //
         // NOTE: flags must be prefixed with `--`. The runtime's
         // `on_before_command_line_processing` dispatch (in
@@ -766,7 +809,7 @@ pub fn run() {
             ("--enable-features", Some("SharedArrayBuffer")),
         ];
         if cfg!(debug_assertions) {
-            args.push(("--remote-debugging-port", Some("9222")));
+            args.push(("--remote-debugging-port", Some("19222")));
         }
         tauri::Builder::<tauri::Cef>::new().command_line_args::<&str, &str>(args)
     };
@@ -867,8 +910,17 @@ pub fn run() {
             // providers (gmail, whatsapp, slack, …) already have a live
             // session cookie. Best-effort — if we can't resolve the path
             // the core treats every provider as logged_out.
-            if let Ok(cache_dir) = app.path().app_cache_dir() {
-                let cookies_db = cache_dir.join("cef").join("Default").join("Cookies");
+            if let Some(cache_dir) = {
+                #[cfg(feature = "cef")]
+                {
+                    cef_profile::configured_cache_path_from_env()
+                }
+                #[cfg(not(feature = "cef"))]
+                {
+                    None
+                }
+            } {
+                let cookies_db = cache_dir.join("Default").join("Cookies");
                 log::debug!("[webview_accounts] exposing cookies DB path to core");
                 std::env::set_var("OPENHUMAN_CEF_COOKIES_DB", &cookies_db);
             } else {
@@ -876,7 +928,7 @@ pub fn run() {
                 // stale path from a previous run or the parent shell.
                 std::env::remove_var("OPENHUMAN_CEF_COOKIES_DB");
                 log::warn!(
-                    "[webview_accounts] could not resolve app_cache_dir — core \
+                    "[webview_accounts] could not resolve configured CEF cache dir — core \
                      will report all webview providers as logged_out"
                 );
             }
@@ -933,6 +985,14 @@ pub fn run() {
             // until the Ready event fires. Creating the tray here would panic on
             // Linux with "GTK has not been initialized".
             log::info!("[tray] deferring tray setup to RunEvent::Ready");
+
+            // CEF cold-start warmup was here — disabled while we triage a
+            // blank-webview report on first onboarding open. Restore once
+            // we can repro that the warmup child doesn't interfere with
+            // subsequent child-webview spawns on the main window. The
+            // build/test code we removed:
+            //   - 500ms post-setup timer
+            //   - parent.add_child("cef-warmup", about:blank, (-10000,-10000), 1x1)
 
             // Dev convenience: if OPENHUMAN_DEV_AUTO_WHATSAPP=<account-id>
             // is set, spawn that account's webview at startup so the
@@ -1205,6 +1265,9 @@ pub fn run() {
             check_app_update,
             apply_app_update,
             restart_core_process,
+            restart_app,
+            #[cfg(feature = "cef")]
+            schedule_cef_profile_purge,
             service_install_direct,
             service_start_direct,
             service_stop_direct,
@@ -1241,6 +1304,7 @@ pub fn run() {
             gmail::gmail_send,
             gmail::gmail_trash,
             gmail::gmail_add_label,
+            gmail::gmail_find_linkedin_profile_url,
             activate_main_window,
             show_native_notification
         ])

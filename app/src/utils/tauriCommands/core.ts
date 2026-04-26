@@ -60,6 +60,32 @@ export async function restartCoreProcess(): Promise<void> {
 }
 
 /**
+ * Restart the desktop shell so CEF relaunches with updated profile paths.
+ */
+export async function restartApp(): Promise<void> {
+  if (!isTauri()) {
+    console.debug('[app] restartApp: skipped — not running in Tauri');
+    return;
+  }
+  console.debug('[app] restartApp: invoking restart_app');
+  await invoke<void>('restart_app');
+}
+
+/**
+ * Queue deletion of a user-scoped CEF profile on the next app launch.
+ */
+export async function scheduleCefProfilePurge(userId?: string | null): Promise<string | null> {
+  if (!isTauri()) {
+    console.debug('[cef-profile] scheduleCefProfilePurge: skipped — not running in Tauri');
+    return null;
+  }
+  console.debug('[cef-profile] scheduleCefProfilePurge: invoking schedule_cef_profile_purge', {
+    hasUserId: userId != null,
+  });
+  return invoke<string>('schedule_cef_profile_purge', { userId: userId ?? null });
+}
+
+/**
  * Check if the running core sidecar is outdated compared to what the app expects.
  */
 export const checkCoreUpdate = async (): Promise<CoreUpdateStatus | null> => {

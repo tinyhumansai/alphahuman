@@ -1,6 +1,6 @@
 [package]
 name = "OpenHuman"
-version = "0.52.28"
+version = "0.53.0"
 description = "OpenHuman - AI-powered Super Assistant"
 authors = ["OpenHuman"]
 edition = "2021"
@@ -53,6 +53,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
+directories = "5"
 # Used by gmail/cdp_fetch for decoding binary IO.read chunks. Base64 is
 # only emitted by CDP IO.read when the stream contains non-UTF-8 bytes,
 # but we opt into the feature to stay robust against unexpected responses.
@@ -70,6 +72,12 @@ tokio-tungstenite = { version = "0.24", default-features = false, features = ["c
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Tauri's vendored dev-server proxy (see `vendor/tauri-cef/.../protocol/tauri.rs`)
+# builds a reqwest 0.13 client that requires a process-wide rustls
+# `CryptoProvider`. Without one, `ClientBuilder::build()` panics with
+# "No provider set" the first time `tauri dev` proxies a request. We install
+# the ring provider at startup in `lib.rs::run()`.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 semver = "1"
 # Auto-update archive extraction. GitHub release assets ship as
 # `openhuman-core-<version>-<triple>.tar.gz` on Unix and `…<triple>.zip`
@@ -151,6 +159,7 @@ tauri-plugin-notification = { path = "vendor/tauri-plugin-notification" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+tempfile = "3"
 
 # Fast CI builds: trade runtime perf for compile speed
 [profile.ci]

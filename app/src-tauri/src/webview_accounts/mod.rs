@@ -23,8 +23,11 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 #[cfg(all(feature = "cef", target_os = "linux"))]
 use std::sync::{mpsc::sync_channel, OnceLock};
+use std::time::Duration;
 
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::{
     webview::NewWindowResponse, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime,
     Url, WebviewBuilder, WebviewUrl,
@@ -253,6 +256,70 @@ fn popup_should_stay_in_app(provider: &str, url: &Url) -> bool {
         _ => false,
     }
 }
+
+/// `true` if a popup request should be denied AND the parent webview
+/// should be navigated to the popup URL instead.
+///
+/// Used for Google's "Sign in" / "Use another account" flow: clicking
+/// the link issues `window.open("https://accounts.google.com/...")`. We
+/// can't route that to the system browser (the auth cookie would land
+/// in the wrong jar) and we don't want to let CEF spawn an unmanaged
+/// child window (it has no host rect, so it renders blank/black). The
+/// safe option is to deny the popup and replace the parent's URL — the
+/// in-app webview was already at mail.google.com so taking over the
+/// frame to finish auth is exactly what the user expects.
+fn popup_should_navigate_parent(provider: &str, url: &Url) -> Option<Url> {
+    match provider {
+        "gmail" | "google-meet" => {
+            if url.scheme() == "about" {
+                return None;
+            }
+            if is_google_auth_popup(url) {
+                Some(url.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_google_auth_popup(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let is_google_auth_host =
+        host == "accounts.google.com" || host == "accounts.googleusercontent.com";
+    if !is_google_auth_host {
+        return false;
+    }
+
+    let path = url.path().to_ascii_lowercase();
+    if path.contains("signin")
+        || path.contains("servicelogin")
+        || path.contains("accountchooser")
+        || path.contains("chooseaccount")
+    {
+        return true;
+    }
+
+    url.query_pairs().any(|(key, value)| {
+        let k = key.to_ascii_lowercase();
+        let v = value.to_ascii_lowercase();
+        matches!(k.as_str(), "flowname" | "service" | "continue")
+            && (v.contains("signin")
+                || v.contains("servicelogin")
+                || v.contains("accountchooser")
+                || v.contains("chooseaccount"))
+    })
+}
+
+fn redact_navigation_url(url: &Url) -> String {
+    let mut safe = url.clone();
+    safe.set_query(None);
+    safe.set_fragment(None);
+    safe.to_string()
+}
 /// Unwrap provider-side "link safety" redirects so the system browser
 /// lands on the real destination.
 ///
@@ -303,6 +370,129 @@ fn open_in_system_browser(url: &str) {
             Err(e) => log::warn!("[webview-accounts] open_url({}) failed: {}", url, e),
         }
     }
+}
+
+fn payload_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn payload_bool(payload: &serde_json::Value, key: &str) -> Option<bool> {
+    payload.get(key).and_then(|v| v.as_bool())
+}
+
+fn payload_i64(payload: &serde_json::Value, key: &str) -> Option<i64> {
+    payload.get(key).and_then(|v| v.as_i64())
+}
+
+fn first_message_field(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .and_then(|messages| messages.first())
+        .and_then(|message| message.get(key))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn event_timestamp_rfc3339(ts_ms: Option<i64>) -> String {
+    ts_ms
+        .and_then(|ts| Utc.timestamp_millis_opt(ts).single())
+        .unwrap_or_else(Utc::now)
+        .to_rfc3339()
+}
+
+fn normalize_provider_surfaces_event(args: &RecipeEventArgs) -> Option<serde_json::Value> {
+    if args.kind != "ingest" {
+        return None;
+    }
+
+    let entity_id = payload_string(&args.payload, "entity_id")
+        .or_else(|| payload_string(&args.payload, "threadId"))
+        .or_else(|| payload_string(&args.payload, "chatId"))
+        .or_else(|| payload_string(&args.payload, "snapshotKey"))
+        .unwrap_or_else(|| {
+            format!(
+                "{}:{}:{}",
+                args.provider,
+                args.account_id,
+                args.ts.unwrap_or_else(|| Utc::now().timestamp_millis())
+            )
+        });
+
+    let thread_id = payload_string(&args.payload, "threadId")
+        .or_else(|| payload_string(&args.payload, "chatId"))
+        .or_else(|| payload_string(&args.payload, "conversationId"));
+    let title = payload_string(&args.payload, "title")
+        .or_else(|| payload_string(&args.payload, "chatName"))
+        .or_else(|| payload_string(&args.payload, "channelName"));
+    let snippet = payload_string(&args.payload, "snippet")
+        .or_else(|| first_message_field(&args.payload, "body"));
+    let sender_name = payload_string(&args.payload, "senderName")
+        .or_else(|| first_message_field(&args.payload, "from"));
+    let sender_handle = payload_string(&args.payload, "senderHandle");
+    let deep_link = payload_string(&args.payload, "deepLink");
+    let unread = payload_i64(&args.payload, "unread").unwrap_or(0);
+    let requires_attention = payload_bool(&args.payload, "requires_attention")
+        .unwrap_or(unread > 0 || sender_name.is_some() || snippet.is_some());
+
+    Some(json!({
+        "provider": args.provider,
+        "account_id": args.account_id,
+        "event_kind": args.kind,
+        "entity_id": entity_id,
+        "thread_id": thread_id,
+        "title": title,
+        "snippet": snippet,
+        "sender_name": sender_name,
+        "sender_handle": sender_handle,
+        "timestamp": event_timestamp_rfc3339(args.ts),
+        "deep_link": deep_link,
+        "requires_attention": requires_attention,
+        "raw_payload": args.payload,
+    }))
+}
+
+async fn post_provider_surfaces_event(args: &RecipeEventArgs) -> Result<(), String> {
+    let Some(params) = normalize_provider_surfaces_event(args) else {
+        return Ok(());
+    };
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "openhuman.provider_surfaces_ingest_event",
+        "params": params,
+    });
+
+    let url = std::env::var("OPENHUMAN_CORE_RPC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:7788/rpc".to_string());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("POST {url}: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("{status}: {body}"));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("decode: {e}"))?;
+    if let Some(err) = v.get("error") {
+        return Err(format!("rpc error: {err}"));
+    }
+    Ok(())
 }
 
 /// Human-readable label used as the title prefix on native notifications
@@ -1185,7 +1375,27 @@ pub async fn webview_account_open<R: Runtime>(
     let nav_provider = args.provider.clone();
     let nav_app = app.clone();
     let nav_label = label.clone();
+    let nav_account_id = args.account_id.clone();
     builder = builder.on_navigation(move |url| {
+        // Notify the frontend on every committed navigation. The
+        // `webview-account:load` event is dedup'd per cold open, so it
+        // can't be used to spot post-login redirects (e.g. Gmail's
+        // accounts.google.com → mail.google.com hop). Frontends that
+        // care about live URL transitions — onboarding's auto-detect
+        // for "user finished signing in", for instance — listen here.
+        if let Err(err) = nav_app.emit(
+            "webview-account:navigate",
+            serde_json::json!({
+                "account_id": nav_account_id,
+                "provider": nav_provider,
+                "url": redact_navigation_url(url),
+            }),
+        ) {
+            log::debug!(
+                "[webview-accounts] emit webview-account:navigate failed: {}",
+                err
+            );
+        }
         if let Some(rewritten) = rewrite_provider_deep_link(&nav_provider, url) {
             log::info!(
                 "[webview-accounts] deep-link rewrite {} → {} (provider={})",
@@ -1266,6 +1476,27 @@ pub async fn webview_account_open<R: Runtime>(
             });
             return NewWindowResponse::Deny;
         }
+        if let Some(target) = popup_should_navigate_parent(&popup_provider, &url) {
+            log::info!(
+                "[webview-accounts] new-window {} → navigate parent (provider={})",
+                redact_navigation_url(&url),
+                popup_provider
+            );
+            let app = popup_app.clone();
+            let label = popup_label.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(wv) = app.get_webview(&label) {
+                    if let Err(e) = wv.navigate(target) {
+                        log::warn!(
+                            "[webview-accounts] popup→parent navigate failed label={} err={}",
+                            label,
+                            e
+                        );
+                    }
+                }
+            });
+            return NewWindowResponse::Deny;
+        }
         if popup_should_stay_in_app(&popup_provider, &url) {
             log::info!(
                 "[webview-accounts] new-window request {} → in-app popup (provider={})",
@@ -1313,10 +1544,18 @@ pub async fn webview_account_open<R: Runtime>(
     // the CDP `Page.loadEventFired` subscription and the 15 s watchdog through
     // `emit_load_finished` so we only fire the first winning signal per open.
     //
-    // Skip `data:` URLs: the initial CDP placeholder also fires `Finished`
-    // before the real provider URL is navigated to — emitting on the
-    // placeholder would release the overlay too early and the user would
-    // briefly see the blank placeholder before the real page paints.
+    // Skip `data:` URLs: an early placeholder shape on some platforms
+    // fires `Finished` synchronously and we don't want to dedup-claim
+    // the load slot on it.
+    //
+    // We deliberately do NOT skip `about:blank#…` here: in practice the
+    // CDP `Page.loadEventFired` subscription isn't reaching us reliably
+    // (Gmail finishes loading but the event doesn't fire through
+    // pump_events — separate triage). The `about:blank` native load
+    // fires within ~50ms of spawn and is the only fast-path reveal we
+    // get. The downside is the user sees the placeholder briefly until
+    // the real provider page paints — better than waiting 15 s for the
+    // watchdog timeout.
     let page_load_app = app.clone();
     let page_load_account_id = args.account_id.clone();
     builder = builder.on_page_load(move |_webview, payload| {
@@ -2104,6 +2343,16 @@ pub async fn webview_recipe_event<R: Runtime>(
         }
     }
 
+    if let Err(err) = post_provider_surfaces_event(&args).await {
+        log::warn!(
+            "[webview-accounts] provider_surfaces ingest failed account={} provider={} kind={}: {}",
+            args.account_id,
+            args.provider,
+            args.kind,
+            err
+        );
+    }
+
     let event = WebviewEvent {
         account_id: args.account_id,
         provider: args.provider,
@@ -2363,5 +2612,81 @@ mod tests {
             "zoom",
             &url("https://example.com/wc/join/888")
         ));
+    }
+
+    // ── popup_should_navigate_parent: Gmail Google-auth popups ────────
+
+    #[test]
+    fn gmail_accounts_popup_navigates_parent() {
+        // Clicking "Sign in" on mail.google.com opens accounts.google.com
+        // in a popup; routing it to the system browser breaks the OAuth
+        // round-trip because the auth response would land in the wrong
+        // cookie jar. Allowing CEF to spawn an unmanaged popup leaves it
+        // blank/black (no host slot, no bounds). Navigate the parent
+        // instead so the auth flow lands in the existing webview.
+        assert_eq!(
+            popup_should_navigate_parent(
+                "gmail",
+                &url("https://accounts.google.com/signin/v2/identifier"),
+            )
+            .map(|u| u.to_string()),
+            Some("https://accounts.google.com/signin/v2/identifier".to_string())
+        );
+    }
+
+    #[test]
+    fn gmail_about_blank_popup_does_not_navigate_parent() {
+        // about:blank popups are non-actionable — there's no URL yet to
+        // navigate the parent to. Fall through to the popup branch.
+        assert!(popup_should_navigate_parent("gmail", &url("about:blank")).is_none());
+    }
+
+    #[test]
+    fn gmail_foreign_host_popup_does_not_navigate_parent() {
+        // External link popups still belong in the system browser.
+        assert!(
+            popup_should_navigate_parent("gmail", &url("https://example.com/share?u=…")).is_none()
+        );
+    }
+
+    #[test]
+    fn gmail_internal_non_auth_popup_does_not_navigate_parent() {
+        assert!(popup_should_navigate_parent(
+            "gmail",
+            &url("https://mail.google.com/mail/u/0/#inbox")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn google_meet_accounts_popup_navigates_parent() {
+        assert!(popup_should_navigate_parent(
+            "google-meet",
+            &url("https://accounts.google.com/signin/v2/identifier"),
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn gmail_service_login_popup_navigates_parent() {
+        assert_eq!(
+            popup_should_navigate_parent(
+                "gmail",
+                &url("https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"),
+            )
+            .map(|u| u.to_string()),
+            Some(
+                "https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn redact_navigation_url_strips_query_and_fragment() {
+        let redacted = redact_navigation_url(&url(
+            "https://accounts.google.com/o/oauth2/v2/auth?code=secret#frag",
+        ));
+        assert_eq!(redacted, "https://accounts.google.com/o/oauth2/v2/auth");
     }
 }
