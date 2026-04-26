@@ -33,14 +33,6 @@ struct LocalAiPromptParams {
 }
 
 #[derive(Debug, Deserialize)]
-struct LocalAiSuggestParams {
-    #[serde(default)]
-    context: Option<String>,
-    #[serde(default)]
-    lines: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
 struct LocalAiVisionPromptParams {
     prompt: String,
     image_refs: Vec<String>,
@@ -127,7 +119,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("local_ai_download"),
         schemas("local_ai_download_all_assets"),
         schemas("local_ai_summarize"),
-        schemas("local_ai_suggest_questions"),
         schemas("local_ai_prompt"),
         schemas("local_ai_vision_prompt"),
         schemas("local_ai_embed"),
@@ -175,10 +166,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("local_ai_summarize"),
             handler: handle_local_ai_summarize,
-        },
-        RegisteredController {
-            schema: schemas("local_ai_suggest_questions"),
-            handler: handle_local_ai_suggest_questions,
         },
         RegisteredController {
             schema: schemas("local_ai_prompt"),
@@ -313,23 +300,6 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 optional_u64("max_tokens", "Optional max output tokens."),
             ],
             outputs: vec![json_output("summary", "Summary text.")],
-        },
-        "local_ai_suggest_questions" => ControllerSchema {
-            namespace: "local_ai",
-            function: "suggest_questions",
-            description: "Suggest questions for provided context.",
-            inputs: vec![
-                optional_string("context", "Context text."),
-                FieldSchema {
-                    name: "lines",
-                    ty: TypeSchema::Option(Box::new(TypeSchema::Array(Box::new(
-                        TypeSchema::String,
-                    )))),
-                    comment: "Alternative context as lines.",
-                    required: false,
-                },
-            ],
-            outputs: vec![json_output("suggestions", "Suggested questions payload.")],
         },
         "local_ai_prompt" => ControllerSchema {
             namespace: "local_ai",
@@ -608,19 +578,6 @@ fn handle_local_ai_summarize(params: Map<String, Value>) -> ControllerFuture {
         to_json(
             crate::openhuman::local_ai::rpc::local_ai_summarize(&config, &p.text, p.max_tokens)
                 .await?,
-        )
-    })
-}
-
-fn handle_local_ai_suggest_questions(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        let p = deserialize_params::<LocalAiSuggestParams>(params)?;
-        let config = config_rpc::load_config_with_timeout().await?;
-        to_json(
-            crate::openhuman::local_ai::rpc::local_ai_suggest_questions(
-                &config, p.context, p.lines,
-            )
-            .await?,
         )
     })
 }

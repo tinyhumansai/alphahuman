@@ -10,7 +10,7 @@ use crate::openhuman::agent::Agent;
 use crate::openhuman::config::Config;
 use crate::openhuman::local_ai::{
     self, LocalAiAssetsStatus, LocalAiDownloadsProgress, LocalAiEmbeddingResult,
-    LocalAiSpeechResult, LocalAiTtsResult, Suggestion,
+    LocalAiSpeechResult, LocalAiTtsResult,
 };
 use crate::openhuman::providers::{self, ProviderRuntimeOptions};
 use crate::rpc::RpcOutcome;
@@ -180,33 +180,6 @@ pub async fn local_ai_summarize(
     Ok(RpcOutcome::single_log(
         summary,
         "local ai summarize completed",
-    ))
-}
-
-/// Suggests relevant follow-up questions based on the provided context.
-pub async fn local_ai_suggest_questions(
-    config: &Config,
-    context: Option<String>,
-    lines: Option<Vec<String>>,
-) -> Result<RpcOutcome<Vec<Suggestion>>, String> {
-    let service = local_ai::global(config);
-    let status = service.status();
-    if !matches!(status.state.as_str(), "ready") {
-        service.bootstrap(config).await;
-    }
-    let mut context = context.unwrap_or_default();
-    if context.trim().is_empty() {
-        if let Some(lines) = lines {
-            context = lines.join("\n");
-        }
-    }
-    let suggestions = service
-        .suggest_questions(config, &context)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(RpcOutcome::single_log(
-        suggestions,
-        "local ai suggestions generated",
     ))
 }
 

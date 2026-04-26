@@ -3,8 +3,7 @@ use crate::openhuman::local_ai::model_ids;
 use crate::openhuman::local_ai::ollama_api::{
     ns_to_tps, ollama_base_url, OllamaGenerateOptions, OllamaGenerateRequest,
 };
-use crate::openhuman::local_ai::parse::{parse_suggestions, sanitize_inline_completion};
-use crate::openhuman::local_ai::types::Suggestion;
+use crate::openhuman::local_ai::parse::sanitize_inline_completion;
 
 use super::LocalAiService;
 
@@ -44,29 +43,6 @@ impl LocalAiService {
         };
         self.inference(config, system, prompt, max_tokens.or(Some(160)), no_think)
             .await
-    }
-
-    pub async fn suggest_questions(
-        &self,
-        config: &Config,
-        context: &str,
-    ) -> Result<Vec<Suggestion>, String> {
-        if !config.local_ai.enabled {
-            return Ok(Vec::new());
-        }
-        let system = "You create short suggested user prompts.";
-        let prompt = format!(
-            "Given this conversation context, produce up to {} short suggested next user prompts. Return one prompt per line with no numbering.\\n\\n{}",
-            config.local_ai.max_suggestions.max(1),
-            context
-        );
-        let raw = self
-            .inference(config, system, &prompt, Some(96), true)
-            .await?;
-        Ok(parse_suggestions(
-            &raw,
-            config.local_ai.max_suggestions.max(1),
-        ))
     }
 
     pub async fn inline_complete(
