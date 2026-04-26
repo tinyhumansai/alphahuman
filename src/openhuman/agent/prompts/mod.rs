@@ -491,11 +491,19 @@ impl PromptSection for DateTimeSection {
     }
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
+        // IANA zone first because it's the unambiguous machine-readable
+        // form (`America/Los_Angeles`) — agents that need to reason about
+        // timezone rules should grep this, not the locale-dependent
+        // `%Z` abbreviation. Falls back to "UTC" when the host can't
+        // resolve a zone (CI, stripped containers).
+        let iana = iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".to_string());
         let now = Local::now();
         Ok(format!(
-            "## Current Date & Time\n\n{} ({})",
+            "## Current Date & Time\n\n{} {} ({}, UTC{})",
             now.format("%Y-%m-%d %H:%M:%S"),
-            now.format("%Z")
+            iana,
+            now.format("%Z"),
+            now.format("%:z"),
         ))
     }
 }

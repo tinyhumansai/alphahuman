@@ -124,6 +124,15 @@ fn datetime_section_includes_timestamp_and_timezone() {
     assert!(payload.chars().any(|c| c.is_ascii_digit()));
     assert!(payload.contains(" ("));
     assert!(payload.ends_with(')'));
+    // IANA zone is included so agents can reason about the host's
+    // timezone without parsing a locale-dependent abbreviation. Either
+    // a slashed zone (`America/Los_Angeles`) or the `UTC` fallback for
+    // hosts where `iana-time-zone` can't resolve one.
+    assert!(
+        payload.contains('/') || payload.contains(" UTC "),
+        "rendered payload missing IANA timezone: {payload}"
+    );
+    assert!(payload.contains("UTC"), "missing UTC offset: {payload}");
 }
 
 #[test]
