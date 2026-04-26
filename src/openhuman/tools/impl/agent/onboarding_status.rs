@@ -13,9 +13,8 @@
 //!   the list of connected Composio toolkits and the per-provider
 //!   webview-login heuristic (see `openhuman::webview_accounts`).
 //!
-//! Keeping this in one place lets the two tools stay small and lets
-//! [`crate::openhuman::agent::welcome_proactive`] build the same snapshot
-//! shape without pulling in tool code.
+//! Keeping this in one place lets the two tools stay small and share
+//! the same snapshot shape without pulling in tool code from elsewhere.
 
 use crate::openhuman::config::Config;
 use serde_json::{json, Value};
@@ -120,6 +119,58 @@ pub(crate) fn detect_auth(config: &Config) -> (bool, Value) {
 ///   for that provider. See `openhuman::webview_accounts`.
 /// * `exchange_count` / `ready_to_complete` / `ready_to_complete_reason`
 ///   — the gate the finalizer enforces.
+/// Walk `config.channels_config` and return the connected messaging-channel
+/// slugs in a stable order. Shared between `build_status_snapshot` and
+/// `format_status_markdown` so the channel list can't drift between the
+/// JSON and markdown views.
+fn detect_channels(config: &Config) -> Vec<&'static str> {
+    let cc = &config.channels_config;
+    let mut out: Vec<&'static str> = Vec::new();
+    if cc.telegram.is_some() {
+        out.push("telegram");
+    }
+    if cc.discord.is_some() {
+        out.push("discord");
+    }
+    if cc.slack.is_some() {
+        out.push("slack");
+    }
+    if cc.mattermost.is_some() {
+        out.push("mattermost");
+    }
+    if cc.email.is_some() {
+        out.push("email");
+    }
+    if cc.whatsapp.is_some() {
+        out.push("whatsapp");
+    }
+    if cc.signal.is_some() {
+        out.push("signal");
+    }
+    if cc.matrix.is_some() {
+        out.push("matrix");
+    }
+    if cc.imessage.is_some() {
+        out.push("imessage");
+    }
+    if cc.irc.is_some() {
+        out.push("irc");
+    }
+    if cc.lark.is_some() {
+        out.push("lark");
+    }
+    if cc.dingtalk.is_some() {
+        out.push("dingtalk");
+    }
+    if cc.linq.is_some() {
+        out.push("linq");
+    }
+    if cc.qq.is_some() {
+        out.push("qq");
+    }
+    out
+}
+
 pub(crate) fn build_status_snapshot(
     config: &Config,
     onboarding_status: &str,
@@ -130,51 +181,7 @@ pub(crate) fn build_status_snapshot(
     webview_logins: Value,
 ) -> Value {
     let (is_authenticated, auth_source) = detect_auth(config);
-
-    // ── Connected messaging channels ──────────────────────────────
-    let mut channels_connected: Vec<&str> = Vec::new();
-    if config.channels_config.telegram.is_some() {
-        channels_connected.push("telegram");
-    }
-    if config.channels_config.discord.is_some() {
-        channels_connected.push("discord");
-    }
-    if config.channels_config.slack.is_some() {
-        channels_connected.push("slack");
-    }
-    if config.channels_config.mattermost.is_some() {
-        channels_connected.push("mattermost");
-    }
-    if config.channels_config.email.is_some() {
-        channels_connected.push("email");
-    }
-    if config.channels_config.whatsapp.is_some() {
-        channels_connected.push("whatsapp");
-    }
-    if config.channels_config.signal.is_some() {
-        channels_connected.push("signal");
-    }
-    if config.channels_config.matrix.is_some() {
-        channels_connected.push("matrix");
-    }
-    if config.channels_config.imessage.is_some() {
-        channels_connected.push("imessage");
-    }
-    if config.channels_config.irc.is_some() {
-        channels_connected.push("irc");
-    }
-    if config.channels_config.lark.is_some() {
-        channels_connected.push("lark");
-    }
-    if config.channels_config.dingtalk.is_some() {
-        channels_connected.push("dingtalk");
-    }
-    if config.channels_config.linq.is_some() {
-        channels_connected.push("linq");
-    }
-    if config.channels_config.qq.is_some() {
-        channels_connected.push("qq");
-    }
+    let channels_connected = detect_channels(config);
 
     let composio_enabled = config.composio.enabled;
     let delegate_agents: Vec<&str> = config.agents.keys().map(|s| s.as_str()).collect();
@@ -213,6 +220,83 @@ pub(crate) fn build_status_snapshot(
         "ready_to_complete_reason": ready_to_complete_reason,
         "onboarding_status": onboarding_status,
     })
+}
+
+/// Render the same onboarding state as `build_status_snapshot` but as
+/// compact markdown rather than pretty-printed JSON. Costs ~5x fewer
+/// tokens and reads more naturally to the welcome agent. Only fields
+/// the welcome flow actually uses (per the agent's prompt.md) are
+/// surfaced; everything else (default_model, integrations bools,
+/// memory backend, delegate_agents) is dropped.
+pub(crate) fn format_status_markdown(
+    config: &Config,
+    onboarding_status: &str,
+    exchange_count: u32,
+    ready_to_complete: bool,
+    ready_to_complete_reason: &str,
+    composio_connected_toolkits: &[String],
+    webview_logins: &Value,
+) -> String {
+    let (is_authenticated, auth_source) = detect_auth(config);
+    let channels = detect_channels(config);
+
+    let active_channel = config
+        .channels_config
+        .active_channel
+        .as_deref()
+        .unwrap_or("web");
+
+    // Only list `true` webview logins — false ones are noise the agent
+    // would have to skip past every turn.
+    let webview_active: Vec<String> = webview_logins
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| {
+                    if v.as_bool().unwrap_or(false) {
+                        Some(k.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut out = String::with_capacity(256);
+    out.push_str("# Onboarding Status\n\n");
+    out.push_str(&format!(
+        "- **status:** {onboarding_status} (ready_to_complete: {ready_to_complete}, reason: {ready_to_complete_reason})\n"
+    ));
+    out.push_str(&format!(
+        "- **auth:** {} ({})\n",
+        if is_authenticated { "yes" } else { "no" },
+        auth_source.as_str().unwrap_or("none"),
+    ));
+    out.push_str(&format!("- **exchanges:** {exchange_count}\n"));
+    if !composio_connected_toolkits.is_empty() {
+        out.push_str(&format!(
+            "- **composio:** {}\n",
+            composio_connected_toolkits.join(", ")
+        ));
+    }
+    if !webview_active.is_empty() {
+        out.push_str(&format!(
+            "- **webview logins:** {}\n",
+            webview_active.join(", ")
+        ));
+    }
+    if !channels.is_empty() {
+        out.push_str(&format!(
+            "- **channels:** {} (active: {active_channel})\n",
+            channels.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "- **flags:** ui_onboarding={}, chat_onboarding={}\n",
+        config.onboarding_completed, config.chat_onboarding_completed
+    ));
+    out
 }
 
 /// Summarise the current onboarding state for snapshot + finalizer.

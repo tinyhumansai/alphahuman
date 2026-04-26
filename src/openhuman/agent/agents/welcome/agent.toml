@@ -22,7 +22,9 @@ omit_profile = false
 omit_memory_md = false
 
 [model]
-hint = "agentic"
+# Welcome replies are short and conversational, no deep reasoning needed.
+# `fast` cuts response latency from ~10–20s to a couple of seconds.
+hint = "fast"
 
 [tools]
 # check_onboarding_status: read-only snapshot of setup state (auth, channels,
