@@ -133,7 +133,7 @@ Quick reference for anyone starting with Claude on this project. Updated by the 
 
 - **`yarn typecheck` script was renamed** — Check `app/package.json` for the current name; as of issue #830 work, use `yarn workspace openhuman-app compile` for tsc checks.
 - **PR #745 (command palette) merged without its deps** — `@radix-ui/react-dialog`, `cmdk`, and `@testing-library/user-event` are missing from `package.json`. Install them if tsc fails after syncing main.
-- **Pre-push hooks fail on upstream lint warnings** — ESLint warns on `setState` in effects and unused `eslint-disable` directives inherited from upstream. Use `--no-verify` only when the lint errors are pre-existing upstream issues, not new code.
+- **Pre-push hooks fail on upstream lint warnings** — Biome warns on code style issues inherited from upstream. Use `--no-verify` only when the lint errors are pre-existing upstream issues, not new code.
 
 ## Environment
 

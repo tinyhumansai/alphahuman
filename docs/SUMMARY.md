@@ -60,7 +60,7 @@ Frontend — permission round-trip + dormant click listener.
 | Gate | Result | Time |
 |---|---|---|
 | `yarn compile` (tsc --noEmit) | pass | 32.30s |
-| `yarn lint` (eslint) | pass | 63.65s |
+| `yarn lint` (biome) | pass | 63.65s |
 | `yarn rust:format:check` | pass | — |
 | `cargo check --features cef --no-default-features` | pass | 22.21s |
 | `cargo check --features wry --no-default-features` | pass | 6m 29s (cold) |

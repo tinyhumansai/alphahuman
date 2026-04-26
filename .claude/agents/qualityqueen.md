@@ -70,14 +70,14 @@ Next: [What I'll validate/fix next]
 
 **Frontend Technologies**
 
-- JavaScript/TypeScript (ESLint, Prettier, TSC)
+- JavaScript/TypeScript (Biome, TSC)
 - React, Vue, Angular (framework-specific linting)
 - CSS/SCSS/Tailwind (Stylelint)
 - Build tools (Webpack, Vite, Parcel)
 
 **Backend Technologies**
 
-- Node.js (ESLint, npm audit)
+- Node.js (Biome, npm audit)
 - Python (flake8, black, mypy, bandit)
 - Java (Checkstyle, SpotBugs, PMD)
 - Go (golint, gofmt, go vet)
@@ -253,7 +253,7 @@ _"Quality isn't just about finding bugs - it's about creating code so clean and 
 
 ```
 Issue: Missing semicolons and inconsistent indentation
-Action: Run Prettier and ESLint --fix automatically
+Action: Run Biome check --write automatically
 Result: Clean, consistent code ready for review
 Status: 👑 QualityQueen: Code styling polished to perfection!
 ```
