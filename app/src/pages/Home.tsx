@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 
 import ConnectionIndicator from '../components/ConnectionIndicator';
 import { useUser } from '../hooks/useUser';
+import { useAppSelector } from '../store/hooks';
+import { selectSocketStatus } from '../store/socketSelectors';
 import {
   bootstrapLocalAiWithRecommendedPreset,
   ensureRecommendedLocalAiPresetIfNeeded,
   triggerLocalAiAssetBootstrap,
 } from '../utils/localAiBootstrap';
-import { useAppSelector } from '../store/hooks';
-import { selectSocketStatus } from '../store/socketSelectors';
 import { formatBytes, formatEta, progressFromStatus } from '../utils/localAiHelpers';
 import {
   isTauri,
