@@ -33,7 +33,6 @@ fn every_registered_key_resolves_to_non_unknown_schema() {
         "local_ai_download",
         "local_ai_download_all_assets",
         "local_ai_summarize",
-        "local_ai_suggest_questions",
         "local_ai_prompt",
         "local_ai_vision_prompt",
         "local_ai_embed",

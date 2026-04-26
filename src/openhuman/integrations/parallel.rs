@@ -41,7 +41,7 @@ pub struct SearchResponse {
     #[allow(dead_code)]
     pub search_id: String,
     pub results: Vec<SearchResultItem>,
-    #[serde(rename = "costUsd", default)]
+    #[serde(rename = "costUsd")]
     pub cost_usd: f64,
 }
 
