@@ -3,6 +3,7 @@ import debug from 'debug';
 
 import { dispatchLocalAiMethod } from '../lib/ai/localCoreAiMemory';
 import { CORE_RPC_URL } from '../utils/config';
+import { getStoredRpcUrl } from '../utils/configPersistence';
 import { sanitizeError } from '../utils/sanitize';
 
 interface CoreRpcRelayRequest {
@@ -93,6 +94,12 @@ export async function getCoreRpcUrl(): Promise<string> {
   }
 
   if (!coreIsTauri()) {
+    // Web environment: check for user-configured RPC URL first
+    const storedUrl = getStoredRpcUrl();
+    if (storedUrl && storedUrl !== CORE_RPC_URL) {
+      resolvedCoreRpcUrl = storedUrl;
+      return storedUrl;
+    }
     resolvedCoreRpcUrl = CORE_RPC_URL;
     return CORE_RPC_URL;
   }
@@ -103,13 +110,22 @@ export async function getCoreRpcUrl(): Promise<string> {
 
   const resolvePromise: Promise<string> = (async () => {
     try {
+      // Tauri: check for user-configured URL first
+      const storedUrl = getStoredRpcUrl();
+      if (storedUrl && storedUrl !== CORE_RPC_URL) {
+        resolvedCoreRpcUrl = storedUrl;
+        return storedUrl;
+      }
+
       const url = await invoke<string>('core_rpc_url');
       const trimmed = String(url || '').trim();
       resolvedCoreRpcUrl = trimmed || CORE_RPC_URL;
       return resolvedCoreRpcUrl || CORE_RPC_URL;
     } catch {
-      resolvedCoreRpcUrl = CORE_RPC_URL;
-      return CORE_RPC_URL;
+      // Fallback to stored or default on error
+      const storedUrl = getStoredRpcUrl();
+      resolvedCoreRpcUrl = storedUrl || CORE_RPC_URL;
+      return resolvedCoreRpcUrl;
     } finally {
       resolvingCoreRpcUrl = null;
     }
