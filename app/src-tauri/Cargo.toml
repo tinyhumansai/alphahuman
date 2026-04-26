@@ -118,8 +118,11 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 notify-rust = { version = "4", default-features = false, features = ["dbus"] }
 
 [features]
-# This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
-default = ["custom-protocol"]
+default = []
+# `custom-protocol` switches Tauri from `devUrl` (vite dev server) to the
+# bundled `frontendDist` served via `tauri://localhost`. `cargo tauri build`
+# turns this on automatically for release; do not put it in `default` or
+# every `pnpm dev:app` will silently load the production bundle. DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 sandbox-bubblewrap = []
 
