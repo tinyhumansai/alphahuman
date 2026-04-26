@@ -4,8 +4,8 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri } from './common';
-import { ConfigSnapshot } from './config';
+import { type CommandResponse, isTauri } from './common';
+import type { ConfigSnapshot } from './config';
 
 export interface VoiceSpeechResult {
   /** Final text — cleaned by LLM post-processing when available. */

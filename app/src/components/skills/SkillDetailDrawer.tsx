@@ -14,9 +14,10 @@
  * - Focus is captured on open and returned on close.
  * - 520px wide on desktop, slides in from the right in 200ms ease-out.
  */
+
+import debug from 'debug';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import debug from 'debug';
 
 import type { SkillSummary } from '../../services/api/skillsApi';
 import SkillResourcePreview from './SkillResourcePreview';
@@ -212,7 +213,9 @@ export default function SkillDetailDrawer({ skill, onClose }: Props) {
               {skill.location ? (
                 <>
                   <dt className="font-medium text-stone-500">Location</dt>
-                  <dd className="truncate font-mono text-[11px] text-stone-600" title={skill.location}>
+                  <dd
+                    className="truncate font-mono text-[11px] text-stone-600"
+                    title={skill.location}>
                     {skill.location}
                   </dd>
                 </>

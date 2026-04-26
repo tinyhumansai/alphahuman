@@ -46,18 +46,27 @@ const PermissionRow = ({
     <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-white px-3 py-2.5">
       <div className="flex items-center gap-2">
         {granted ? (
-          <svg className="w-4 h-4 text-sage-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className="w-4 h-4 text-sage-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         ) : (
-          <svg className="w-4 h-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className="w-4 h-4 text-stone-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" strokeWidth={2} />
           </svg>
         )}
         <span className="text-sm text-stone-700">{label}</span>
       </div>
       {granted ? (
-        <span className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide ${badgeColor}`}>
+        <span
+          className={`rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide ${badgeColor}`}>
           Granted
         </span>
       ) : (
@@ -136,7 +145,9 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
       await refreshStatus();
       setStep('success');
     } catch (error) {
-      setEnableError(error instanceof Error ? error.message : 'Failed to enable Screen Intelligence');
+      setEnableError(
+        error instanceof Error ? error.message : 'Failed to enable Screen Intelligence'
+      );
     } finally {
       setIsEnabling(false);
     }
@@ -163,11 +174,18 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5h18v12H3zM8 21h8m-4-4v4" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M3 5h18v12H3zM8 21h8m-4-4v4"
+                />
               </svg>
             </div>
             <div>
-              <h2 id="si-setup-title" className="text-sm font-semibold text-stone-900">Screen Intelligence</h2>
+              <h2 id="si-setup-title" className="text-sm font-semibold text-stone-900">
+                Screen Intelligence
+              </h2>
               <p className="text-xs text-stone-500">
                 {step === 'permissions' && 'Grant permissions'}
                 {step === 'enable' && 'Enable the skill'}
@@ -180,7 +198,12 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -191,7 +214,8 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
           {step === 'permissions' && (
             <div className="space-y-3">
               <p className="text-xs text-stone-500 leading-relaxed">
-                Screen Intelligence needs macOS permissions to capture your screen and provide context to your AI assistant.
+                Screen Intelligence needs macOS permissions to capture your screen and provide
+                context to your AI assistant.
               </p>
 
               <div className="space-y-2">
@@ -217,7 +241,10 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
 
               {anyDenied && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 leading-relaxed">
-                  <p>After granting permissions in System Settings, click below to restart and pick up the changes.</p>
+                  <p>
+                    After granting permissions in System Settings, click below to restart and pick
+                    up the changes.
+                  </p>
                   {status?.permission_check_process_path && (
                     <p className="mt-1 opacity-75 text-[10px]">
                       macOS applies privacy to:{' '}
@@ -267,14 +294,24 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
           {step === 'enable' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-sage-200 bg-sage-50 p-3 flex items-center gap-2">
-                <svg className="w-4 h-4 text-sage-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-4 h-4 text-sage-500 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
                 <span className="text-xs text-sage-700">All permissions granted</span>
               </div>
 
               <p className="text-xs text-stone-500 leading-relaxed">
-                Enable Screen Intelligence to continuously capture what's on your screen and feed useful context into your AI assistant's memory.
+                Enable Screen Intelligence to continuously capture what's on your screen and feed
+                useful context into your AI assistant's memory.
               </p>
 
               <div className="space-y-2">
@@ -288,7 +325,9 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
                   <span className="text-sm text-stone-700">Panic hotkey</span>
-                  <span className="text-xs font-mono text-stone-500">{status?.session.panic_hotkey ?? 'Cmd+Shift+.'}</span>
+                  <span className="text-xs font-mono text-stone-500">
+                    {status?.session.panic_hotkey ?? 'Cmd+Shift+.'}
+                  </span>
                 </div>
               </div>
 
@@ -312,15 +351,27 @@ export default function ScreenIntelligenceSetupModal({ onClose, initialStep }: P
           {step === 'success' && (
             <div className="space-y-4 text-center py-2">
               <div className="mx-auto w-12 h-12 rounded-full bg-sage-50 flex items-center justify-center">
-                <svg className="w-6 h-6 text-sage-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-6 h-6 text-sage-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-stone-900">Screen Intelligence is Enabled</h3>
+                <h3 className="text-sm font-semibold text-stone-900">
+                  Screen Intelligence is Enabled
+                </h3>
                 <p className="mt-1 text-xs text-stone-500 leading-relaxed">
-                  Screen Intelligence is now enabled. Start a session from the settings panel to begin capturing screen context for your AI assistant.
+                  Screen Intelligence is now enabled. Start a session from the settings panel to
+                  begin capturing screen context for your AI assistant.
                 </p>
               </div>
 

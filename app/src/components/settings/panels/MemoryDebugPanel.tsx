@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  memoryClearNamespace,
   type MemoryDebugDocument,
+  type MemoryQueryResult,
+  memoryClearNamespace,
   memoryDeleteDocument,
   memoryListDocuments,
   memoryListNamespaces,
   memoryQueryNamespace,
-  type MemoryQueryResult,
   memoryRecallNamespace,
 } from '../../../utils/tauriCommands';
 import { MemoryTextWithEntities } from '../../intelligence/MemoryTextWithEntities';

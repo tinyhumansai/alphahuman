@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri, parseServiceCliOutput } from './common';
+import { type CommandResponse, isTauri, parseServiceCliOutput } from './common';
 
 export type ServiceState = 'Running' | 'Stopped' | 'NotInstalled' | { Unknown: string };
 

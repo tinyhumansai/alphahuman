@@ -28,14 +28,15 @@
  *
  * Design mirrors `CreateSkillModal` — see `.claude/rules/15-settings-modal-system.md`.
  */
+
+import debug from 'debug';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import debug from 'debug';
 
 import {
-  skillsApi,
   type InstallSkillFromUrlResult,
   type SkillSummary,
+  skillsApi,
 } from '../../services/api/skillsApi';
 
 const log = debug('skills:install-dialog');
@@ -334,7 +335,9 @@ export default function InstallSkillDialog({ onClose, onInstalled }: Props) {
                 placeholder="60"
               />
               {!timeoutValid ? (
-                <p className="mt-1 text-[11px] text-coral-600">Must be an integer between 1 and 600.</p>
+                <p className="mt-1 text-[11px] text-coral-600">
+                  Must be an integer between 1 and 600.
+                </p>
               ) : (
                 <p className="mt-1 text-[11px] text-stone-500">
                   Defaults to 60 seconds. Values outside 1–600 are clamped server-side.

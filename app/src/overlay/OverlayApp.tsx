@@ -31,7 +31,7 @@ import {
   LogicalSize,
 } from '@tauri-apps/api/window';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
 import { callCoreRpc } from '../services/coreRpcClient';

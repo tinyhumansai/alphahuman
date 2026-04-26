@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
-  aiGetConfig,
   type AIPreview,
+  aiGetConfig,
   aiRefreshConfig,
   type LocalAiStatus,
   openhumanLocalAiDownload,

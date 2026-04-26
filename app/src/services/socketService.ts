@@ -1,6 +1,6 @@
 import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import debug from 'debug';
-import { io, Socket } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
 import { getCoreStateSnapshot } from '../lib/coreState/store';
 import { SocketIOMCPTransportImpl } from '../lib/mcp';

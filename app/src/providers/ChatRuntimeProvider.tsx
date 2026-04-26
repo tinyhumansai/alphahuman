@@ -21,10 +21,10 @@ import {
   endInferenceTurn,
   markInferenceTurnStreaming,
   recordChatTurnUsage,
+  type StreamingAssistantState,
   setInferenceStatusForThread,
   setStreamingAssistantForThread,
   setToolTimelineForThread,
-  type StreamingAssistantState,
   type ToolTimelineEntry,
   type ToolTimelineEntryStatus,
 } from '../store/chatRuntimeSlice';

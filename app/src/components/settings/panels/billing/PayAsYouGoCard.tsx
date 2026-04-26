@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { type CreditBalance } from '../../../../services/api/creditsApi';
+import type { CreditBalance } from '../../../../services/api/creditsApi';
 
 interface PayAsYouGoCardProps {
   creditBalance: CreditBalance | null;

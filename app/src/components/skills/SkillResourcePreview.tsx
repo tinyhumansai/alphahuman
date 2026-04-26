@@ -10,8 +10,9 @@
  * Errors (e.g. "path escape", ">128KB") are surfaced verbatim in a coral
  * panel per the crypto-community design system.
  */
-import { useEffect, useState } from 'react';
+
 import debug from 'debug';
+import { useEffect, useState } from 'react';
 
 import { skillsApi } from '../../services/api/skillsApi';
 
@@ -68,9 +69,7 @@ export default function SkillResourcePreview({ skillId, relativePath, onDismiss 
     <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-soft">
       <div className="flex items-center justify-between gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2">
         <div className="min-w-0 flex-1">
-          <p
-            className="truncate font-mono text-[11px] text-stone-700"
-            title={relativePath}>
+          <p className="truncate font-mono text-[11px] text-stone-700" title={relativePath}>
             {relativePath}
           </p>
         </div>

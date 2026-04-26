@@ -69,10 +69,7 @@ describe('SkillDetailDrawer', () => {
 
   it('shows Legacy pill when legacy=true regardless of scope', () => {
     render(
-      <SkillDetailDrawer
-        skill={buildSkill({ scope: 'user', legacy: true })}
-        onClose={vi.fn()}
-      />
+      <SkillDetailDrawer skill={buildSkill({ scope: 'user', legacy: true })} onClose={vi.fn()} />
     );
     expect(screen.getByText('Legacy')).toBeInTheDocument();
   });

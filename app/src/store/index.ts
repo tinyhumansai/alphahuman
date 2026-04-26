@@ -4,9 +4,9 @@ import {
   FLUSH,
   PAUSE,
   PERSIST,
+  PURGE,
   persistReducer,
   persistStore,
-  PURGE,
   REGISTER,
   REHYDRATE,
 } from 'redux-persist';

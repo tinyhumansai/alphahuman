@@ -1,9 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-
-import { WHAT_LEAVES_ITEMS } from './whatLeavesItems';
 import WhatLeavesLink from './WhatLeavesLink';
 import WhatLeavesMyComputerSheet from './WhatLeavesMyComputerSheet';
+import { WHAT_LEAVES_ITEMS } from './whatLeavesItems';
 
 describe('WhatLeavesMyComputerSheet', () => {
   it('renders nothing when closed', () => {

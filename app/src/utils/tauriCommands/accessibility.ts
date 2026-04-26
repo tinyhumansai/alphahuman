@@ -2,7 +2,7 @@
  * Accessibility and Screen Intelligence commands.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri } from './common';
+import { type CommandResponse, isTauri } from './common';
 
 export type AccessibilityPermissionState = 'granted' | 'denied' | 'unknown' | 'unsupported';
 export type AccessibilityPermissionKind = 'screen_recording' | 'accessibility' | 'input_monitoring';

@@ -2,7 +2,7 @@
  * Local AI / Ollama commands.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri, tauriErrorMessage } from './common';
+import { type CommandResponse, isTauri, tauriErrorMessage } from './common';
 
 export interface LocalAiStatus {
   state: string;

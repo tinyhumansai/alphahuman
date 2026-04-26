@@ -6,8 +6,8 @@ import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
 import UpsellBanner from '../components/upsell/UpsellBanner';
-import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
+import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useUsageState } from '../hooks/useUsageState';
 import { isWelcomeLocked } from '../lib/coreState/store';
@@ -351,7 +351,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       !isTauri() ||
       !rustChat ||
       inputMode !== 'text' ||
-      Boolean(activeThreadId) ||
+      activeThreadId ||
       inputValue.trim().length < AUTOCOMPLETE_MIN_CONTEXT_CHARS
     ) {
       setInlineSuggestionValue('');
@@ -590,7 +590,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   };
 
   const handleVoiceRecordToggle = async () => {
-    if (!rustChat || Boolean(activeThreadId) || isTranscribing) return;
+    if (!rustChat || activeThreadId || isTranscribing) return;
     if (!canUseMicrophoneApi) {
       setSendError(
         chatSendError(
@@ -784,8 +784,8 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   });
   const isSending = Boolean(
     selectedThreadId &&
-    (inferenceTurnLifecycleByThread[selectedThreadId] === 'started' ||
-      inferenceTurnLifecycleByThread[selectedThreadId] === 'streaming')
+      (inferenceTurnLifecycleByThread[selectedThreadId] === 'started' ||
+        inferenceTurnLifecycleByThread[selectedThreadId] === 'streaming')
   );
   const shouldRenderTimelineBeforeLatestAgentMessage =
     selectedThreadToolTimeline.length > 0 && !isSending && Boolean(latestVisibleAgentMessage);

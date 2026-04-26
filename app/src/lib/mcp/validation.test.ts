@@ -4,11 +4,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ValidationError,
   validateId,
   validateIdList,
   validateOptionalId,
   validatePositiveInt,
-  ValidationError,
 } from './validation';
 
 describe('ValidationError', () => {

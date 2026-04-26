@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri } from './common';
+import { type CommandResponse, isTauri } from './common';
 
 /**
  * Exchange a login token for a session token

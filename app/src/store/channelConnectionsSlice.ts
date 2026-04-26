@@ -3,8 +3,8 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   ChannelAuthMode,
   ChannelConnection,
-  ChannelConnectionsState,
   ChannelConnectionStatus,
+  ChannelConnectionsState,
   ChannelType,
 } from '../types/channels';
 
@@ -32,8 +32,8 @@ function touchConnection(
   existing: ChannelConnection | undefined,
   patch: Partial<ChannelConnection> & { channel: ChannelType; authMode: ChannelAuthMode }
 ): ChannelConnection {
-  const hasLastError = Object.prototype.hasOwnProperty.call(patch, 'lastError');
-  const hasCapabilities = Object.prototype.hasOwnProperty.call(patch, 'capabilities');
+  const hasLastError = Object.hasOwn(patch, 'lastError');
+  const hasCapabilities = Object.hasOwn(patch, 'capabilities');
   return {
     channel: patch.channel,
     authMode: patch.authMode,

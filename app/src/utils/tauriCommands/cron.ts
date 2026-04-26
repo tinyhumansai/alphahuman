@@ -2,7 +2,7 @@
  * Cron job commands.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri } from './common';
+import { type CommandResponse, isTauri } from './common';
 
 export interface CoreCronScheduleCron {
   kind: 'cron';
@@ -84,9 +84,7 @@ export async function openhumanCronRemove(
   });
 }
 
-export async function openhumanCronRun(
-  jobId: string
-): Promise<
+export async function openhumanCronRun(jobId: string): Promise<
   CommandResponse<{
     job_id: string;
     status: 'ok' | 'error' | string;

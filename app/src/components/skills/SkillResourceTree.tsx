@@ -7,8 +7,9 @@
  * anything unexpected still renders. Items are rendered as clickable rows in
  * JetBrains Mono for path clarity. Selected item uses primary-50 background.
  */
-import { useMemo } from 'react';
+
 import debug from 'debug';
+import { useMemo } from 'react';
 
 const log = debug('skills:resource-tree');
 

@@ -3,8 +3,8 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   Account,
   AccountLogEntry,
-  AccountsState,
   AccountStatus,
+  AccountsState,
   IngestedMessage,
 } from '../types/accounts';
 

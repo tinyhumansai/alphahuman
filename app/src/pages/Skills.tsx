@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
+import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import ChannelSetupModal from '../components/channels/ChannelSetupModal';
 import ComposioConnectModal from '../components/composio/ComposioConnectModal';
 import {
-  composioToolkitMeta,
   type ComposioToolkitMeta,
+  composioToolkitMeta,
   KNOWN_COMPOSIO_TOOLKITS,
 } from '../components/composio/toolkitMeta';
-import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import { ToastContainer } from '../components/intelligence/Toast';
 import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
 import CreateSkillModal from '../components/skills/CreateSkillModal';
 import InstallSkillDialog from '../components/skills/InstallSkillDialog';
 import ScreenIntelligenceSetupModal from '../components/skills/ScreenIntelligenceSetupModal';
 import UnifiedSkillCard from '../components/skills/SkillCard';
-import { SKILL_CATEGORY_ORDER, type SkillCategory } from '../components/skills/skillCategories';
 import SkillCategoryFilter from '../components/skills/SkillCategoryFilter';
 import SkillDetailDrawer from '../components/skills/SkillDetailDrawer';
+import SkillSearchBar from '../components/skills/SkillSearchBar';
+import { SKILL_CATEGORY_ORDER, type SkillCategory } from '../components/skills/skillCategories';
 import {
   BUILT_IN_SKILL_ICONS,
   CHANNEL_ICONS,
-  skillCategoryHeadingClassName,
   SkillCategoryIcon,
+  skillCategoryHeadingClassName,
 } from '../components/skills/skillIcons';
-import SkillSearchBar from '../components/skills/SkillSearchBar';
 import UninstallSkillConfirmDialog from '../components/skills/UninstallSkillConfirmDialog';
 import VoiceSetupModal from '../components/skills/VoiceSetupModal';
 import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
@@ -34,7 +33,7 @@ import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import { useComposioIntegrations } from '../lib/composio/hooks';
 import { canonicalizeComposioToolkitSlug } from '../lib/composio/toolkitSlug';
 import { type ComposioConnection, deriveComposioState } from '../lib/composio/types';
-import { skillsApi, type SkillSummary } from '../services/api/skillsApi';
+import { type SkillSummary, skillsApi } from '../services/api/skillsApi';
 import { useAppSelector } from '../store/hooks';
 import type { ChannelConnectionStatus, ChannelDefinition, ChannelType } from '../types/channels';
 import type { ToastNotification } from '../types/intelligence';

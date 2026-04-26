@@ -6,8 +6,8 @@ import {
   buildPlanId,
   displayPrice,
   isUpgrade,
-  type PlanMeta,
   PLANS,
+  type PlanMeta,
   tierIndex,
 } from '../billingHelpers';
 

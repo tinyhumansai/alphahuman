@@ -2,7 +2,7 @@
  * Autocomplete commands.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse, isTauri } from './common';
+import { type CommandResponse, isTauri } from './common';
 
 export interface AutocompleteSuggestion {
   value: string;

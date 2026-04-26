@@ -2,9 +2,8 @@ import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import * as chatService from '../../services/chatService';
 import { threadApi } from '../../services/api/threadApi';
+import * as chatService from '../../services/chatService';
 import { store } from '../../store';
 import { clearAllChatRuntime } from '../../store/chatRuntimeSlice';
 import { setStatusForUser } from '../../store/socketSlice';

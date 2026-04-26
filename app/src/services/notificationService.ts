@@ -76,9 +76,7 @@ export async function ingestNotification(payload: {
   return result;
 }
 
-export async function getNotificationSettings(
-  provider: string
-): Promise<{
+export async function getNotificationSettings(provider: string): Promise<{
   provider: string;
   enabled: boolean;
   importance_threshold: number;

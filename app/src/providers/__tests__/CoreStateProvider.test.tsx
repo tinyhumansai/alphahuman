@@ -1,9 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import * as coreStateApi from '../../services/coreStateApi';
 import { setCoreStateSnapshot } from '../../lib/coreState/store';
+import * as coreStateApi from '../../services/coreStateApi';
 import CoreStateProvider, { useCoreState } from '../CoreStateProvider';
 
 vi.mock('../../services/coreStateApi');

@@ -101,9 +101,7 @@ describe('InstallSkillDialog', () => {
       expect(screen.getByText('Install complete')).toBeInTheDocument();
     });
     expect(screen.getByText('my-skill')).toBeInTheDocument();
-    expect(onInstalled).toHaveBeenCalledWith(
-      expect.objectContaining({ newSkills: ['my-skill'] })
-    );
+    expect(onInstalled).toHaveBeenCalledWith(expect.objectContaining({ newSkills: ['my-skill'] }));
   });
 
   it('omits timeoutSecs when field is blank', async () => {
@@ -148,9 +146,7 @@ describe('InstallSkillDialog', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Could not install skill');
     });
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'unexpected: something weird happened'
-    );
+    expect(screen.getByRole('alert')).toHaveTextContent('unexpected: something weird happened');
     expect(submit.disabled).toBe(false);
   });
 

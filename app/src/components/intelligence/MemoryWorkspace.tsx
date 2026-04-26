@@ -8,12 +8,12 @@ import {
   aiWriteMemoryFile,
   type GraphRelation,
   isTauri,
+  type MemoryQueryResult,
   memoryDeleteDocument,
   memoryGraphQuery,
   memoryListDocuments,
   memoryListNamespaces,
   memoryQueryNamespace,
-  type MemoryQueryResult,
   memoryRecallNamespace,
 } from '../../utils/tauriCommands';
 import { MemoryGraphMap } from './MemoryGraphMap';

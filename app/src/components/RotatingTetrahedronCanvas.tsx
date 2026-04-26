@@ -1,7 +1,7 @@
 'use client';
 
-import * as THREE from 'three';
 import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 
 interface RotatingTetrahedronCanvasProps {
