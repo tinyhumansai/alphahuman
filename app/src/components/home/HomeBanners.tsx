@@ -1,4 +1,7 @@
 import { DISCORD_INVITE_URL } from '../../utils/links';
+import { openUrl } from '../../utils/openUrl';
+
+const BILLING_DASHBOARD_URL = 'https://tinyhumans.ai/dashboard';
 
 function formatUsd(amount: number): string {
   return `$${amount.toFixed(amount % 1 === 0 ? 0 : 2)}`;
@@ -44,13 +47,14 @@ export function UsageLimitBanner({
           <p className={`text-sm font-semibold ${styles.title}`}>{title}</p>
           <p className={`mt-1 text-sm leading-relaxed ${styles.body}`}>
             {message}&nbsp;
-            <a
-              href="https://tinyhumans.ai/dashboard"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                void openUrl(BILLING_DASHBOARD_URL);
+              }}
               className="cursor-pointer border-b border-amber-700 font-bold border-dashed text-amber-700 hover:text-amber-800">
               {ctaLabel}
-            </a>
+            </button>
           </p>
         </div>
       </div>
@@ -71,13 +75,14 @@ export function PromotionalCreditsBanner({ promoCredits }: { promoCredits: numbe
           </p>
           <p className="mt-1 text-sm leading-relaxed text-amber-600">
             Give OpenHuman a spin, and when you&apos;re ready for more,{' '}
-            <a
-              href="https://tinyhumans.ai/dashboard"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                void openUrl(BILLING_DASHBOARD_URL);
+              }}
               className="cursor-pointer border-b border-amber-700 border-dashed font-bold text-amber-700 hover:text-amber-800">
               get a subscription
-            </a>{' '}
+            </button>{' '}
             and get 10x more usage.
           </p>
         </div>
@@ -88,11 +93,12 @@ export function PromotionalCreditsBanner({ promoCredits }: { promoCredits: numbe
 
 export function DiscordBanner() {
   return (
-    <a
-      href={DISCORD_INVITE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mb-3 mt-3 block rounded-2xl border border-[#CDD2FF] bg-gradient-to-r from-[#F6F7FF] via-[#F1F3FF] to-[#ECEFFF] px-4 py-4 text-[#414AAE] shadow-soft transition-transform transition-colors hover:-translate-y-0.5 hover:border-[#BCC3FF] hover:from-[#EEF0FF] hover:to-[#E5E9FF]">
+    <button
+      type="button"
+      onClick={() => {
+        void openUrl(DISCORD_INVITE_URL);
+      }}
+      className="mb-3 text-left mt-3 block rounded-2xl border border-[#CDD2FF] bg-gradient-to-r from-[#F6F7FF] via-[#F1F3FF] to-[#ECEFFF] px-4 py-4 text-[#414AAE] shadow-soft transition-transform transition-colors hover:-translate-y-0.5 hover:border-[#BCC3FF] hover:from-[#EEF0FF] hover:to-[#E5E9FF]">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#5865F2]/12 text-[#5865F2]">
           <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -106,6 +112,6 @@ export function DiscordBanner() {
           </div>
         </div>
       </div>
-    </a>
+    </button>
   );
 }
