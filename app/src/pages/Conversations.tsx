@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
-import PillTabBar from '../components/PillTabBar';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
+import PillTabBar from '../components/PillTabBar';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
@@ -804,10 +804,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const allLabels = Array.from(new Set(threads.flatMap(t => t.labels))).sort();
   const labelTabs = [
     { label: 'All', value: 'all' },
-    ...allLabels.map(l => ({
-      label: l.charAt(0).toUpperCase() + l.slice(1),
-      value: l,
-    })),
+    ...allLabels.map(l => ({ label: l.charAt(0).toUpperCase() + l.slice(1), value: l })),
   ];
 
   const isSidebar = variant === 'sidebar';

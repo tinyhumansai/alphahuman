@@ -319,32 +319,43 @@ fn store_handles_labels_and_inference() {
         .unwrap();
 
     let threads = store.list_threads().unwrap();
-    let get_thread = |id: &str| threads.iter().find(|t| t.id == id).unwrap();
-
-    assert_eq!(get_thread("t1").labels, vec!["custom"]);
-    assert_eq!(
-        get_thread("proactive:morning_briefing").labels,
-        vec!["briefing"]
-    );
-    assert_eq!(get_thread("proactive:system").labels, vec!["notification"]);
-    assert_eq!(get_thread("user-thread").labels, vec!["work"]);
+    {
+        let t1 = threads.iter().find(|t| t.id == "t1").unwrap();
+        assert_eq!(t1.labels, vec!["custom"]);
+    }
+    {
+        let mb = threads.iter().find(|t| t.id == "proactive:morning_briefing").unwrap();
+        assert_eq!(mb.labels, vec!["briefing"]);
+    }
+    {
+        let sys = threads.iter().find(|t| t.id == "proactive:system").unwrap();
+        assert_eq!(sys.labels, vec!["notification"]);
+    }
+    {
+        let user = threads.iter().find(|t| t.id == "user-thread").unwrap();
+        assert_eq!(user.labels, vec!["work"]);
+    }
 
     // 5. Update labels
     store
         .update_thread_labels("t1", vec!["updated".to_string()], "2026-04-10T12:05:00Z")
         .unwrap();
     let threads = store.list_threads().unwrap();
-    let get_thread_v2 = |id: &str| threads.iter().find(|t| t.id == id).unwrap();
-    assert_eq!(get_thread_v2("t1").labels, vec!["updated"]);
+    {
+        let t1 = threads.iter().find(|t| t.id == "t1").unwrap();
+        assert_eq!(t1.labels, vec!["updated"]);
+    }
 
     // 6. Title update preserves labels
     store
         .update_thread_title("t1", "New Title", "2026-04-10T12:06:00Z")
         .unwrap();
     let threads = store.list_threads().unwrap();
-    let get_thread_v3 = |id: &str| threads.iter().find(|t| t.id == id).unwrap();
-    assert_eq!(get_thread_v3("t1").labels, vec!["updated"]);
-    assert_eq!(get_thread("t1").title, "New Title");
+    {
+        let t1 = threads.iter().find(|t| t.id == "t1").unwrap();
+        assert_eq!(t1.labels, vec!["updated"]);
+        assert_eq!(t1.title, "New Title");
+    }
 }
 
 #[test]
