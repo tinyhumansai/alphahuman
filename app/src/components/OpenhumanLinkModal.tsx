@@ -17,11 +17,10 @@ import { showNativeNotification } from '../lib/nativeNotifications/tauriBridge';
 import { purgeWebviewAccount } from '../services/webviewAccountService';
 import { addAccount, removeAccount } from '../store/accountsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import type { Account, AccountProvider } from '../types/accounts';
-import { PROVIDERS } from '../types/accounts';
+import { type Account, type AccountProvider, PROVIDERS } from '../types/accounts';
 import { openUrl } from '../utils/openUrl';
-import ChannelSetupModal from './channels/ChannelSetupModal';
 import { ProviderIcon } from './accounts/providerIcons';
+import ChannelSetupModal from './channels/ChannelSetupModal';
 
 interface OpenhumanLinkEvent {
   path: string;
@@ -69,7 +68,12 @@ const OpenhumanLinkModal = () => {
             aria-label="Close"
             className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M6 18L18 6" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 6l12 12M6 18L18 6"
+              />
             </svg>
           </button>
         </div>
@@ -87,10 +91,7 @@ const OpenhumanLinkModal = () => {
  */
 const MessagingSetupBridge = ({ onClose }: { onClose: () => void }) => {
   const { definitions, loading } = useChannelDefinitions();
-  const telegram = useMemo(
-    () => definitions.find(d => d.id === 'telegram') ?? null,
-    [definitions]
-  );
+  const telegram = useMemo(() => definitions.find(d => d.id === 'telegram') ?? null, [definitions]);
 
   if (loading && !telegram) {
     return (
@@ -110,7 +111,10 @@ const MessagingSetupBridge = ({ onClose }: { onClose: () => void }) => {
         <div
           className="rounded-2xl bg-white p-6 text-sm text-stone-700 shadow-xl max-w-sm"
           onClick={e => e.stopPropagation()}>
-          <p>Telegram channel definition isn't available right now. Try again from Settings → Messaging.</p>
+          <p>
+            Telegram channel definition isn't available right now. Try again from Settings →
+            Messaging.
+          </p>
           <div className="mt-3 flex justify-end">
             <button
               type="button"
@@ -165,7 +169,10 @@ function renderBody(path: string, close: () => void) {
     default:
       return (
         <div className="space-y-3 text-sm text-stone-700">
-          <p>This setting isn't ready in the popup yet. Open the full settings page when you're ready.</p>
+          <p>
+            This setting isn't ready in the popup yet. Open the full settings page when you're
+            ready.
+          </p>
           <DoneFooter close={close} />
         </div>
       );
@@ -217,9 +224,7 @@ const NotificationsBody = ({ close }: { close: () => void }) => {
           allow it and then tell the agent it's done.
         </p>
       )}
-      {status === 'error' && (
-        <p className="text-xs text-coral-600">Couldn't send: {error}</p>
-      )}
+      {status === 'error' && <p className="text-xs text-coral-600">Couldn't send: {error}</p>}
       <DoneFooter close={close} />
     </div>
   );
@@ -338,8 +343,10 @@ const AccountsSetupBody = ({ close }: { close: () => void }) => {
   }, [accountsById, order]);
 
   const providerDescriptors = useMemo(
-    () => ACCOUNTS_SETUP_PROVIDERS.map(id => PROVIDERS.find(p => p.id === id)).filter(Boolean) as
-      typeof PROVIDERS,
+    () =>
+      ACCOUNTS_SETUP_PROVIDERS.map(id => PROVIDERS.find(p => p.id === id)).filter(
+        Boolean
+      ) as typeof PROVIDERS,
     []
   );
 

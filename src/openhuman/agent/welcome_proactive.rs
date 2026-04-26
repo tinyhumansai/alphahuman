@@ -188,7 +188,10 @@ mod tests {
     fn extract_messages_unwraps_legacy_json_envelope() {
         let raw = r#"{"messages":["hey there","how's the work?"]}"#;
         let parts = extract_messages(raw);
-        assert_eq!(parts, vec!["hey there".to_string(), "how's the work?".to_string()]);
+        assert_eq!(
+            parts,
+            vec!["hey there".to_string(), "how's the work?".to_string()]
+        );
     }
 
     #[test]

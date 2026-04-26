@@ -317,7 +317,10 @@ pub(crate) fn format_status_markdown(
         ));
     }
     if !webview_active.is_empty() {
-        out.push_str(&format!("- **webview logins:** {}\n", webview_active.join(", ")));
+        out.push_str(&format!(
+            "- **webview logins:** {}\n",
+            webview_active.join(", ")
+        ));
     }
     if !channels.is_empty() {
         out.push_str(&format!(

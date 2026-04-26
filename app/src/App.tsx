@@ -25,11 +25,7 @@ import { tagErrorSource } from './services/errorReportQueue';
 import { startWebviewAccountService } from './services/webviewAccountService';
 import { persistor, store } from './store';
 import { useAppDispatch, useAppSelector } from './store/hooks';
-import {
-  clearSelectedThread,
-  deleteThread,
-  setWelcomeThreadId,
-} from './store/threadSlice';
+import { clearSelectedThread, deleteThread, setWelcomeThreadId } from './store/threadSlice';
 import { isAccountsFullscreen } from './utils/accountsFullscreen';
 import { DEV_FORCE_ONBOARDING } from './utils/config';
 

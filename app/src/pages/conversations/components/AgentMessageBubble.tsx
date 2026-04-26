@@ -26,7 +26,12 @@ function OpenhumanLinkPill({ path, label }: { path: string; label: string }) {
       className="inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100">
       {label}
       <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M13 6l6 6-6 6" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M5 12h14M13 6l6 6-6 6"
+        />
       </svg>
     </button>
   );
