@@ -10,19 +10,26 @@
 
 pub mod conn;
 pub mod emulation;
+pub mod input;
 pub mod session;
 pub mod snapshot;
 pub mod target;
 
 pub use conn::CdpConn;
 pub use emulation::{set_user_agent_override, UaSpec};
-pub use session::{placeholder_data_url, spawn_session, target_url_fragment};
-pub use snapshot::Snapshot;
+pub use session::{
+    placeholder_marker, placeholder_url, spawn_session, target_url_fragment, SpawnedSession,
+};
+#[allow(unused_imports)] // `Rect` re-export consumed once turn 2 lands; keep stable.
+pub use snapshot::{Rect, Snapshot};
 pub use target::{
     browser_ws_url, connect_and_attach_matching, detach_session, find_page_target_where,
 };
 
-/// Remote debugging host — matches `--remote-debugging-port=9222` in
-/// `lib.rs`. Kept as constants so scanners and the session opener agree.
+/// Remote debugging host — matches `--remote-debugging-port=19222` in
+/// `lib.rs`. Kept as constants so scanners and the session opener
+/// agree. Port was 9222 originally but collided with ollama's
+/// `127.0.0.1:9222` listener (silent CDP-attach failure → blank
+/// child webviews). If you change either constant, update both.
 pub const CDP_HOST: &str = "127.0.0.1";
-pub const CDP_PORT: u16 = 9222;
+pub const CDP_PORT: u16 = 19222;

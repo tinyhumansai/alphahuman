@@ -4,12 +4,12 @@ import DefaultRedirect from './components/DefaultRedirect';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicRoute from './components/PublicRoute';
 import Accounts from './pages/Accounts';
-import Agents from './pages/Agents';
 import Channels from './pages/Channels';
 import Home from './pages/Home';
 import Intelligence from './pages/Intelligence';
 import Invites from './pages/Invites';
 import Notifications from './pages/Notifications';
+import Onboarding from './pages/onboarding/Onboarding';
 import Rewards from './pages/Rewards';
 import Settings from './pages/Settings';
 import Skills from './pages/Skills';
@@ -26,6 +26,16 @@ const AppRoutes = () => {
           <PublicRoute>
             <Welcome />
           </PublicRoute>
+        }
+      />
+
+      {/* Onboarding (full-page stepper, gated by onboarding_completed) */}
+      <Route
+        path="/onboarding/*"
+        element={
+          <ProtectedRoute requireAuth={true}>
+            <Onboarding />
+          </ProtectedRoute>
         }
       />
 
@@ -105,28 +115,10 @@ const AppRoutes = () => {
       />
 
       <Route
-        path="/agents"
-        element={
-          <ProtectedRoute requireAuth={true}>
-            <Agents />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
         path="/webhooks"
         element={
           <ProtectedRoute requireAuth={true}>
             <Webhooks />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/notifications"
-        element={
-          <ProtectedRoute requireAuth={true}>
-            <Notifications />
           </ProtectedRoute>
         }
       />

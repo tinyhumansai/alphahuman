@@ -24,6 +24,20 @@ import {
 vi.stubEnv('DEV', true);
 vi.stubEnv('MODE', 'test');
 
+// Polyfill ResizeObserver for cmdk/Radix components in jsdom
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+// Polyfill scrollIntoView for cmdk in jsdom
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function () {};
+}
+
 // Mock Tauri APIs (not available in test env)
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn(() => false) }));
 
@@ -59,11 +73,13 @@ vi.mock('../utils/tauriCommands', () => ({
 vi.mock('../utils/config', () => ({
   CORE_RPC_URL: 'http://127.0.0.1:7788/rpc',
   IS_DEV: true,
+  IS_PROD: false,
   DEV_FORCE_ONBOARDING: false,
   SKILLS_GITHUB_REPO: 'test/skills',
   SENTRY_DSN: undefined,
   BACKEND_URL: 'http://localhost:5005',
   TELEGRAM_BOT_USERNAME: 'openhuman_bot',
+  LATEST_APP_DOWNLOAD_URL: 'https://github.com/tinyhumansai/openhuman/releases/latest',
   DEV_JWT_TOKEN: undefined,
 }));
 

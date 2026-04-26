@@ -8,6 +8,8 @@ import {
   type ComposioToolkitMeta,
   KNOWN_COMPOSIO_TOOLKITS,
 } from '../components/composio/toolkitMeta';
+import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
+import { ToastContainer } from '../components/intelligence/Toast';
 import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
 import CreateSkillModal from '../components/skills/CreateSkillModal';
 import InstallSkillDialog from '../components/skills/InstallSkillDialog';
@@ -23,6 +25,7 @@ import {
   SkillCategoryIcon,
 } from '../components/skills/skillIcons';
 import SkillSearchBar from '../components/skills/SkillSearchBar';
+import UninstallSkillConfirmDialog from '../components/skills/UninstallSkillConfirmDialog';
 import VoiceSetupModal from '../components/skills/VoiceSetupModal';
 import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
 import { useScreenIntelligenceSkillStatus } from '../features/screen-intelligence/useScreenIntelligenceSkillStatus';
@@ -34,6 +37,8 @@ import { type ComposioConnection, deriveComposioState } from '../lib/composio/ty
 import { skillsApi, type SkillSummary } from '../services/api/skillsApi';
 import { useAppSelector } from '../store/hooks';
 import type { ChannelConnectionStatus, ChannelDefinition, ChannelType } from '../types/channels';
+import type { ToastNotification } from '../types/intelligence';
+import { IS_DEV } from '../utils/config';
 import { subconsciousEscalationsDismiss } from '../utils/tauriCommands';
 
 function channelStatusDot(status: ChannelConnectionStatus): string {
@@ -120,15 +125,22 @@ function composioStatusColor(connection: ComposioConnection | undefined): string
 
 // ─── Built-in skill definitions ────────────────────────────────────────────────
 
-const BUILT_IN_SKILLS = [
-  {
-    id: 'screen-intelligence',
-    title: 'Screen Intelligence',
-    description:
-      'Capture windows, summarize what is on screen, and feed useful context into memory.',
-    route: '/settings/screen-intelligence',
-    icon: BUILT_IN_SKILL_ICONS.screenIntelligence,
-  },
+const BUILT_IN_SKILLS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  route: string;
+  icon: React.ReactNode;
+}> = [
+  // Hidden — not active yet. Uncomment to re-enable.
+  // {
+  //   id: 'screen-intelligence',
+  //   title: 'Screen Intelligence',
+  //   description:
+  //     'Capture windows, summarize what is on screen, and feed useful context into memory.',
+  //   route: '/settings/screen-intelligence',
+  //   icon: BUILT_IN_SKILL_ICONS.screenIntelligence,
+  // },
   // text-autocomplete + voice-stt hidden per #717 (modals/status hooks retained for re-enable).
 ];
 
@@ -185,6 +197,15 @@ export default function Skills() {
   const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [uninstallCandidate, setUninstallCandidate] = useState<SkillSummary | null>(null);
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const addToast = useCallback((toast: Omit<ToastNotification, 'id'>) => {
+    const newToast: ToastNotification = { ...toast, id: `toast-${Date.now()}-${Math.random()}` };
+    setToasts(prev => [...prev, newToast]);
+  }, []);
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
   const pendingEscalationId =
     location.state &&
     typeof location.state === 'object' &&
@@ -258,7 +279,7 @@ export default function Skills() {
   }, [refreshDiscoveredSkills]);
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!IS_DEV) return;
     console.debug('[skills][composio] hook result', {
       toolkitCount: composioToolkits.length,
       connectionCount: composioConnectionByToolkit.size,
@@ -287,7 +308,7 @@ export default function Skills() {
     const missingKnownToolkits = KNOWN_COMPOSIO_TOOLKITS.filter(
       slug => !normalizedToolkits.includes(slug)
     );
-    if (import.meta.env.DEV && missingKnownToolkits.length > 0) {
+    if (IS_DEV && missingKnownToolkits.length > 0) {
       console.debug('[skills][composio] filling gaps from KNOWN_COMPOSIO_TOOLKITS', {
         toolkitCount: composioToolkits.length,
         connectionCount: composioConnectionByToolkit.size,
@@ -446,7 +467,7 @@ export default function Skills() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-amber-900">
-                      Integrations are showing stale status
+                      Connections are showing stale status
                     </h2>
                     <p className="mt-1 text-xs leading-relaxed text-amber-800">{composioError}</p>
                   </div>
@@ -462,7 +483,7 @@ export default function Skills() {
 
             {filteredItems.length === 0 ? (
               <div className="py-8 text-center">
-                <p className="text-sm text-stone-400">No skills found</p>
+                <p className="text-sm text-stone-400">No connections found</p>
               </div>
             ) : (
               groupedItems.map(({ category, items }) => (
@@ -591,6 +612,11 @@ export default function Skills() {
                             statusColor={channelStatusColor(status)}
                             ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
                             onCtaClick={() => setChannelModalDef(item.channelDef!)}
+                            badge={
+                              isMessagingId(item.channelDef!.id) ? (
+                                <ConnectionBadge kind="messaging" />
+                              ) : undefined
+                            }
                           />
                         );
                       }
@@ -617,6 +643,7 @@ export default function Skills() {
                             : skill.scope === 'project'
                               ? 'text-amber-600'
                               : 'text-stone-600';
+                        const canUninstall = skill.scope === 'user' && !skill.legacy;
                         return (
                           <UnifiedSkillCard
                             key={item.id}
@@ -633,6 +660,36 @@ export default function Skills() {
                               });
                               setSelectedSkill(skill);
                             }}
+                            secondaryActions={
+                              canUninstall
+                                ? [
+                                    {
+                                      label: 'Uninstall',
+                                      testId: `uninstall-skill-${skill.id}`,
+                                      icon: (
+                                        <svg
+                                          className="h-3.5 w-3.5"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          viewBox="0 0 24 24">
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"
+                                          />
+                                        </svg>
+                                      ),
+                                      onClick: () => {
+                                        console.debug('[skills][discovered] open uninstall', {
+                                          skillId: skill.id,
+                                        });
+                                        setUninstallCandidate(skill);
+                                      },
+                                    },
+                                  ]
+                                : undefined
+                            }
                           />
                         );
                       }
@@ -674,6 +731,7 @@ export default function Skills() {
                             }
                             ctaLabel={ctaLabel}
                             ctaVariant={ctaVariant}
+                            badge={<ConnectionBadge kind="composio" />}
                             onCtaClick={() => {
                               if (hasComposioError) {
                                 void refreshComposio();
@@ -769,6 +827,34 @@ export default function Skills() {
           }}
         />
       )}
+
+      {uninstallCandidate && (
+        <UninstallSkillConfirmDialog
+          skill={uninstallCandidate}
+          onClose={() => setUninstallCandidate(null)}
+          onUninstalled={result => {
+            console.debug('[skills][uninstall] complete', {
+              name: result.name,
+              removedPath: result.removedPath,
+            });
+            addToast({
+              type: 'success',
+              title: 'Skill uninstalled',
+              message: `"${result.name}" was removed successfully.`,
+            });
+            // If the detail drawer was showing the skill we just removed,
+            // close it — the resource tree is now stale and any `read_resource`
+            // RPC would fail with a clean "not installed" error.
+            setSelectedSkill(prev => (prev && prev.id === result.name ? null : prev));
+            // Drop it from local state so the card disappears without a
+            // round-trip; refresh to pick up any side effects (e.g. a
+            // previously-shadowed project-scope skill now surfaces).
+            setDiscoveredSkills(prev => prev.filter(s => s.id !== result.name));
+            void refreshDiscoveredSkills();
+          }}
+        />
+      )}
+      <ToastContainer notifications={toasts} onRemove={removeToast} />
     </div>
   );
 }

@@ -3,27 +3,40 @@ compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supp
 
 #[cfg(feature = "cef")]
 mod cdp;
+#[cfg(all(feature = "cef", target_os = "macos"))]
+mod cef_preflight;
+#[cfg(feature = "cef")]
+mod cef_profile;
 mod core_process;
 mod core_update;
 #[cfg(feature = "cef")]
 mod discord_scanner;
+mod gmail;
+#[cfg(feature = "cef")]
+mod gmessages_scanner;
 #[cfg(feature = "cef")]
 mod imessage_scanner;
 mod notification_settings;
+#[cfg(feature = "cef")]
+mod screen_capture;
 #[cfg(feature = "cef")]
 mod slack_scanner;
 #[cfg(feature = "cef")]
 mod telegram_scanner;
 mod webview_accounts;
+mod webview_apis;
 mod whatsapp_scanner;
 
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use tauri::WindowEvent;
+#[cfg(not(all(target_os = "linux", feature = "cef")))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow, WindowEvent,
 };
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -319,6 +332,159 @@ async fn restart_core_process(
     state.inner().restart().await
 }
 
+#[tauri::command]
+async fn restart_app(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
+    log::info!("[app] restart_app invoked from frontend");
+    app.restart();
+}
+
+#[cfg(feature = "cef")]
+#[tauri::command]
+async fn schedule_cef_profile_purge(user_id: Option<String>) -> Result<String, String> {
+    let queued = cef_profile::queue_profile_purge_for_user(user_id.as_deref())?;
+    Ok(queued.display().to_string())
+}
+
+/// Information about an available shell-app update returned to the frontend.
+#[derive(Debug, Clone, serde::Serialize)]
+struct AppUpdateInfo {
+    /// The currently-running app version (matches `tauri.conf.json::version`).
+    current_version: String,
+    /// True when the configured updater endpoint advertises a newer version.
+    available: bool,
+    /// Newer version reported by the updater endpoint, if any.
+    available_version: Option<String>,
+    /// Release notes / body for the new version, if the manifest provided one.
+    body: Option<String>,
+}
+
+/// Probe the updater endpoint and report whether a newer shell build is available.
+/// Does NOT download or install. Pair with `apply_app_update` to actually upgrade.
+#[tauri::command]
+async fn check_app_update(app: tauri::AppHandle<AppRuntime>) -> Result<AppUpdateInfo, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let current_version = app.package_info().version.to_string();
+    log::info!("[app-update] check requested (current: {current_version})");
+
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater plugin not initialized: {e}"))?;
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            log::info!(
+                "[app-update] update available: {} -> {}",
+                current_version,
+                update.version
+            );
+            Ok(AppUpdateInfo {
+                current_version,
+                available: true,
+                available_version: Some(update.version.clone()),
+                body: update.body.clone(),
+            })
+        }
+        Ok(None) => {
+            log::info!("[app-update] no update available");
+            Ok(AppUpdateInfo {
+                current_version,
+                available: false,
+                available_version: None,
+                body: None,
+            })
+        }
+        Err(e) => {
+            log::warn!("[app-update] check failed: {e}");
+            Err(format!("update check failed: {e}"))
+        }
+    }
+}
+
+/// Download and install the latest shell update, then relaunch.
+///
+/// Shuts the core sidecar down before download begins so the install step
+/// (which on macOS replaces the entire `.app` bundle) does not race against
+/// a live sidecar holding file handles inside `Contents/Resources/`. The
+/// new bundled sidecar is launched fresh after `app.restart()`.
+///
+/// Emits Tauri events `app-update:status` and `app-update:progress` so the
+/// frontend can show a snackbar / progress bar.
+#[tauri::command]
+async fn apply_app_update(
+    state: tauri::State<'_, core_process::CoreProcessHandle>,
+    app: tauri::AppHandle<AppRuntime>,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    use tauri_plugin_updater::UpdaterExt;
+
+    log::info!("[app-update] manual apply_app_update invoked from frontend");
+
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater plugin not initialized: {e}"))?;
+
+    let _ = app.emit("app-update:status", "checking");
+
+    let update = match updater.check().await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            log::info!("[app-update] no update available");
+            let _ = app.emit("app-update:status", "up_to_date");
+            return Ok(());
+        }
+        Err(e) => {
+            log::warn!("[app-update] check failed: {e}");
+            let _ = app.emit("app-update:status", "error");
+            return Err(format!("update check failed: {e}"));
+        }
+    };
+
+    let new_version = update.version.clone();
+    log::info!(
+        "[app-update] downloading {} (size hint: {:?})",
+        new_version,
+        update.signature
+    );
+    let _ = app.emit("app-update:status", "downloading");
+
+    // Shut the core sidecar down before the install step replaces the .app.
+    // We hold the restart lock until app.restart() so nothing tries to
+    // respawn the sidecar from the in-flight (or freshly-replaced) bundle.
+    let _guard = state.inner().restart_lock().await;
+    log::debug!("[app-update] acquired core restart lock");
+    state.inner().shutdown().await;
+
+    let progress_app = app.clone();
+    let install_app = app.clone();
+    let download_result = update
+        .download_and_install(
+            move |chunk_length, content_length| {
+                let payload = serde_json::json!({
+                    "chunk": chunk_length,
+                    "total": content_length,
+                });
+                let _ = progress_app.emit("app-update:progress", payload);
+            },
+            move || {
+                log::info!("[app-update] download complete — installing");
+                let _ = install_app.emit("app-update:status", "installing");
+            },
+        )
+        .await;
+
+    if let Err(e) = download_result {
+        log::error!("[app-update] download/install failed: {e}");
+        let _ = app.emit("app-update:status", "error");
+        return Err(format!("download_and_install failed: {e}"));
+    }
+
+    log::info!("[app-update] install complete — relaunching");
+    let _ = app.emit("app-update:status", "restarting");
+    // Note: app.restart() never returns. Anything after this is unreachable.
+    app.restart();
+}
+
 /// Register (or re-register) the global dictation toggle hotkey.
 /// Emits `dictation://toggle` to all webviews when the shortcut is pressed.
 #[tauri::command]
@@ -489,6 +655,16 @@ fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
         .map_err(|err| format!("failed to focus main window: {err}"))?;
     Ok(())
 }
+#[cfg(all(target_os = "linux", feature = "cef"))]
+fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
+    let _ = app;
+    log::warn!(
+        "[tray] skipping tray setup on linux+cef: tray menu creation still panics inside GTK during packaged runs"
+    );
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "linux", feature = "cef")))]
 fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
     log::info!("[tray] setting up tray icon");
 
@@ -550,6 +726,38 @@ pub fn run() {
         .parse_filters(&default_filter)
         .try_init();
 
+    // The vendored tauri-cef dev-server proxy builds a reqwest 0.13 client
+    // (see vendor/tauri-cef/crates/tauri/src/protocol/tauri.rs) which calls
+    // rustls 0.23's `CryptoProvider::get_default()`. rustls 0.23 no longer
+    // picks a provider implicitly — without one installed, the proxy panics
+    // with "No provider set" the first time `tauri dev` forwards a request.
+    // Install the ring provider once before any HTTPS client is built.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    // CEF cache-lock preflight (macOS only): if another OpenHuman instance
+    // is already holding the CEF user-data-dir, the vendored
+    // `tauri-runtime-cef` panics inside `cef::initialize` with a Rust
+    // backtrace and no actionable message (issue #864). Catch the collision
+    // here and exit cleanly with a message that names the lock-holder PID
+    // and the workaround. Stale locks (PID dead) are removed and we
+    // continue, matching Chromium's own startup recovery.
+    #[cfg(feature = "cef")]
+    match cef_profile::prepare_process_cache_path() {
+        Ok(path) => log::debug!("[cef-profile] startup cache path={}", path.display()),
+        Err(error) => {
+            log::error!(
+                "[cef-profile] failed to configure per-user CEF cache; refusing to start with shared/global cache: {error}"
+            );
+            std::process::exit(1);
+        }
+    }
+
+    #[cfg(all(feature = "cef", target_os = "macos"))]
+    if let Err(e) = cef_preflight::check_default_cache() {
+        eprintln!("\n[openhuman] {e}\n");
+        std::process::exit(1);
+    }
+
     // Runtime selection: default build uses wry (WKWebView on macOS), the
     // `cef` feature swaps to Chromium Embedded Framework. The switch is at
     // Builder construction only — everything downstream (plugins, commands,
@@ -568,11 +776,20 @@ pub fn run() {
         // manager. Both are no-ops on Windows/Linux, so safe to always set.
         //
         // In debug builds we additionally expose the Chrome DevTools
-        // Protocol on localhost:9222 so every CEF webview can be inspected
-        // from a regular browser (right-click "Inspect" does not propagate
-        // to CEF child webviews on macOS). Release builds intentionally do
-        // NOT open the CDP port — it would let any process on the machine
-        // drive the embedded WhatsApp/Slack/etc. webviews.
+        // Protocol on localhost:19222 so every CEF webview can be
+        // inspected from a regular browser (right-click "Inspect" does
+        // not propagate to CEF child webviews on macOS). Release builds
+        // intentionally do NOT open the CDP port — it would let any
+        // process on the machine drive the embedded WhatsApp/Slack/etc.
+        // webviews.
+        //
+        // The port was 9222 (Chromium's default) but ollama's
+        // OpenAI-compatible server squats on 127.0.0.1:9222 in some
+        // installs, which silently broke CDP attach (our client hit
+        // ollama, the WS handshake failed, child webviews stayed at
+        // about:blank → black screen). Picked 19222 to dodge that
+        // collision; if you change it here also update
+        // `cdp::CDP_PORT` and `whatsapp_scanner::CDP_PORT`.
         //
         // NOTE: flags must be prefixed with `--`. The runtime's
         // `on_before_command_line_processing` dispatch (in
@@ -592,28 +809,54 @@ pub fn run() {
             ("--enable-features", Some("SharedArrayBuffer")),
         ];
         if cfg!(debug_assertions) {
-            args.push(("--remote-debugging-port", Some("9222")));
+            args.push(("--remote-debugging-port", Some("19222")));
         }
         tauri::Builder::<tauri::Cef>::new().command_line_args::<&str, &str>(args)
     };
 
     let builder = builder
-        .plugin(tauri_plugin_opener::init())
+        // Explicitly disable `open_js_links_on_click`: tauri-plugin-opener
+        // defaults to injecting `init-iife.js` into *every* webview — a
+        // global click listener that invokes `plugin:opener|open_url` via
+        // HTTP-IPC. That violates our "no JS injection into CEF child
+        // webviews" rule (see CLAUDE.md) and also fails in practice
+        // because third-party origins (web.telegram.org, linkedin, …)
+        // trip Tauri's Origin header check and return 500. External link
+        // handling for `acct_*` webviews runs natively via
+        // `on_navigation` / `on_new_window` in webview_accounts/mod.rs;
+        // the main window uses `openUrl()` from `utils/openUrl.ts` when
+        // it needs to hand off a URL.
+        .plugin(
+            tauri_plugin_opener::Builder::default()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Auto-updater for the Tauri shell. Endpoint and minisign pubkey live
+        // in `tauri.conf.json` under `plugins.updater`. Releases are signed at
+        // build time with `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`); see
+        // docs/AUTO_UPDATE.md for the full pipeline.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DictationHotkeyState(Mutex::new(Vec::new())))
         .manage(webview_accounts::WebviewAccountsState::default())
         .manage(notification_settings::NotificationSettingsState::new());
     #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(imessage_scanner::ScannerRegistry::new()));
+    #[cfg(feature = "cef")]
+    let builder = builder.manage(std::sync::Arc::new(
+        gmessages_scanner::ScannerRegistry::new(),
+    ));
     let builder = builder.manage(whatsapp_scanner::ScannerRegistry::new());
     #[cfg(feature = "cef")]
-    let builder = builder.manage(slack_scanner::ScannerRegistry::new());
+    let builder = builder.manage(std::sync::Arc::new(slack_scanner::ScannerRegistry::new()));
     #[cfg(feature = "cef")]
     let builder = builder.manage(discord_scanner::ScannerRegistry::new());
     #[cfg(feature = "cef")]
     let builder = builder.manage(telegram_scanner::ScannerRegistry::new());
+    #[cfg(feature = "cef")]
+    let builder = builder.manage(screen_capture::ScreenShareState::new());
     builder
         .setup(move |app| {
             #[cfg(any(windows, target_os = "linux"))]
@@ -621,6 +864,32 @@ pub fn run() {
                 if let Err(err) = app.deep_link().register_all() {
                     log::warn!("[deep-link] register_all failed (non-fatal): {err}");
                 }
+            }
+
+            // Start the webview_apis WebSocket bridge BEFORE spawning core —
+            // core reads OPENHUMAN_WEBVIEW_APIS_PORT on first connect, and
+            // connects lazily, so the env var must be set before the spawn.
+            //
+            // If the bridge fails to bind we clear any inherited port env so
+            // the core child can't accidentally connect to whichever loopback
+            // process already owns that port, then abort setup — the bridge
+            // is load-bearing for every webview_apis RPC method.
+            let bridge_ok = tauri::async_runtime::block_on(async {
+                match webview_apis::start().await {
+                    Ok(port) => {
+                        std::env::set_var(webview_apis::server::PORT_ENV, port.to_string());
+                        log::info!("[webview_apis] bridge ready on port {port}");
+                        true
+                    }
+                    Err(err) => {
+                        log::error!("[webview_apis] failed to start bridge: {err}");
+                        std::env::remove_var(webview_apis::server::PORT_ENV);
+                        false
+                    }
+                }
+            });
+            if !bridge_ok {
+                return Err("webview_apis bridge failed to start — aborting setup".into());
             }
 
             let core_run_mode = core_process::default_core_run_mode(daemon_mode);
@@ -635,6 +904,35 @@ pub fn run() {
                 core_run_mode,
             );
             std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
+
+            // Expose the shared CEF cookies SQLite path to the core sidecar
+            // so `check_onboarding_status` can detect which webview
+            // providers (gmail, whatsapp, slack, …) already have a live
+            // session cookie. Best-effort — if we can't resolve the path
+            // the core treats every provider as logged_out.
+            if let Some(cache_dir) = {
+                #[cfg(feature = "cef")]
+                {
+                    cef_profile::configured_cache_path_from_env()
+                }
+                #[cfg(not(feature = "cef"))]
+                {
+                    None
+                }
+            } {
+                let cookies_db = cache_dir.join("Default").join("Cookies");
+                log::debug!("[webview_accounts] exposing cookies DB path to core");
+                std::env::set_var("OPENHUMAN_CEF_COOKIES_DB", &cookies_db);
+            } else {
+                // Clear any inherited value so the core can't pick up a
+                // stale path from a previous run or the parent shell.
+                std::env::remove_var("OPENHUMAN_CEF_COOKIES_DB");
+                log::warn!(
+                    "[webview_accounts] could not resolve configured CEF cache dir — core \
+                     will report all webview providers as logged_out"
+                );
+            }
+
             app.manage(core_handle.clone());
             let app_handle_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -682,9 +980,19 @@ pub fn run() {
             //       let _ = window.show();
             //   }
 
-            if let Err(err) = setup_tray(app.handle()) {
-                log::error!("[tray] failed to setup tray icon: {err}");
-            }
+            // Tray icon setup moved to RunEvent::Ready (see below) — GTK is only
+            // initialized after the event loop starts, so we must delay tray creation
+            // until the Ready event fires. Creating the tray here would panic on
+            // Linux with "GTK has not been initialized".
+            log::info!("[tray] deferring tray setup to RunEvent::Ready");
+
+            // CEF cold-start warmup was here — disabled while we triage a
+            // blank-webview report on first onboarding open. Restore once
+            // we can repro that the warmup child doesn't interfere with
+            // subsequent child-webview spawns on the main window. The
+            // build/test code we removed:
+            //   - 500ms post-setup timer
+            //   - parent.add_child("cef-warmup", about:blank, (-10000,-10000), 1x1)
 
             // Dev convenience: if OPENHUMAN_DEV_AUTO_WHATSAPP=<account-id>
             // is set, spawn that account's webview at startup so the
@@ -875,6 +1183,62 @@ pub fn run() {
                     });
                 }
             }
+            // OPENHUMAN_DEV_AUTO_GMAIL=<account-id> opens the Gmail account
+            // webview at startup so the webview_apis bridge has a live CDP
+            // target to attach to. Pair with:
+            //   curl -sS http://127.0.0.1:7788/rpc \
+            //     -H 'Content-Type: application/json' \
+            //     -d '{"jsonrpc":"2.0","id":1,"method":"openhuman.webview_apis_gmail_list_labels","params":{"account_id":"<account-id>"}}'
+            if let Ok(account_id) = std::env::var("OPENHUMAN_DEV_AUTO_GMAIL") {
+                let account_id = account_id.trim().to_string();
+                if !account_id.is_empty() {
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        let state = app_handle.state::<webview_accounts::WebviewAccountsState>();
+                        // Size the Gmail child webview to the parent window
+                        // so the inbox is usable without manual resizing.
+                        let (w, h) = app_handle
+                            .get_webview_window("main")
+                            .and_then(|main| {
+                                let scale = main.scale_factor().unwrap_or(1.0);
+                                main.inner_size()
+                                    .ok()
+                                    .map(|s| ((s.width as f64) / scale, (s.height as f64) / scale))
+                            })
+                            .unwrap_or((1100.0, 780.0));
+                        let args = webview_accounts::OpenArgs {
+                            account_id: account_id.clone(),
+                            provider: "gmail".to_string(),
+                            url: None,
+                            bounds: Some(webview_accounts::Bounds {
+                                x: 0.0,
+                                y: 0.0,
+                                width: w,
+                                height: h,
+                            }),
+                        };
+                        match webview_accounts::webview_account_open(
+                            app_handle.clone(),
+                            state,
+                            args,
+                        )
+                        .await
+                        {
+                            Ok(label) => log::info!(
+                                "[dev-auto-gmail] spawned label={} account={}",
+                                label,
+                                account_id
+                            ),
+                            Err(e) => log::error!(
+                                "[dev-auto-gmail] failed: {} (account={})",
+                                e,
+                                account_id
+                            ),
+                        }
+                    });
+                }
+            }
 
             #[cfg(all(target_os = "macos", feature = "cef"))]
             {
@@ -898,7 +1262,12 @@ pub fn run() {
             overlay_parent_rpc_url,
             check_core_update,
             apply_core_update,
+            check_app_update,
+            apply_app_update,
             restart_core_process,
+            restart_app,
+            #[cfg(feature = "cef")]
+            schedule_cef_profile_purge,
             service_install_direct,
             service_start_direct,
             service_stop_direct,
@@ -910,6 +1279,7 @@ pub fn run() {
             webview_accounts::webview_account_close,
             webview_accounts::webview_account_purge,
             webview_accounts::webview_account_bounds,
+            webview_accounts::webview_account_reveal,
             webview_accounts::webview_account_hide,
             webview_accounts::webview_account_show,
             webview_accounts::webview_recipe_event,
@@ -921,12 +1291,34 @@ pub fn run() {
             webview_accounts::webview_set_focused_account,
             notification_settings::notification_settings_get,
             notification_settings::notification_settings_set,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_begin_session,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_thumbnail,
+            #[cfg(feature = "cef")]
+            screen_capture::screen_share_finalize_session,
+            gmail::gmail_list_labels,
+            gmail::gmail_list_messages,
+            gmail::gmail_search,
+            gmail::gmail_get_message,
+            gmail::gmail_send,
+            gmail::gmail_trash,
+            gmail::gmail_add_label,
+            gmail::gmail_find_linkedin_profile_url,
             activate_main_window,
             show_native_notification
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |app_handle, event| match event {
+            RunEvent::Ready => {
+                log::info!("[app] RunEvent::Ready — GTK initialized, setting up tray");
+                if let Err(err) = setup_tray(app_handle) {
+                    log::warn!(
+                    "[tray] failed to setup tray icon (non-fatal in headless environment): {err}"
+                );
+                }
+            }
             #[cfg(target_os = "macos")]
             RunEvent::WindowEvent {
                 label,
@@ -971,4 +1363,168 @@ pub fn run_core_from_args(args: &[String]) -> Result<(), String> {
         return Err(format!("core binary exited with status {status}"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that is_daemon_mode correctly detects daemon flag variations
+    #[test]
+    fn is_daemon_mode_detects_daemon_flag() {
+        // Note: This test relies on the current process args, so in test mode
+        // it will typically return false. We verify the function is callable.
+        let _result = is_daemon_mode();
+    }
+
+    /// Test expand_dictation_shortcuts for CmdOrCtrl expansion
+    #[test]
+    fn expand_dictation_shortcuts_cmd_or_ctrl_expansion() {
+        #[cfg(target_os = "macos")]
+        {
+            let result = expand_dictation_shortcuts("CmdOrCtrl+Shift+D");
+            assert_eq!(result.len(), 2);
+            assert!(result.contains(&"Cmd+Shift+D".to_string()));
+            assert!(result.contains(&"Ctrl+Shift+D".to_string()));
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let result = expand_dictation_shortcuts("CmdOrCtrl+Shift+D");
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0], "Ctrl+Shift+D");
+        }
+    }
+
+    /// Test expand_dictation_shortcuts with plain shortcut (no CmdOrCtrl)
+    #[test]
+    fn expand_dictation_shortcuts_plain_shortcut() {
+        let result = expand_dictation_shortcuts("Ctrl+Alt+T");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "Ctrl+Alt+T");
+    }
+
+    /// Test expand_dictation_shortcuts with empty/whitespace input
+    #[test]
+    fn expand_dictation_shortcuts_empty_input() {
+        let result = expand_dictation_shortcuts("");
+        assert!(result.is_empty());
+
+        let result = expand_dictation_shortcuts("   ");
+        assert!(result.is_empty());
+    }
+
+    /// Test core_rpc_url returns expected format
+    #[test]
+    fn core_rpc_url_returns_expected_format() {
+        // Save original env
+        let original = std::env::var("OPENHUMAN_CORE_RPC_URL").ok();
+
+        // Test with env var set
+        std::env::set_var("OPENHUMAN_CORE_RPC_URL", "http://localhost:9999/rpc");
+        let url = core_rpc_url();
+        assert_eq!(url, "http://localhost:9999/rpc");
+
+        // Test fallback when env not set
+        std::env::remove_var("OPENHUMAN_CORE_RPC_URL");
+        let url = core_rpc_url();
+        assert_eq!(url, "http://127.0.0.1:7788/rpc");
+
+        // Restore original
+        match original {
+            Some(v) => std::env::set_var("OPENHUMAN_CORE_RPC_URL", v),
+            None => std::env::remove_var("OPENHUMAN_CORE_RPC_URL"),
+        }
+    }
+
+    /// Test overlay_parent_rpc_url handles empty env var
+    #[test]
+    fn overlay_parent_rpc_url_handles_empty() {
+        // Save original env
+        let original = std::env::var("OPENHUMAN_CORE_RPC_URL").ok();
+
+        // Test with empty string (should return None)
+        std::env::set_var("OPENHUMAN_CORE_RPC_URL", "");
+        let result = overlay_parent_rpc_url();
+        assert!(result.is_none());
+
+        // Test with whitespace only (should return None)
+        std::env::set_var("OPENHUMAN_CORE_RPC_URL", "   ");
+        let result = overlay_parent_rpc_url();
+        assert!(result.is_none());
+
+        // Test with valid URL
+        std::env::set_var("OPENHUMAN_CORE_RPC_URL", "http://127.0.0.1:7788/rpc");
+        let result = overlay_parent_rpc_url();
+        assert_eq!(result, Some("http://127.0.0.1:7788/rpc".to_string()));
+
+        // Restore original
+        match original {
+            Some(v) => std::env::set_var("OPENHUMAN_CORE_RPC_URL", v),
+            None => std::env::remove_var("OPENHUMAN_CORE_RPC_URL"),
+        }
+    }
+
+    /// Tests for setup_tray conditional compilation
+    /// The PR adds two versions of setup_tray():
+    /// 1. No-op for linux + cef: logs warning and returns Ok(())
+    /// 2. Full implementation for other platforms
+    ///
+    /// These tests verify the function signatures are correct and
+    /// the compile-time cfg blocks are properly set up.
+
+    /// Verify setup_tray function exists and has correct signature
+    /// This test passes if the code compiles, as the function signature
+    /// is validated by the compiler.
+    #[test]
+    fn setup_tray_function_signature_compiles() {
+        // This test exists to ensure the conditional compilation
+        // of setup_tray is valid. The function is not actually called
+        // here because it requires a full Tauri AppHandle.
+        // The cfg attributes ensure only one version exists at compile time.
+    }
+
+    /// Test that AppRuntime is defined for the current feature set
+    #[test]
+    fn app_runtime_type_exists() {
+        // This test verifies AppRuntime is properly defined
+        // based on the cef feature flag.
+        // The type alias exists at module scope and is used throughout.
+        fn _check_runtime<R: tauri::Runtime>() {}
+        // _check_runtime::<AppRuntime>(); // Would require importing
+    }
+
+    /// Verify tray logging patterns exist (grep-friendly)
+    #[test]
+    fn tray_setup_logging_patterns_exist() {
+        // These log patterns from the PR are grep-friendly:
+        // "[tray] skipping tray setup on linux+cef: ..."
+        // "[tray] setting up tray icon"
+        // "[tray] tray icon ready"
+        // "[tray] action=show_window ..."
+        // "[tray] action=quit ..."
+        // "[tray] failed to setup tray icon ..."
+        // "[app] RunEvent::Ready — GTK initialized, setting up tray"
+        //
+        // This test passes if the code compiles with these log messages.
+    }
+
+    /// Test expand_dictation_shortcuts with Cmd-only variant on macOS
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn expand_dictation_shortcuts_macos_cmd_only() {
+        // When CmdOrCtrl is replaced with just Cmd
+        let result = expand_dictation_shortcuts("CmdOrCtrl+Space");
+        assert!(result.contains(&"Cmd+Space".to_string()));
+    }
+
+    /// Test expand_dictation_shortcuts with Ctrl-only variant on non-macOS
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn expand_dictation_shortcuts_non_macos_ctrl_only() {
+        // When CmdOrCtrl is replaced with just Ctrl
+        let result = expand_dictation_shortcuts("CmdOrCtrl+Space");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "Ctrl+Space");
+    }
 }

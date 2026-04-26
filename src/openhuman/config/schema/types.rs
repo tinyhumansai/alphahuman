@@ -81,6 +81,13 @@ pub struct Config {
     #[serde(default)]
     pub memory: MemoryConfig,
 
+    /// Phase 4 memory-tree embedding wiring (#710). Controls whether
+    /// ingest/seal pass new chunks/summaries through an Ollama embedder,
+    /// and whether missing endpoint config is fatal or warns and falls
+    /// back to inert zero vectors.
+    #[serde(default)]
+    pub memory_tree: MemoryTreeConfig,
+
     #[serde(default)]
     pub storage: StorageConfig,
 
@@ -95,6 +102,12 @@ pub struct Config {
 
     #[serde(default)]
     pub http_request: HttpRequestConfig,
+
+    #[serde(default)]
+    pub curl: CurlConfig,
+
+    #[serde(default)]
+    pub gitbooks: GitbooksConfig,
 
     #[serde(default)]
     pub multimodal: MultimodalConfig,
@@ -164,7 +177,7 @@ pub struct Config {
     ///   `channels::runtime::dispatch::resolve_target_agent`). The
     ///   welcome agent inspects the user's setup, delivers a
     ///   personalized greeting, and (when the essentials are in
-    ///   place) calls `complete_onboarding(action="complete")` which
+    ///   place) calls `complete_onboarding` which
     ///   flips this flag to `true`.
     /// * **`true`** — the welcome agent has already run; future chat
     ///   turns route to the orchestrator.
@@ -227,11 +240,14 @@ impl Default for Config {
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
+            memory_tree: MemoryTreeConfig::default(),
             storage: StorageConfig::default(),
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
+            curl: CurlConfig::default(),
+            gitbooks: GitbooksConfig::default(),
             multimodal: MultimodalConfig::default(),
             web_search: WebSearchConfig::default(),
             proxy: ProxyConfig::default(),

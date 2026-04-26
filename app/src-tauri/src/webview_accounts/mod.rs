@@ -21,13 +21,18 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(all(feature = "cef", target_os = "linux"))]
+use std::sync::{mpsc::sync_channel, OnceLock};
+use std::time::Duration;
 
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::{
     webview::NewWindowResponse, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime,
     Url, WebviewBuilder, WebviewUrl,
 };
-#[cfg(feature = "cef")]
+#[cfg(all(feature = "cef", windows))]
 use tauri_plugin_notification::NotificationExt;
 // `ImplBrowser` exposes `Browser::identifier()` — bring the trait into scope
 // so the `with_webview` callback can read the CEF browser id.
@@ -65,6 +70,7 @@ fn provider_url(provider: &str) -> Option<&'static str> {
         "slack" => Some("https://app.slack.com/client/"),
         "discord" => Some("https://discord.com/channels/@me"),
         "google-meet" => Some("https://meet.google.com/"),
+        "zoom" => Some("https://zoom.us/"),
         "browserscan" => Some("https://www.browserscan.net/bot-detection"),
         _ => None,
     }
@@ -73,7 +79,7 @@ fn provider_url(provider: &str) -> Option<&'static str> {
 fn provider_user_agent(provider: &str) -> Option<&'static str> {
     match provider {
         "whatsapp" | "telegram" | "linkedin" | "gmail" | "slack" | "discord" | "google-meet"
-        | "browserscan" => Some(CHROME_UA),
+        | "zoom" | "browserscan" => Some(CHROME_UA),
         _ => None,
     }
 }
@@ -104,7 +110,7 @@ fn provider_is_supported(provider: &str) -> bool {
 fn provider_ua_spoof(provider: &str) -> bool {
     matches!(
         provider,
-        "slack" | "gmail" | "linkedin" | "discord" | "google-meet" | "browserscan"
+        "slack" | "gmail" | "linkedin" | "discord" | "google-meet" | "zoom" | "browserscan"
     )
 }
 
@@ -137,8 +143,54 @@ fn provider_allowed_hosts(provider: &str) -> &'static [&'static str] {
             "gstatic.com",
             "googleapis.com",
         ],
+        "zoom" => &["zoom.us", "zoom.com", "zoomgov.com", "zdassets.com"],
         "browserscan" => &["browserscan.net"],
         _ => &[],
+    }
+}
+
+/// Rewrite a provider-specific native-app deep link (e.g. Zoom's
+/// `zoomus://zoom.us/join?...`) into a web-client URL so the meeting stays
+/// inside the embedded webview instead of failing with
+/// ERR_UNKNOWN_URL_SCHEME (CEF has no handler for these schemes).
+///
+/// Returns `Some(rewritten)` when the provider claims the scheme and a
+/// valid web-client URL can be built; `None` otherwise (caller should
+/// leave the navigation alone).
+fn rewrite_provider_deep_link(provider: &str, url: &Url) -> Option<Url> {
+    if provider != "zoom" {
+        return None;
+    }
+    if !matches!(url.scheme(), "zoomus" | "zoommtg") {
+        return None;
+    }
+    // Pull the meeting id out of the query string. Zoom uses `confno` on
+    // both `action=join` (joining) and `action=start` (hosting) flows.
+    let confno = url
+        .query_pairs()
+        .find(|(k, _)| k == "confno")
+        .map(|(_, v)| v.into_owned());
+    let pwd = url
+        .query_pairs()
+        .find(|(k, _)| k == "pwd" || k == "tk")
+        .map(|(_, v)| v.into_owned());
+    // Build the rewritten URL via `Url` so `confno` and `pwd` are
+    // percent-encoded — inbound Zoom tokens can contain reserved chars
+    // (`&`, `#`, `%`, `+`, …) that would corrupt a hand-rolled
+    // `format!(…)` string and silently break the join/host flow.
+    match confno {
+        Some(id) if !id.is_empty() => {
+            // Base without trailing slash; `path_segments_mut().push(id)`
+            // appends `/id` cleanly. A trailing `/` on the base would yield
+            // `/wc/join//id` (empty segment preserved by the Url spec).
+            let mut rewritten = Url::parse("https://app.zoom.us/wc/join").ok()?;
+            rewritten.path_segments_mut().ok()?.push(&id);
+            if let Some(p) = pwd.filter(|p| !p.is_empty()) {
+                rewritten.query_pairs_mut().append_pair("pwd", &p);
+            }
+            Some(rewritten)
+        }
+        _ => Url::parse("https://app.zoom.us/wc/home").ok(),
     }
 }
 
@@ -188,17 +240,259 @@ fn popup_should_stay_in_app(provider: &str, url: &Url) -> bool {
                 None => false,
             }
         }
+        "zoom" => {
+            // Zoom's "Join from browser" / WebClient launch can go through a
+            // `window.open("https://app.zoom.us/wc/...")` popup instead of an
+            // in-page navigation. Keep those (and any deep-link-rewritten
+            // popup targeting the same path) inside the embedded webview so
+            // the meeting doesn't pop out to the system browser.
+            match url.host_str() {
+                Some(host) => {
+                    (host == "app.zoom.us" || host == "zoom.us") && url.path().starts_with("/wc/")
+                }
+                None => false,
+            }
+        }
         _ => false,
     }
 }
+
+/// `true` if a popup request should be denied AND the parent webview
+/// should be navigated to the popup URL instead.
+///
+/// Used for Google's "Sign in" / "Use another account" flow: clicking
+/// the link issues `window.open("https://accounts.google.com/...")`. We
+/// can't route that to the system browser (the auth cookie would land
+/// in the wrong jar) and we don't want to let CEF spawn an unmanaged
+/// child window (it has no host rect, so it renders blank/black). The
+/// safe option is to deny the popup and replace the parent's URL — the
+/// in-app webview was already at mail.google.com so taking over the
+/// frame to finish auth is exactly what the user expects.
+fn popup_should_navigate_parent(provider: &str, url: &Url) -> Option<Url> {
+    match provider {
+        "gmail" | "google-meet" => {
+            if url.scheme() == "about" {
+                return None;
+            }
+            if is_google_auth_popup(url) {
+                Some(url.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_google_auth_popup(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let is_google_auth_host =
+        host == "accounts.google.com" || host == "accounts.googleusercontent.com";
+    if !is_google_auth_host {
+        return false;
+    }
+
+    let path = url.path().to_ascii_lowercase();
+    if path.contains("signin")
+        || path.contains("servicelogin")
+        || path.contains("accountchooser")
+        || path.contains("chooseaccount")
+    {
+        return true;
+    }
+
+    url.query_pairs().any(|(key, value)| {
+        let k = key.to_ascii_lowercase();
+        let v = value.to_ascii_lowercase();
+        matches!(k.as_str(), "flowname" | "service" | "continue")
+            && (v.contains("signin")
+                || v.contains("servicelogin")
+                || v.contains("accountchooser")
+                || v.contains("chooseaccount"))
+    })
+}
+
+fn redact_navigation_url(url: &Url) -> String {
+    let mut safe = url.clone();
+    safe.set_query(None);
+    safe.set_fragment(None);
+    safe.to_string()
+}
+/// Unwrap provider-side "link safety" redirects so the system browser
+/// lands on the real destination.
+///
+/// These wrappers (LinkedIn's `/safety/go/?url=…`, etc.) require the
+/// user to be logged into the provider in the destination browser. In
+/// our setup the session lives inside the embedded CEF webview's cookie
+/// jar, not the user's default browser — opening the wrapper URL there
+/// shows a broken safety page instead of completing the redirect.
+/// Extract the `url` query param and return the resolved destination.
+fn unwrap_provider_redirect(url: &Url) -> Option<Url> {
+    let host = url.host_str()?;
+    let path = url.path();
+    let matches_linkedin = (host == "www.linkedin.com" || host == "linkedin.com")
+        && (path == "/safety/go/" || path == "/safety/go" || path == "/redir/redirect");
+    if !matches_linkedin {
+        return None;
+    }
+    let (_, raw) = url.query_pairs().find(|(k, _)| k == "url")?;
+    Url::parse(&raw).ok()
+}
+
 /// Fire-and-forget handoff to the OS default URL handler. Any error is
 /// logged but not propagated — we've already cancelled the in-app
 /// navigation so there's nowhere to surface a failure to.
+///
+/// On macOS we shell out to `/usr/bin/open` directly rather than via
+/// `tauri_plugin_opener::open_url`: the plugin returned Ok but no browser
+/// actually launched in the CEF runtime (suspected sandbox/launch-service
+/// interaction with the `open` crate's detached spawn). The direct
+/// Command call is equivalent to what a user would type in Terminal and
+/// works reliably.
 fn open_in_system_browser(url: &str) {
-    match tauri_plugin_opener::open_url(url, None::<&str>) {
-        Ok(()) => log::info!("[webview-accounts] opened externally: {}", url),
-        Err(e) => log::warn!("[webview-accounts] open_url({}) failed: {}", url, e),
+    #[cfg(target_os = "macos")]
+    {
+        match std::process::Command::new("/usr/bin/open").arg(url).spawn() {
+            Ok(_) => log::info!("[webview-accounts] opened externally (macos open): {}", url),
+            Err(e) => log::warn!(
+                "[webview-accounts] /usr/bin/open {} failed: {} — falling back to opener plugin",
+                url,
+                e
+            ),
+        }
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        match tauri_plugin_opener::open_url(url, None::<&str>) {
+            Ok(()) => log::info!("[webview-accounts] opened externally: {}", url),
+            Err(e) => log::warn!("[webview-accounts] open_url({}) failed: {}", url, e),
+        }
+    }
+}
+
+fn payload_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn payload_bool(payload: &serde_json::Value, key: &str) -> Option<bool> {
+    payload.get(key).and_then(|v| v.as_bool())
+}
+
+fn payload_i64(payload: &serde_json::Value, key: &str) -> Option<i64> {
+    payload.get(key).and_then(|v| v.as_i64())
+}
+
+fn first_message_field(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .and_then(|messages| messages.first())
+        .and_then(|message| message.get(key))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn event_timestamp_rfc3339(ts_ms: Option<i64>) -> String {
+    ts_ms
+        .and_then(|ts| Utc.timestamp_millis_opt(ts).single())
+        .unwrap_or_else(Utc::now)
+        .to_rfc3339()
+}
+
+fn normalize_provider_surfaces_event(args: &RecipeEventArgs) -> Option<serde_json::Value> {
+    if args.kind != "ingest" {
+        return None;
+    }
+
+    let entity_id = payload_string(&args.payload, "entity_id")
+        .or_else(|| payload_string(&args.payload, "threadId"))
+        .or_else(|| payload_string(&args.payload, "chatId"))
+        .or_else(|| payload_string(&args.payload, "snapshotKey"))
+        .unwrap_or_else(|| {
+            format!(
+                "{}:{}:{}",
+                args.provider,
+                args.account_id,
+                args.ts.unwrap_or_else(|| Utc::now().timestamp_millis())
+            )
+        });
+
+    let thread_id = payload_string(&args.payload, "threadId")
+        .or_else(|| payload_string(&args.payload, "chatId"))
+        .or_else(|| payload_string(&args.payload, "conversationId"));
+    let title = payload_string(&args.payload, "title")
+        .or_else(|| payload_string(&args.payload, "chatName"))
+        .or_else(|| payload_string(&args.payload, "channelName"));
+    let snippet = payload_string(&args.payload, "snippet")
+        .or_else(|| first_message_field(&args.payload, "body"));
+    let sender_name = payload_string(&args.payload, "senderName")
+        .or_else(|| first_message_field(&args.payload, "from"));
+    let sender_handle = payload_string(&args.payload, "senderHandle");
+    let deep_link = payload_string(&args.payload, "deepLink");
+    let unread = payload_i64(&args.payload, "unread").unwrap_or(0);
+    let requires_attention = payload_bool(&args.payload, "requires_attention")
+        .unwrap_or(unread > 0 || sender_name.is_some() || snippet.is_some());
+
+    Some(json!({
+        "provider": args.provider,
+        "account_id": args.account_id,
+        "event_kind": args.kind,
+        "entity_id": entity_id,
+        "thread_id": thread_id,
+        "title": title,
+        "snippet": snippet,
+        "sender_name": sender_name,
+        "sender_handle": sender_handle,
+        "timestamp": event_timestamp_rfc3339(args.ts),
+        "deep_link": deep_link,
+        "requires_attention": requires_attention,
+        "raw_payload": args.payload,
+    }))
+}
+
+async fn post_provider_surfaces_event(args: &RecipeEventArgs) -> Result<(), String> {
+    let Some(params) = normalize_provider_surfaces_event(args) else {
+        return Ok(());
+    };
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "openhuman.provider_surfaces_ingest_event",
+        "params": params,
+    });
+
+    let url = std::env::var("OPENHUMAN_CORE_RPC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:7788/rpc".to_string());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("POST {url}: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("{status}: {body}"));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("decode: {e}"))?;
+    if let Some(err) = v.get("error") {
+        return Err(format!("rpc error: {err}"));
+    }
+    Ok(())
 }
 
 /// Human-readable label used as the title prefix on native notifications
@@ -214,6 +508,7 @@ pub fn provider_display_name(provider: &str) -> &'static str {
         "slack" => "Slack",
         "discord" => "Discord",
         "google-meet" => "Google Meet",
+        "zoom" => "Zoom",
         "browserscan" => "BrowserScan",
         _ => "OpenHuman",
     }
@@ -235,6 +530,21 @@ pub struct WebviewAccountsState {
     /// close/purge so reopen cycles don't stack multiple live loops.
     #[cfg(feature = "cef")]
     cdp_sessions: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// account_id -> 15s `webview-account:load{state:"timeout"}` watchdog.
+    /// Aborted in close/purge so a watchdog spawned for a now-closed
+    /// account can't fire a stale timeout against a freshly-reused id.
+    #[cfg(feature = "cef")]
+    load_watchdogs: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// account_id of webviews that have already emitted their first
+    /// `webview-account:load{state:"finished"}` event. Used to dedup
+    /// triple-signal fires (native on_page_load, CDP `Page.loadEventFired`,
+    /// 15 s watchdog) so the frontend only reveals once per cold open.
+    loaded_accounts: Mutex<HashSet<String>>,
+    /// Last bounds requested by the frontend for a given account, captured at
+    /// `webview_account_open` time so the off-screen-spawned webview can be
+    /// revealed at the right rect without the frontend having to round-trip
+    /// them again.
+    requested_bounds: Mutex<HashMap<String, Bounds>>,
     /// Runtime notification-bypass controls used by the settings UI.
     notification_bypass: Mutex<NotificationBypassPrefs>,
 }
@@ -286,6 +596,16 @@ impl From<&NotificationBypassPrefs> for NotificationBypassPrefsPayload {
 #[cfg(feature = "cef")]
 const OPENHUMAN_TITLE_PREFIX: &str = "OpenHuman: ";
 
+#[cfg(feature = "cef")]
+fn slack_scanner_enabled() -> bool {
+    std::env::var("OPENHUMAN_DISABLE_SLACK_SCANNER")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "1" || v == "true" || v == "yes" || v == "on")
+        })
+        .unwrap_or(true)
+}
+
 /// Serialised fire-event payload shipped to the frontend over the
 /// `webview-notification:fired` Tauri event. Carries `account_id` +
 /// `provider` so the React side can route a subsequent click back to
@@ -299,6 +619,38 @@ struct WebviewNotificationFired {
     body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
+}
+
+/// Linux: one worker thread + bounded queue so a burst of toasts does not
+/// spawn unbounded `std::thread` handles (each would block in `wait_for_action`).
+#[cfg(all(feature = "cef", target_os = "linux"))]
+const LINUX_NOTIFY_QUEUE_CAP: usize = 16;
+
+#[cfg(all(feature = "cef", target_os = "linux"))]
+static LINUX_NOTIFY_TX: OnceLock<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>> =
+    OnceLock::new();
+
+#[cfg(all(feature = "cef", target_os = "linux"))]
+fn enqueue_linux_notification(job: Box<dyn FnOnce() + Send>) {
+    let tx = LINUX_NOTIFY_TX.get_or_init(|| {
+        let (tx, rx) = sync_channel::<Box<dyn FnOnce() + Send>>(LINUX_NOTIFY_QUEUE_CAP);
+        std::thread::Builder::new()
+            .name("openhuman-linux-notify".to_string())
+            .spawn(move || {
+                while let Ok(j) = rx.recv() {
+                    j();
+                }
+            })
+            .expect("spawn openhuman-linux-notify");
+        tx
+    });
+    if let Err(e) = tx.try_send(job) {
+        log::warn!(
+            "[notify-cef] linux notification queue full (cap={}), dropping toast: {}",
+            LINUX_NOTIFY_QUEUE_CAP,
+            e
+        );
+    }
 }
 
 /// Translate a `tauri-runtime-cef` notification payload into a native OS
@@ -405,17 +757,179 @@ fn forward_native_notification<R: Runtime>(
         return;
     }
 
-    let mut builder = app.notification().builder().title(&notify_title);
-    if !body.is_empty() {
-        builder = builder.body(body);
+    // Fire the OS toast and wire a click callback that emits `notification:click`
+    // so the frontend can bring the originating account into focus.
+    //
+    // macOS: mac-notification-sys blocks in wait_for_click mode — run on a
+    //        blocking thread so the async executor is not stalled.
+    // Linux: notify_rust's wait_for_action hooks D-Bus action delivery.
+    // Windows: no click callback available; fall back to fire-and-forget.
+    let acct_for_click = account_id.to_string();
+    let prov_for_click = provider.to_string();
+    let app_for_click = app.clone();
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // Each `wait_for_click` thread blocks at ~100% CPU until the user
+        // clicks or the toast auto-dismisses. Under notification bursts this
+        // can pin many cores; cap concurrent click-wait threads and fall back
+        // to fire-and-forget (no click callback) once the budget is reached.
+        const MAX_CLICK_WAIT_THREADS: usize = 8;
+        static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+        let title_c = notify_title.clone();
+        let body_c = body.to_string();
+        let app_id = app.config().identifier.clone();
+        let prev = IN_FLIGHT.fetch_add(1, Ordering::AcqRel);
+        if prev >= MAX_CLICK_WAIT_THREADS {
+            IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+            log::debug!(
+                "[notify-cef][{}] click-wait budget exhausted ({}), firing without click callback",
+                account_id,
+                prev
+            );
+            std::thread::spawn(move || {
+                let _ = mac_notification_sys::set_application(if tauri::is_dev() {
+                    "com.apple.Terminal"
+                } else {
+                    &app_id
+                });
+                use mac_notification_sys::Notification as MacNotif;
+                let mut n = MacNotif::new();
+                n.title(&title_c).message(&body_c);
+                let _ = n.send();
+            });
+            return;
+        }
+
+        std::thread::spawn(move || {
+            struct Guard;
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            let _guard = Guard;
+
+            let _ = mac_notification_sys::set_application(if tauri::is_dev() {
+                "com.apple.Terminal"
+            } else {
+                &app_id
+            });
+            use mac_notification_sys::{Notification as MacNotif, NotificationResponse};
+            let t = title_c;
+            let b = body_c;
+            let mut n = MacNotif::new();
+            n.title(&t).message(&b).wait_for_click(true);
+            match n.send() {
+                Ok(NotificationResponse::Click) | Ok(NotificationResponse::ActionButton(_)) => {
+                    log::info!(
+                        "[notify-click][{}] clicked provider={}",
+                        acct_for_click,
+                        prov_for_click
+                    );
+                    if let Err(e) = app_for_click.emit(
+                        "notification:click",
+                        serde_json::json!({
+                            "account_id": acct_for_click,
+                            "provider": prov_for_click,
+                        }),
+                    ) {
+                        log::warn!(
+                            "[notify-click][{}] emit notification:click failed: {}",
+                            acct_for_click,
+                            e
+                        );
+                    }
+                }
+                Ok(other) => {
+                    log::info!("[notify-click][{}] response={:?}", acct_for_click, other);
+                }
+                Err(e) => {
+                    log::warn!("[notify-click][{}] send error: {}", acct_for_click, e);
+                }
+            }
+        });
     }
-    if let Err(e) = builder.show() {
-        log::warn!(
-            "[notify-cef][{}] notification show failed: {}",
-            account_id,
-            e
-        );
+
+    #[cfg(target_os = "linux")]
+    {
+        let title_c = notify_title.clone();
+        let body_c = body.to_string();
+        enqueue_linux_notification(Box::new(move || {
+            let t = title_c;
+            let b = body_c;
+            let mut n = notify_rust::Notification::new();
+            n.summary(&t).body(&b);
+            match n.show() {
+                Ok(handle) => {
+                    handle.wait_for_action(|action| {
+                        // "__closed" is the synthetic dismiss action; skip it.
+                        if action != "__closed" && !action.is_empty() {
+                            log::info!(
+                                "[notify-click][{}] action={} provider={}",
+                                acct_for_click,
+                                action,
+                                prov_for_click
+                            );
+                            if let Err(e) = app_for_click.emit(
+                                "notification:click",
+                                serde_json::json!({
+                                    "account_id": acct_for_click,
+                                    "provider": prov_for_click,
+                                }),
+                            ) {
+                                log::warn!(
+                                    "[notify-click][{}] emit notification:click failed: {}",
+                                    acct_for_click,
+                                    e
+                                );
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    log::warn!("[notify-click][{}] show failed: {}", acct_for_click, e);
+                }
+            }
+        }));
     }
+
+    #[cfg(windows)]
+    {
+        let mut builder = app.notification().builder().title(&notify_title);
+        if !body.is_empty() {
+            builder = builder.body(body);
+        }
+        if let Err(e) = builder.show() {
+            log::warn!(
+                "[notify-cef][{}] notification show failed: {}",
+                account_id,
+                e
+            );
+        }
+    }
+}
+
+#[cfg(feature = "cef")]
+pub(crate) fn forward_synthetic_notification<R: Runtime>(
+    app: &AppHandle<R>,
+    account_id: &str,
+    provider: &str,
+    title: impl Into<String>,
+    body: impl Into<String>,
+) {
+    let payload = tauri_runtime_cef::notification::NotificationPayload {
+        source: tauri_runtime_cef::notification::NotificationSource::Window,
+        title: title.into(),
+        body: Some(body.into()),
+        icon: None,
+        tag: None,
+        silent: false,
+        origin: format!("synthetic://{}", provider),
+    };
+    forward_native_notification(app, account_id, provider, &payload);
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -462,6 +976,150 @@ pub struct WebviewEvent {
     pub kind: String,
     pub payload: serde_json::Value,
     pub ts: Option<i64>,
+}
+
+/// Strip query string and fragment from a URL before emitting to the log.
+/// Provider URLs occasionally embed auth material (Telegram WebApp data,
+/// OAuth callback codes, sometimes session tokens) and we don't want those
+/// to land in the long-lived shell log file. Returns the original input on
+/// parse failure so we still surface *something* useful for debugging.
+fn redact_url_for_log(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(mut u) => {
+            u.set_query(None);
+            u.set_fragment(None);
+            u.to_string()
+        }
+        Err(_) => {
+            // Fallback: drop everything from the first '?' or '#'.
+            raw.split(['?', '#']).next().unwrap_or(raw).to_string()
+        }
+    }
+}
+
+/// Grow the first-cold-open webview back to its full requested bounds and
+/// notify the frontend — exactly once per account open. Called from the
+/// three independent signals (native `WebviewBuilder::on_page_load`, CDP
+/// `Page.loadEventFired`, 15 s watchdog) — the first one wins and the rest
+/// short-circuit via `WebviewAccountsState.loaded_accounts`. Resetting
+/// happens in `webview_account_close` / `webview_account_purge` so a reopen
+/// fires again.
+///
+/// Doing the `set_size` server-side (instead of waiting for the frontend to
+/// invoke `webview_account_reveal`) avoids an extra IPC round-trip and the
+/// brief blank frame that would otherwise sit between the load event and
+/// the frontend's reveal call.
+pub(crate) fn emit_load_finished<R: Runtime>(
+    app: &AppHandle<R>,
+    account_id: &str,
+    state: &str,
+    url: &str,
+) {
+    let Some(app_state) = app.try_state::<WebviewAccountsState>() else {
+        // No state => emit anyway so the frontend doesn't hang; best-effort.
+        log::warn!(
+            "[webview-accounts][{}] WebviewAccountsState missing — emitting without reveal",
+            account_id
+        );
+        let _ = app.emit(
+            "webview-account:load",
+            serde_json::json!({"account_id": account_id, "state": state, "url": url}),
+        );
+        return;
+    };
+
+    let is_first = app_state
+        .loaded_accounts
+        .lock()
+        .unwrap()
+        .insert(account_id.to_string());
+    if !is_first {
+        log::debug!(
+            "[webview-accounts][{}] load event deduped state={} url={}",
+            account_id,
+            state,
+            url
+        );
+        return;
+    }
+
+    // Restore the webview to its full requested size. The spawn path created
+    // it at 1×1 so the React loading spinner wasn't covered; now that the page
+    // is painted we can grow it into the placeholder rect.
+    let label = app_state.inner.lock().unwrap().get(account_id).cloned();
+    let bounds = app_state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .get(account_id)
+        .copied();
+    match (label, bounds) {
+        (Some(label), Some(b)) => {
+            if let Some(wv) = app.get_webview(&label) {
+                if let Err(e) = wv.set_size(LogicalSize::new(b.width, b.height)) {
+                    log::warn!(
+                        "[webview-accounts][{}] reveal set_size failed: {}",
+                        account_id,
+                        e
+                    );
+                }
+                if let Err(e) = wv.set_position(LogicalPosition::new(b.x, b.y)) {
+                    log::warn!(
+                        "[webview-accounts][{}] reveal set_position failed: {}",
+                        account_id,
+                        e
+                    );
+                }
+                let _ = wv.show();
+                log::info!(
+                    "[webview-accounts][{}] revealed label={} bounds={:?} state={}",
+                    account_id,
+                    label,
+                    b,
+                    state
+                );
+            } else {
+                log::warn!(
+                    "[webview-accounts][{}] reveal: webview {} missing",
+                    account_id,
+                    label
+                );
+            }
+        }
+        _ => {
+            log::info!(
+                "[webview-accounts][{}] reveal skipped (account closed before load) state={}",
+                account_id,
+                state
+            );
+        }
+    }
+
+    // Redact the URL in the log: providers like Telegram (`#tgWebAppData=…`)
+    // and OAuth callbacks embed auth material in the query/fragment. The full
+    // URL still flows to the frontend listener over the Tauri event so any
+    // consumer that needs it has access; we just don't persist it to the
+    // shell's log file.
+    log::info!(
+        "[webview-accounts][{}] load event state={} url={}",
+        account_id,
+        state,
+        redact_url_for_log(url)
+    );
+    if let Err(err) = app.emit(
+        "webview-account:load",
+        serde_json::json!({
+            "account_id": account_id,
+            "state": state,
+            "url": url,
+        }),
+    ) {
+        log::warn!(
+            "[webview-accounts][{}] emit webview-account:load failed: {}",
+            account_id,
+            err
+        );
+    }
 }
 
 /// Reject any `account_id` that isn't strictly `[A-Za-z0-9_-]+`. The ID comes
@@ -552,9 +1210,6 @@ fn build_init_script(account_id: &str, provider: &str) -> String {
     } else {
         ""
     };
-    // Migrated providers have no recipe under wry either (recipe.js
-    // files were deleted with the cef migration), but the UA shim is
-    // still worth shipping so fingerprint gates pass.
     let Some(recipe_js) = provider_recipe_js(provider) else {
         return spoof.to_string();
     };
@@ -613,12 +1268,21 @@ pub async fn webview_account_open<R: Runtime>(
     // initial load.
     #[cfg(feature = "cef")]
     let scanner_url_prefix = format!("{}/", real_url.origin().ascii_serialization());
-    // Under cef we open the webview at a tiny `data:` placeholder URL so
-    // the CDP session opener can attach and apply the UA override BEFORE
-    // the real provider URL loads. Under wry there's no CDP, so navigate
-    // straight to the real URL and rely on the injected `ua_spoof.js`.
     #[cfg(feature = "cef")]
-    let initial_url_str = cdp::placeholder_data_url(&args.account_id);
+    let skip_cdp_for_debug = args.provider == "slack" && !slack_scanner_enabled();
+    // Under cef we normally open the webview at a tiny placeholder URL so
+    // the CDP session opener can attach and apply the UA override BEFORE the
+    // real provider URL loads. For Slack debug sessions we allow opting out
+    // via `OPENHUMAN_DISABLE_SLACK_SCANNER=1`, which also skips the
+    // long-lived CDP session so external DevTools can attach cleanly. Under
+    // wry there's no CDP, so navigate straight to the real URL and rely on
+    // the injected `ua_spoof.js`.
+    #[cfg(feature = "cef")]
+    let initial_url_str = if skip_cdp_for_debug {
+        real_url_str.clone()
+    } else {
+        cdp::placeholder_url(&args.account_id)
+    };
     #[cfg(not(feature = "cef"))]
     let initial_url_str = real_url_str.clone();
     let initial_url: Url = initial_url_str
@@ -634,6 +1298,11 @@ pub async fn webview_account_open<R: Runtime>(
                 if let Some(b) = args.bounds {
                     let _ = existing.set_position(LogicalPosition::new(b.x, b.y));
                     let _ = existing.set_size(LogicalSize::new(b.width, b.height));
+                    state
+                        .requested_bounds
+                        .lock()
+                        .unwrap()
+                        .insert(args.account_id.clone(), b);
                 }
                 let _ = existing.show();
                 log::info!(
@@ -641,6 +1310,26 @@ pub async fn webview_account_open<R: Runtime>(
                     existing_label,
                     args.account_id
                 );
+                // Warm re-open: the page is already painted, so skip the
+                // loading overlay cycle and tell the frontend to go straight
+                // to `open`. We bypass `emit_load_finished` because the
+                // `loaded_accounts` dedup set would swallow the emit after
+                // the first cold open of this account.
+                let reuse_url = existing.url().map(|u| u.to_string()).unwrap_or_default();
+                if let Err(err) = app.emit(
+                    "webview-account:load",
+                    serde_json::json!({
+                        "account_id": args.account_id,
+                        "state": "reused",
+                        "url": reuse_url,
+                    }),
+                ) {
+                    log::warn!(
+                        "[webview-accounts][{}] emit reused event failed: {}",
+                        args.account_id,
+                        err
+                    );
+                }
                 return Ok(existing_label);
             }
             // Stale entry — fall through and rebuild
@@ -680,17 +1369,74 @@ pub async fn webview_account_open<R: Runtime>(
     // Keep link clicks that leave the provider's host set in the OS
     // browser, not the embedded webview. Same-host navigations (including
     // OAuth hops to accounts.google.com etc., which we pre-declare per
-    // provider) stay in-app.
+    // provider) stay in-app. Provider-specific native-app deep links
+    // (`zoomus://`, `zoommtg://`, …) are rewritten to the web-client URL
+    // and re-navigated in-app so meetings don't bounce out.
     let nav_provider = args.provider.clone();
+    let nav_app = app.clone();
+    let nav_label = label.clone();
+    let nav_account_id = args.account_id.clone();
     builder = builder.on_navigation(move |url| {
+        // Notify the frontend on every committed navigation. The
+        // `webview-account:load` event is dedup'd per cold open, so it
+        // can't be used to spot post-login redirects (e.g. Gmail's
+        // accounts.google.com → mail.google.com hop). Frontends that
+        // care about live URL transitions — onboarding's auto-detect
+        // for "user finished signing in", for instance — listen here.
+        if let Err(err) = nav_app.emit(
+            "webview-account:navigate",
+            serde_json::json!({
+                "account_id": nav_account_id,
+                "provider": nav_provider,
+                "url": redact_navigation_url(url),
+            }),
+        ) {
+            log::debug!(
+                "[webview-accounts] emit webview-account:navigate failed: {}",
+                err
+            );
+        }
+        if let Some(rewritten) = rewrite_provider_deep_link(&nav_provider, url) {
+            log::info!(
+                "[webview-accounts] deep-link rewrite {} → {} (provider={})",
+                url,
+                rewritten,
+                nav_provider
+            );
+            let app = nav_app.clone();
+            let label = nav_label.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(wv) = app.get_webview(&label) {
+                    if let Err(e) = wv.navigate(rewritten) {
+                        log::warn!(
+                            "[webview-accounts] post-rewrite navigate failed label={} err={}",
+                            label,
+                            e
+                        );
+                    }
+                }
+            });
+            return false;
+        }
         if url_is_internal(&nav_provider, url) {
             true
         } else {
-            log::info!(
-                "[webview-accounts] external navigation {} → system browser",
-                url
-            );
-            open_in_system_browser(url.as_str());
+            let target = unwrap_provider_redirect(url)
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| url.to_string());
+            if target != url.as_str() {
+                log::info!(
+                    "[webview-accounts] external navigation {} → (unwrapped) {} → system browser",
+                    url,
+                    target
+                );
+            } else {
+                log::info!(
+                    "[webview-accounts] external navigation {} → system browser",
+                    url
+                );
+            }
+            open_in_system_browser(&target);
             false
         }
     });
@@ -705,7 +1451,52 @@ pub async fn webview_account_open<R: Runtime>(
     // For those URLs we allow CEF's default popup handling so an in-app
     // child window opens and the caller gets a real window handle.
     let popup_provider = args.provider.clone();
+    let popup_app = app.clone();
+    let popup_label = label.clone();
     builder = builder.on_new_window(move |url, _features| {
+        if let Some(rewritten) = rewrite_provider_deep_link(&popup_provider, &url) {
+            log::info!(
+                "[webview-accounts] new-window deep-link rewrite {} → {} (provider={})",
+                url,
+                rewritten,
+                popup_provider
+            );
+            let app = popup_app.clone();
+            let label = popup_label.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(wv) = app.get_webview(&label) {
+                    if let Err(e) = wv.navigate(rewritten) {
+                        log::warn!(
+                            "[webview-accounts] post-rewrite navigate (popup) failed label={} err={}",
+                            label,
+                            e
+                        );
+                    }
+                }
+            });
+            return NewWindowResponse::Deny;
+        }
+        if let Some(target) = popup_should_navigate_parent(&popup_provider, &url) {
+            log::info!(
+                "[webview-accounts] new-window {} → navigate parent (provider={})",
+                redact_navigation_url(&url),
+                popup_provider
+            );
+            let app = popup_app.clone();
+            let label = popup_label.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(wv) = app.get_webview(&label) {
+                    if let Err(e) = wv.navigate(target) {
+                        log::warn!(
+                            "[webview-accounts] popup→parent navigate failed label={} err={}",
+                            label,
+                            e
+                        );
+                    }
+                }
+            });
+            return NewWindowResponse::Deny;
+        }
         if popup_should_stay_in_app(&popup_provider, &url) {
             log::info!(
                 "[webview-accounts] new-window request {} → in-app popup (provider={})",
@@ -714,11 +1505,22 @@ pub async fn webview_account_open<R: Runtime>(
             );
             NewWindowResponse::Allow
         } else {
-            log::info!(
-                "[webview-accounts] new-window request {} → system browser",
-                url
-            );
-            open_in_system_browser(url.as_str());
+            let target = unwrap_provider_redirect(&url)
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| url.to_string());
+            if target != url.as_str() {
+                log::info!(
+                    "[webview-accounts] new-window request {} → (unwrapped) {} → system browser",
+                    url,
+                    target
+                );
+            } else {
+                log::info!(
+                    "[webview-accounts] new-window request {} → system browser",
+                    url
+                );
+            }
+            open_in_system_browser(&target);
             NewWindowResponse::Deny
         }
     });
@@ -737,6 +1539,41 @@ pub async fn webview_account_open<R: Runtime>(
         builder = builder.user_agent(ua);
     }
 
+    // Wire the native page-load signal so the frontend can hide its spinner as
+    // soon as CEF's LoadHandler reports the main frame finished. Dedup against
+    // the CDP `Page.loadEventFired` subscription and the 15 s watchdog through
+    // `emit_load_finished` so we only fire the first winning signal per open.
+    //
+    // Skip `data:` URLs: an early placeholder shape on some platforms
+    // fires `Finished` synchronously and we don't want to dedup-claim
+    // the load slot on it.
+    //
+    // We deliberately do NOT skip `about:blank#…` here: in practice the
+    // CDP `Page.loadEventFired` subscription isn't reaching us reliably
+    // (Gmail finishes loading but the event doesn't fire through
+    // pump_events — separate triage). The `about:blank` native load
+    // fires within ~50ms of spawn and is the only fast-path reveal we
+    // get. The downside is the user sees the placeholder briefly until
+    // the real provider page paints — better than waiting 15 s for the
+    // watchdog timeout.
+    let page_load_app = app.clone();
+    let page_load_account_id = args.account_id.clone();
+    builder = builder.on_page_load(move |_webview, payload| {
+        if !matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+            return;
+        }
+        let url = payload.url();
+        if url.scheme() == "data" {
+            return;
+        }
+        emit_load_finished(
+            &page_load_app,
+            &page_load_account_id,
+            "finished",
+            url.as_str(),
+        );
+    });
+
     let bounds = args.bounds.unwrap_or(Bounds {
         x: 0.0,
         y: 0.0,
@@ -744,18 +1581,67 @@ pub async fn webview_account_open<R: Runtime>(
         height: 600.0,
     });
 
+    // Park the webview off-screen during its first page load so the React
+    // placeholder's loading spinner is not covered by the native CEF subview.
+    // `webview_account_reveal` (invoked from the frontend after the load event
+    // arrives, or by the 15 s watchdog) moves it back to `bounds` + shows it.
+    // We use positive coords well below the parent window rather than large
+    // negative values so multi-monitor layouts stay well-defined.
+    //
+    // Warm-open reuse (when a webview already exists for this account) earlier
+    // in this function returns before we get here, so existing webviews keep
+    // their current position — we only off-screen the first cold spawn.
+    // Spawn strategy: keep the webview at the caller's requested position
+    // but shrink the initial size to 1×1 under CEF so the native subview
+    // doesn't paint over the React loading spinner. `webview_account_reveal`
+    // grows it back to `bounds.width × bounds.height` once the page-loaded
+    // signal arrives.
+    //
+    // Why not move off-screen: moving the NSView after a cold CEF spawn on
+    // macOS sometimes leaves the page painted but not repainted at the new
+    // origin, leaving the user looking at a blank viewport until they
+    // reload. Keeping the position stable and only toggling size sidesteps
+    // that repaint edge case while still keeping the webview visually
+    // hidden (1 px under the overlay) during load.
+    //
+    // Warm-open reuse returned earlier in this function, so this only
+    // affects the first cold spawn.
+    #[cfg(feature = "cef")]
+    let initial_size = if skip_cdp_for_debug {
+        LogicalSize::new(bounds.width, bounds.height)
+    } else {
+        LogicalSize::new(1.0, 1.0)
+    };
+    #[cfg(not(feature = "cef"))]
+    let initial_size = LogicalSize::new(bounds.width, bounds.height);
+    let initial_position = LogicalPosition::new(bounds.x, bounds.y);
+
+    // Remember the bounds the frontend wanted so `webview_account_reveal` has a
+    // rect to restore to even if the frontend's bounds cache is empty (e.g.
+    // after a page reload races the load event).
+    state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .insert(args.account_id.clone(), bounds);
+    // Defensive reset: if a prior close/purge was raced by a stale emit we
+    // could still have the account marked as "already loaded". Clear here so
+    // the fresh spawn is allowed to fire the first event again.
+    state
+        .loaded_accounts
+        .lock()
+        .unwrap()
+        .remove(&args.account_id);
+
     let webview = parent_window
-        .add_child(
-            builder,
-            LogicalPosition::new(bounds.x, bounds.y),
-            LogicalSize::new(bounds.width, bounds.height),
-        )
+        .add_child(builder, initial_position, initial_size)
         .map_err(|e| format!("add_child failed: {e}"))?;
 
     log::info!(
-        "[webview-accounts] spawned label={} bounds={:?}",
+        "[webview-accounts] spawned label={} requested_bounds={:?} initial_size={:?}",
         webview.label(),
-        bounds
+        bounds,
+        initial_size
     );
 
     state
@@ -775,10 +1661,30 @@ pub async fn webview_account_open<R: Runtime>(
     // attach to a target that's been torn down).
     #[cfg(feature = "cef")]
     {
-        let handle = cdp::spawn_session(args.account_id.clone(), real_url_str.clone());
-        let mut sessions = state.cdp_sessions.lock().unwrap();
-        if let Some(old) = sessions.insert(args.account_id.clone(), handle) {
-            old.abort();
+        if skip_cdp_for_debug {
+            log::info!(
+                "[webview-accounts] skipping CDP session via OPENHUMAN_DISABLE_SLACK_SCANNER for account={}",
+                args.account_id
+            );
+        } else {
+            let cdp::SpawnedSession { session, watchdog } =
+                cdp::spawn_session(app.clone(), args.account_id.clone(), real_url_str.clone());
+            if let Some(old) = state
+                .cdp_sessions
+                .lock()
+                .unwrap()
+                .insert(args.account_id.clone(), session)
+            {
+                old.abort();
+            }
+            if let Some(old) = state
+                .load_watchdogs
+                .lock()
+                .unwrap()
+                .insert(args.account_id.clone(), watchdog)
+            {
+                old.abort();
+            }
         }
     }
 
@@ -807,18 +1713,25 @@ pub async fn webview_account_open<R: Runtime>(
                 log::warn!("[webview-accounts] CDP ScannerRegistry not in app state");
             }
         } else if args.provider == "slack" {
-            let registry = app
-                .try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
-                .map(|s| s.inner().clone());
-            if let Some(registry) = registry {
-                let app_clone = app.clone();
-                let acct = args.account_id.clone();
-                let prefix = scanner_url_prefix.clone();
-                tokio::spawn(async move {
-                    registry.ensure_scanner(app_clone, acct, prefix).await;
-                });
+            if slack_scanner_enabled() {
+                let registry = app
+                    .try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
+                    .map(|s| s.inner().clone());
+                if let Some(registry) = registry {
+                    let app_clone = app.clone();
+                    let acct = args.account_id.clone();
+                    let prefix = scanner_url_prefix.clone();
+                    tokio::spawn(async move {
+                        registry.ensure_scanner(app_clone, acct, prefix).await;
+                    });
+                } else {
+                    log::warn!("[webview-accounts] slack ScannerRegistry not in app state");
+                }
             } else {
-                log::warn!("[webview-accounts] slack ScannerRegistry not in app state");
+                log::info!(
+                    "[webview-accounts] slack scanner disabled via OPENHUMAN_DISABLE_SLACK_SCANNER for account={}",
+                    args.account_id
+                );
             }
         } else if args.provider == "telegram" {
             let registry = app
@@ -973,7 +1886,31 @@ pub async fn webview_account_close<R: Runtime>(
                 args.account_id
             );
         }
+        if let Some(task) = state
+            .load_watchdogs
+            .lock()
+            .unwrap()
+            .remove(&args.account_id)
+        {
+            task.abort();
+            log::debug!(
+                "[webview-accounts] aborted load watchdog for account={}",
+                args.account_id
+            );
+        }
     }
+    // Reset load-overlay bookkeeping so the next open of this account starts
+    // with a fresh "not yet loaded" state.
+    state
+        .loaded_accounts
+        .lock()
+        .unwrap()
+        .remove(&args.account_id);
+    state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .remove(&args.account_id);
     log::info!("[webview-accounts] closed label={}", label);
     Ok(())
 }
@@ -1044,7 +1981,29 @@ pub async fn webview_account_purge<R: Runtime>(
                 args.account_id
             );
         }
+        if let Some(task) = state
+            .load_watchdogs
+            .lock()
+            .unwrap()
+            .remove(&args.account_id)
+        {
+            task.abort();
+            log::debug!(
+                "[webview-accounts] purge aborted load watchdog for account={}",
+                args.account_id
+            );
+        }
     }
+    state
+        .loaded_accounts
+        .lock()
+        .unwrap()
+        .remove(&args.account_id);
+    state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .remove(&args.account_id);
 
     let data_dir = data_directory_for(&app, &args.account_id)?;
     if data_dir.exists() {
@@ -1088,6 +2047,59 @@ pub async fn webview_account_bounds<R: Runtime>(
         .map_err(|e| format!("set_size: {e}"))?;
     log::trace!(
         "[webview-accounts] bounds label={} -> {:?}",
+        label,
+        args.bounds
+    );
+    // Keep the in-state bounds synced so `webview_account_reveal` has the
+    // latest rect even if the frontend's own cache is cleared between the
+    // `webview_account_open` call and the `webview-account:load` signal.
+    state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .insert(args.account_id.clone(), args.bounds);
+    Ok(())
+}
+
+/// Move an off-screen-spawned webview back to the frontend's desired rect and
+/// show it. Invoked by the frontend when it receives the `webview-account:load`
+/// event so the loading spinner is uncovered only after the page has painted.
+///
+/// Called as the final step of the first-open flow:
+///   1. `webview_account_open` — CEF subview spawned off-screen
+///   2. native `on_page_load` OR CDP `Page.loadEventFired` OR 15 s watchdog
+///   3. frontend listener → `webview_account_reveal`
+#[tauri::command]
+pub async fn webview_account_reveal<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, WebviewAccountsState>,
+    args: BoundsArgs,
+) -> Result<(), String> {
+    let label_opt = state.inner.lock().unwrap().get(&args.account_id).cloned();
+    let Some(label) = label_opt else {
+        // Reveal race: the webview was closed before the load event arrived.
+        // Return Ok so the frontend doesn't surface an error.
+        log::debug!(
+            "[webview-accounts] reveal: no webview for account {}",
+            args.account_id
+        );
+        return Ok(());
+    };
+    let wv = app
+        .get_webview(&label)
+        .ok_or_else(|| format!("webview {label} missing"))?;
+    wv.set_position(LogicalPosition::new(args.bounds.x, args.bounds.y))
+        .map_err(|e| format!("set_position: {e}"))?;
+    wv.set_size(LogicalSize::new(args.bounds.width, args.bounds.height))
+        .map_err(|e| format!("set_size: {e}"))?;
+    wv.show().map_err(|e| format!("show: {e}"))?;
+    state
+        .requested_bounds
+        .lock()
+        .unwrap()
+        .insert(args.account_id.clone(), args.bounds);
+    log::info!(
+        "[webview-accounts] revealed label={} -> {:?}",
         label,
         args.bounds
     );
@@ -1331,6 +2343,16 @@ pub async fn webview_recipe_event<R: Runtime>(
         }
     }
 
+    if let Err(err) = post_provider_surfaces_event(&args).await {
+        log::warn!(
+            "[webview-accounts] provider_surfaces ingest failed account={} provider={} kind={}: {}",
+            args.account_id,
+            args.provider,
+            args.kind,
+            err
+        );
+    }
+
     let event = WebviewEvent {
         account_id: args.account_id,
         provider: args.provider,
@@ -1341,4 +2363,330 @@ pub async fn webview_recipe_event<R: Runtime>(
     app.emit("webview:event", &event)
         .map_err(|e| format!("emit failed: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).expect("valid url")
+    }
+
+    // ── provider registry match arms ──────────────────────────────────
+
+    #[test]
+    fn zoom_registered_in_provider_url() {
+        assert_eq!(provider_url("zoom"), Some("https://zoom.us/"));
+    }
+
+    #[test]
+    fn zoom_registered_in_user_agent() {
+        assert_eq!(provider_user_agent("zoom"), Some(CHROME_UA));
+    }
+
+    #[test]
+    fn zoom_has_no_recipe_js_injection() {
+        // Per the CLAUDE.md "no new JS injection" rule for CEF child
+        // webviews, Zoom must rely solely on Rust `on_navigation` +
+        // `on_new_window` (plus CDP from scanner modules, if any) — no
+        // `recipe.js` should be registered.
+        assert!(provider_recipe_js("zoom").is_none());
+    }
+
+    #[test]
+    fn zoom_enables_ua_spoof() {
+        assert!(provider_ua_spoof("zoom"));
+    }
+
+    #[test]
+    fn zoom_allowed_hosts_covers_core_domains() {
+        let hosts = provider_allowed_hosts("zoom");
+        assert!(hosts.contains(&"zoom.us"), "zoom.us in allowlist");
+        assert!(hosts.contains(&"zoomgov.com"), "zoomgov.com in allowlist");
+        assert!(hosts.contains(&"zdassets.com"), "zdassets.com in allowlist");
+    }
+
+    #[test]
+    fn zoom_is_supported() {
+        assert!(provider_is_supported("zoom"));
+    }
+
+    // ── url_is_internal: subdomain + exact match ──────────────────────
+
+    #[test]
+    fn zoom_web_client_subdomain_is_internal() {
+        assert!(url_is_internal(
+            "zoom",
+            &url("https://app.zoom.us/wc/join/123")
+        ));
+    }
+
+    #[test]
+    fn zoom_apex_domain_is_internal() {
+        assert!(url_is_internal("zoom", &url("https://zoom.us/signin")));
+    }
+
+    #[test]
+    fn zoom_external_host_is_not_internal() {
+        assert!(!url_is_internal(
+            "zoom",
+            &url("https://unrelated.example.com/")
+        ));
+    }
+
+    // ── rewrite_provider_deep_link: Zoom flows ────────────────────────
+
+    #[test]
+    fn rewrite_join_flow_with_confno() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=9819254358"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/join/9819254358");
+    }
+
+    #[test]
+    fn rewrite_start_flow_with_confno() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/start?action=start&confno=86449940711"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/86449940711"
+        );
+    }
+
+    #[test]
+    fn rewrite_preserves_pwd_query_param() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=111&pwd=secret"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/111?pwd=secret"
+        );
+    }
+
+    #[test]
+    fn rewrite_falls_back_to_tk_when_pwd_absent() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoommtg://zoom.us/join?confno=222&tk=tokenvalue"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(
+            rewritten.as_str(),
+            "https://app.zoom.us/wc/join/222?pwd=tokenvalue"
+        );
+    }
+
+    #[test]
+    fn rewrite_accepts_zoommtg_scheme() {
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoommtg://zoom.us/join?action=join&confno=333"),
+        )
+        .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/join/333");
+    }
+
+    #[test]
+    fn rewrite_without_confno_falls_back_to_home() {
+        let rewritten =
+            rewrite_provider_deep_link("zoom", &url("zoomus://zoom.us/home?action=home"))
+                .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/home");
+    }
+
+    #[test]
+    fn rewrite_with_empty_confno_falls_back_to_home() {
+        let rewritten =
+            rewrite_provider_deep_link("zoom", &url("zoomus://zoom.us/join?action=join&confno="))
+                .expect("rewrite should succeed");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/home");
+    }
+
+    #[test]
+    fn rewrite_rejects_non_zoom_provider() {
+        assert!(rewrite_provider_deep_link(
+            "slack",
+            &url("zoomus://zoom.us/join?action=join&confno=444")
+        )
+        .is_none());
+        assert!(rewrite_provider_deep_link(
+            "google-meet",
+            &url("zoomus://zoom.us/join?action=join&confno=555")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn rewrite_rejects_http_zoom_url() {
+        // Ordinary https zoom.us navigations must pass through untouched so
+        // the existing `url_is_internal` flow decides.
+        assert!(rewrite_provider_deep_link("zoom", &url("https://zoom.us/j/9819254358")).is_none());
+    }
+
+    #[test]
+    fn rewrite_rejects_unknown_scheme() {
+        assert!(rewrite_provider_deep_link(
+            "zoom",
+            &url("msteams://teams.microsoft.com/l/meetup-join/666")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn rewrite_percent_encodes_reserved_chars_in_pwd() {
+        // Zoom tokens commonly contain `&` / `=` / `%` / `#` / `+` which
+        // would corrupt a hand-rolled format!() URL. The `Url`-based
+        // builder must percent-encode them.
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=777&pwd=a%26b%3Dc"),
+        )
+        .expect("rewrite should succeed");
+        // `url::Url` round-trips the encoded `%26` (`&`) and `%3D` (`=`)
+        // back into the rewritten query.
+        assert!(
+            rewritten.as_str().contains("pwd=a%26b%3Dc"),
+            "expected encoded pwd, got {}",
+            rewritten.as_str()
+        );
+    }
+
+    #[test]
+    fn rewrite_percent_encodes_confno_segment() {
+        // Defensive — path segments never should carry reserved chars but
+        // the helper must not corrupt them if they do.
+        let rewritten = rewrite_provider_deep_link(
+            "zoom",
+            &url("zoomus://zoom.us/join?action=join&confno=abc%2Fdef"),
+        )
+        .expect("rewrite should succeed");
+        // `/` inside the id must be percent-encoded, not merged into the path.
+        assert!(
+            rewritten.path().ends_with("/abc%2Fdef"),
+            "expected encoded path segment, got {}",
+            rewritten.path()
+        );
+    }
+
+    // ── popup_should_stay_in_app: Zoom WebClient popups ───────────────
+
+    #[test]
+    fn zoom_webclient_popup_stays_in_app() {
+        assert!(popup_should_stay_in_app(
+            "zoom",
+            &url("https://app.zoom.us/wc/join/999")
+        ));
+    }
+
+    #[test]
+    fn zoom_apex_webclient_popup_stays_in_app() {
+        assert!(popup_should_stay_in_app(
+            "zoom",
+            &url("https://zoom.us/wc/join/999")
+        ));
+    }
+
+    #[test]
+    fn zoom_non_wc_popup_does_not_stay_in_app() {
+        // Marketing / blog / download-link popups should hand off to the
+        // system browser, not grow an in-app child window.
+        assert!(!popup_should_stay_in_app(
+            "zoom",
+            &url("https://zoom.us/about")
+        ));
+    }
+
+    #[test]
+    fn zoom_popup_to_foreign_host_does_not_stay_in_app() {
+        assert!(!popup_should_stay_in_app(
+            "zoom",
+            &url("https://example.com/wc/join/888")
+        ));
+    }
+
+    // ── popup_should_navigate_parent: Gmail Google-auth popups ────────
+
+    #[test]
+    fn gmail_accounts_popup_navigates_parent() {
+        // Clicking "Sign in" on mail.google.com opens accounts.google.com
+        // in a popup; routing it to the system browser breaks the OAuth
+        // round-trip because the auth response would land in the wrong
+        // cookie jar. Allowing CEF to spawn an unmanaged popup leaves it
+        // blank/black (no host slot, no bounds). Navigate the parent
+        // instead so the auth flow lands in the existing webview.
+        assert_eq!(
+            popup_should_navigate_parent(
+                "gmail",
+                &url("https://accounts.google.com/signin/v2/identifier"),
+            )
+            .map(|u| u.to_string()),
+            Some("https://accounts.google.com/signin/v2/identifier".to_string())
+        );
+    }
+
+    #[test]
+    fn gmail_about_blank_popup_does_not_navigate_parent() {
+        // about:blank popups are non-actionable — there's no URL yet to
+        // navigate the parent to. Fall through to the popup branch.
+        assert!(popup_should_navigate_parent("gmail", &url("about:blank")).is_none());
+    }
+
+    #[test]
+    fn gmail_foreign_host_popup_does_not_navigate_parent() {
+        // External link popups still belong in the system browser.
+        assert!(
+            popup_should_navigate_parent("gmail", &url("https://example.com/share?u=…")).is_none()
+        );
+    }
+
+    #[test]
+    fn gmail_internal_non_auth_popup_does_not_navigate_parent() {
+        assert!(popup_should_navigate_parent(
+            "gmail",
+            &url("https://mail.google.com/mail/u/0/#inbox")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn google_meet_accounts_popup_navigates_parent() {
+        assert!(popup_should_navigate_parent(
+            "google-meet",
+            &url("https://accounts.google.com/signin/v2/identifier"),
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn gmail_service_login_popup_navigates_parent() {
+        assert_eq!(
+            popup_should_navigate_parent(
+                "gmail",
+                &url("https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"),
+            )
+            .map(|u| u.to_string()),
+            Some(
+                "https://accounts.google.com/ServiceLogin?continue=https://mail.google.com"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn redact_navigation_url_strips_query_and_fragment() {
+        let redacted = redact_navigation_url(&url(
+            "https://accounts.google.com/o/oauth2/v2/auth?code=secret#frag",
+        ));
+        assert_eq!(redacted, "https://accounts.google.com/o/oauth2/v2/auth");
+    }
 }

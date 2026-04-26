@@ -54,12 +54,12 @@ pub use proxy::{
 pub use routes::{EmbeddingRouteConfig, ModelRouteConfig};
 pub use runtime::{DockerRuntimeConfig, ReliabilityConfig, RuntimeConfig, SchedulerConfig};
 pub use storage_memory::{
-    MemoryConfig, StorageConfig, StorageProviderConfig, StorageProviderSection,
+    MemoryConfig, MemoryTreeConfig, StorageConfig, StorageProviderConfig, StorageProviderSection,
 };
 pub use tools::{
-    BrowserComputerUseConfig, BrowserConfig, ComposioConfig, ComputerControlConfig,
-    HttpRequestConfig, IntegrationToggle, IntegrationsConfig, MultimodalConfig, SecretsConfig,
-    WebSearchConfig,
+    BrowserComputerUseConfig, BrowserConfig, ComposioConfig, ComputerControlConfig, CurlConfig,
+    GitbooksConfig, HttpRequestConfig, IntegrationToggle, IntegrationsConfig, MultimodalConfig,
+    SecretsConfig, WebSearchConfig,
 };
 pub use update::UpdateConfig;
 mod voice_server;
