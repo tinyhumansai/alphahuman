@@ -499,6 +499,10 @@ impl IndexReader {
             k
         );
         let query = fts5_quote(query);
+        if query.is_empty() {
+            debug!("[life_capture] keyword_search: empty sanitized query, returning 0 hits");
+            return Ok(Vec::new());
+        }
         self.with_read_conn("keyword_search", move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT i.id, i.source, i.external_id, i.ts, i.author_json, i.subject, i.text, i.metadata_json, \

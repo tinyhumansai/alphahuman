@@ -398,6 +398,15 @@ if [ -z "${ASSET_URL}" ]; then
   exit 1
 fi
 
+if [ "${DRY_RUN}" = true ]; then
+  echo "DRY RUN: verify_asset_reachable ${ASSET_URL}"
+else
+  if ! verify_asset_reachable "${ASSET_URL}"; then
+    log_err "Asset URL is not reachable after retries: ${ASSET_URL}"
+    exit 1
+  fi
+fi
+
 DOWNLOAD_PATH="${TMP_DIR}/${ASSET_NAME}"
 log_info "Downloading ${ASSET_NAME}"
 if [ "${DRY_RUN}" = true ]; then

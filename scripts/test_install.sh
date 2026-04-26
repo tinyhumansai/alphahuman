@@ -8,7 +8,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIXTURE="$REPO_ROOT/scripts/fixtures/latest.json"
 
 # The resolver function should be sourced, not invoked end-to-end (no curl).
-if ! source "$REPO_ROOT/scripts/install.sh" --source-only 2>/dev/null; then
+if ! source "$REPO_ROOT/scripts/install.sh" --source-only; then
   echo "FAIL: scripts/install.sh does not support --source-only mode"
   exit 1
 fi

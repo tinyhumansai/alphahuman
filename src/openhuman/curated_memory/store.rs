@@ -15,7 +15,38 @@ impl MemoryStore {
         std::fs::create_dir_all(dir)?;
         let file_path = dir.join(kind.filename());
         if !file_path.exists() {
-            std::fs::write(&file_path, "")?;
+            // One-time migration: if a legacy root-level MEMORY.md exists in the
+            // workspace dir (the parent of `dir`), seed the new store from it so
+            // existing workspaces don't lose injected memory on first upgrade.
+            let legacy_path = dir.parent().map(|p| p.join(kind.filename()));
+            let seed = legacy_path
+                .as_deref()
+                .filter(|p| p.exists())
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .unwrap_or_default();
+            // Truncate to char_limit on migration so we never write a file that
+            // immediately exceeds the configured cap.
+            let seed = if seed.chars().count() > char_limit {
+                let mut s = seed;
+                let cutoff = s
+                    .char_indices()
+                    .nth(char_limit)
+                    .map(|(i, _)| i)
+                    .unwrap_or(s.len());
+                s.truncate(cutoff);
+                s
+            } else {
+                seed
+            };
+            std::fs::write(&file_path, &seed)?;
+            if !seed.is_empty() {
+                log::debug!(
+                    "[curated_memory] migrated legacy {} ({} chars) to {}",
+                    kind.filename(),
+                    seed.chars().count(),
+                    file_path.display(),
+                );
+            }
         }
         Ok(Self {
             file_path,

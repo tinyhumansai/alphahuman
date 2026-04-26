@@ -150,5 +150,5 @@ pub async fn handle_search(
         "[life_capture] handle_search: {} hits returned",
         payload.len()
     );
-    Ok(RpcOutcome::new(Value::Array(payload), vec![]))
+    Ok(RpcOutcome::new(json!({ "hits": payload }), vec![]))
 }
