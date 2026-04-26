@@ -254,7 +254,18 @@ impl Channel for WhatsAppWebChannel {
         // Upstream's SqliteStore implements all four storage traits the bot
         // needs (Signal, AppSync, Protocol, Device). It also handles
         // first-run schema creation, so no separate `exists`/`load` dance.
-        let backend = Arc::new(SqliteStore::new(&self.session_path).await?);
+        // If the on-disk DB is a leftover from the wa-rs 0.2 fork the schema
+        // is incompatible — surface that explicitly so the user knows to
+        // delete the old session file and re-pair.
+        let backend = Arc::new(SqliteStore::new(&self.session_path).await.map_err(|e| {
+            anyhow!(
+                "Failed to open WhatsApp session store at `{}`: {}. \
+                 If upgrading from wa-rs 0.2, delete the old DB and re-pair \
+                 (see the module-level migration note).",
+                self.session_path,
+                e
+            )
+        })?);
 
         let mut transport_factory = TokioWebSocketTransportFactory::new();
         if let Ok(ws_url) = std::env::var("WHATSAPP_WS_URL") {
