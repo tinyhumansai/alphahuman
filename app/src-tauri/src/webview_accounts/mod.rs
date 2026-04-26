@@ -388,64 +388,81 @@ pub struct WebviewAccountsState {
 }
 
 impl WebviewAccountsState {
-    /// Tear down every per-account resource owned by this state — used by
-    /// the app's `RunEvent::Exit` shutdown sequence so nothing outlives the
-    /// tokio runtime / `AppHandle` (issue #920).
+    /// Drain every per-account resource owned by this state and abort the
+    /// associated background tasks. Returns the `(account_id, label)`
+    /// pairs of webviews that still need closing — the caller does the
+    /// actual `wv.close()` because that needs an `AppHandle`. Splitting
+    /// it out keeps the rest of the teardown unit-testable without
+    /// constructing a Tauri runtime.
     ///
-    /// Aborts CDP session tasks and load watchdogs, closes every
-    /// `acct_*` child webview so CEF browsers tear down before
-    /// `cef::shutdown()` runs, and unregisters CEF notification handlers.
-    /// All collections are drained — repeat calls are cheap no-ops.
-    pub fn shutdown_all<R: Runtime>(&self, app: &AppHandle<R>) {
-        // Drain handles outside the close loop so we don't hold the mutex
-        // across `wv.close()` (which can re-enter via tauri events).
-        {
-            let cdp_tasks: Vec<_> = self
-                .cdp_sessions
-                .lock()
-                .ok()
-                .map(|mut g| g.drain().collect())
-                .unwrap_or_default();
-            for (acct, task) in cdp_tasks {
-                task.abort();
-                log::debug!("[webview-accounts] shutdown abort cdp account={}", acct);
-            }
-            let watchdogs: Vec<_> = self
-                .load_watchdogs
-                .lock()
-                .ok()
-                .map(|mut g| g.drain().collect())
-                .unwrap_or_default();
-            for (acct, task) in watchdogs {
-                task.abort();
-                log::debug!(
-                    "[webview-accounts] shutdown abort watchdog account={}",
-                    acct
-                );
-            }
-            let browser_ids: Vec<_> = self
-                .browser_ids
-                .lock()
-                .ok()
-                .map(|mut g| g.drain().collect())
-                .unwrap_or_default();
-            for (acct, browser_id) in browser_ids {
-                tauri_runtime_cef::notification::unregister(browser_id);
-                log::debug!(
-                    "[notify-cef] shutdown unregistered handler account={} browser_id={}",
-                    acct,
-                    browser_id
-                );
-            }
-        }
-
-        let labels: Vec<(String, String)> = self
-            .inner
+    /// Aborts CDP session tasks and load watchdogs, unregisters CEF
+    /// notification handlers, and clears the loaded-accounts /
+    /// requested-bounds bookkeeping. All collections are drained — a
+    /// repeat call returns an empty `Vec` and is a safe no-op.
+    fn drain_for_shutdown(&self) -> Vec<(String, String)> {
+        let cdp_tasks: Vec<_> = self
+            .cdp_sessions
             .lock()
             .ok()
             .map(|mut g| g.drain().collect())
             .unwrap_or_default();
+        for (acct, task) in cdp_tasks {
+            task.abort();
+            log::debug!("[webview-accounts] shutdown abort cdp account={}", acct);
+        }
+        let watchdogs: Vec<_> = self
+            .load_watchdogs
+            .lock()
+            .ok()
+            .map(|mut g| g.drain().collect())
+            .unwrap_or_default();
+        for (acct, task) in watchdogs {
+            task.abort();
+            log::debug!(
+                "[webview-accounts] shutdown abort watchdog account={}",
+                acct
+            );
+        }
+        let browser_ids: Vec<_> = self
+            .browser_ids
+            .lock()
+            .ok()
+            .map(|mut g| g.drain().collect())
+            .unwrap_or_default();
+        for (acct, browser_id) in browser_ids {
+            tauri_runtime_cef::notification::unregister(browser_id);
+            log::debug!(
+                "[notify-cef] shutdown unregistered handler account={} browser_id={}",
+                acct,
+                browser_id
+            );
+        }
+        if let Ok(mut g) = self.loaded_accounts.lock() {
+            g.clear();
+        }
+        if let Ok(mut g) = self.requested_bounds.lock() {
+            g.clear();
+        }
+        self.inner
+            .lock()
+            .ok()
+            .map(|mut g| g.drain().collect())
+            .unwrap_or_default()
+    }
+
+    /// Tear down every per-account resource owned by this state — used by
+    /// the app's `RunEvent::ExitRequested` path so nothing outlives the
+    /// tokio runtime / `AppHandle` (issue #920).
+    ///
+    /// On top of [`drain_for_shutdown`], this closes every `acct_*` child
+    /// webview so CEF browsers tear down before `cef::shutdown()` runs,
+    /// and tells the per-account scanner registries to forget the
+    /// account so a future open of the same id starts from a clean slate.
+    /// All collections are drained — repeat calls are cheap no-ops.
+    pub fn shutdown_all<R: Runtime>(&self, app: &AppHandle<R>) {
+        let labels = self.drain_for_shutdown();
         for (acct, label) in labels {
+            teardown_account_scanners(app, &acct);
             if let Some(wv) = app.get_webview(&label) {
                 if let Err(e) = wv.close() {
                     log::warn!(
@@ -454,15 +471,42 @@ impl WebviewAccountsState {
                 }
             }
         }
-
-        if let Ok(mut g) = self.loaded_accounts.lock() {
-            g.clear();
-        }
-        if let Ok(mut g) = self.requested_bounds.lock() {
-            g.clear();
-        }
-
         log::info!("[webview-accounts] shutdown_all complete");
+    }
+}
+
+/// Tell the per-account scanner registries (whatsapp / slack / discord /
+/// telegram) to forget `account_id`. Each `forget` is fire-and-forget so
+/// the caller doesn't need to be `async`. Shared by `webview_account_close`,
+/// `webview_account_purge`, and `WebviewAccountsState::shutdown_all` so
+/// every exit path goes through the same teardown.
+fn teardown_account_scanners<R: Runtime>(app: &AppHandle<R>, account_id: &str) {
+    if let Some(registry) =
+        app.try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
+    {
+        let registry = registry.inner().clone();
+        let acct = account_id.to_string();
+        tokio::spawn(async move { registry.forget(&acct).await });
+    }
+    if let Some(registry) = app.try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
+    {
+        let registry = registry.inner().clone();
+        let acct = account_id.to_string();
+        tokio::spawn(async move { registry.forget(&acct).await });
+    }
+    if let Some(registry) =
+        app.try_state::<std::sync::Arc<crate::discord_scanner::ScannerRegistry>>()
+    {
+        let registry = registry.inner().clone();
+        let acct = account_id.to_string();
+        tokio::spawn(async move { registry.forget(&acct).await });
+    }
+    if let Some(registry) =
+        app.try_state::<std::sync::Arc<crate::telegram_scanner::ScannerRegistry>>()
+    {
+        let registry = registry.inner().clone();
+        let acct = account_id.to_string();
+        tokio::spawn(async move { registry.forget(&acct).await });
     }
 }
 
@@ -1147,8 +1191,10 @@ pub async fn webview_account_open<R: Runtime>(
     let scanner_url_prefix = format!("{}/", real_url.origin().ascii_serialization());
     let skip_cdp_for_debug = args.provider == "slack" && !slack_scanner_enabled();
     // We normally open the webview at a tiny placeholder URL so the CDP
-    // session opener can attach and apply the UA override BEFORE the real
-    // provider URL loads. For Slack debug sessions we allow opting out via
+    // session opener can attach and inject the notification-permission
+    // shim (see `cdp/session.rs`) BEFORE the real provider URL loads;
+    // without it Slack/Gmail surface in-app "enable notifications"
+    // banners. For Slack debug sessions we allow opting out via
     // `OPENHUMAN_DISABLE_SLACK_SCANNER=1`, which also skips the long-lived
     // CDP session so external DevTools can attach cleanly.
     let initial_url_str = if skip_cdp_for_debug {
@@ -1702,33 +1748,7 @@ pub async fn webview_account_close<R: Runtime>(
             log::warn!("[webview-accounts] close({label}) failed: {e}");
         }
     }
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) = app.try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::discord_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::telegram_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
+    teardown_account_scanners(&app, &args.account_id);
     if let Some(browser_id) = state.browser_ids.lock().unwrap().remove(&args.account_id) {
         tauri_runtime_cef::notification::unregister(browser_id);
         log::debug!(
@@ -1793,33 +1813,7 @@ pub async fn webview_account_purge<R: Runtime>(
         }
     }
 
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::whatsapp_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) = app.try_state::<std::sync::Arc<crate::slack_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::discord_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
-    if let Some(registry) =
-        app.try_state::<std::sync::Arc<crate::telegram_scanner::ScannerRegistry>>()
-    {
-        let registry = registry.inner().clone();
-        let acct = args.account_id.clone();
-        tokio::spawn(async move { registry.forget(&acct).await });
-    }
+    teardown_account_scanners(&app, &args.account_id);
     if let Some(browser_id) = state.browser_ids.lock().unwrap().remove(&args.account_id) {
         tauri_runtime_cef::notification::unregister(browser_id);
         log::debug!(
@@ -2207,6 +2201,80 @@ mod tests {
 
     fn url(s: &str) -> Url {
         Url::parse(s).expect("valid url")
+    }
+
+    // ── shutdown teardown ──────────────────────────────────
+
+    /// Smoke-test [`WebviewAccountsState::drain_for_shutdown`] in isolation
+    /// from the Tauri runtime. Populates the state with representative
+    /// per-account resources (CDP / watchdog `JoinHandle`s, a CEF browser
+    /// id, an `acct_*` label, plus the small bookkeeping sets) and asserts
+    /// that one call drains every collection and aborts the long-running
+    /// tasks, that the returned label list is what `shutdown_all` will
+    /// `wv.close()` against, and that a second call is a safe no-op.
+    ///
+    /// `shutdown_all` itself takes an `AppHandle` and is exercised end-to-
+    /// end at runtime; the inner `drain_for_shutdown` covers the part of
+    /// the teardown that doesn't need a Tauri runtime to verify.
+    #[tokio::test]
+    async fn drain_for_shutdown_clears_state_and_repeat_is_noop() {
+        use std::time::Duration;
+
+        let state = WebviewAccountsState::default();
+
+        let cdp_task = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        let watchdog_task = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        state
+            .cdp_sessions
+            .lock()
+            .unwrap()
+            .insert("acct-1".into(), cdp_task);
+        state
+            .load_watchdogs
+            .lock()
+            .unwrap()
+            .insert("acct-1".into(), watchdog_task);
+        state.browser_ids.lock().unwrap().insert("acct-1".into(), 42);
+        state
+            .inner
+            .lock()
+            .unwrap()
+            .insert("acct-1".into(), "acct_1".into());
+        state.loaded_accounts.lock().unwrap().insert("acct-1".into());
+        state.requested_bounds.lock().unwrap().insert(
+            "acct-1".into(),
+            Bounds {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+
+        let labels = state.drain_for_shutdown();
+
+        assert_eq!(
+            labels,
+            vec![("acct-1".to_string(), "acct_1".to_string())],
+            "shutdown_all should close the acct_* webview returned here"
+        );
+        assert!(state.cdp_sessions.lock().unwrap().is_empty());
+        assert!(state.load_watchdogs.lock().unwrap().is_empty());
+        assert!(state.browser_ids.lock().unwrap().is_empty());
+        assert!(state.inner.lock().unwrap().is_empty());
+        assert!(state.loaded_accounts.lock().unwrap().is_empty());
+        assert!(state.requested_bounds.lock().unwrap().is_empty());
+
+        // Second call must be a safe no-op: nothing left to drain.
+        let labels2 = state.drain_for_shutdown();
+        assert!(labels2.is_empty());
+        assert!(state.cdp_sessions.lock().unwrap().is_empty());
+        assert!(state.inner.lock().unwrap().is_empty());
     }
 
     // ── provider registry match arms ──────────────────────────────────
