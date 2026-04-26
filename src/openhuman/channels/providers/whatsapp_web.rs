@@ -48,6 +48,7 @@ use crate::openhuman::channels::traits::{Channel, ChannelMessage, SendMessage};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -76,6 +77,12 @@ pub struct WhatsAppWebChannel {
     /// `StreamError`. Used by `health_check` so a dropped session no longer
     /// reports healthy until process shutdown.
     connected: Arc<AtomicBool>,
+    /// Group JIDs (`...@g.us`) we've already accepted an allowed inbound
+    /// from. Acts as outbound provenance: replies into a group are only
+    /// permitted after a participant on the per-number allowlist messaged
+    /// in. Without this, any caller able to pass a `recipient` could post
+    /// into arbitrary joined groups via the @g.us suffix.
+    allowed_groups: Arc<Mutex<HashSet<String>>>,
     /// Sink for inbound `ChannelMessage`s. Populated when [`Channel::listen`]
     /// is called and shared with the event-handler closure.
     tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<ChannelMessage>>>>,
@@ -99,6 +106,7 @@ impl WhatsAppWebChannel {
             bot_handle: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             connected: Arc::new(AtomicBool::new(false)),
+            allowed_groups: Arc::new(Mutex::new(HashSet::new())),
             tx: Arc::new(Mutex::new(None)),
         }
     }
@@ -117,17 +125,30 @@ impl WhatsAppWebChannel {
         recipient.trim().ends_with("@g.us")
     }
 
-    /// Outbound gate combining group-bypass with the per-number allowlist.
-    /// Without this special-case, group reply targets — which are JIDs of
-    /// the form `<id>@g.us` — would be normalised to `+<id>` and fail an
-    /// otherwise-correctly-configured `allowed_numbers = ["+1555..."]`,
-    /// silently dropping every group reply.
+    /// Outbound gate combining group-provenance with the per-number allowlist.
+    /// Group JIDs are only permitted when an allowed inbound has already
+    /// been received from that exact group — populated in the inbound
+    /// handler when an allow-listed participant posts. This narrows the
+    /// previous "all `@g.us` is fine" path so an attacker that can supply
+    /// a `recipient` cannot post into arbitrary groups the bot has joined.
     fn should_allow_outbound(&self, recipient: &str) -> bool {
         if Self::is_group_jid(recipient) {
-            return true;
+            return self.allowed_groups.lock().contains(recipient.trim());
         }
         let normalized = self.normalize_phone(recipient);
         self.is_number_allowed(&normalized)
+    }
+
+    /// Mask a recipient identifier for log emission. Handles bare phone
+    /// numbers, `<digits>@s.whatsapp.net`/`@lid` DM JIDs, and `@g.us`
+    /// group JIDs uniformly so warning paths never carry a full ID.
+    fn redact_recipient(recipient: &str) -> String {
+        let trimmed = recipient.trim();
+        if let Some((user, server)) = trimmed.split_once('@') {
+            format!("{}@{}", Self::redact_phone(user), server)
+        } else {
+            Self::redact_phone(trimmed)
+        }
     }
 
     /// Pick the address downstream replies should be sent back to.
@@ -215,7 +236,7 @@ impl Channel for WhatsAppWebChannel {
         if !self.should_allow_outbound(&message.recipient) {
             tracing::warn!(
                 "WhatsApp Web: recipient {} not in allowed list",
-                message.recipient
+                Self::redact_recipient(&message.recipient)
             );
             return Ok(());
         }
@@ -277,6 +298,7 @@ impl Channel for WhatsAppWebChannel {
         let tx_for_handler = tx.clone();
         let allowed_numbers = self.allowed_numbers.clone();
         let connected_for_handler = Arc::clone(&self.connected);
+        let allowed_groups_for_handler = Arc::clone(&self.allowed_groups);
 
         let mut builder = Bot::builder()
             .with_backend(backend)
@@ -287,6 +309,7 @@ impl Channel for WhatsAppWebChannel {
                 let tx_inner = tx_for_handler.clone();
                 let allowed_numbers = allowed_numbers.clone();
                 let connected = Arc::clone(&connected_for_handler);
+                let allowed_groups = Arc::clone(&allowed_groups_for_handler);
                 async move {
                     match event {
                         Event::Message(msg, info) => {
@@ -321,25 +344,26 @@ impl Channel for WhatsAppWebChannel {
 
                             // Routine logs only carry coarse metadata — no raw
                             // sender identifier, no message body — so PII does
-                            // not leak into application logs. Full payload is
-                            // available at trace level for narrow debugging.
+                            // not leak into application logs at any level.
                             tracing::info!(
                                 "📨 WhatsApp inbound: chat={} sender={} text_len={}",
                                 chat,
                                 Self::redact_phone(&normalized),
                                 text.len()
                             );
-                            tracing::trace!(
-                                target: "openhuman::whatsapp::inbound",
-                                "WhatsApp inbound (raw): chat={} sender={} text={}",
-                                chat,
-                                normalized,
-                                text
-                            );
 
                             if allowed_numbers.is_empty()
                                 || allowed_numbers.iter().any(|n| n == "*" || n == &normalized)
                             {
+                                // Record group provenance: this group has had at
+                                // least one allow-listed participant message in,
+                                // so subsequent outbound replies into the same
+                                // group are legitimate. Outbound to groups
+                                // without provenance is rejected by
+                                // `should_allow_outbound`.
+                                if Self::is_group_jid(&chat) {
+                                    allowed_groups.lock().insert(chat.clone());
+                                }
                                 if let Err(e) = tx_inner
                                     .send(ChannelMessage {
                                         id: uuid::Uuid::new_v4().to_string(),
@@ -379,28 +403,20 @@ impl Channel for WhatsAppWebChannel {
                         // The pair code and QR payload are short-lived link
                         // credentials — anyone reading the logs while they
                         // are valid can hijack the session. Surface only a
-                        // non-sensitive notice; raw values are emitted at
-                        // trace level for narrow opt-in debugging.
-                        Event::PairingCode { code, .. } => {
+                        // non-sensitive notice; the raw payload is never
+                        // logged at any level. Surfacing the code to the
+                        // user is the responsibility of an upstream UX
+                        // path (e.g. a JSON-RPC event the frontend renders).
+                        Event::PairingCode { .. } => {
                             tracing::info!(
                                 "🔑 WhatsApp Web pair code received. Enter the code shown on \
                                  your linking surface into WhatsApp > Linked Devices."
                             );
-                            tracing::trace!(
-                                target: "openhuman::whatsapp::pairing",
-                                "pair code: {}",
-                                code
-                            );
                         }
-                        Event::PairingQrCode { code, .. } => {
+                        Event::PairingQrCode { .. } => {
                             tracing::info!(
                                 "📱 WhatsApp Web QR code received. Render via QR generator and \
                                  scan with WhatsApp > Linked Devices."
-                            );
-                            tracing::trace!(
-                                target: "openhuman::whatsapp::pairing",
-                                "qr code: {}",
-                                code
                             );
                         }
                         _ => {}
@@ -472,7 +488,7 @@ impl Channel for WhatsAppWebChannel {
         if !self.should_allow_outbound(recipient) {
             tracing::warn!(
                 "WhatsApp Web: typing target {} not in allowed list",
-                recipient
+                Self::redact_recipient(recipient)
             );
             return Ok(());
         }
@@ -497,7 +513,7 @@ impl Channel for WhatsAppWebChannel {
         if !self.should_allow_outbound(recipient) {
             tracing::warn!(
                 "WhatsApp Web: typing target {} not in allowed list",
-                recipient
+                Self::redact_recipient(recipient)
             );
             return Ok(());
         }
@@ -740,13 +756,66 @@ mod tests {
 
     /// Regression for CodeRabbit finding: an `@g.us` reply target was being
     /// silently dropped because the outbound path normalised the JID to
-    /// `+<group-id>` and missed the per-number allowlist. The group bypass
-    /// must let an allowed user reply back into the group they came from.
+    /// `+<group-id>` and missed the per-number allowlist. After provenance
+    /// is recorded, an allowed user replying back into the group they came
+    /// from must succeed.
     #[test]
     #[cfg(feature = "whatsapp-web")]
-    fn whatsapp_web_should_allow_outbound_group_bypasses_allowlist() {
+    fn whatsapp_web_should_allow_outbound_provenanced_group_allowed() {
         let ch = make_channel(); // allowed_numbers = ["+1234567890"]
+        ch.allowed_groups
+            .lock()
+            .insert("987654321@g.us".to_string());
         assert!(ch.should_allow_outbound("987654321@g.us"));
+    }
+
+    /// Regression for the follow-up CodeRabbit finding: a blanket `@g.us`
+    /// bypass is itself a vulnerability — a caller able to set `recipient`
+    /// could post into arbitrary joined groups. Groups without recorded
+    /// provenance must stay blocked.
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_should_allow_outbound_unrelated_group_blocked() {
+        let ch = make_channel();
+        ch.allowed_groups
+            .lock()
+            .insert("987654321@g.us".to_string());
+        assert!(!ch.should_allow_outbound("11111@g.us"));
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_should_allow_outbound_group_without_provenance_blocked() {
+        let ch = make_channel();
+        // empty allowed_groups
+        assert!(!ch.should_allow_outbound("987654321@g.us"));
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_recipient_pn_jid() {
+        assert_eq!(
+            WhatsAppWebChannel::redact_recipient("1234567890@s.whatsapp.net"),
+            "***7890@s.whatsapp.net"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_recipient_group_jid() {
+        assert_eq!(
+            WhatsAppWebChannel::redact_recipient("987654321@g.us"),
+            "***4321@g.us"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "whatsapp-web")]
+    fn whatsapp_web_redact_recipient_bare_phone() {
+        assert_eq!(
+            WhatsAppWebChannel::redact_recipient("+1234567890"),
+            "+***7890"
+        );
     }
 
     #[test]
