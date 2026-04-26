@@ -26,15 +26,9 @@ const BetaBanner = () => {
 
   return (
     <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-      {/* Beta pill */}
-      <span className="mt-0.5 flex-shrink-0 rounded-md bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-        Beta
-      </span>
-
       {/* Message */}
       <p className="flex-1 text-xs leading-relaxed text-stone-700">
-        OpenHuman is in beta. You may hit rough edges. Early users who give feedback get free
-        credits.{' '}
+        🐣 OpenHuman is in early beta. Report bugs, give feedback, and get free credits.{' '}
         <a
           href={DISCORD_INVITE_URL}
           target="_blank"
@@ -43,7 +37,7 @@ const BetaBanner = () => {
           className="font-medium text-amber-800 underline underline-offset-2 hover:text-amber-900">
           Join our Discord
         </a>{' '}
-        to claim!
+        to be a part of the community!
       </p>
 
       {/* Dismiss */}

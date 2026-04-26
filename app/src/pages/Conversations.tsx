@@ -91,10 +91,17 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     suggestedQuestions,
     isLoadingSuggestions,
     activeThreadId,
+    welcomeThreadId,
   } = useAppSelector(state => state.thread);
 
   const { snapshot } = useCoreState();
   const welcomeLocked = isWelcomeLocked(snapshot);
+  // While the proactive welcome agent is running and hasn't published its
+  // first message yet, hide the composer (and a few other non-message
+  // chrome bits) so the user just sees the "Your agent is thinking..."
+  // loader. Flips off the moment the first agent message arrives.
+  const welcomePending =
+    !!welcomeThreadId && selectedThreadId === welcomeThreadId && messages.length === 0;
   const chatOnboardingCompleted = snapshot.chatOnboardingCompleted;
   const previousChatOnboardingCompletedRef = useRef<boolean | null>(null);
   // Guard against the mount-time `loadThreads()` promise resolving AFTER
@@ -1223,6 +1230,19 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               )}
               <div ref={messagesEndRef} />
             </div>
+          ) : welcomeThreadId && selectedThreadId === welcomeThreadId ? (
+            // Welcome thread, no messages yet — the proactive welcome agent
+            // is running in the background. Show a friendly loader until
+            // the first agent message lands (which flips us into the
+            // `hasVisibleMessages` branch above).
+            <div className="flex-1 flex flex-col items-center justify-center h-full gap-3">
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 rounded-full bg-stone-500 animate-bounce [animation-delay:300ms]" />
+              </div>
+              <p className="text-sm text-stone-600">Your agent is thinking...</p>
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center h-full">
               <p className="text-sm text-stone-600">No messages yet</p>
@@ -1250,7 +1270,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         )}
 
         <div className="flex-shrink-0 border-t border-stone-200 px-4 py-3">
-          {!welcomeLocked && (
+          {!welcomeLocked && !welcomePending && (
             <>
               {isNearLimit &&
                 !isAtLimit &&

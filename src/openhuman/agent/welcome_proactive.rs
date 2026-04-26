@@ -94,16 +94,32 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
         anyhow::bail!("welcome agent returned empty response");
     }
 
+    // Defensive unwrap: the welcome model occasionally drifts back to its
+    // legacy JSON output shape `{"messages":["...","..."]}` even though
+    // the system prompt asks for plain prose. Detect and split into
+    // separate proactive messages so the user sees natural bubbles
+    // instead of a literal JSON string in chat.
+    let messages = extract_messages(trimmed);
+
     tracing::info!(
+        message_count = messages.len(),
         response_chars = trimmed.chars().count(),
         "[welcome::proactive] publishing welcome response"
     );
 
-    publish_global(DomainEvent::ProactiveMessageRequested {
-        source: PROACTIVE_WELCOME_SOURCE.to_string(),
-        message: trimmed.to_string(),
-        job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
-    });
+    for (idx, message) in messages.iter().enumerate() {
+        if idx > 0 {
+            // Slight pacing so multi-bubble responses appear progressively
+            // instead of as a single instant wall.
+            let pace_ms = (message.chars().count() as u64).clamp(600, 1200);
+            tokio::time::sleep(tokio::time::Duration::from_millis(pace_ms)).await;
+        }
+        publish_global(DomainEvent::ProactiveMessageRequested {
+            source: PROACTIVE_WELCOME_SOURCE.to_string(),
+            message: message.clone(),
+            job_name: Some(PROACTIVE_WELCOME_JOB_NAME.to_string()),
+        });
+    }
 
     tracing::debug!(
         source = PROACTIVE_WELCOME_SOURCE,
@@ -112,6 +128,48 @@ async fn run_proactive_welcome(config: Config) -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+/// Unwrap legacy JSON shapes the welcome model sometimes emits and return
+/// a clean list of message strings. Always returns at least one entry.
+///
+/// Handles:
+/// * `{"messages": ["a", "b"]}` (the legacy contract — full string)
+/// * Same shape wrapped in ```json``` fences
+/// * Plain prose (returned as a single-entry vec, unchanged)
+fn extract_messages(raw: &str) -> Vec<String> {
+    // Strip optional ```json … ``` fence so JSON.parse below succeeds on
+    // models that wrap the payload in a code block.
+    let candidate = raw
+        .strip_prefix("```json")
+        .or_else(|| raw.strip_prefix("```"))
+        .map(str::trim_start)
+        .and_then(|s| s.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(raw);
+
+    #[derive(serde::Deserialize)]
+    struct LegacyEnvelope {
+        messages: Vec<String>,
+    }
+
+    if let Ok(payload) = serde_json::from_str::<LegacyEnvelope>(candidate) {
+        let parts: Vec<String> = payload
+            .messages
+            .into_iter()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .collect();
+        if !parts.is_empty() {
+            tracing::warn!(
+                count = parts.len(),
+                "[welcome::proactive] model emitted legacy {{\"messages\":[...]}} envelope; unwrapping"
+            );
+            return parts;
+        }
+    }
+
+    vec![raw.to_string()]
 }
 
 #[cfg(test)]
@@ -124,6 +182,36 @@ mod tests {
         // silent rename would break downstream grep-based traces.
         assert_eq!(PROACTIVE_WELCOME_SOURCE, "onboarding_completed");
         assert_eq!(PROACTIVE_WELCOME_JOB_NAME, "welcome");
+    }
+
+    #[test]
+    fn extract_messages_unwraps_legacy_json_envelope() {
+        let raw = r#"{"messages":["hey there","how's the work?"]}"#;
+        let parts = extract_messages(raw);
+        assert_eq!(parts, vec!["hey there".to_string(), "how's the work?".to_string()]);
+    }
+
+    #[test]
+    fn extract_messages_unwraps_fenced_json_envelope() {
+        let raw = "```json\n{\"messages\":[\"first\",\"second\"]}\n```";
+        let parts = extract_messages(raw);
+        assert_eq!(parts, vec!["first".to_string(), "second".to_string()]);
+    }
+
+    #[test]
+    fn extract_messages_passes_through_plain_prose() {
+        let raw = "hey steven, glad you're back.";
+        let parts = extract_messages(raw);
+        assert_eq!(parts, vec![raw.to_string()]);
+    }
+
+    #[test]
+    fn extract_messages_handles_empty_messages_array() {
+        // Empty messages array -> fall back to raw string so the user
+        // still gets *something* instead of a silent drop.
+        let raw = r#"{"messages":[]}"#;
+        let parts = extract_messages(raw);
+        assert_eq!(parts, vec![raw.to_string()]);
     }
 
     #[test]

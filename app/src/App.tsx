@@ -12,6 +12,7 @@ import DictationHotkeyManager from './components/DictationHotkeyManager';
 import ErrorFallbackScreen from './components/ErrorFallbackScreen';
 import LocalAIDownloadSnackbar from './components/LocalAIDownloadSnackbar';
 import MeshGradient from './components/MeshGradient';
+import OpenhumanLinkModal from './components/OpenhumanLinkModal';
 import RouteLoadingScreen from './components/RouteLoadingScreen';
 import GlobalUpsellBanner from './components/upsell/GlobalUpsellBanner';
 import { isWelcomeLocked } from './lib/coreState/store';
@@ -156,6 +157,7 @@ function AppShell() {
         </div>
         {!onOnboardingRoute && <BottomTabBar />}
       </div>
+      <OpenhumanLinkModal />
     </div>
   );
 }
