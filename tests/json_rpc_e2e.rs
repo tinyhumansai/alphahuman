@@ -2640,3 +2640,109 @@ async fn skills_uninstall_rpc_e2e() {
 
     rpc_join.abort();
 }
+
+// ---------------------------------------------------------------------------
+// Auth middleware tests
+// ---------------------------------------------------------------------------
+
+/// POST /rpc without any Authorization header → 401 with error=unauthorized.
+#[tokio::test]
+async fn rpc_rejects_unauthenticated_request() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    ensure_test_rpc_auth();
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://{rpc_addr}/rpc"))
+        .header("Content-Type", "application/json")
+        .body(r#"{"jsonrpc":"2.0","id":1,"method":"core.ping","params":{}}"#)
+        .send()
+        .await
+        .expect("request");
+
+    assert_eq!(resp.status(), 401, "missing Authorization must yield 401");
+    let body: Value = resp.json().await.expect("json body");
+    assert_eq!(body["error"], "unauthorized", "error field must be 'unauthorized'");
+
+    rpc_join.abort();
+}
+
+/// POST /rpc with a syntactically valid but wrong bearer token → 401.
+#[tokio::test]
+async fn rpc_rejects_wrong_token() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    ensure_test_rpc_auth();
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://{rpc_addr}/rpc"))
+        .header(AUTHORIZATION, "Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+        .header("Content-Type", "application/json")
+        .body(r#"{"jsonrpc":"2.0","id":1,"method":"core.ping","params":{}}"#)
+        .send()
+        .await
+        .expect("request");
+
+    assert_eq!(resp.status(), 401, "wrong token must yield 401");
+    let body: Value = resp.json().await.expect("json body");
+    assert_eq!(body["error"], "unauthorized");
+
+    rpc_join.abort();
+}
+
+/// Public paths (/, /health, /schema) must be reachable without any token.
+#[tokio::test]
+async fn public_paths_accessible_without_token() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    ensure_test_rpc_auth();
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let client = reqwest::Client::new();
+    let base = format!("http://{rpc_addr}");
+
+    for path in ["/", "/health", "/schema"] {
+        let resp = client
+            .get(format!("{base}{path}"))
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("GET {path}: {e}"));
+        assert!(
+            resp.status().is_success(),
+            "public path {path} must be reachable without auth, got {}",
+            resp.status()
+        );
+    }
+
+    rpc_join.abort();
+}
+
+/// Simulate an external process using a guessed token — must be rejected.
+#[tokio::test]
+async fn external_process_with_guessed_token_is_rejected() {
+    let _env_lock = json_rpc_e2e_env_lock();
+    ensure_test_rpc_auth(); // server validates against TEST_RPC_TOKEN
+
+    let (rpc_addr, rpc_join) = serve_on_ephemeral(build_core_http_router(false)).await;
+    let client = reqwest::Client::new();
+
+    // An attacker process trying a plausible-looking token that isn't the real one.
+    let attacker_token = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+    assert_ne!(attacker_token, TEST_RPC_TOKEN, "attacker token must differ from real one");
+
+    let resp = client
+        .post(format!("http://{rpc_addr}/rpc"))
+        .header(AUTHORIZATION, format!("Bearer {attacker_token}"))
+        .header("Content-Type", "application/json")
+        .body(r#"{"jsonrpc":"2.0","id":1,"method":"core.ping","params":{}}"#)
+        .send()
+        .await
+        .expect("request");
+
+    assert_eq!(resp.status(), 401, "external process with wrong token must be rejected");
+
+    rpc_join.abort();
+}
