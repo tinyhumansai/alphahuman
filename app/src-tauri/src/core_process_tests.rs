@@ -293,7 +293,10 @@ fn new_does_not_publish_global_token() {
         "new() must not publish its token to CURRENT_RPC_TOKEN before ensure_running() spawns"
     );
     // Whatever was in the global before must still be there (or still None).
-    assert_eq!(before, after, "new() must leave CURRENT_RPC_TOKEN unchanged");
+    assert_eq!(
+        before, after,
+        "new() must leave CURRENT_RPC_TOKEN unchanged"
+    );
 }
 
 /// Two handles constructed sequentially must each have a unique token,
