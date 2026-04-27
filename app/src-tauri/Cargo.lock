@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "OpenHuman"
-version = "0.53.1"
+version = "0.53.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -15,6 +15,7 @@ dependencies = [
  "env_logger",
  "flate2",
  "futures-util",
+ "hex",
  "log",
  "mac-notification-sys",
  "nix",

@@ -49,11 +49,15 @@ pub enum CoreRunMode {
 }
 
 /// Generate a 256-bit cryptographically-random bearer token as a hex string.
+///
+/// Uses the same encoding as `openhuman_core::core::auth::generate_token`
+/// (`hex::encode`) so the token format never silently diverges between the
+/// Tauri-side generator and the core-side validator.
 pub fn generate_rpc_token() -> String {
     use rand::RngCore as _;
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    hex::encode(bytes)
 }
 
 static CURRENT_RPC_TOKEN: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
