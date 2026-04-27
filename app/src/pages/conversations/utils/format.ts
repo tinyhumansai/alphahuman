@@ -100,7 +100,7 @@ const OPENHUMAN_LINK_RE =
   /<openhuman-link\s+path=(?:"([^"]+)"|'([^']+)')\s*>([\s\S]*?)<\/openhuman-link>/gi;
 
 export function parseBubbleSegments(content: string): BubbleSegment[] {
-  if (!content || !content.includes('<openhuman-link')) {
+  if (!content?.includes('<openhuman-link')) {
     return [{ kind: 'text', text: content }];
   }
   const segments: BubbleSegment[] = [];
@@ -108,7 +108,8 @@ export function parseBubbleSegments(content: string): BubbleSegment[] {
   // Reset regex state between calls (the global flag preserves lastIndex).
   OPENHUMAN_LINK_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = OPENHUMAN_LINK_RE.exec(content)) !== null) {
+  match = OPENHUMAN_LINK_RE.exec(content);
+  while (match !== null) {
     if (match.index > cursor) {
       segments.push({ kind: 'text', text: content.slice(cursor, match.index) });
     }
@@ -118,6 +119,7 @@ export function parseBubbleSegments(content: string): BubbleSegment[] {
       segments.push({ kind: 'link', path, label });
     }
     cursor = match.index + match[0].length;
+    match = OPENHUMAN_LINK_RE.exec(content);
   }
   if (cursor < content.length) {
     segments.push({ kind: 'text', text: content.slice(cursor) });

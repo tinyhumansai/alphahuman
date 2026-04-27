@@ -23,13 +23,14 @@
  * Design mirrors `InstallSkillDialog` — see
  * `.claude/rules/15-settings-modal-system.md`.
  */
+
+import debug from 'debug';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import debug from 'debug';
 
 import {
-  skillsApi,
   type SkillSummary,
+  skillsApi,
   type UninstallSkillResult,
 } from '../../services/api/skillsApi';
 
@@ -105,8 +106,8 @@ export default function UninstallSkillConfirmDialog({ skill, onClose, onUninstal
           Uninstall {skill.name}?
         </h2>
         <p className="mt-2 text-sm text-stone-600">
-          This permanently deletes the skill directory and all its bundled resources. The agent
-          will stop seeing it at the next turn.
+          This permanently deletes the skill directory and all its bundled resources. The agent will
+          stop seeing it at the next turn.
         </p>
         {skill.location && (
           <p className="mt-3 break-all rounded-lg bg-stone-50 px-3 py-2 font-mono text-[11px] text-stone-600">

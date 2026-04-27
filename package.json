@@ -14,6 +14,8 @@
     "dev:cef": "pnpm --filter openhuman-app dev:cef",
     "format": "pnpm --filter openhuman-app format",
     "format:check": "pnpm --filter openhuman-app format:check",
+    "check": "pnpm --filter openhuman-app check",
+    "check:fix": "pnpm --filter openhuman-app check:fix",
     "knip": "pnpm --filter openhuman-app knip",
     "knip:production": "pnpm --filter openhuman-app knip:production",
     "lint": "pnpm --filter openhuman-app lint",

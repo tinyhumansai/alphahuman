@@ -1,8 +1,8 @@
 import PillTabBar from '../PillTabBar';
 import type { SkillCategory } from './skillCategories';
 import {
-  skillCategoryChipClassName,
   SkillCategoryIcon,
+  skillCategoryChipClassName,
   skillCategoryIconClassName,
 } from './skillIcons';
 

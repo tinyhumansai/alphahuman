@@ -2,8 +2,8 @@ import { useState } from 'react';
 
 import ComposioConnectModal from '../../../components/composio/ComposioConnectModal';
 import {
-  composioToolkitMeta,
   type ComposioToolkitMeta,
+  composioToolkitMeta,
 } from '../../../components/composio/toolkitMeta';
 import { useComposioIntegrations } from '../../../lib/composio/hooks';
 import { type ComposioConnection, deriveComposioState } from '../../../lib/composio/types';

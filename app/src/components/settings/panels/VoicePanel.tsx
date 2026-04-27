@@ -90,7 +90,7 @@ const VoicePanel = () => {
       void loadData(false);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [loadData]);
 
   const updateSetting = <K extends keyof VoiceServerSettings>(
     key: K,

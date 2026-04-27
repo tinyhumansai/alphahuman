@@ -165,7 +165,7 @@ Rules for the review content:
 - Before/after code blocks should be minimal — just enough to show the change.
 - Prefer quoting exact identifiers/paths from the code over vague descriptions.
 - Do not invent issues. If the PR is clean, say so in the walkthrough and keep the sections short.
-- Do not repeat what `cargo clippy` / ESLint would catch unless the PR introduced it and CI hasn't caught it yet — focus on issues a human reviewer would flag.
+- Do not repeat what `cargo clippy` / Biome would catch unless the PR introduced it and CI hasn't caught it yet — focus on issues a human reviewer would flag.
 
 ### 7. Apply approved fixes
 

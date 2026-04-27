@@ -41,6 +41,7 @@ const SubscriptionPlans = ({
           </p>
         </div>
         <button
+          type="button"
           onClick={() => setPaymentMethod(paymentMethod === 'card' ? 'crypto' : 'card')}
           className={`relative h-6 w-11 rounded-full transition-colors ${
             paymentMethod === 'crypto' ? 'bg-primary-600' : 'bg-stone-300'
@@ -60,6 +61,7 @@ const SubscriptionPlans = ({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="mx-auto inline-flex w-fit rounded-full bg-white p-1 shadow-sm ring-1 ring-stone-950/5 lg:mx-0">
           <button
+            type="button"
             onClick={() => {
               if (paymentMethod !== 'crypto') setBillingInterval('monthly');
             }}
@@ -72,6 +74,7 @@ const SubscriptionPlans = ({
             Monthly
           </button>
           <button
+            type="button"
             onClick={() => setBillingInterval('annual')}
             className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
               billingInterval === 'annual'
@@ -235,6 +238,7 @@ const SubscriptionPlans = ({
                   </div>
                 ) : isUpgrade ? (
                   <button
+                    type="button"
                     onClick={() => onUpgrade(plan.tier)}
                     disabled={isPurchasing}
                     className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${

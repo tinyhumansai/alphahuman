@@ -228,6 +228,7 @@ const TeamMembersPanel = () => {
                     {/* Remove button (admin only, not self) */}
                     {isAdmin && !isCurrentUser(member) && (
                       <button
+                        type="button"
                         onClick={() => handleRemoveMember(member)}
                         disabled={removingId === member._id}
                         className="p-1 rounded-lg text-stone-500 hover:text-coral-400 hover:bg-coral-500/10 transition-colors disabled:opacity-50"
@@ -284,12 +285,14 @@ const TeamMembersPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setMemberToRemove(null)}
                       disabled={removingId === memberToRemove._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={confirmRemoveMember}
                       disabled={removingId === memberToRemove._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-coral-500 hover:bg-coral-600 text-white transition-colors disabled:opacity-50">
@@ -346,12 +349,14 @@ const TeamMembersPanel = () => {
 
                   <div className="flex gap-2 pt-2">
                     <button
+                      type="button"
                       onClick={() => setRoleChangeConfirmation(null)}
                       disabled={changingRoleId === roleChangeConfirmation.member._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-stone-700/50 hover:bg-stone-700 text-stone-300 transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={confirmChangeRole}
                       disabled={changingRoleId === roleChangeConfirmation.member._id}
                       className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-50">

@@ -24,6 +24,7 @@ const SettingsHeader = ({
         {/* Back button */}
         {showBackButton && onBack && (
           <button
+            type="button"
             onClick={onBack}
             className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-stone-100 transition-colors mr-2"
             aria-label="Go back">
@@ -50,6 +51,7 @@ const SettingsHeader = ({
                 <li key={i} className="flex items-center gap-1">
                   {crumb.onClick ? (
                     <button
+                      type="button"
                       onClick={crumb.onClick}
                       className="text-xs text-stone-400 hover:text-stone-600 transition-colors">
                       {crumb.label}

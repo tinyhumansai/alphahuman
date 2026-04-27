@@ -57,6 +57,7 @@ const ScreenIntelligenceDebugPanelContent = ({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-stone-100">Debug & Diagnostics</h3>
         <button
+          type="button"
           onClick={handleRefreshStatus}
           className="rounded-lg border border-stone-700 bg-stone-800/60 px-3 py-1 text-xs text-stone-300 transition-colors hover:bg-stone-700/60">
           Refresh
@@ -112,6 +113,7 @@ const ScreenIntelligenceDebugPanelContent = ({
           Capture Test
         </h4>
         <button
+          type="button"
           onClick={handleCaptureTest}
           disabled={isCaptureTestRunning}
           className="mb-3 w-full rounded-lg border border-primary-600/40 bg-primary-600/20 px-3 py-2 text-sm font-medium text-primary-300 transition-colors hover:bg-primary-600/30 disabled:opacity-50">

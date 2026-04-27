@@ -1,0 +1,80 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
+  "assist": {
+    "enabled": true
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "always",
+      "trailingCommas": "es5",
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "bracketSameLine": true,
+      "arrowParentheses": "asNeeded",
+      "quoteProperties": "asNeeded"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "noSvgWithoutTitle": "off",
+        "noNoninteractiveTabindex": "off",
+        "useButtonType": "warn",
+        "useAnchorContent": "off",
+        "noInteractiveElementToNoninteractiveRole": "off",
+        "useValidAnchor": "warn",
+        "useAriaPropsForRole": "off",
+        "useFocusableInteractive": "off",
+        "noStaticElementInteractions": "off",
+        "useKeyWithClickEvents": "off",
+        "useAriaPropsSupportedByRole": "off",
+        "noLabelWithoutControl": "off",
+        "useSemanticElements": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "off",
+        "useIterableCallbackReturn": "off"
+      },
+      "correctness": {
+        "noUnusedVariables": "error",
+        "useExhaustiveDependencies": "warn"
+      }
+    }
+  },
+  "vcs": {
+    "clientKind": "git",
+    "enabled": true,
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "src/**/*",
+      "!node_modules",
+      "!dist",
+      "!coverage",
+      "!app",
+      "!src-tauri",
+      "!rust-core",
+      "!skills",
+      "!*.config.js",
+      "!*.config.ts",
+      "!tsconfig.tsbuildinfo",
+      "!yarn.lock",
+      "!package-lock.json",
+      "!src/styles/theme.css",
+      "!src/index.css",
+      "!src/lib/meshGradient.js"
+    ],
+    "ignoreUnknown": true
+  }
+}

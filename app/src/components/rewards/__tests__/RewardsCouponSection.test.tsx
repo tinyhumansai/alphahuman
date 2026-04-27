@@ -30,19 +30,17 @@ describe('RewardsCouponSection', () => {
     mocks.mockCreditsApi.getBalance
       .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 1 })
       .mockResolvedValueOnce({ promotionBalanceUsd: 8, teamTopupUsd: 1 });
-    mocks.mockCreditsApi.getUserCoupons
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          code: 'APRL-2026',
-          amountUsd: 5,
-          redeemedAt: '2026-04-09T19:00:00.000Z',
-          activationType: 'IMMEDIATE',
-          activationCondition: null,
-          fulfilled: true,
-          fulfilledAt: '2026-04-09T19:00:01.000Z',
-        },
-      ]);
+    mocks.mockCreditsApi.getUserCoupons.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        code: 'APRL-2026',
+        amountUsd: 5,
+        redeemedAt: '2026-04-09T19:00:00.000Z',
+        activationType: 'IMMEDIATE',
+        activationCondition: null,
+        fulfilled: true,
+        fulfilledAt: '2026-04-09T19:00:01.000Z',
+      },
+    ]);
     mocks.mockCreditsApi.redeemCoupon.mockResolvedValueOnce({
       couponCode: 'APRL-2026',
       amountUsd: 5,
@@ -96,19 +94,17 @@ describe('RewardsCouponSection', () => {
     mocks.mockCreditsApi.getBalance
       .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 0 })
       .mockResolvedValueOnce({ promotionBalanceUsd: 3, teamTopupUsd: 0 });
-    mocks.mockCreditsApi.getUserCoupons
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          code: 'APRL-2026',
-          amountUsd: 5,
-          redeemedAt: '2026-04-09T19:00:00.000Z',
-          activationType: 'CONDITIONAL',
-          activationCondition: 'SUBSCRIBE_PAID_PLAN',
-          fulfilled: false,
-          fulfilledAt: null,
-        },
-      ]);
+    mocks.mockCreditsApi.getUserCoupons.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        code: 'APRL-2026',
+        amountUsd: 5,
+        redeemedAt: '2026-04-09T19:00:00.000Z',
+        activationType: 'CONDITIONAL',
+        activationCondition: 'SUBSCRIBE_PAID_PLAN',
+        fulfilled: false,
+        fulfilledAt: null,
+      },
+    ]);
     mocks.mockCreditsApi.redeemCoupon.mockResolvedValueOnce({
       couponCode: 'APRL-2026',
       amountUsd: 5,

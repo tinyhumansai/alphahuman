@@ -118,6 +118,7 @@ export default function IntelligenceMemoryTab({
                 Run an analysis to extract actionable items from your connected skills.
               </p>
               <button
+                type="button"
                 onClick={() => void handleAnalyzeNow()}
                 disabled={isRunning}
                 className="px-4 py-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-40 text-white text-sm rounded-lg transition-colors">

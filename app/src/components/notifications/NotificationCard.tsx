@@ -70,6 +70,7 @@ const NotificationCard = ({ notification: n, onMarkRead, onDismiss }: Props) => 
         </div>
 
         <button
+          type="button"
           onClick={() => {
             if (isUnread) onMarkRead(n.id);
           }}
@@ -108,6 +109,7 @@ const NotificationCard = ({ notification: n, onMarkRead, onDismiss }: Props) => 
         </button>
         {onDismiss && (
           <button
+            type="button"
             onClick={() => onDismiss(n.id)}
             className="mt-0.5 ml-1 flex-shrink-0 p-0.5 rounded hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors"
             aria-label="Dismiss notification">

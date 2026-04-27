@@ -100,7 +100,7 @@ const AutocompletePanel = () => {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const refreshStatus = async () => {
     if (!isTauri()) return;
@@ -118,7 +118,7 @@ const AutocompletePanel = () => {
       void refreshStatus();
     }, 1200);
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [refreshStatus]);
 
   const saveConfig = async () => {
     if (!isTauri()) return;

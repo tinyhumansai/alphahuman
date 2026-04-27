@@ -34,12 +34,8 @@ jobs:
         run: pnpm --filter openhuman-app compile
         env:
           NODE_ENV: test
-      - name: Check Prettier formatting
-        run: pnpm --filter openhuman-app format:check
-        env:
-          NODE_ENV: test
-      - name: Run ESLint
-        run: pnpm --filter openhuman-app lint
+      - name: Check formatting and linting (Biome)
+        run: pnpm --filter openhuman-app check
         env:
           NODE_ENV: test
   rust-quality:

@@ -20,10 +20,12 @@ vi.mock('../OnboardingContext', () => ({
 vi.mock('../steps/SkillsStep', () => ({
   default: (props: { onNext: (payload: { sources: string[] }) => void | Promise<void> }) => (
     <div>
-      <button onClick={() => void props.onNext({ sources: ['composio:gmail'] })}>
+      <button type="button" onClick={() => void props.onNext({ sources: ['composio:gmail'] })}>
         Next with composio
       </button>
-      <button onClick={() => void props.onNext({ sources: [] })}>Next without composio</button>
+      <button type="button" onClick={() => void props.onNext({ sources: [] })}>
+        Next without composio
+      </button>
     </div>
   ),
 }));

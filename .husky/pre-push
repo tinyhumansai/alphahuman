@@ -1,27 +1,14 @@
 #!/usr/bin/env sh
-
-# Run format check first (capture exit code without breaking script)
+# Run Biome check first (capture exit code without breaking script)
 set +e
-pnpm format:check
-FORMAT_EXIT=$?
+pnpm check
+CHECK_EXIT=$?
 set -e
 
-# If format check failed, run format to auto-fix
-if [ $FORMAT_EXIT -ne 0 ]; then
-  echo "Formatting issues detected. Running format to auto-fix..."
-  pnpm format
-fi
-
-# Run lint check (capture exit code without breaking script)
-set +e
-pnpm lint
-LINT_EXIT=$?
-set -e
-
-# If lint check failed, run lint:fix to auto-fix
-if [ $LINT_EXIT -ne 0 ]; then
-  echo "Linting issues detected. Running lint:fix to auto-fix..."
-  pnpm lint:fix
+# If check failed, run check:fix to auto-fix
+if [ $CHECK_EXIT -ne 0 ]; then
+  echo "Code quality issues detected. Running check:fix to auto-fix..."
+  pnpm check:fix
 fi
 
 # Run TypeScript compile check (capture exit code without breaking script)
@@ -43,7 +30,7 @@ CMD_TOKENS_EXIT=$?
 set -e
 
 # Exit with error if any command still fails after fixes
-if [ $FORMAT_EXIT -ne 0 ] || [ $LINT_EXIT -ne 0 ] || [ $COMPILE_EXIT -ne 0 ] || [ $RUST_CHECK_EXIT -ne 0 ] || [ $CMD_TOKENS_EXIT -ne 0 ]; then
-  echo "Pre-push checks failed. Please fix format (Prettier + cargo fmt for core and Tauri), lint, TypeScript, and/or Rust errors before pushing."
+if [ $CHECK_EXIT -ne 0 ] || [ $COMPILE_EXIT -ne 0 ] || [ $RUST_CHECK_EXIT -ne 0 ] || [ $CMD_TOKENS_EXIT -ne 0 ]; then
+  echo "Pre-push checks failed. Please fix code quality (Biome + cargo fmt for core and Tauri), TypeScript, and/or Rust errors before pushing."
   exit 1
 fi

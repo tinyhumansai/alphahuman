@@ -160,6 +160,7 @@ const Home = () => {
 
           {/* CTA button */}
           <button
+            type="button"
             onClick={handleStartCooking}
             className="w-full py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-xl transition-colors duration-200">
             Message OpenHuman
@@ -172,7 +173,7 @@ const Home = () => {
         {/* <div className="mt-3 bg-white rounded-2xl shadow-soft border border-stone-200 p-4">
           <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-2">Next steps</div>
           <div className="divide-y divide-stone-100">
-            <button
+            <button type="button"
               onClick={() => navigate('/skills')}
               className="w-full flex items-center justify-between py-2.5 text-left hover:bg-stone-50 rounded-md px-2 -mx-2 transition-colors">
               <div>
@@ -194,7 +195,7 @@ const Home = () => {
                 />
               </svg>
             </button>
-            <button
+            <button type="button"
               onClick={() => navigate('/rewards')}
               className="w-full flex items-center justify-between py-2.5 text-left hover:bg-stone-50 rounded-md px-2 -mx-2 transition-colors">
               <div>
@@ -216,7 +217,7 @@ const Home = () => {
                 />
               </svg>
             </button>
-            <button
+            <button type="button"
               onClick={() => navigate('/invites')}
               className="w-full flex items-center justify-between py-2.5 text-left hover:bg-stone-50 rounded-md px-2 -mx-2 transition-colors">
               <div>

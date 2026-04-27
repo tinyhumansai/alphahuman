@@ -81,11 +81,13 @@ export default function ErrorFallbackScreen({
           {/* Actions */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
+              type="button"
               onClick={onReset}
               className="bg-stone-700 hover:bg-stone-600 text-white text-sm font-medium rounded-xl px-4 py-3 transition-colors">
               Try to Recover
             </button>
             <button
+              type="button"
               onClick={() => {
                 window.location.hash = '#/home';
                 window.location.reload();
@@ -94,6 +96,7 @@ export default function ErrorFallbackScreen({
               Reload App
             </button>
             <button
+              type="button"
               onClick={() => openUrl(LATEST_APP_DOWNLOAD_URL)}
               className="bg-stone-800 hover:bg-stone-700 text-white text-sm font-medium rounded-xl px-4 py-3 transition-colors border border-stone-600">
               Download Latest

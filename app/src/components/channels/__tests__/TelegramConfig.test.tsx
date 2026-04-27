@@ -7,7 +7,8 @@ import { renderWithProviders } from '../../../test/test-utils';
 import { openUrl } from '../../../utils/openUrl';
 import TelegramConfig from '../TelegramConfig';
 
-const telegramDef = FALLBACK_DEFINITIONS.find(d => d.id === 'telegram')!;
+const telegramDef = FALLBACK_DEFINITIONS.find(d => d.id === 'telegram');
+if (!telegramDef) throw new Error('Test setup failed: telegramDef not found');
 
 vi.mock('../../../services/api/channelConnectionsApi', () => ({
   channelConnectionsApi: {

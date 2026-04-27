@@ -38,9 +38,10 @@ pnpm dev                  # Frontend + Tauri dev
 pnpm tauri dev            # Desktop with Tauri (loads env via scripts/load-dotenv.sh)
 pnpm build                # Production UI build
 pnpm typecheck            # Typecheck (app workspace)
-pnpm lint                 # ESLint
-pnpm format               # Prettier write
-pnpm format:check         # Prettier check
+pnpm lint                 # Biome lint
+pnpm format               # Biome format write
+pnpm format:check         # Biome format check
+pnpm check                # Biome check (format + lint)
 cd app && pnpm core:stage # Stage openhuman binary next to Tauri resources
 
 # Rust — core library + CLI
@@ -52,7 +53,7 @@ cargo check --manifest-path app/src-tauri/Cargo.toml
 ```
 
 **Tests**: Vitest in `app/` (`pnpm test:unit`, `pnpm test:coverage`); Rust via `cargo test`.
-**Quality**: ESLint + Prettier + Husky in `app`.
+**Quality**: Biome + Husky in `app`.
 
 ---
 
@@ -254,7 +255,7 @@ Specify → prove in Rust → prove over RPC → surface in the UI → test.
 ## Key patterns
 
 - **File size**: prefer ≤ ~500 lines; split growing modules.
-- **Pre-merge** (code changes): Prettier, ESLint, `tsc --noEmit` in `app/`; `cargo fmt` + `cargo check` for changed Rust.
+- **Pre-merge** (code changes): Biome (`check`), `tsc --noEmit` in `app/`; `cargo fmt` + `cargo check` for changed Rust.
 - **No dynamic imports** in production `app/src` code — static `import` / `import type` only. No `import()`, `React.lazy(() => import(...))`, `await import(...)`. For heavy optional paths, use a static import and guard the call site with `try/catch` or a runtime check. *Exceptions*: Vitest harness patterns in `*.test.ts` / `__tests__` / `test/setup.ts`; ambient `typeof import('…')` in `.d.ts`; config files (e.g. `tailwind.config.js` JSDoc).
 - **Dual socket sync**: when changing the realtime protocol, keep `socketService` / MCP transport aligned with core socket behavior (see `docs/ARCHITECTURE.md` dual-socket section).
 

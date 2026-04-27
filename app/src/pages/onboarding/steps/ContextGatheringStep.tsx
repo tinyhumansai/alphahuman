@@ -117,7 +117,7 @@ async function findLinkedInUrlViaComposio(): Promise<string | null> {
     throw new Error(result.error ?? 'GMAIL_FETCH_EMAILS failed');
   }
   const data = result.data as { messages?: unknown[] } | null;
-  const messages = Array.isArray(data?.messages) ? data!.messages : [];
+  const messages = Array.isArray(data?.messages) ? data?.messages : [];
   for (const msg of messages) {
     const text = extractSearchableText(msg);
     const m = text.match(LINKEDIN_RE);

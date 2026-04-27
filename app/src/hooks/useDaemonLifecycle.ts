@@ -41,7 +41,7 @@ export const useDaemonLifecycle = (userId?: string) => {
 
   // Calculate exponential backoff delay
   const calculateRetryDelay = useCallback((attempt: number): number => {
-    const exponentialDelay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+    const exponentialDelay = BASE_RETRY_DELAY_MS * 2 ** (attempt - 1);
     return Math.min(exponentialDelay, MAX_RETRY_DELAY_MS);
   }, []);
 

@@ -41,6 +41,7 @@ const CodeRow = ({ invite }: { invite: InviteCode }) => {
           </span>
         )}
         <button
+          type="button"
           onClick={handleCopy}
           className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-stone-400 hover:text-stone-200"
           title="Copy code">
@@ -116,7 +117,7 @@ const Invites = () => {
         redeemTimeoutRef.current = null;
       }
     };
-  }, []);
+  }, [loadInviteCodes]);
 
   const handleRedeem = async () => {
     const trimmed = redeemInput.trim();
@@ -169,6 +170,7 @@ const Invites = () => {
                     disabled={redeemStatus === 'loading'}
                   />
                   <button
+                    type="button"
                     onClick={handleRedeem}
                     disabled={redeemStatus === 'loading' || !redeemInput.trim()}
                     className="btn-primary px-5 py-2.5 text-sm font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">

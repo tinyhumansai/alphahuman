@@ -68,6 +68,7 @@ const ModelStatusSection = ({
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-stone-900">Runtime Status</h3>
           <button
+            type="button"
             onClick={onRefreshStatus}
             className="text-sm text-primary-500 hover:text-primary-600 transition-colors">
             Refresh
@@ -152,6 +153,7 @@ const ModelStatusSection = ({
           {isInstallError && status?.error_detail && (
             <div className="space-y-1">
               <button
+                type="button"
                 onClick={onToggleErrorDetail}
                 className="text-xs text-red-600 hover:text-red-500 underline">
                 {showErrorDetail ? 'Hide error details' : 'Show error details'}
@@ -188,6 +190,7 @@ const ModelStatusSection = ({
                 className="flex-1 rounded-md border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-900 placeholder:text-stone-400 focus:border-primary-500 focus:outline-none"
               />
               <button
+                type="button"
                 onClick={onSetOllamaPath}
                 disabled={isSettingPath || !ollamaPathInput.trim()}
                 className="px-2 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white whitespace-nowrap">
@@ -195,6 +198,7 @@ const ModelStatusSection = ({
               </button>
               {ollamaPathInput && (
                 <button
+                  type="button"
                   onClick={onClearOllamaPath}
                   disabled={isSettingPath}
                   className="px-2 py-1.5 text-xs rounded-md border border-stone-200 hover:border-stone-300 disabled:opacity-60 text-stone-600 whitespace-nowrap">
@@ -219,6 +223,7 @@ const ModelStatusSection = ({
               </span>
             ) : (
               <button
+                type="button"
                 onClick={() => onTriggerDownload(false)}
                 disabled={isTriggeringDownload}
                 className="px-3 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white">
@@ -230,6 +235,7 @@ const ModelStatusSection = ({
               </button>
             )}
             <button
+              type="button"
               onClick={() => onTriggerDownload(true)}
               disabled={isTriggeringDownload}
               className="px-3 py-1.5 text-xs rounded-md border border-stone-200 hover:border-stone-300 disabled:opacity-60 text-stone-600">
@@ -244,6 +250,7 @@ const ModelStatusSection = ({
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-stone-900">Ollama Diagnostics</h3>
           <button
+            type="button"
             onClick={onRunDiagnostics}
             disabled={isDiagnosticsLoading}
             className="px-3 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white">

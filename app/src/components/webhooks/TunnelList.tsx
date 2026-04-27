@@ -63,12 +63,14 @@ export default function TunnelList({
         <h3 className="text-lg font-semibold text-stone-900">Webhook Tunnels</h3>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={onRefresh}
             disabled={loading}
             className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors">
             {loading ? 'Loading...' : 'Refresh'}
           </button>
           <button
+            type="button"
             onClick={() => setShowCreate(true)}
             className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors">
             + New Tunnel
@@ -85,7 +87,6 @@ export default function TunnelList({
             value={newName}
             onChange={e => setNewName(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500"
-            autoFocus
           />
           <input
             type="text"
@@ -96,11 +97,13 @@ export default function TunnelList({
           />
           <div className="flex gap-2 justify-end">
             <button
+              type="button"
               onClick={() => setShowCreate(false)}
               className="px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 rounded-lg">
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleCreate}
               disabled={!newName.trim() || creating}
               className="px-3 py-1.5 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 disabled:opacity-50 transition-colors">
@@ -115,6 +118,7 @@ export default function TunnelList({
         <div className="p-3 rounded-lg bg-coral-50 text-coral-700 text-sm flex items-center justify-between">
           <span>{actionError}</span>
           <button
+            type="button"
             onClick={() => setActionError(null)}
             className="text-coral-500 hover:text-coral-700 text-xs ml-2">
             Dismiss
@@ -245,6 +249,7 @@ function TunnelCard({
               {webhookUrl}
             </code>
             <button
+              type="button"
               onClick={handleCopy}
               className="text-xs text-primary-500 hover:text-primary-700 whitespace-nowrap">
               {copied ? 'Copied!' : 'Copy'}
@@ -255,6 +260,7 @@ function TunnelCard({
           {/* Echo toggle — only show if not already claimed by a skill */}
           {!isSkillRegistered && (
             <button
+              type="button"
               onClick={handleToggleEcho}
               disabled={toggling}
               className={`px-2 py-1 text-xs rounded-lg transition-colors ${
@@ -266,6 +272,7 @@ function TunnelCard({
             </button>
           )}
           <button
+            type="button"
             onClick={handleDelete}
             disabled={deleting}
             className="px-2 py-1 text-xs text-coral-600 hover:text-coral-700 hover:bg-coral-50 rounded-lg transition-colors">

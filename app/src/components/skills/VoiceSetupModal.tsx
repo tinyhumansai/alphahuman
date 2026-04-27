@@ -10,8 +10,8 @@ import { useNavigate } from 'react-router-dom';
 
 import type { VoiceSkillStatus } from '../../features/voice/useVoiceSkillStatus';
 import {
-  openhumanVoiceServerStart,
   openhumanUpdateVoiceServerSettings,
+  openhumanVoiceServerStart,
 } from '../../utils/tauriCommands/voice';
 
 type Step = 'setup' | 'enable' | 'success';
@@ -89,7 +89,9 @@ export default function VoiceSetupModal({ onClose, skillStatus }: Props) {
               </svg>
             </div>
             <div>
-              <h2 id="voice-setup-title" className="text-sm font-semibold text-stone-900">Voice Intelligence</h2>
+              <h2 id="voice-setup-title" className="text-sm font-semibold text-stone-900">
+                Voice Intelligence
+              </h2>
               <p className="text-xs text-stone-500">
                 {step === 'setup' && 'Model download required'}
                 {step === 'enable' && 'Start voice server'}
@@ -102,7 +104,12 @@ export default function VoiceSetupModal({ onClose, skillStatus }: Props) {
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -113,17 +120,30 @@ export default function VoiceSetupModal({ onClose, skillStatus }: Props) {
           {step === 'setup' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
-                <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <svg
+                  className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
                 </svg>
                 <div className="text-xs text-amber-700 leading-relaxed">
                   <p className="font-medium">Speech-to-text model not ready</p>
-                  <p className="mt-1">Voice Intelligence requires a local Whisper model for transcription. Download it from the Local Model settings.</p>
+                  <p className="mt-1">
+                    Voice Intelligence requires a local Whisper model for transcription. Download it
+                    from the Local Model settings.
+                  </p>
                 </div>
               </div>
 
               <p className="text-xs text-stone-500 leading-relaxed">
-                Once the STT model is downloaded, you can return here to enable voice dictation and voice-driven AI chat.
+                Once the STT model is downloaded, you can return here to enable voice dictation and
+                voice-driven AI chat.
               </p>
 
               <div className="flex flex-col gap-2">
@@ -147,24 +167,38 @@ export default function VoiceSetupModal({ onClose, skillStatus }: Props) {
           {step === 'enable' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-sage-200 bg-sage-50 p-3 flex items-center gap-2">
-                <svg className="w-4 h-4 text-sage-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-4 h-4 text-sage-500 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
                 <span className="text-xs text-sage-700">Speech-to-text model ready</span>
               </div>
 
               <p className="text-xs text-stone-500 leading-relaxed">
-                Start the voice server to use dictation and voice-driven chat. Press the hotkey to toggle recording.
+                Start the voice server to use dictation and voice-driven chat. Press the hotkey to
+                toggle recording.
               </p>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
                   <span className="text-sm text-stone-700">Hotkey</span>
-                  <span className="text-xs font-mono text-stone-500">{serverStatus?.hotkey ?? 'Fn'}</span>
+                  <span className="text-xs font-mono text-stone-500">
+                    {serverStatus?.hotkey ?? 'Fn'}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
                   <span className="text-sm text-stone-700">Activation</span>
-                  <span className="text-xs text-stone-500">{serverStatus?.activation_mode === 'push' ? 'Push-to-talk' : 'Tap to toggle'}</span>
+                  <span className="text-xs text-stone-500">
+                    {serverStatus?.activation_mode === 'push' ? 'Push-to-talk' : 'Tap to toggle'}
+                  </span>
                 </div>
               </div>
 
@@ -188,15 +222,28 @@ export default function VoiceSetupModal({ onClose, skillStatus }: Props) {
           {step === 'success' && (
             <div className="space-y-4 text-center py-2">
               <div className="mx-auto w-12 h-12 rounded-full bg-sage-50 flex items-center justify-center">
-                <svg className="w-6 h-6 text-sage-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-6 h-6 text-sage-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-stone-900">Voice Intelligence is Active</h3>
+                <h3 className="text-sm font-semibold text-stone-900">
+                  Voice Intelligence is Active
+                </h3>
                 <p className="mt-1 text-xs text-stone-500 leading-relaxed">
-                  Press <span className="font-mono font-medium">{serverStatus?.hotkey ?? 'Fn'}</span> to start dictating. Your voice will be transcribed and sent to your AI assistant.
+                  Press{' '}
+                  <span className="font-mono font-medium">{serverStatus?.hotkey ?? 'Fn'}</span> to
+                  start dictating. Your voice will be transcribed and sent to your AI assistant.
                 </p>
               </div>
 

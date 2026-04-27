@@ -1,9 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import * as coreStateApi from '../../services/coreStateApi';
 import { setCoreStateSnapshot } from '../../lib/coreState/store';
+import * as coreStateApi from '../../services/coreStateApi';
 import CoreStateProvider, { useCoreState } from '../CoreStateProvider';
 
 vi.mock('../../services/coreStateApi');
@@ -123,8 +122,8 @@ describe('CoreStateProvider — identity-change cache clearing', () => {
 
     // Seed team-scoped caches we expect to be wiped on identity flip.
     await act(async () => {
-      await ctx!.refreshTeamMembers('team-u1');
-      await ctx!.refreshTeamInvites('team-u1');
+      await ctx?.refreshTeamMembers('team-u1');
+      await ctx?.refreshTeamInvites('team-u1');
     });
     expect(screen.getByTestId('members').textContent).toBe('team-u1:1');
     expect(screen.getByTestId('invites').textContent).toBe('team-u1:1');
@@ -133,7 +132,7 @@ describe('CoreStateProvider — identity-change cache clearing', () => {
     fetchSnapshot.mockResolvedValue(makeSnapshot({ userId: 'u2', sessionToken: 'tok2' }));
     listTeams.mockResolvedValue([]);
     await act(async () => {
-      await ctx!.refresh();
+      await ctx?.refresh();
     });
 
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('u2'));
@@ -163,7 +162,7 @@ describe('CoreStateProvider — identity-change cache clearing', () => {
       makeSnapshot({ userId: null, sessionToken: null, isAuthenticated: false })
     );
     await act(async () => {
-      await ctx!.refresh();
+      await ctx?.refresh();
     });
 
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('none'));
@@ -193,7 +192,7 @@ describe('CoreStateProvider — identity-change cache clearing', () => {
     // Subsequent refresh returns same identity — team cache must be preserved
     // because refreshTeams is not re-issued by normal refresh.
     await act(async () => {
-      await ctx!.refresh();
+      await ctx?.refresh();
     });
 
     expect(screen.getByTestId('teams').textContent).toBe('team-x,team-y');

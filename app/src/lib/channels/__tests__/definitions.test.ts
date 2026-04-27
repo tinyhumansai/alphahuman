@@ -23,14 +23,16 @@ describe('FALLBACK_DEFINITIONS', () => {
   });
 
   it('telegram has bot_token and managed_dm auth modes', () => {
-    const tg = FALLBACK_DEFINITIONS.find(d => d.id === 'telegram')!;
+    const tg = FALLBACK_DEFINITIONS.find(d => d.id === 'telegram');
+    if (!tg) throw new Error('Test setup failed: tg not found');
     const modes = tg.auth_modes.map(m => m.mode);
     expect(modes).toContain('bot_token');
     expect(modes).toContain('managed_dm');
   });
 
   it('discord has bot_token and oauth auth modes', () => {
-    const dc = FALLBACK_DEFINITIONS.find(d => d.id === 'discord')!;
+    const dc = FALLBACK_DEFINITIONS.find(d => d.id === 'discord');
+    if (!dc) throw new Error('Test setup failed: dc not found');
     const modes = dc.auth_modes.map(m => m.mode);
     expect(modes).toContain('bot_token');
     expect(modes).toContain('oauth');

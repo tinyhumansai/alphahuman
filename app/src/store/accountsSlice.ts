@@ -3,8 +3,8 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   Account,
   AccountLogEntry,
-  AccountsState,
   AccountStatus,
+  AccountsState,
   IngestedMessage,
 } from '../types/accounts';
 
@@ -68,7 +68,10 @@ const accountsSlice = createSlice({
     ) {
       const { accountId, messages, unread } = action.payload;
       if (!state.accounts[accountId]) return;
-      const list = (state.messages[accountId] ??= []);
+      if (!state.messages[accountId]) {
+        state.messages[accountId] = [];
+      }
+      const list = state.messages[accountId];
       // Replace the snapshot entirely — recipes ingest the visible chat list,
       // not deltas, so the latest scrape is the truth. Cap to avoid runaway.
       const next = messages.slice(0, MAX_MESSAGES_PER_ACCOUNT);
@@ -81,7 +84,10 @@ const accountsSlice = createSlice({
 
     appendLog(state, action: PayloadAction<{ accountId: string; entry: AccountLogEntry }>) {
       const { accountId, entry } = action.payload;
-      const list = (state.logs[accountId] ??= []);
+      if (!state.logs[accountId]) {
+        state.logs[accountId] = [];
+      }
+      const list = state.logs[accountId];
       list.push(entry);
       if (list.length > MAX_LOG_LINES_PER_ACCOUNT) {
         list.splice(0, list.length - MAX_LOG_LINES_PER_ACCOUNT);

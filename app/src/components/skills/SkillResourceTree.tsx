@@ -7,8 +7,9 @@
  * anything unexpected still renders. Items are rendered as clickable rows in
  * JetBrains Mono for path clarity. Selected item uses primary-50 background.
  */
-import { useMemo } from 'react';
+
 import debug from 'debug';
+import { useMemo } from 'react';
 
 const log = debug('skills:resource-tree');
 
@@ -41,7 +42,7 @@ function groupResources(resources: string[]): ResourceGroup[] {
     let matched = false;
     for (const known of KNOWN_GROUPS) {
       if (resource.startsWith(known.prefix)) {
-        buckets.get(known.key)!.items.push(resource);
+        buckets.get(known.key)?.items.push(resource);
         matched = true;
         break;
       }
@@ -58,8 +59,8 @@ function groupResources(resources: string[]): ResourceGroup[] {
 
   const result: ResourceGroup[] = [];
   for (const known of KNOWN_GROUPS) {
-    const bucket = buckets.get(known.key)!;
-    if (bucket.items.length > 0) {
+    const bucket = buckets.get(known.key);
+    if (bucket && bucket.items.length > 0) {
       result.push(bucket);
     }
   }

@@ -6,7 +6,7 @@ interface FrameInternal extends ScopeFrame {
 }
 
 function isEditableTarget(e: KeyboardEvent): boolean {
-  const path = (e.composedPath && e.composedPath()) || [];
+  const path = e.composedPath?.() || [];
   const nodes = path.length ? path : [e.target as EventTarget | null];
   for (const node of nodes) {
     if (!node || !(node as HTMLElement).tagName) continue;
@@ -40,7 +40,7 @@ export function createHotkeyManager(): HotkeyManager {
   }
 
   function onKeyDown(e: KeyboardEvent): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: checking for browser-specific properties
     const composing = (e as any).isComposing === true || (e as any).keyCode === 229;
     if (composing) return;
 

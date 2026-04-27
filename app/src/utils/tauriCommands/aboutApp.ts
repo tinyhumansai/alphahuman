@@ -6,7 +6,7 @@
  * the first consumer; future panels can reuse the same types.
  */
 import { callCoreRpc } from '../../services/coreRpcClient';
-import { CommandResponse } from './common';
+import type { CommandResponse } from './common';
 
 export type CapabilityCategory =
   | 'conversation'

@@ -5,7 +5,8 @@ import { FALLBACK_DEFINITIONS } from '../../../lib/channels/definitions';
 import { renderWithProviders } from '../../../test/test-utils';
 import DiscordConfig from '../DiscordConfig';
 
-const discordDef = FALLBACK_DEFINITIONS.find(d => d.id === 'discord')!;
+const discordDef = FALLBACK_DEFINITIONS.find(d => d.id === 'discord');
+if (!discordDef) throw new Error('Test setup failed: discordDef not found');
 
 describe('DiscordConfig', () => {
   it('renders auth mode labels', () => {

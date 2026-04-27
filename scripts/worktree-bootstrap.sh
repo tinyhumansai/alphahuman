@@ -45,7 +45,7 @@ if [[ ! -e "$BIN" ]]; then
   (cd "$WORKTREE_ROOT/app" && yarn core:stage)
 fi
 
-echo "[bootstrap] installing node_modules (needed for husky hooks + prettier)..."
+echo "[bootstrap] installing node_modules (needed for husky hooks + biome)..."
 (cd "$WORKTREE_ROOT" && yarn install)
 
 echo "[bootstrap] ensuring vendored tauri-cli installed..."

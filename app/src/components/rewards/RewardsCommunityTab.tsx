@@ -105,6 +105,7 @@ export default function RewardsCommunityTab({
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
+              type="button"
               onClick={() => navigate('/settings/messaging')}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-primary-700 shadow-lg transition-transform active:scale-[0.98]">
               <svg
@@ -123,6 +124,7 @@ export default function RewardsCommunityTab({
               Connect Discord
             </button>
             <button
+              type="button"
               onClick={() => {
                 void openUrl(inviteUrl);
               }}

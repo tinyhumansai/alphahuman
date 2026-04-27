@@ -175,7 +175,7 @@ export async function dispatchLocalAiMethod(
     case 'ai.memory_get_all_embeddings': {
       const rows: [string, number[]][] = [];
       for (const ch of chunks.values()) {
-        if (ch.embedding && ch.embedding.length) rows.push([ch.id, ch.embedding]);
+        if (ch.embedding?.length) rows.push([ch.id, ch.embedding]);
       }
       return rows;
     }

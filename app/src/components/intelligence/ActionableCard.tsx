@@ -91,6 +91,7 @@ function SnoozeDropdownPortal({ isOpen, buttonRef, onClose, onSnooze }: SnoozeDr
       style={{ top: position.top, left: position.left }}>
       {SNOOZE_OPTIONS.map(option => (
         <button
+          type="button"
           key={option.label}
           onClick={() => onSnooze(option.duration)}
           className="w-full text-left px-3 py-1.5 text-xs text-stone-900 hover:bg-stone-100 transition-colors cursor-pointer">
@@ -282,6 +283,7 @@ export function ActionableCard({
               <div className="flex items-center gap-1 flex-shrink-0">
                 {/* Complete button */}
                 <button
+                  type="button"
                   onClick={handleComplete}
                   className="w-6 h-6 flex items-center justify-center rounded-md text-stone-400 hover:text-sage-400 hover:bg-sage-400/10 transition-all duration-150"
                   title="Complete">
@@ -301,6 +303,7 @@ export function ActionableCard({
 
                 {/* Dismiss button */}
                 <button
+                  type="button"
                   onClick={handleDismiss}
                   className="w-6 h-6 flex items-center justify-center rounded-md text-stone-400 hover:text-coral-400 hover:bg-coral-400/10 transition-all duration-150"
                   title="Dismiss">
@@ -321,6 +324,7 @@ export function ActionableCard({
                 {/* Snooze button */}
                 <div className="relative">
                   <button
+                    type="button"
                     ref={snoozeButtonRef}
                     onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
                     className="w-6 h-6 flex items-center justify-center rounded-md text-stone-400 hover:text-amber-400 hover:bg-amber-400/10 transition-all duration-150"

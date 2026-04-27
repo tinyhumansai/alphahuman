@@ -12,9 +12,8 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import UninstallSkillConfirmDialog from '../UninstallSkillConfirmDialog';
 import type { SkillSummary } from '../../../services/api/skillsApi';
+import UninstallSkillConfirmDialog from '../UninstallSkillConfirmDialog';
 
 vi.mock('../../../services/api/skillsApi', () => ({
   skillsApi: {
@@ -46,11 +45,7 @@ describe('UninstallSkillConfirmDialog', () => {
 
   it('renders skill name, path (stripped of /SKILL.md), and confirm copy', () => {
     render(
-      <UninstallSkillConfirmDialog
-        skill={fixture}
-        onClose={vi.fn()}
-        onUninstalled={vi.fn()}
-      />
+      <UninstallSkillConfirmDialog skill={fixture} onClose={vi.fn()} onUninstalled={vi.fn()} />
     );
     expect(screen.getByText(/Uninstall weather-helper\?/)).toBeInTheDocument();
     expect(screen.getByText(/permanently deletes/i)).toBeInTheDocument();
@@ -96,11 +91,7 @@ describe('UninstallSkillConfirmDialog', () => {
     const onClose = vi.fn();
     const { skillsApi } = await import('../../../services/api/skillsApi');
     render(
-      <UninstallSkillConfirmDialog
-        skill={fixture}
-        onClose={onClose}
-        onUninstalled={vi.fn()}
-      />
+      <UninstallSkillConfirmDialog skill={fixture} onClose={onClose} onUninstalled={vi.fn()} />
     );
     fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -192,11 +183,7 @@ describe('UninstallSkillConfirmDialog', () => {
     );
 
     render(
-      <UninstallSkillConfirmDialog
-        skill={fixture}
-        onClose={vi.fn()}
-        onUninstalled={vi.fn()}
-      />
+      <UninstallSkillConfirmDialog skill={fixture} onClose={vi.fn()} onUninstalled={vi.fn()} />
     );
     fireEvent.click(screen.getByTestId('uninstall-skill-confirm'));
 

@@ -45,7 +45,7 @@ const MAX_NODES = 100;
 const MAX_EDGES = 200;
 
 function truncate(s: string, max = 15): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
 function buildGraph(relations: GraphRelation[]): { nodes: GraphNode[]; edges: GraphEdge[] } {

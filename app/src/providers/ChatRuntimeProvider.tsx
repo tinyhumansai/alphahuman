@@ -21,10 +21,10 @@ import {
   endInferenceTurn,
   markInferenceTurnStreaming,
   recordChatTurnUsage,
+  type StreamingAssistantState,
   setInferenceStatusForThread,
   setStreamingAssistantForThread,
   setToolTimelineForThread,
-  type StreamingAssistantState,
   type ToolTimelineEntry,
   type ToolTimelineEntryStatus,
 } from '../store/chatRuntimeSlice';
@@ -636,7 +636,13 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
       rtLog('unsubscribe_chat_events');
       cleanup();
     };
-  }, [dispatch, resolveVisibleThreadForProactive, socketStatus]);
+  }, [
+    dispatch,
+    resolveVisibleThreadForProactive,
+    socketStatus,
+    proactiveMessageDigest,
+    markChatEventSeen,
+  ]);
 
   return <>{children}</>;
 };

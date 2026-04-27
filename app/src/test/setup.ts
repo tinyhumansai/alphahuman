@@ -12,7 +12,6 @@ import { cleanup } from '@testing-library/react';
 import type React from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
-// @ts-ignore - test-only JS module outside app/src
 import {
   clearRequestLog,
   resetMockBehavior,
@@ -35,7 +34,7 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 
 // Polyfill scrollIntoView for cmdk in jsdom
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
-  Element.prototype.scrollIntoView = function () {};
+  Element.prototype.scrollIntoView = () => {};
 }
 
 // Mock Tauri APIs (not available in test env)

@@ -2,9 +2,8 @@ import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import * as chatService from '../../services/chatService';
 import { threadApi } from '../../services/api/threadApi';
+import * as chatService from '../../services/chatService';
 import { store } from '../../store';
 import { clearAllChatRuntime } from '../../store/chatRuntimeSlice';
 import { setStatusForUser } from '../../store/socketSlice';
@@ -91,7 +90,7 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
         listeners.onToolCall?.(event);
       });
 
-      const timeline = store.getState().chatRuntime.toolTimelineByThread['t1'] ?? [];
+      const timeline = store.getState().chatRuntime.toolTimelineByThread.t1 ?? [];
       expect(timeline).toHaveLength(1);
       expect(timeline[0]?.name).toBe('search');
       expect(timeline[0]?.status).toBe('running');
@@ -145,7 +144,7 @@ describe('ChatRuntimeProvider — dedupe, proactive resolution, mid-turn invaria
         });
       });
 
-      const timeline = store.getState().chatRuntime.toolTimelineByThread['t1'] ?? [];
+      const timeline = store.getState().chatRuntime.toolTimelineByThread.t1 ?? [];
       expect(timeline).toHaveLength(2);
       expect(timeline.map(e => e.round)).toEqual([0, 1]);
     });

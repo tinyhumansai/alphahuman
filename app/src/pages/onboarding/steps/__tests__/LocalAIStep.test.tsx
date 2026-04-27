@@ -9,24 +9,22 @@ vi.mock('../../../../utils/localAiBootstrap', () => ({
 }));
 
 vi.mock('../../../../utils/tauriCommands', () => ({
-  openhumanLocalAiPresets: vi
-    .fn()
-    .mockResolvedValue({
-      recommend_disabled: false,
-      presets: [],
-      recommended_tier: 'ram_2_4gb',
-      current_tier: 'ram_2_4gb',
-      selected_tier: null,
-      device: {
-        total_ram_bytes: 16 * 1024 * 1024 * 1024,
-        cpu_count: 8,
-        cpu_brand: 'test',
-        os_name: 'test',
-        os_version: '1.0',
-        has_gpu: false,
-        gpu_description: null,
-      },
-    } as never),
+  openhumanLocalAiPresets: vi.fn().mockResolvedValue({
+    recommend_disabled: false,
+    presets: [],
+    recommended_tier: 'ram_2_4gb',
+    current_tier: 'ram_2_4gb',
+    selected_tier: null,
+    device: {
+      total_ram_bytes: 16 * 1024 * 1024 * 1024,
+      cpu_count: 8,
+      cpu_brand: 'test',
+      os_name: 'test',
+      os_version: '1.0',
+      has_gpu: false,
+      gpu_description: null,
+    },
+  } as never),
 }));
 
 describe('LocalAIStep', () => {
@@ -35,8 +33,9 @@ describe('LocalAIStep', () => {
   });
 
   it('happy path (sufficient RAM): defaults to cloud, no local AI bootstrap', async () => {
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
+    const { bootstrapLocalAiWithRecommendedPreset } = await import(
+      '../../../../utils/localAiBootstrap'
+    );
 
     const onNext = vi.fn();
     renderWithProviders(<LocalAIStep onNext={onNext} />);
@@ -50,8 +49,9 @@ describe('LocalAIStep', () => {
   });
 
   it('opt-in (sufficient RAM): starts local AI bootstrap when user chooses local AI', async () => {
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
+    const { bootstrapLocalAiWithRecommendedPreset } = await import(
+      '../../../../utils/localAiBootstrap'
+    );
 
     const onNext = vi.fn();
     renderWithProviders(<LocalAIStep onNext={onNext} />);
@@ -66,8 +66,9 @@ describe('LocalAIStep', () => {
   });
 
   it('error path: calls onDownloadError once when opt-in bootstrap fails', async () => {
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
+    const { bootstrapLocalAiWithRecommendedPreset } = await import(
+      '../../../../utils/localAiBootstrap'
+    );
     vi.mocked(bootstrapLocalAiWithRecommendedPreset).mockRejectedValueOnce(
       new Error('network error')
     );
@@ -90,8 +91,9 @@ describe('LocalAIStep', () => {
   });
 
   it('double-click guard (opt-in): bootstrap runs only once', async () => {
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
+    const { bootstrapLocalAiWithRecommendedPreset } = await import(
+      '../../../../utils/localAiBootstrap'
+    );
     vi.mocked(bootstrapLocalAiWithRecommendedPreset).mockResolvedValue({} as never);
 
     const onNext = vi.fn();
@@ -136,8 +138,9 @@ describe('LocalAIStep', () => {
 
   it('allows force-enabling local AI on low-RAM device', async () => {
     const { openhumanLocalAiPresets } = await import('../../../../utils/tauriCommands');
-    const { bootstrapLocalAiWithRecommendedPreset } =
-      await import('../../../../utils/localAiBootstrap');
+    const { bootstrapLocalAiWithRecommendedPreset } = await import(
+      '../../../../utils/localAiBootstrap'
+    );
     vi.mocked(openhumanLocalAiPresets).mockResolvedValue({
       recommend_disabled: true,
       presets: [],

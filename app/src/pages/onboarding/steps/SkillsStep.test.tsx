@@ -23,13 +23,16 @@ vi.mock('../../../components/composio/ComposioConnectModal', () => ({
     <div role="dialog">
       <p>Sign in to {toolkit.name}</p>
       <button
+        type="button"
         onClick={() => {
           onChanged();
           onClose();
         }}>
         Mark connected
       </button>
-      <button onClick={onClose}>Cancel</button>
+      <button type="button" onClick={onClose}>
+        Cancel
+      </button>
     </div>
   ),
 }));

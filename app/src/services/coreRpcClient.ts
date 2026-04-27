@@ -172,7 +172,7 @@ export async function callCoreRpc<T>({
       });
       throw new Error(json.error.message || 'Core RPC returned an error');
     }
-    if (!Object.prototype.hasOwnProperty.call(json, 'result')) {
+    if (!Object.hasOwn(json, 'result')) {
       throw new Error('Core RPC response missing result');
     }
 

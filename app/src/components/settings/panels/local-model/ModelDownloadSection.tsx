@@ -125,6 +125,7 @@ const ModelDownloadSection = ({
                   <div className="text-[10px] text-stone-500 mt-1 break-all">{item.path}</div>
                 )}
                 <button
+                  type="button"
                   onClick={() => onTriggerAssetDownload(key)}
                   disabled={assetDownloadBusy[key]}
                   className="mt-2 px-2 py-1 text-[10px] rounded border border-stone-200 hover:border-stone-300 disabled:opacity-60 text-stone-600">
@@ -150,6 +151,7 @@ const ModelDownloadSection = ({
               Calls `openhuman.local_ai_summarize` via Rust core
             </div>
             <button
+              type="button"
               onClick={onRunSummaryTest}
               disabled={isSummaryLoading || !summaryInput.trim()}
               className="px-3 py-1.5 text-xs rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white">
@@ -184,6 +186,7 @@ const ModelDownloadSection = ({
               No-think mode
             </label>
             <button
+              type="button"
               onClick={onRunPromptTest}
               disabled={isPromptLoading || !promptInput.trim()}
               className="px-3 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white">
@@ -225,6 +228,7 @@ const ModelDownloadSection = ({
             className="w-full min-h-20 rounded-md bg-white border border-stone-200 px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
           />
           <button
+            type="button"
             onClick={onRunVisionTest}
             disabled={isVisionLoading || !visionPromptInput.trim() || !visionImageInput.trim()}
             className="px-3 py-1.5 text-xs rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white">
@@ -248,6 +252,7 @@ const ModelDownloadSection = ({
             className="w-full min-h-20 rounded-md bg-white border border-stone-200 px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
           />
           <button
+            type="button"
             onClick={onRunEmbeddingTest}
             disabled={isEmbeddingLoading || !embeddingInput.trim()}
             className="px-3 py-1.5 text-xs rounded-md bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white">
@@ -273,6 +278,7 @@ const ModelDownloadSection = ({
             className="w-full rounded-md bg-white border border-stone-200 px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
           />
           <button
+            type="button"
             onClick={onRunTranscribeTest}
             disabled={isTranscribeLoading || !audioPathInput.trim()}
             className="px-3 py-1.5 text-xs rounded-md bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white">
@@ -306,6 +312,7 @@ const ModelDownloadSection = ({
             className="w-full rounded-md bg-white border border-stone-200 px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-primary-400"
           />
           <button
+            type="button"
             onClick={onRunTtsTest}
             disabled={isTtsLoading || !ttsInput.trim()}
             className="px-3 py-1.5 text-xs rounded-md bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white">

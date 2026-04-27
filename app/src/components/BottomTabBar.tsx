@@ -180,7 +180,7 @@ const BottomTabBar = () => {
           aria-hidden
         />
       )}
-      <div
+      <nav
         className={`pointer-events-none flex justify-center px-4 pb-4 pt-2 transition-transform duration-300 ease-out ${
           collapsed ? 'translate-y-[calc(100%+8px)]' : 'translate-y-0'
         }`}
@@ -189,12 +189,13 @@ const BottomTabBar = () => {
         onBlur={e => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setRevealed(false);
         }}>
-        <nav className="pointer-events-auto inline-flex items-center gap-1 rounded-sm border border-stone-300 bg-stone-200 shadow-soft px-1 py-1">
+        <div className="pointer-events-auto inline-flex items-center gap-1 rounded-sm border border-stone-300 bg-stone-200 shadow-soft px-1 py-1">
           {tabs.map(tab => {
             const active = isActive(tab.path);
             const showBadge = tab.id === 'notifications' && unreadCount > 0;
             return (
               <button
+                type="button"
                 key={tab.id}
                 onClick={() => navigate(tab.path)}
                 className={`group relative flex items-center px-2 py-2 rounded-sm text-sm transition-colors duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
@@ -226,8 +227,8 @@ const BottomTabBar = () => {
               </button>
             );
           })}
-        </nav>
-      </div>
+        </div>
+      </nav>
     </div>
   );
 };

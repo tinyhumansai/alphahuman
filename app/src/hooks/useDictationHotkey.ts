@@ -20,7 +20,7 @@
  */
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 
 import { callCoreRpc } from '../services/coreRpcClient';
 import { CORE_RPC_URL } from '../utils/config';

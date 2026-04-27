@@ -99,15 +99,15 @@ describe('ContextGatheringStep', () => {
     const scrapeCall = callCoreRpc.mock.calls.find(
       (c: Array<{ method: string }>) => c[0].method === 'openhuman.tools_apify_linkedin_scrape'
     );
-    expect((scrapeCall![0].params as { profile_url: string }).profile_url).toBe(
+    expect((scrapeCall?.[0].params as { profile_url: string }).profile_url).toBe(
       'https://www.linkedin.com/in/jane-doe'
     );
 
     const saveCall = callCoreRpc.mock.calls.find(
       (c: Array<{ method: string }>) => c[0].method === 'openhuman.learning_save_profile'
     );
-    expect(saveCall![0].params.summarize).toBe(true);
-    expect(saveCall![0].params.markdown).toContain('Founder at Acme');
+    expect(saveCall?.[0].params.summarize).toBe(true);
+    expect(saveCall?.[0].params.markdown).toContain('Founder at Acme');
   });
 
   it('skips downstream stages when Gmail finds no LinkedIn URL', async () => {

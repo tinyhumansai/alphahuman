@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
+import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import ChannelSetupModal from '../components/channels/ChannelSetupModal';
 import ComposioConnectModal from '../components/composio/ComposioConnectModal';
 import {
-  composioToolkitMeta,
   type ComposioToolkitMeta,
+  composioToolkitMeta,
   KNOWN_COMPOSIO_TOOLKITS,
 } from '../components/composio/toolkitMeta';
-import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import { ToastContainer } from '../components/intelligence/Toast';
 import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
 import CreateSkillModal from '../components/skills/CreateSkillModal';
 import InstallSkillDialog from '../components/skills/InstallSkillDialog';
 import ScreenIntelligenceSetupModal from '../components/skills/ScreenIntelligenceSetupModal';
 import UnifiedSkillCard from '../components/skills/SkillCard';
-import { SKILL_CATEGORY_ORDER, type SkillCategory } from '../components/skills/skillCategories';
 import SkillCategoryFilter from '../components/skills/SkillCategoryFilter';
 import SkillDetailDrawer from '../components/skills/SkillDetailDrawer';
+import SkillSearchBar from '../components/skills/SkillSearchBar';
+import { SKILL_CATEGORY_ORDER, type SkillCategory } from '../components/skills/skillCategories';
 import {
   BUILT_IN_SKILL_ICONS,
   CHANNEL_ICONS,
-  skillCategoryHeadingClassName,
   SkillCategoryIcon,
+  skillCategoryHeadingClassName,
 } from '../components/skills/skillIcons';
-import SkillSearchBar from '../components/skills/SkillSearchBar';
 import UninstallSkillConfirmDialog from '../components/skills/UninstallSkillConfirmDialog';
 import VoiceSetupModal from '../components/skills/VoiceSetupModal';
 import { useAutocompleteSkillStatus } from '../features/autocomplete/useAutocompleteSkillStatus';
@@ -34,7 +33,7 @@ import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import { useComposioIntegrations } from '../lib/composio/hooks';
 import { canonicalizeComposioToolkitSlug } from '../lib/composio/toolkitSlug';
 import { type ComposioConnection, deriveComposioState } from '../lib/composio/types';
-import { skillsApi, type SkillSummary } from '../services/api/skillsApi';
+import { type SkillSummary, skillsApi } from '../services/api/skillsApi';
 import { useAppSelector } from '../store/hooks';
 import type { ChannelConnectionStatus, ChannelDefinition, ChannelType } from '../types/channels';
 import type { ToastNotification } from '../types/intelligence';
@@ -385,13 +384,12 @@ export default function Skills() {
     }
 
     return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     configurableChannels,
-    channelConnections,
     composioCatalogToolkits,
     composioConnectionByToolkit,
     discoveredSkills,
+    bestChannelStatus,
   ]);
 
   const availableCategories: SkillCategory[] = useMemo(() => {
@@ -519,14 +517,14 @@ export default function Skills() {
                               ctaVariant={screenIntelligenceStatus.ctaVariant}
                               onCtaClick={() => {
                                 if (screenIntelligenceStatus.platformUnsupported) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 if (
                                   screenIntelligenceStatus.connectionStatus === 'connected' ||
                                   screenIntelligenceStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setScreenIntelligenceModalOpen(true);
@@ -553,7 +551,7 @@ export default function Skills() {
                                   autocompleteStatus.connectionStatus === 'connected' ||
                                   autocompleteStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setAutocompleteModalOpen(true);
@@ -580,7 +578,7 @@ export default function Skills() {
                                   voiceStatus.connectionStatus === 'connecting' ||
                                   voiceStatus.connectionStatus === 'disconnected'
                                 ) {
-                                  navigate(item.route!);
+                                  item.route && navigate(item.route);
                                   return;
                                 }
                                 setVoiceModalOpen(true);
@@ -595,12 +593,13 @@ export default function Skills() {
                             title={item.name}
                             description={item.description}
                             ctaLabel="Settings"
-                            onCtaClick={() => navigate(item.route!)}
+                            onCtaClick={() => item.route && navigate(item.route)}
                           />
                         );
                       }
                       if (item.kind === 'channel') {
-                        const status = item.channelStatus!;
+                        const status = item.channelStatus;
+                        if (!status) return null;
                         return (
                           <UnifiedSkillCard
                             key={item.id}
@@ -611,9 +610,11 @@ export default function Skills() {
                             statusLabel={channelStatusLabel(status)}
                             statusColor={channelStatusColor(status)}
                             ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
-                            onCtaClick={() => setChannelModalDef(item.channelDef!)}
+                            onCtaClick={() =>
+                              item.channelDef && setChannelModalDef(item.channelDef)
+                            }
                             badge={
-                              isMessagingId(item.channelDef!.id) ? (
+                              item.channelDef?.id && isMessagingId(item.channelDef.id) ? (
                                 <ConnectionBadge kind="messaging" />
                               ) : undefined
                             }
@@ -621,7 +622,8 @@ export default function Skills() {
                         );
                       }
                       if (item.kind === 'discovered') {
-                        const skill = item.discoveredSkill!;
+                        const skill = item.discoveredSkill;
+                        if (!skill) return null;
                         const scopeLabel = skill.legacy
                           ? 'Legacy'
                           : skill.scope === 'user'
@@ -694,7 +696,8 @@ export default function Skills() {
                         );
                       }
                       if (item.kind === 'composio') {
-                        const meta = item.composioToolkit!;
+                        const meta = item.composioToolkit;
+                        if (!meta) return null;
                         const connection = item.composioConnection;
                         const hasComposioError = Boolean(composioError);
                         const state = hasComposioError ? 'error' : deriveComposioState(connection);

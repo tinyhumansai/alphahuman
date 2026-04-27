@@ -86,7 +86,9 @@ export default function AutocompleteSetupModal({ onClose }: Props) {
               </svg>
             </div>
             <div>
-              <h2 id="ac-setup-title" className="text-sm font-semibold text-stone-900">Text Auto-Complete</h2>
+              <h2 id="ac-setup-title" className="text-sm font-semibold text-stone-900">
+                Text Auto-Complete
+              </h2>
               <p className="text-xs text-stone-500">
                 {step === 'enable' && 'Enable inline completions'}
                 {step === 'success' && 'Ready to go'}
@@ -98,7 +100,12 @@ export default function AutocompleteSetupModal({ onClose }: Props) {
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -109,7 +116,8 @@ export default function AutocompleteSetupModal({ onClose }: Props) {
           {step === 'enable' && (
             <div className="space-y-4">
               <p className="text-xs text-stone-500 leading-relaxed">
-                Text Auto-Complete suggests inline completions as you type across any app. Suggestions appear as an overlay you can accept with Tab.
+                Text Auto-Complete suggests inline completions as you type across any app.
+                Suggestions appear as an overlay you can accept with Tab.
               </p>
 
               {!status?.platform_supported && status !== null && (
@@ -153,15 +161,25 @@ export default function AutocompleteSetupModal({ onClose }: Props) {
           {step === 'success' && (
             <div className="space-y-4 text-center py-2">
               <div className="mx-auto w-12 h-12 rounded-full bg-sage-50 flex items-center justify-center">
-                <svg className="w-6 h-6 text-sage-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-6 h-6 text-sage-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               </div>
 
               <div>
                 <h3 className="text-sm font-semibold text-stone-900">Auto-Complete is Active</h3>
                 <p className="mt-1 text-xs text-stone-500 leading-relaxed">
-                  Start typing in any app and suggestions will appear as an inline overlay. Press Tab to accept.
+                  Start typing in any app and suggestions will appear as an inline overlay. Press
+                  Tab to accept.
                 </p>
               </div>
 

@@ -314,6 +314,7 @@ export default function Intelligence() {
                 )}
                 {activeTab === 'memory' && (
                   <button
+                    type="button"
                     onClick={usingMemoryData ? refreshConscious : handleAnalyzeNow}
                     disabled={isRunning || itemsLoading}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-stone-50 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed border border-stone-200 rounded-lg text-stone-600 transition-colors">

@@ -29,15 +29,16 @@
  * full refetch. On failure the Rust error string is surfaced verbatim
  * at the bottom of the form and the submit button re-enables.
  */
+
+import debug from 'debug';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import debug from 'debug';
 
 import {
-  skillsApi,
   type CreateSkillInput,
   type SkillScope,
   type SkillSummary,
+  skillsApi,
 } from '../../services/api/skillsApi';
 
 const log = debug('skills:create-modal');

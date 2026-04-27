@@ -87,6 +87,7 @@ const NotificationsPanel = () => {
                   <div className="w-11 h-6 rounded-full bg-stone-200 animate-pulse" />
                 ) : (
                   <button
+                    type="button"
                     onClick={() => {
                       void handleDndToggle();
                     }}
@@ -125,6 +126,7 @@ const NotificationsPanel = () => {
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleToggle(cat.id)}
                       className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1 ${
                         enabled ? 'bg-primary-500' : 'bg-stone-400'

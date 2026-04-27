@@ -47,7 +47,7 @@ const RecoveryPhrasePanel = () => {
     setImportValid(null);
     setSelectedWordCount(IMPORT_SLOTS_INITIAL);
     setImportWords(Array(IMPORT_SLOTS_INITIAL).fill(''));
-  }, [mode]);
+  }, []);
 
   const handleWordCountChange = useCallback((count: number) => {
     setSelectedWordCount(count);
@@ -264,6 +264,7 @@ const RecoveryPhrasePanel = () => {
                   </div>
 
                   <button
+                    type="button"
                     onClick={handleCopy}
                     className="w-full flex items-center justify-center gap-2 border border-stone-200 hover:border-stone-300 font-medium py-2.5 text-sm rounded-xl text-stone-700 transition-all duration-200 mb-3">
                     {copied ? (
@@ -298,6 +299,7 @@ const RecoveryPhrasePanel = () => {
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => setMode('import')}
                     className="w-full text-center text-sm text-primary-400 hover:text-primary-600 transition-colors mb-3">
                     I already have a recovery phrase
@@ -387,6 +389,7 @@ const RecoveryPhrasePanel = () => {
                   )}
 
                   <button
+                    type="button"
                     onClick={() => setMode('generate')}
                     className="w-full text-center text-sm text-primary-400 hover:text-primary-600 transition-colors mb-3">
                     Generate a new recovery phrase instead

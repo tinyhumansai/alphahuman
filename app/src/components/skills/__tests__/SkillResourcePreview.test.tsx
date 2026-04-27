@@ -55,11 +55,7 @@ describe('SkillResourcePreview', () => {
   it('surfaces the backend error string verbatim on failure', async () => {
     mockedReadSkillResource.mockRejectedValueOnce(new Error('path escape'));
     render(
-      <SkillResourcePreview
-        skillId="demo"
-        relativePath="../../etc/passwd"
-        onDismiss={vi.fn()}
-      />
+      <SkillResourcePreview skillId="demo" relativePath="../../etc/passwd" onDismiss={vi.fn()} />
     );
     await waitFor(() => {
       expect(screen.getByText('Preview failed')).toBeInTheDocument();
@@ -90,11 +86,7 @@ describe('SkillResourcePreview', () => {
     });
     const onDismiss = vi.fn();
     render(
-      <SkillResourcePreview
-        skillId="demo"
-        relativePath="scripts/run.sh"
-        onDismiss={onDismiss}
-      />
+      <SkillResourcePreview skillId="demo" relativePath="scripts/run.sh" onDismiss={onDismiss} />
     );
     await act(async () => {
       // allow promise to settle

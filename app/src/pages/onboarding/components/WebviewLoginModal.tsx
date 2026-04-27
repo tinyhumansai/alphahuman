@@ -135,7 +135,7 @@ const WebviewLoginModal = ({
 
     const matchesLoggedIn = (url: string | undefined) => {
       const prefix = LOGGED_IN_URL_PREFIX[provider];
-      return Boolean(prefix && url && url.startsWith(prefix));
+      return Boolean(prefix && url?.startsWith(prefix));
     };
 
     let unlistenLoad: UnlistenFn | null = null;

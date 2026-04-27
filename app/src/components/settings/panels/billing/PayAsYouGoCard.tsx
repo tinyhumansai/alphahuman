@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { type CreditBalance } from '../../../../services/api/creditsApi';
+import type { CreditBalance } from '../../../../services/api/creditsApi';
 
 interface PayAsYouGoCardProps {
   creditBalance: CreditBalance | null;
@@ -85,6 +85,7 @@ const PayAsYouGoCard = ({
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           {[5, 10, 25].map(amount => (
             <button
+              type="button"
               key={amount}
               onClick={() => onTopUp(amount)}
               disabled={isToppingUp}
@@ -127,6 +128,7 @@ const PayAsYouGoCard = ({
               </p>
             </div>
             <button
+              type="button"
               onClick={handleCustomTopUp}
               disabled={!customTopUpAmountValid || isToppingUp}
               className="rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50 lg:self-end">
