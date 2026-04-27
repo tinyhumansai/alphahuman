@@ -1334,7 +1334,6 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   {shouldShowBudgetCompletedMessage && (
                     <button
                       type="button"
-                      onClick={() => navigate('/settings/billing')}
                       onClick={() => {
                         void openUrl(BILLING_DASHBOARD_URL);
                       }}
