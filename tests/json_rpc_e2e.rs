@@ -2700,7 +2700,10 @@ async fn rpc_rejects_wrong_token() {
     rpc_join.abort();
 }
 
-/// Public paths (/, /health, /schema) must be reachable without any token.
+/// Every path in PUBLIC_PATHS must bypass the auth middleware — i.e. never
+/// return 401 — even without an Authorization header.  Some paths return
+/// non-2xx for other reasons (missing query params, no WebSocket upgrade
+/// headers) so the assertion is `!= 401`, not `.is_success()`.
 #[tokio::test]
 async fn public_paths_accessible_without_token() {
     let _env_lock = json_rpc_e2e_env_lock();
@@ -2710,7 +2713,8 @@ async fn public_paths_accessible_without_token() {
     let client = reqwest::Client::new();
     let base = format!("http://{rpc_addr}");
 
-    for path in ["/", "/health", "/schema"] {
+    // Paths that return 200 without any extra params.
+    for path in ["/", "/health", "/schema", "/events/webhooks"] {
         let resp = client
             .get(format!("{base}{path}"))
             .send()
@@ -2718,7 +2722,24 @@ async fn public_paths_accessible_without_token() {
             .unwrap_or_else(|e| panic!("GET {path}: {e}"));
         assert!(
             resp.status().is_success(),
-            "public path {path} must be reachable without auth, got {}",
+            "public path {path} must return 2xx without auth, got {}",
+            resp.status()
+        );
+    }
+
+    // Paths that bypass auth but return non-2xx for unrelated reasons
+    // (missing required query params, no WebSocket upgrade headers, etc.).
+    // The invariant is that the auth middleware does NOT reject them with 401.
+    for path in ["/auth/telegram", "/events", "/ws/dictation"] {
+        let resp = client
+            .get(format!("{base}{path}"))
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("GET {path}: {e}"));
+        assert_ne!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "public path {path} must not be auth-gated (got {})",
             resp.status()
         );
     }
