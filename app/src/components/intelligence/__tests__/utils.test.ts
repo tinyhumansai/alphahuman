@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { ActionableItem } from '../../../types/intelligence';
 import { filterItems, getItemStats, groupItemsByTime } from '../utils';
+
+// Pin the wall clock so day-boundary buckets are stable across the day and on CI.
+const FIXED_NOW = new Date('2026-04-27T12:00:00.000Z');
+
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 function makeItem(
   partial: Partial<ActionableItem> & { id: string; createdAt: Date }
