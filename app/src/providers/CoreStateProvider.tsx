@@ -64,6 +64,7 @@ interface CoreStateContextValue extends CoreState {
   setOnboardingCompletedFlag: (value: boolean) => Promise<void>;
   setEncryptionKey: (value: string | null) => Promise<void>;
   setPrimaryWalletAddress: (value: string | null) => Promise<void>;
+  patchSnapshot: (patch: Partial<CoreAppSnapshot>) => void;
   setOnboardingTasks: (value: CoreOnboardingTasks | null) => Promise<void>;
   storeSessionToken: (token: string, user?: object) => Promise<void>;
   clearSession: () => Promise<void>;
@@ -424,6 +425,13 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
     });
   }, [commitState, refresh]);
 
+  const patchSnapshot = useCallback(
+    (patch: Partial<CoreAppSnapshot>) => {
+      commitState(previous => ({ ...previous, snapshot: { ...previous.snapshot, ...patch } }));
+    },
+    [commitState]
+  );
+
   const value = useMemo<CoreStateContextValue>(
     () => ({
       ...state,
@@ -431,6 +439,7 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
       refreshTeams,
       refreshTeamMembers,
       refreshTeamInvites,
+      patchSnapshot,
       setAnalyticsEnabled,
       setOnboardingCompletedFlag,
       setEncryptionKey: value => updateLocalState({ encryptionKey: value }),
@@ -445,6 +454,7 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
       refreshTeamInvites,
       refreshTeamMembers,
       refreshTeams,
+      patchSnapshot,
       setAnalyticsEnabled,
       setOnboardingCompletedFlag,
       state,
