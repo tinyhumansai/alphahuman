@@ -255,7 +255,9 @@ mod tests {
         // same calendar day, regardless of the host timezone.  A UTC-fixed `from` would
         // land at different local times on different machines (e.g. already 10:00 local
         // on a UTC+10 host), making the expected date machine-dependent.
-        let from_local = chrono::Local.with_ymd_and_hms(2026, 2, 16, 0, 0, 0).unwrap();
+        let from_local = chrono::Local
+            .with_ymd_and_hms(2026, 2, 16, 0, 0, 0)
+            .unwrap();
         let from = from_local.with_timezone(&Utc);
         let schedule = Schedule::Cron {
             expr: "0 9 * * *".into(),
@@ -264,7 +266,9 @@ mod tests {
         };
         let next = next_run_for_schedule(&schedule, from).unwrap();
 
-        let expected_local = chrono::Local.with_ymd_and_hms(2026, 2, 16, 9, 0, 0).unwrap();
+        let expected_local = chrono::Local
+            .with_ymd_and_hms(2026, 2, 16, 9, 0, 0)
+            .unwrap();
         assert_eq!(next, expected_local.with_timezone(&Utc));
     }
 
