@@ -94,6 +94,25 @@ describe('Memory subsystem round-trip', () => {
   });
 
   it('clears a namespace and recall returns no canary content (edge case)', async () => {
+    // Seed a fresh canary inside this test so it cannot pass vacuously when
+    // run in isolation (e.g. `mocha --grep "clears a namespace"`).
+    stepLog('seeding canary before clear');
+    const seed = await callOpenhumanRpc('openhuman.memory_doc_put', {
+      namespace: TEST_NAMESPACE,
+      key: TEST_KEY,
+      title: TEST_TITLE,
+      content: TEST_CONTENT,
+    });
+    expect(seed.ok).toBe(true);
+
+    // Sanity: canary is recallable before the clear.
+    const preClear = await callOpenhumanRpc('openhuman.memory_recall_memories', {
+      namespace: TEST_NAMESPACE,
+      limit: 10,
+    });
+    expect(preClear.ok).toBe(true);
+    expect(JSON.stringify(preClear.result ?? {}).includes(TEST_KEY)).toBe(true);
+
     stepLog('clearing namespace');
     const forgetResult = await callOpenhumanRpc('openhuman.memory_clear_namespace', {
       namespace: TEST_NAMESPACE,
