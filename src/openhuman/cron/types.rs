@@ -247,6 +247,23 @@ mod tests {
     }
 
     #[test]
+    fn schedule_cron_variant_roundtrips_with_active_hours() {
+        let s = Schedule::Cron {
+            expr: "*/15 * * * *".into(),
+            tz: Some("UTC".into()),
+            active_hours: Some(ActiveHours {
+                start: "09:00".into(),
+                end: "17:30".into(),
+            }),
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["active_hours"]["start"], "09:00");
+        assert_eq!(v["active_hours"]["end"], "17:30");
+        let back: Schedule = serde_json::from_value(v).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
     fn schedule_at_variant_roundtrips_with_utc_timestamp() {
         let at = Utc.with_ymd_and_hms(2027, 1, 15, 12, 0, 0).unwrap();
         let s = Schedule::At { at };
