@@ -1,6 +1,7 @@
 import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
 import { triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
 import {
+  clickButton,
   textExists,
   waitForText,
   waitForWebView,
@@ -9,6 +10,26 @@ import {
 import { supportsExecuteScript } from '../helpers/platform';
 import { completeOnboardingIfVisible, navigateViaHash } from '../helpers/shared-flows';
 import { startMockServer, stopMockServer } from '../mock-server';
+
+async function openAddAccountModal(): Promise<void> {
+  // The "Add app" affordance only carries an `aria-label` — its visible text
+  // sits inside a `pointer-events: none` tooltip span, so the shared
+  // `clickButton`/`clickText` helpers can't target it. Tracking a
+  // `clickByAriaLabel` helper as a follow-up.
+  const opened = await browser.execute(() => {
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
+    const addBtn = buttons.find(b => b.getAttribute('aria-label') === 'Add app');
+    if (addBtn) {
+      addBtn.click();
+      return true;
+    }
+    return false;
+  });
+  if (!opened) {
+    throw new Error('Could not locate Add app button on /accounts');
+  }
+  await waitForText('Add account', 5_000);
+}
 
 /**
  * Smoke spec for the Slack account integration (feature 10.1.4).
@@ -63,39 +84,46 @@ describe('Slack account integration smoke', () => {
     await waitForText('Add app', 15_000);
 
     stepLog('opening Add Account modal');
-    const opened = await browser.execute(() => {
-      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
-      const addBtn = buttons.find(b => b.getAttribute('aria-label') === 'Add app');
-      if (addBtn) {
-        addBtn.click();
-        return true;
-      }
-      return false;
-    });
-    expect(opened).toBe(true);
+    await openAddAccountModal();
 
     await waitForText('Slack', 10_000);
     expect(await textExists('Slack')).toBe(true);
     expect(await textExists('Slack workspaces and channels.')).toBe(true);
   });
 
-  it('selecting Slack dismisses the picker and registers an account', async () => {
-    stepLog('clicking Slack tile');
-    const picked = await browser.execute(() => {
-      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
-      const tile = buttons.find(b => {
-        const txt = b.textContent ?? '';
-        return txt.includes('Slack') && !txt.includes('Add account');
-      });
-      if (tile) {
-        tile.click();
-        return true;
-      }
-      return false;
-    });
-    expect(picked).toBe(true);
+  it('selecting Slack closes the modal and registers an account on the rail', async () => {
+    // Set up route + modal independently so this case is runnable in isolation.
+    stepLog('navigating to /accounts (independent setup)');
+    await navigateViaHash('/accounts');
+    await waitForText('Add app', 15_000);
+    await openAddAccountModal();
+    await waitForText('Slack', 10_000);
 
-    await browser.pause(750);
-    expect(await textExists('Add account')).toBe(false);
+    stepLog('clicking Slack tile via shared helper');
+    await clickButton('Slack');
+
+    // 1) Modal must close.
+    await browser.waitUntil(async () => !(await textExists('Add account')), {
+      timeout: 5_000,
+      timeoutMsg: 'Add account modal did not close after picking Slack',
+    });
+
+    // 2) Redux must record a new account with provider === "slack" — the
+    // backing-state mock-effect that proves registration. The Slack tile
+    // label and the post-pick rail tooltip share the literal string "Slack",
+    // so a pure DOM assertion cannot distinguish them.
+    const registered = await browser.execute(() => {
+      const winAny = window as unknown as { __OPENHUMAN_STORE__?: { getState: () => unknown } };
+      const state = winAny.__OPENHUMAN_STORE__?.getState() as
+        | { accounts?: { accounts?: Record<string, { provider?: string }> } }
+        | undefined;
+      const accounts = state?.accounts?.accounts ?? {};
+      return Object.values(accounts).some(a => a.provider === 'slack');
+    });
+    if (registered === undefined) {
+      expect(await textExists('Slack')).toBe(true);
+    } else {
+      expect(registered).toBe(true);
+    }
   });
 });
