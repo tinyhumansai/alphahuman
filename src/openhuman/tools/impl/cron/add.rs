@@ -33,25 +33,50 @@ impl Tool for CronAddTool {
             "properties": {
                 "name": { "type": "string", "description": "Short human-readable name for the job (e.g. 'drink_water_reminder'). Always provide a name." },
                 "schedule": {
-                    "type": "object",
-                    "description": "Schedule object: {kind:'cron',expr,tz?,active_hours?} | {kind:'at',at} | {kind:'every',every_ms}. 'tz' is an IANA name (e.g. 'America/Los_Angeles') and defaults to the device's local timezone.",
-                    "properties": {
-                        "kind": { "type": "string", "enum": ["cron", "at", "every"] },
-                        "expr": { "type": "string", "description": "Cron expression (5, 6, or 7 fields)" },
-                        "tz": { "type": "string", "description": "Optional IANA timezone name" },
-                        "active_hours": {
+                    "description": "Schedule: cron expression, one-shot at time, or fixed interval.",
+                    "oneOf": [
+                        {
                             "type": "object",
-                            "description": "Optional: only run during these hours (local time/tz)",
+                            "description": "Repeating cron schedule. 'tz' is an IANA timezone (e.g. 'America/Los_Angeles'); defaults to device-local timezone.",
                             "properties": {
-                                "start": { "type": "string", "description": "Start time HH:MM (e.g. '09:00')" },
-                                "end": { "type": "string", "description": "End time HH:MM (e.g. '17:00')" }
+                                "kind": { "type": "string", "const": "cron" },
+                                "expr": { "type": "string", "description": "Cron expression (5, 6, or 7 fields)" },
+                                "tz": { "type": "string", "description": "Optional IANA timezone name" },
+                                "active_hours": {
+                                    "type": "object",
+                                    "description": "Optional: only run during these local hours",
+                                    "properties": {
+                                        "start": { "type": "string", "description": "Start time HH:MM (e.g. '09:00')" },
+                                        "end": { "type": "string", "description": "End time HH:MM (e.g. '17:00')" }
+                                    },
+                                    "required": ["start", "end"],
+                                    "additionalProperties": false
+                                }
                             },
-                            "required": ["start", "end"]
+                            "required": ["kind", "expr"],
+                            "additionalProperties": false
                         },
-                        "at": { "type": "string", "description": "ISO-8601 UTC timestamp for kind:'at'" },
-                        "every_ms": { "type": "integer", "description": "Interval in milliseconds for kind:'every'" }
-                    },
-                    "required": ["kind"]
+                        {
+                            "type": "object",
+                            "description": "One-shot job that runs once at a specific UTC instant.",
+                            "properties": {
+                                "kind": { "type": "string", "const": "at" },
+                                "at": { "type": "string", "description": "ISO-8601 UTC timestamp" }
+                            },
+                            "required": ["kind", "at"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "description": "Repeating job that fires every N milliseconds.",
+                            "properties": {
+                                "kind": { "type": "string", "const": "every" },
+                                "every_ms": { "type": "integer", "description": "Interval in milliseconds (must be > 0)" }
+                            },
+                            "required": ["kind", "every_ms"],
+                            "additionalProperties": false
+                        }
+                    ]
                 },
                 "job_type": { "type": "string", "enum": ["shell", "agent"] },
                 "command": { "type": "string" },
