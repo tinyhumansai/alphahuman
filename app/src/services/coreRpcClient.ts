@@ -48,6 +48,9 @@ const LEGACY_METHOD_ALIASES: Record<string, string> = {
 let nextJsonRpcId = 1;
 let resolvedCoreRpcUrl: string | null = null;
 let resolvingCoreRpcUrl: Promise<string> | null = null;
+let resolvedCoreRpcToken: string | null = null;
+let didResolveCoreRpcToken = false;
+let resolvingCoreRpcToken: Promise<string | null> | null = null;
 const coreRpcLog = debug('core-rpc');
 const coreRpcError = debug('core-rpc:error');
 
@@ -119,6 +122,39 @@ export async function getCoreRpcUrl(): Promise<string> {
   return resolvePromise;
 }
 
+/**
+ * Returns the per-process RPC bearer token written by the core binary to
+ * `~/.openhuman/core.token` at startup.  The token is fetched once via a
+ * Tauri command and then cached for the lifetime of the frontend process.
+ *
+ * Returns `null` in non-Tauri environments (e.g. Vitest) where the command
+ * is not available so existing tests remain unaffected.
+ */
+async function getCoreRpcToken(): Promise<string | null> {
+  if (didResolveCoreRpcToken) return resolvedCoreRpcToken;
+  if (!coreIsTauri()) return null;
+  if (resolvingCoreRpcToken) return resolvingCoreRpcToken;
+
+  resolvingCoreRpcToken = (async () => {
+    try {
+      const token = await invoke<string>('core_rpc_token');
+      resolvedCoreRpcToken = token?.trim() || null;
+      didResolveCoreRpcToken = true;
+      coreRpcLog('core RPC token loaded');
+      return resolvedCoreRpcToken;
+    } catch (err) {
+      coreRpcError('failed to load core RPC token', err);
+      resolvedCoreRpcToken = null;
+      didResolveCoreRpcToken = true;
+      return null;
+    } finally {
+      resolvingCoreRpcToken = null;
+    }
+  })();
+
+  return resolvingCoreRpcToken;
+}
+
 export async function getCoreHttpBaseUrl(): Promise<string> {
   const rpcUrl = await getCoreRpcUrl();
   const url = new URL(rpcUrl);
@@ -148,12 +184,21 @@ export async function callCoreRpc<T>({
   };
 
   try {
-    const rpcUrl = await getCoreRpcUrl();
+    const [rpcUrl, token] = await Promise.all([getCoreRpcUrl(), getCoreRpcToken()]);
     coreRpcLog('HTTP request', { id: payload.id, method: payload.method });
+
+    if (coreIsTauri() && !token) {
+      throw new Error('Core RPC token unavailable in Tauri; local RPC auth cannot be satisfied');
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const response = await fetch(rpcUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
 

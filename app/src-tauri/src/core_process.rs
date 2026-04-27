@@ -1,7 +1,9 @@
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
+use parking_lot::RwLock;
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -46,6 +48,24 @@ pub enum CoreRunMode {
     ChildProcess,
 }
 
+/// Generate a 256-bit cryptographically-random bearer token as a hex string.
+///
+/// Uses the same encoding as `openhuman_core::core::auth::generate_token`
+/// (`hex::encode`) so the token format never silently diverges between the
+/// Tauri-side generator and the core-side validator.
+pub fn generate_rpc_token() -> String {
+    use rand::RngCore as _;
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+static CURRENT_RPC_TOKEN: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
+
+pub fn current_rpc_token() -> Option<String> {
+    CURRENT_RPC_TOKEN.read().clone()
+}
+
 #[derive(Clone)]
 pub struct CoreProcessHandle {
     child: Arc<Mutex<Option<Child>>>,
@@ -56,10 +76,20 @@ pub struct CoreProcessHandle {
     /// Override path set by the auto-updater after staging a new binary.
     core_bin_override: Arc<Mutex<Option<PathBuf>>>,
     run_mode: CoreRunMode,
+    /// Bearer token passed to the core via `OPENHUMAN_CORE_TOKEN` and returned
+    /// to the frontend so every RPC request can include `Authorization: Bearer`.
+    rpc_token: Arc<String>,
 }
 
 impl CoreProcessHandle {
     pub fn new(port: u16, core_bin: Option<PathBuf>, run_mode: CoreRunMode) -> Self {
+        let rpc_token = generate_rpc_token();
+        // CURRENT_RPC_TOKEN is intentionally NOT set here.  It is published by
+        // ensure_running() only after the child process that received
+        // OPENHUMAN_CORE_TOKEN has been successfully spawned.  Setting it here
+        // would advertise a token that the running core (which may be a stale
+        // process the handle did not spawn) has never seen, causing 401s on
+        // every subsequent authenticated call.
         Self {
             child: Arc::new(Mutex::new(None)),
             task: Arc::new(Mutex::new(None)),
@@ -68,7 +98,13 @@ impl CoreProcessHandle {
             core_bin,
             core_bin_override: Arc::new(Mutex::new(None)),
             run_mode,
+            rpc_token: Arc::new(rpc_token),
         }
+    }
+
+    /// The bearer token the core process uses to authenticate inbound RPC requests.
+    pub fn rpc_token(&self) -> &str {
+        &self.rpc_token
     }
 
     pub fn rpc_url(&self) -> String {
@@ -158,10 +194,15 @@ impl CoreProcessHandle {
                     };
                     apply_core_color_env(&mut cmd);
                     apply_core_no_window(&mut cmd);
+                    cmd.env("OPENHUMAN_CORE_TOKEN", self.rpc_token.as_str());
                     let child = cmd
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
                     *guard = Some(child);
+                    // Publish only after the child that holds OPENHUMAN_CORE_TOKEN
+                    // has been spawned successfully.
+                    *CURRENT_RPC_TOKEN.write() = Some(self.rpc_token.to_string());
+                    log::debug!("[auth] CURRENT_RPC_TOKEN set after in-process spawn");
                 }
             }
             CoreRunMode::ChildProcess => {
@@ -197,11 +238,16 @@ impl CoreProcessHandle {
 
                     apply_core_color_env(&mut cmd);
                     apply_core_no_window(&mut cmd);
+                    cmd.env("OPENHUMAN_CORE_TOKEN", self.rpc_token.as_str());
                     let child = cmd
                         .spawn()
                         .map_err(|e| format!("failed to spawn core process: {e}"))?;
 
                     *guard = Some(child);
+                    // Publish only after the child that holds OPENHUMAN_CORE_TOKEN
+                    // has been spawned successfully.
+                    *CURRENT_RPC_TOKEN.write() = Some(self.rpc_token.to_string());
+                    log::debug!("[auth] CURRENT_RPC_TOKEN set after child process spawn");
                 }
             }
         }

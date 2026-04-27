@@ -1,8 +1,8 @@
 //! Sibling tests extracted from core_process.rs — see PR #835.
 
 use super::{
-    default_core_bin, default_core_port, default_core_run_mode, same_executable_path,
-    CoreProcessHandle, CoreRunMode,
+    current_rpc_token, default_core_bin, default_core_port, default_core_run_mode,
+    generate_rpc_token, same_executable_path, CoreProcessHandle, CoreRunMode,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -223,6 +223,93 @@ fn ensure_running_returns_ok_when_rpc_port_already_open() {
     assert!(
         result.is_ok(),
         "ensure_running should fast-path: {result:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Token generation tests
+// ---------------------------------------------------------------------------
+
+/// `generate_rpc_token` must produce a 64-character lowercase hex string
+/// (32 bytes × 2 hex digits = 64 chars), matching the format expected by the
+/// core's auth middleware.
+#[test]
+fn generate_rpc_token_produces_64_hex_chars() {
+    let token = generate_rpc_token();
+    assert_eq!(
+        token.len(),
+        64,
+        "256-bit token → 64 hex chars, got {token:?}"
+    );
+    assert!(
+        token.chars().all(|c| c.is_ascii_hexdigit()),
+        "token must be hex, got {token:?}"
+    );
+    assert!(
+        token.chars().all(|c| !c.is_uppercase()),
+        "token must be lowercase hex, got {token:?}"
+    );
+}
+
+/// Each call generates a different token (CSPRNG — not a constant).
+#[test]
+fn generate_rpc_token_is_not_constant() {
+    assert_ne!(
+        generate_rpc_token(),
+        generate_rpc_token(),
+        "two consecutive tokens must differ"
+    );
+}
+
+/// `CoreProcessHandle::new` must produce a non-empty, correctly-formatted
+/// bearer token immediately — no file I/O or timing dependency.
+#[test]
+fn core_process_handle_new_token_is_valid() {
+    let handle = CoreProcessHandle::new(19001, None, CoreRunMode::ChildProcess);
+    let token = handle.rpc_token();
+    assert_eq!(token.len(), 64, "handle token must be 64 hex chars");
+    assert!(
+        token.chars().all(|c| c.is_ascii_hexdigit()),
+        "handle token must be hex"
+    );
+}
+
+/// `CoreProcessHandle::new()` must NOT publish the token to the global
+/// `CURRENT_RPC_TOKEN`.  The global is set only after `ensure_running()`
+/// successfully spawns the child that received `OPENHUMAN_CORE_TOKEN`.
+/// Advertising the token before spawn would cause 401s when the port is
+/// already held by a stale process that never received this token.
+#[test]
+fn new_does_not_publish_global_token() {
+    // Capture current global state before constructing the handle.
+    let before = current_rpc_token();
+    let handle = CoreProcessHandle::new(19002, None, CoreRunMode::ChildProcess);
+    let after = current_rpc_token();
+
+    // The global must not have changed to this handle's token.
+    assert_ne!(
+        after.as_deref(),
+        Some(handle.rpc_token()),
+        "new() must not publish its token to CURRENT_RPC_TOKEN before ensure_running() spawns"
+    );
+    // Whatever was in the global before must still be there (or still None).
+    assert_eq!(
+        before, after,
+        "new() must leave CURRENT_RPC_TOKEN unchanged"
+    );
+}
+
+/// Two handles constructed sequentially must each have a unique token,
+/// but neither should update the global until ensure_running() spawns.
+#[test]
+fn each_handle_has_unique_token() {
+    let h1 = CoreProcessHandle::new(19003, None, CoreRunMode::ChildProcess);
+    let h2 = CoreProcessHandle::new(19004, None, CoreRunMode::ChildProcess);
+
+    assert_ne!(
+        h1.rpc_token(),
+        h2.rpc_token(),
+        "each handle must have a unique token"
     );
 }
 

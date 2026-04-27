@@ -52,7 +52,7 @@ pub struct CoreUpdateInfo {
 }
 
 /// Query the running core's version via JSON-RPC.
-pub async fn query_core_version(rpc_url: &str) -> Result<String, String> {
+pub async fn query_core_version(rpc_url: &str, rpc_token: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -67,6 +67,7 @@ pub async fn query_core_version(rpc_url: &str) -> Result<String, String> {
 
     let resp = client
         .post(rpc_url)
+        .header("Authorization", format!("Bearer {rpc_token}"))
         .json(&body)
         .send()
         .await
@@ -104,8 +105,8 @@ pub fn is_outdated(running: &str, target: &str) -> bool {
 }
 
 /// Full check: query running version, compare against minimum AND latest GitHub release.
-pub async fn check_full(rpc_url: &str) -> Result<CoreUpdateInfo, String> {
-    let running = query_core_version(rpc_url).await?;
+pub async fn check_full(rpc_url: &str, rpc_token: &str) -> Result<CoreUpdateInfo, String> {
+    let running = query_core_version(rpc_url, rpc_token).await?;
     let minimum = MINIMUM_CORE_VERSION;
     let outdated = is_outdated(&running, minimum);
 
@@ -393,6 +394,7 @@ pub async fn check_and_update_core(
     force: bool,
 ) -> Result<(), String> {
     let rpc_url = handle.rpc_url();
+    let rpc_token = handle.rpc_token().to_string();
     log::info!(
         "[core-update] checking core version at {} (minimum: {}, force: {})",
         rpc_url,
@@ -401,7 +403,7 @@ pub async fn check_and_update_core(
     );
 
     // Step 1: Query running version.
-    let running_version = match query_core_version(&rpc_url).await {
+    let running_version = match query_core_version(&rpc_url, &rpc_token).await {
         Ok(v) => v,
         Err(e) => {
             log::warn!("[core-update] could not query core version: {e}");
