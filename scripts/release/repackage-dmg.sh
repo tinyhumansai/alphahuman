@@ -78,21 +78,35 @@ MOUNT_DIR=""
 sync
 sleep 2
 
-# 3. Convert back to compressed format (UDZO).
-# `hdiutil convert` is occasionally flaky on macOS even after a clean detach
-# ("internal error" with no further detail). Retry a couple of times before
-# failing the release.
+# 3. Compact the writable image to reclaim the empty space left over from
+# the 1GB resize. Without this the UDZO output carries hundreds of MB of
+# zero blocks and `hdiutil convert` is more likely to fail.
+echo "[dmg] Compacting writable image before recompression..."
+hdiutil compact "$DMG_RW" || echo "[dmg] hdiutil compact returned non-zero (continuing)"
+
+# 4. Convert back to compressed format (UDZO).
+# Convert to a TEMPORARY path and `mv` over the original instead of
+# `-ov`-overwriting the input. On macOS GitHub runners the in-place
+# overwrite fails immediately with "hdiutil: convert failed - internal
+# error" — the source DMG handle is still held by the imaging engine when
+# the same path is reopened for write. A separate output path sidesteps
+# the issue entirely.
+DMG_OUT="$(mktemp /tmp/OpenHuman-UDZO-XXXXXX).dmg"
+rm -f "$DMG_OUT"  # mktemp created an empty file; hdiutil refuses to overwrite without -ov.
 convert_attempts=0
-until hdiutil convert "$DMG_RW" -format UDZO -ov -o "$DMG_PATH"; do
+until hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_OUT"; do
   convert_attempts=$((convert_attempts + 1))
   if [ "$convert_attempts" -ge 3 ]; then
     echo "[dmg] ERROR: hdiutil convert to UDZO failed after $convert_attempts attempts" >&2
+    rm -f "$DMG_OUT"
     exit 1
   fi
   echo "[dmg] hdiutil convert failed (attempt $convert_attempts) — retrying after settle..." >&2
+  rm -f "$DMG_OUT"
   sync
   sleep $((convert_attempts * 5))
 done
+mv -f "$DMG_OUT" "$DMG_PATH"
 rm -f "$DMG_RW"
 DMG_RW=""
 
