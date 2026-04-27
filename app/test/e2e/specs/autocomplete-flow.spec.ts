@@ -11,14 +11,22 @@ import { completeOnboardingIfVisible, navigateViaHash } from '../helpers/shared-
 import { startMockServer, stopMockServer } from '../mock-server';
 
 /**
- * Text autocomplete settings smoke spec (features 5.2.1 inline suggestion,
- * 5.2.2 debounce, 5.2.3 acceptance trigger — settings surface).
+ * Autocomplete settings panel smoke spec — narrow scope.
  *
- * Goal: prove the AutocompletePanel mounts under /settings, exposes the
- * skill-status pill, and renders the "Enable" CTA when the runtime is
- * offline. Real inline suggestion firing inside a third-party text field
- * is gated by macOS TCC (Accessibility + Input Monitoring) and lives in
- * the manual smoke checklist (#971).
+ * What this spec proves: the AutocompletePanel mounts under /settings,
+ * the skill-status pill renders one of the canonical labels surfaced by
+ * `useAutocompleteSkillStatus`, and the matching CTA renders. That is
+ * the entire claim — this spec does NOT exercise:
+ *   - 5.2.1 inline suggestion generation (requires real keystrokes inside
+ *     a third-party text field + macOS Accessibility + Input Monitoring
+ *     TCC grants — see manual smoke checklist #971)
+ *   - 5.2.2 debounce timing (covered by the Vitest hook test in
+ *     `app/src/features/autocomplete/__tests__/useAutocompleteSkillStatus.test.tsx`
+ *     for the status surface; debounce of the engine itself is a Rust
+ *     unit test concern)
+ *   - 5.2.3 acceptance trigger (manual smoke + Rust unit)
+ *
+ * The coverage matrix downgrades 5.2.1 / 5.2.3 to 🟡 to reflect this.
  *
  * Mac2 skipped — Settings sidebar label mapping not yet exposed to Appium.
  */
@@ -72,6 +80,12 @@ describe('Autocomplete settings panel smoke', () => {
   });
 
   it('renders an Enable / Manage / Retry CTA driven by skill status', async () => {
+    // Re-establish route state so this case is runnable in isolation; do not
+    // depend on the previous `it` having navigated to /settings/autocomplete.
+    stepLog('navigating to /settings/autocomplete (independent setup)');
+    await navigateViaHash('/settings/autocomplete');
+    await waitForText('Auto', 15_000);
+
     const ctaVisible =
       (await textExists('Enable')) ||
       (await textExists('Manage')) ||
