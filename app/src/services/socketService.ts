@@ -119,10 +119,7 @@ class SocketService {
   private pendingListeners: Array<{ event: string; callback: (...args: unknown[]) => void }> = [];
   // Maps original caller callbacks → wrapped callbacks so off() can locate the
   // exact function reference that was registered with socket.io.
-  private listenerMap = new Map<
-    (...args: unknown[]) => void,
-    (...args: unknown[]) => void
-  >();
+  private listenerMap = new Map<(...args: unknown[]) => void, (...args: unknown[]) => void>();
 
   /**
    * Connect to the socket server with authentication.

@@ -78,10 +78,13 @@ describe('Notifications', () => {
     stepLog('notification_list result', { ok: result.ok, result: result.result });
     expect(result.ok).toBe(true);
 
-    const items: unknown[] = result.result?.result?.notifications ?? result.result?.result?.items ?? [];
+    const items: unknown[] =
+      result.result?.result?.notifications ?? result.result?.result?.items ?? [];
     const found = items.some(
       (n: unknown) =>
-        typeof n === 'object' && n !== null && (n as Record<string, unknown>)['id'] === 'e2e-notif-001'
+        typeof n === 'object' &&
+        n !== null &&
+        (n as Record<string, unknown>)['id'] === 'e2e-notif-001'
     );
     expect(found).toBe(true);
   });
