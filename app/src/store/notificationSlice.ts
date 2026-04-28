@@ -101,6 +101,16 @@ const notificationSlice = createSlice({
         state.integrationUnreadCount = Math.max(0, state.integrationUnreadCount - 1);
       }
     },
+    markIntegrationActed(state, action: PayloadAction<string>) {
+      const n = state.integrationItems.find(i => i.id === action.payload);
+      if (n) {
+        const wasUnread = n.status === 'unread';
+        n.status = 'acted';
+        if (wasUnread) {
+          state.integrationUnreadCount = Math.max(0, state.integrationUnreadCount - 1);
+        }
+      }
+    },
     dismissIntegrationNotification(state, action: PayloadAction<string>) {
       const n = state.integrationItems.find(i => i.id === action.payload);
       if (n) {
@@ -136,6 +146,7 @@ export const {
   setIntegrationError,
   setIntegrationNotifications,
   markIntegrationRead,
+  markIntegrationActed,
   dismissIntegrationNotification,
   addIntegrationNotification,
 } = notificationSlice.actions;
