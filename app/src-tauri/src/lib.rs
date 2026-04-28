@@ -321,6 +321,24 @@ async fn restart_app(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
     app.restart();
 }
 
+/// Read the authoritative active user id from `active_user.toml` so the
+/// frontend can seed `userScopedStorage` BEFORE redux-persist hydrates.
+///
+/// The previous frontend-only seed (a `localStorage` key) was bound to the
+/// per-user CEF profile dir, so on every restart-driven user flip the new
+/// process read whatever value the new profile's `localStorage` happened to
+/// hold from a prior session — usually stale, triggering a false re-flip and
+/// a restart loop. The Rust core writes `active_user.toml` atomically as part
+/// of `auth_store_session`, so it's the only profile-independent source of
+/// truth available to the UI at boot. Reuses
+/// `cef_profile::default_root_openhuman_dir()` so the lookup honors
+/// `OPENHUMAN_WORKSPACE` overrides used in test harnesses. (#900)
+#[tauri::command]
+fn get_active_user_id() -> Result<Option<String>, String> {
+    let dir = cef_profile::default_root_openhuman_dir()?;
+    Ok(cef_profile::read_active_user_id(&dir))
+}
+
 #[tauri::command]
 async fn schedule_cef_profile_purge(user_id: Option<String>) -> Result<String, String> {
     let queued = cef_profile::queue_profile_purge_for_user(user_id.as_deref())?;
@@ -1299,6 +1317,7 @@ pub fn run() {
             apply_app_update,
             restart_core_process,
             restart_app,
+            get_active_user_id,
             schedule_cef_profile_purge,
             service_install_direct,
             service_start_direct,
