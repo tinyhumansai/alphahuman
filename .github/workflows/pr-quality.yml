@@ -1,0 +1,66 @@
+---
+name: PR Quality (soft)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  checklist-guard:
+    name: PR Submission Checklist
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'docs') && !contains(github.event.pull_request.labels.*.name, 'chore') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Verify Submission Checklist
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-pr-checklist.mjs
+  coverage-matrix:
+    name: Coverage Matrix Sync
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'docs') && !contains(github.event.pull_request.labels.*.name, 'chore') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Verify Coverage Matrix
+        run: node scripts/check-coverage-matrix.mjs
+  markdown-link-check:
+    name: Markdown Link Check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'docs') && !contains(github.event.pull_request.labels.*.name, 'chore') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Lychee link check
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --include-fragments
+            'docs/**/*.md'
+            'src/**/README.md'
+            '.github/PULL_REQUEST_TEMPLATE.md'
+          fail: true
