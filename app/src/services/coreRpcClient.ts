@@ -2,7 +2,7 @@ import { isTauri as coreIsTauri, invoke } from '@tauri-apps/api/core';
 import debug from 'debug';
 
 import { dispatchLocalAiMethod } from '../lib/ai/localCoreAiMemory';
-import { CORE_RPC_URL } from '../utils/config';
+import { CORE_RPC_TIMEOUT_MS, CORE_RPC_URL } from '../utils/config';
 import { sanitizeError } from '../utils/sanitize';
 
 interface CoreRpcRelayRequest {
@@ -105,9 +105,25 @@ export async function getCoreRpcUrl(): Promise<string> {
     try {
       const url = await invoke<string>('core_rpc_url');
       const trimmed = String(url || '').trim();
+      if (!trimmed) {
+        // The Tauri command succeeded but returned an empty string. That's
+        // almost certainly a shell misconfiguration — prefer the build-time
+        // default but make the fallback visible rather than silent.
+        coreRpcError('core_rpc_url returned empty; using build-time default', {
+          fallback: CORE_RPC_URL,
+        });
+      }
       resolvedCoreRpcUrl = trimmed || CORE_RPC_URL;
       return resolvedCoreRpcUrl || CORE_RPC_URL;
-    } catch {
+    } catch (err) {
+      // Silent fallback hid port-mismatch bugs in the past: the UI connected
+      // to a stale default while the real core ran on a different port, and
+      // every call failed with an obscure ECONNREFUSED. Log the underlying
+      // error so the misconfig is visible in the console.
+      coreRpcError('core_rpc_url invoke failed; using build-time default', {
+        fallback: CORE_RPC_URL,
+        error: sanitizeError(err),
+      });
       resolvedCoreRpcUrl = CORE_RPC_URL;
       return CORE_RPC_URL;
     } finally {
@@ -151,11 +167,28 @@ export async function callCoreRpc<T>({
     const rpcUrl = await getCoreRpcUrl();
     coreRpcLog('HTTP request', { id: payload.id, method: payload.method });
 
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // Bound the fetch to CORE_RPC_TIMEOUT_MS. Without this a hung core
+    // sidecar will block every caller (and the UI) forever. We use a
+    // manual AbortController + setTimeout rather than AbortSignal.timeout()
+    // so test fake timers can drive the abort deterministically.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CORE_RPC_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      if (controller.signal.aborted) {
+        throw new Error(`Core RPC ${payload.method} timed out after ${CORE_RPC_TIMEOUT_MS}ms`);
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       const text = await response.text();
