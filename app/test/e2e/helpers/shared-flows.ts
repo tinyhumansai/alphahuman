@@ -247,6 +247,10 @@ export async function navigateToConversations() {
   await navigateViaHash('/conversations');
 }
 
+export async function navigateToNotifications() {
+  await navigateViaHash('/notifications');
+}
+
 // ---------------------------------------------------------------------------
 // Onboarding walkthrough
 // Current flow: Welcome → Local AI → Screen & Accessibility → Tools → Skills (5 steps, indices 0–4).

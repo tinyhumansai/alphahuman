@@ -11,6 +11,31 @@ export interface ShowNativeNotificationArgs {
 }
 
 /**
+ * Request OS notification permission if not already granted.
+ * Returns true if permission is (or was just) granted, false otherwise.
+ * No-op (returns false) when running outside Tauri.
+ */
+export async function ensureNotificationPermission(): Promise<boolean> {
+  if (!isTauri()) {
+    log('not running in tauri, skipping permission request');
+    return false;
+  }
+  try {
+    const granted = await invoke<boolean>('plugin:notification|is_permission_granted');
+    log('notification permission check: granted=%s', granted);
+    if (granted) return true;
+
+    const result = await invoke<string>('plugin:notification|request_permission');
+    const nowGranted = result === 'granted';
+    log('notification permission request result: %s granted=%s', result, nowGranted);
+    return nowGranted;
+  } catch (err) {
+    errLog('ensureNotificationPermission failed: %O', err);
+    return false;
+  }
+}
+
+/**
  * Invoke the Tauri shell to show a native OS notification. No-op when the
  * app is running outside Tauri (e.g. Vitest / pure-web dev server).
  */

@@ -607,8 +607,13 @@ fn show_native_notification(
     tag: Option<String>,
 ) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
+    let permission_state = app
+        .notification()
+        .permission_state()
+        .map(|s| format!("{s:?}"))
+        .unwrap_or_else(|e| format!("err({e})"));
     log::debug!(
-        "[notify] show_native_notification title_chars={} body_chars={} tag={:?}",
+        "[notify] show_native_notification title_chars={} body_chars={} tag={:?} permission={permission_state}",
         title.len(),
         body.len(),
         tag

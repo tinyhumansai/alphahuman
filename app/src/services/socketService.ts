@@ -117,6 +117,12 @@ class SocketService {
   private token: string | null = null;
   private mcpTransport: SocketIOMCPTransportImpl | null = null;
   private pendingListeners: Array<{ event: string; callback: (...args: unknown[]) => void }> = [];
+  // Maps original caller callbacks → wrapped callbacks so off() can locate the
+  // exact function reference that was registered with socket.io.
+  private listenerMap = new Map<
+    (...args: unknown[]) => void,
+    (...args: unknown[]) => void
+  >();
 
   /**
    * Connect to the socket server with authentication.
@@ -275,6 +281,7 @@ class SocketService {
       this.socket = null;
       this.token = null;
       this.mcpTransport = null;
+      this.listenerMap.clear();
       store.dispatch(resetForUser({ userId: uid }));
     }
   }
@@ -320,6 +327,8 @@ class SocketService {
       socketLog('Received event', { event, argsCount: args.length, hasData: args.length > 0 });
       callback(...args);
     };
+    // Track original→wrapped so off() can remove the correct reference.
+    this.listenerMap.set(callback, wrappedCallback);
     if (this.socket) {
       this.socket.on(event, wrappedCallback);
     } else {
@@ -332,12 +341,21 @@ class SocketService {
    * Remove an event listener
    */
   off(event: string, callback?: (...args: unknown[]) => void): void {
-    if (this.socket) {
-      if (callback) {
-        this.socket.off(event, callback);
-      } else {
-        this.socket.off(event);
+    if (callback) {
+      const wrapped = this.listenerMap.get(callback) ?? callback;
+      const hadWrapped = this.listenerMap.has(callback);
+      this.listenerMap.delete(callback);
+      socketLog('Removing listener', { event, hadWrappedVersion: hadWrapped });
+      if (this.socket) {
+        this.socket.off(event, wrapped);
       }
+      // Also remove from the pending queue in case the socket isn't up yet.
+      this.pendingListeners = this.pendingListeners.filter(
+        p => !(p.event === event && p.callback === wrapped)
+      );
+    } else {
+      socketLog('Removing all listeners for event', { event });
+      this.socket?.off(event);
     }
   }
 

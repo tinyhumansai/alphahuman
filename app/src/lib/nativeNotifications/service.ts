@@ -7,7 +7,7 @@ import {
   type NotificationItem,
   notificationReceived,
 } from '../../store/notificationSlice';
-import { showNativeNotification } from './tauriBridge';
+import { ensureNotificationPermission, showNativeNotification } from './tauriBridge';
 
 const log = debug('native-notifications');
 
@@ -81,6 +81,12 @@ function truncate(input: string, max: number): string {
 export function startNativeNotificationsService(): void {
   if (started) return;
   started = true;
+
+  // Request OS notification permission early so native banners can fire.
+  // Fire-and-forget — permission state is logged for diagnostics.
+  void ensureNotificationPermission().then(granted => {
+    log('notification permission ensured: granted=%s', granted);
+  });
 
   chatDoneListener = (...args: unknown[]) => {
     const p = (args[0] ?? {}) as ChatDonePayload;
