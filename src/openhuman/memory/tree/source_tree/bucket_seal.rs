@@ -708,6 +708,7 @@ fn hydrate_inputs(config: &Config, level: u32, item_ids: &[String]) -> Result<Ve
 }
 
 fn hydrate_leaf_inputs(config: &Config, chunk_ids: &[String]) -> Result<Vec<SummaryInput>> {
+    use crate::openhuman::memory::tree::content_store::read as content_read;
     use crate::openhuman::memory::tree::score::store::{get_score, list_entity_ids_for_node};
     use crate::openhuman::memory::tree::store::get_chunk;
 
@@ -729,9 +730,20 @@ fn hydrate_leaf_inputs(config: &Config, chunk_ids: &[String]) -> Result<Vec<Summ
         // [`LabelStrategy::UnionFromChildren`] reads these fields off
         // each `SummaryInput` to roll labels up the tree.
         let entities = list_entity_ids_for_node(config, id).unwrap_or_default();
+        // Read the full body from disk — the `content` column in SQLite holds
+        // a ≤500-char preview after the MD-on-disk migration. The summariser
+        // must receive the complete chunk text so the seal output is not a
+        // summary of previews.
+        //
+        // For pre-MD-migration chunks (no content_path recorded) this call
+        // returns Err; callers that want to handle legacy rows should check
+        // content_path presence before calling hydrate_inputs.
+        let body = content_read::read_chunk_body(config, id).with_context(|| {
+            format!("[source_tree::bucket_seal] hydrate_leaf_inputs: read body for chunk {id}")
+        })?;
         out.push(SummaryInput {
             id: chunk.id.clone(),
-            content: chunk.content.clone(),
+            content: body,
             token_count: chunk.token_count,
             entities,
             topics: chunk.metadata.tags.clone(),
@@ -744,6 +756,8 @@ fn hydrate_leaf_inputs(config: &Config, chunk_ids: &[String]) -> Result<Vec<Summ
 }
 
 fn hydrate_summary_inputs(config: &Config, summary_ids: &[String]) -> Result<Vec<SummaryInput>> {
+    use crate::openhuman::memory::tree::content_store::read as content_read;
+
     let mut out: Vec<SummaryInput> = Vec::with_capacity(summary_ids.len());
     for id in summary_ids {
         let node = match store::get_summary(config, id)? {
@@ -755,9 +769,15 @@ fn hydrate_summary_inputs(config: &Config, summary_ids: &[String]) -> Result<Vec
                 continue;
             }
         };
+        // Read the full body from disk — `node.content` is a ≤500-char preview
+        // after the MD-on-disk migration. Higher-level seals (L2+) summarise
+        // over L1 summary content and need the full text, not a preview.
+        let body = content_read::read_summary_body(config, id).with_context(|| {
+            format!("[source_tree::bucket_seal] hydrate_summary_inputs: read body for summary {id}")
+        })?;
         out.push(SummaryInput {
             id: node.id.clone(),
-            content: node.content.clone(),
+            content: body,
             token_count: node.token_count,
             entities: node.entities.clone(),
             topics: node.topics.clone(),

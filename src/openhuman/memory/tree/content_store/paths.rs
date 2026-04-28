@@ -136,6 +136,10 @@ pub fn summary_abs_path(
 ///     → "email/legacyid/xyz.md"   (malformed — flat fallback)
 /// ```
 pub fn chunk_rel_path(source_kind: &str, source_id: &str, chunk_id: &str) -> String {
+    // Sanitize chunk_id into a cross-platform filename. Chunk IDs contain
+    // colons (e.g. `chat:slack:#eng:0`) which are illegal on Windows NTFS;
+    // replace illegal characters with `-` to match summary_rel_path behaviour.
+    let filename = sanitize_filename(chunk_id);
     match source_kind {
         "email" => {
             // Expected format: "gmail:{participants}"
@@ -143,7 +147,7 @@ pub fn chunk_rel_path(source_kind: &str, source_id: &str, chunk_id: &str) -> Str
             let parts: Vec<&str> = source_id.splitn(2, ':').collect();
             if parts.len() == 2 && parts[0] == "gmail" && !parts[1].is_empty() {
                 let participants_slug = slugify_source_id(parts[1]);
-                format!("email/{}/{}.md", participants_slug, chunk_id)
+                format!("email/{}/{}.md", participants_slug, filename)
             } else {
                 // Malformed / legacy source_id — fall back to flat layout.
                 // Redact the source_id before logging since it may embed email
@@ -153,13 +157,13 @@ pub fn chunk_rel_path(source_kind: &str, source_id: &str, chunk_id: &str) -> Str
                     redact(source_id)
                 );
                 let slug = slugify_source_id(source_id);
-                format!("email/{}/{}.md", slug, chunk_id)
+                format!("email/{}/{}.md", slug, filename)
             }
         }
         _ => {
             // Chat, Document, and any future kinds use a 3-level layout.
             let slug = slugify_source_id(source_id);
-            format!("{}/{}/{}.md", source_kind, slug, chunk_id)
+            format!("{}/{}/{}.md", source_kind, slug, filename)
         }
     }
 }

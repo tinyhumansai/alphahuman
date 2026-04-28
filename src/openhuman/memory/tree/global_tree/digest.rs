@@ -27,7 +27,8 @@ use rusqlite::OptionalExtension;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::tree::content_store::{
-    atomic::stage_summary, paths::slugify_source_id, SummaryComposeInput, SummaryTreeKind,
+    atomic::stage_summary, paths::slugify_source_id, read as content_read, SummaryComposeInput,
+    SummaryTreeKind,
 };
 use crate::openhuman::memory::tree::global_tree::registry::get_or_create_global_tree;
 use crate::openhuman::memory::tree::global_tree::seal::append_daily_and_cascade;
@@ -377,9 +378,23 @@ fn pick_source_contribution(
         }
     };
 
+    // Read the full body from disk — `node.content` is a ≤500-char preview
+    // after the MD-on-disk migration. The digest summariser must receive the
+    // complete summary text so the daily recap is not assembled from previews.
+    let body = match content_read::read_summary_body(config, &node.id) {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!(
+                "[global_tree::digest] read_summary_body failed for {} — using preview: {e:#}",
+                node.id
+            );
+            // Non-fatal: fall back to preview for pre-MD-migration rows.
+            node.content.clone()
+        }
+    };
     Ok(Some(SummaryInput {
         id: node.id,
-        content: format!("[{}]\n{}", source_tree.scope, node.content),
+        content: format!("[{}]\n{}", source_tree.scope, body),
         token_count: node.token_count,
         entities: node.entities,
         topics: node.topics,

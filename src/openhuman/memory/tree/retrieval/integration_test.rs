@@ -192,6 +192,7 @@ async fn ingest_populates_chunk_embeddings() {
 /// the seal from firing on short batches.
 #[tokio::test]
 async fn seal_populates_summary_embedding() {
+    use crate::openhuman::memory::tree::content_store;
     use crate::openhuman::memory::tree::score::embed::EMBEDDING_DIM;
     use crate::openhuman::memory::tree::source_tree::bucket_seal::{
         append_leaf, LabelStrategy, LeafRef,
@@ -227,6 +228,19 @@ async fn seal_populates_summary_embedding() {
     let c1 = mk_chunk(0, 6_000);
     let c2 = mk_chunk(1, 6_000);
     upsert_chunks(&cfg, &[c1.clone(), c2.clone()]).unwrap();
+    {
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).expect("create content_root for test");
+        let staged = content_store::stage_chunks(&content_root, &[c1.clone(), c2.clone()])
+            .expect("stage_chunks for test chunks");
+        crate::openhuman::memory::tree::store::with_connection(&cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .expect("persist staged chunk pointers");
+    }
 
     let leaf_of = |c: &Chunk| LeafRef {
         chunk_id: c.id.clone(),

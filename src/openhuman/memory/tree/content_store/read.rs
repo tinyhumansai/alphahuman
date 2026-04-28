@@ -108,6 +108,132 @@ pub fn verify_summary_file(abs_path: &Path, expected_sha256: &str) -> anyhow::Re
     }
 }
 
+// ── High-level body readers (Config-aware) ───────────────────────────────────
+//
+// These helpers resolve the on-disk path from SQLite via
+// `get_chunk_content_pointers` / `get_summary_content_pointers`, then read the
+// file body. They are the single authoritative entry-point for every caller
+// that needs the **full** chunk or summary body (LLM extractor, summariser
+// inputs, retrieval API, embedder). Preview-only consumers (UI cards, fast
+// filter scans) continue reading the `content` column directly from SQLite.
+//
+// Error policy:
+// - If `content_path` / `content_sha256` are NULL (legacy rows ingested before
+//   the MD-on-disk migration), return `Err` — callers must handle the
+//   "pre-migration chunk" case explicitly. The job pipeline propagates the
+//   error and retries; retrieval falls back gracefully.
+// - File-not-found or SHA mismatch → `Err` (propagated to caller for retry /
+//   alerting).
+
+/// Read the full body of a chunk `.md` file by its chunk id.
+///
+/// Looks up `content_path` in SQLite, resolves it to an absolute path under
+/// `config.memory_tree_content_root()`, reads the file, and returns the body
+/// string (everything after the YAML front-matter delimiter).
+///
+/// Returns `Err` if:
+/// - The chunk row has no `content_path` recorded (pre-MD-migration row).
+/// - The file cannot be read or has no valid front-matter.
+///
+/// # Preview vs. full body
+/// The `content` column in `mem_tree_chunks` holds a ≤500-char preview after
+/// the MD-on-disk migration. Use this function wherever the full body is
+/// required (LLM extraction, embedding, summariser inputs, retrieval API).
+pub fn read_chunk_body(
+    config: &crate::openhuman::config::Config,
+    chunk_id: &str,
+) -> anyhow::Result<String> {
+    use crate::openhuman::memory::tree::store::get_chunk_content_pointers;
+
+    let pointers = get_chunk_content_pointers(config, chunk_id)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "[content_store::read] no content_path for chunk_id={} (pre-MD-migration row?)",
+            chunk_id
+        )
+    })?;
+    let (rel_path, _sha256) = pointers;
+
+    let content_root = config.memory_tree_content_root();
+    // Reconstruct the absolute path from the stored relative forward-slash path.
+    let abs_path = {
+        let mut p = content_root.clone();
+        for component in rel_path.split('/') {
+            p.push(component);
+        }
+        p
+    };
+
+    log::debug!(
+        "[content_store::read] read_chunk_body chunk_id={} path_hash={}",
+        chunk_id,
+        redact(&rel_path),
+    );
+
+    let result = read_chunk_file(&abs_path).with_context(|| {
+        format!(
+            "read_chunk_body: failed to read file for chunk_id={} path_hash={}",
+            chunk_id,
+            redact(&rel_path),
+        )
+    })?;
+    Ok(result.body)
+}
+
+use anyhow::Context as _;
+
+/// Read the full body of a summary `.md` file by its summary id.
+///
+/// Looks up `content_path` in SQLite, resolves it to an absolute path under
+/// `config.memory_tree_content_root()`, reads the file, and returns the body
+/// string.
+///
+/// Returns `Err` if:
+/// - The summary row has no `content_path` recorded (pre-MD-migration row).
+/// - The file cannot be read or has no valid front-matter.
+///
+/// # Preview vs. full body
+/// The `content` column in `mem_tree_summaries` holds a ≤500-char preview after
+/// the MD-on-disk migration. Use this function wherever the full body is
+/// required (LLM extraction, embedding, summariser inputs, retrieval API).
+pub fn read_summary_body(
+    config: &crate::openhuman::config::Config,
+    summary_id: &str,
+) -> anyhow::Result<String> {
+    use crate::openhuman::memory::tree::store::get_summary_content_pointers;
+
+    let pointers = get_summary_content_pointers(config, summary_id)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "[content_store::read] no content_path for summary_id={} (pre-MD-migration row?)",
+            summary_id
+        )
+    })?;
+    let (rel_path, _sha256) = pointers;
+
+    let content_root = config.memory_tree_content_root();
+    let abs_path = {
+        let mut p = content_root.clone();
+        for component in rel_path.split('/') {
+            p.push(component);
+        }
+        p
+    };
+
+    log::debug!(
+        "[content_store::read] read_summary_body summary_id={} path_hash={}",
+        summary_id,
+        redact(&rel_path),
+    );
+
+    let result = read_summary_file(&abs_path).with_context(|| {
+        format!(
+            "read_summary_body: failed to read file for summary_id={} path_hash={}",
+            summary_id,
+            redact(&rel_path),
+        )
+    })?;
+    Ok(result.body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

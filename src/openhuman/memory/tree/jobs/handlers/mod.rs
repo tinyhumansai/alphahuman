@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 
 use crate::openhuman::config::Config;
-use crate::openhuman::memory::tree::content_store::{self as content_store, tags as content_tags};
+use crate::openhuman::memory::tree::content_store::{
+    self as content_store, read as content_read, tags as content_tags,
+};
 use crate::openhuman::memory::tree::global_tree::digest::{self, DigestOutcome};
 use crate::openhuman::memory::tree::jobs::store;
 use crate::openhuman::memory::tree::jobs::types::{
@@ -40,13 +42,27 @@ async fn handle_extract(config: &Config, job: &Job) -> Result<()> {
         return Ok(());
     };
 
+    // Read the full body from disk (the `content` column in SQLite holds a
+    // ≤500-char preview after the MD-on-disk migration). Both the scorer and
+    // the embedder need the complete text so extraction and semantic indexing
+    // operate over the full chunk body, not a truncated preview.
+    let body = content_read::read_chunk_body(config, &chunk.id)
+        .with_context(|| format!("read full body for extract chunk_id={}", chunk.id))?;
+    // Score a clone of the chunk with the full body swapped in.
+    let chunk_with_body = {
+        let mut c = chunk.clone();
+        c.content = body.clone();
+        c
+    };
+
     let scoring_cfg = score::ScoringConfig::from_config(config);
-    let result = score::score_chunk(&chunk, &scoring_cfg).await?;
+    let result = score::score_chunk(&chunk_with_body, &scoring_cfg).await?;
     let packed_embedding = if result.kept {
         let embedder =
             build_embedder_from_config(config).context("build embedder in extract handler")?;
+        // Reuse the body already read — avoid a second disk read.
         let vector = embedder
-            .embed(&chunk.content)
+            .embed(&body)
             .await
             .with_context(|| format!("embed chunk_id={} in extract handler", chunk.id))?;
         Some(
@@ -202,11 +218,16 @@ async fn handle_append_buffer(config: &Config, job: &Job) -> Result<()> {
             let score_row = score_store::get_score(config, &chunk.id)?
                 .ok_or_else(|| anyhow::anyhow!("missing score row for chunk {}", chunk.id))?;
             let entity_ids = score_store::list_entity_ids_for_node(config, &chunk.id)?;
+            // Read the full body from disk — the `content` column in SQLite
+            // is a ≤500-char preview after the MD-on-disk migration. The
+            // summariser receives this LeafRef and must see the complete text.
+            let body = content_read::read_chunk_body(config, chunk_id)
+                .with_context(|| format!("read chunk body in append_buffer chunk_id={chunk_id}"))?;
             let leaf = LeafRef {
                 chunk_id: chunk.id.clone(),
                 token_count: chunk.token_count,
                 timestamp: chunk.metadata.timestamp,
-                content: chunk.content.clone(),
+                content: body,
                 entities: entity_ids,
                 topics: chunk.metadata.tags.clone(),
                 score: score_row.total,
@@ -220,6 +241,13 @@ async fn handle_append_buffer(config: &Config, job: &Job) -> Result<()> {
                 );
                 return Ok(());
             };
+            // Read the full body from disk — `summary.content` is a ≤500-char
+            // preview after the MD-on-disk migration. The summariser receives
+            // this LeafRef when sealing higher-level nodes and must see the
+            // complete summary text.
+            let body = content_read::read_summary_body(config, summary_id).with_context(|| {
+                format!("read summary body in append_buffer summary_id={summary_id}")
+            })?;
             // Build a LeafRef from the summary's already-populated fields.
             // `chunk_id` carries the source-node id (any string); buffer
             // accounting uses it as the item id only.
@@ -227,7 +255,7 @@ async fn handle_append_buffer(config: &Config, job: &Job) -> Result<()> {
                 chunk_id: summary.id.clone(),
                 token_count: summary.token_count,
                 timestamp: summary.time_range_start,
-                content: summary.content.clone(),
+                content: body,
                 entities: summary.entities.clone(),
                 topics: summary.topics.clone(),
                 score: summary.score,
@@ -483,6 +511,7 @@ async fn handle_flush_stale(config: &Config, job: &Job) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::memory::tree::content_store;
     use crate::openhuman::memory::tree::jobs::store::{count_by_status, count_total};
     use crate::openhuman::memory::tree::jobs::types::JobStatus;
     use crate::openhuman::memory::tree::source_tree::bucket_seal::{append_leaf_deferred, LeafRef};
@@ -568,6 +597,18 @@ mod tests {
             partial_message: false,
         };
         upsert_chunks(cfg, &[chunk.clone()]).unwrap();
+        // Stage to disk so `hydrate_leaf_inputs` can read the full body via
+        // `read_chunk_body` when `handle_seal` fires and calls `seal_one_level`.
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).unwrap();
+        let staged = content_store::stage_chunks(&content_root, &[chunk.clone()]).unwrap();
+        with_connection(cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
         let leaf = LeafRef {
             chunk_id: chunk.id,
             token_count: 10_000,
@@ -664,6 +705,18 @@ mod tests {
             partial_message: false,
         };
         upsert_chunks(&cfg, &[chunk.clone()]).unwrap();
+        // Stage to disk so `hydrate_leaf_inputs` can read the full body
+        // when `handle_seal` fires.
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).unwrap();
+        let staged = content_store::stage_chunks(&content_root, &[chunk.clone()]).unwrap();
+        with_connection(&cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .unwrap();
         let leaf = LeafRef {
             chunk_id: chunk.id,
             token_count: 10_000,
@@ -718,6 +771,8 @@ mod tests {
             chunk_id, Chunk, Metadata, SourceKind, SourceRef,
         };
         let ts = chrono::Utc.timestamp_millis_opt(1_700_000_000_000).unwrap();
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).unwrap();
         for seq in 0..2 {
             let chunk = Chunk {
                 id: chunk_id(SourceKind::Chat, "slack:#eng", seq, "summary-seed"),
@@ -737,6 +792,16 @@ mod tests {
                 partial_message: false,
             };
             upsert_chunks(&cfg, &[chunk.clone()]).unwrap();
+            // Stage to disk so `hydrate_leaf_inputs` can read the full body
+            // during `seal_one_level`.
+            let staged = content_store::stage_chunks(&content_root, &[chunk.clone()]).unwrap();
+            with_connection(&cfg, |conn| {
+                let tx = conn.unchecked_transaction()?;
+                crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+                tx.commit()?;
+                Ok(())
+            })
+            .unwrap();
             let leaf = LeafRef {
                 chunk_id: chunk.id,
                 token_count: 6_000,

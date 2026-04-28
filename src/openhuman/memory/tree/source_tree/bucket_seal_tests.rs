@@ -1,7 +1,28 @@
 use super::*;
+use crate::openhuman::memory::tree::content_store;
 use crate::openhuman::memory::tree::source_tree::registry::get_or_create_source_tree;
 use crate::openhuman::memory::tree::source_tree::summariser::inert::InertSummariser;
 use tempfile::TempDir;
+
+/// Stage a batch of chunks to the content store so that `read_chunk_body`
+/// can find the on-disk file during seals. Tests that call `upsert_chunks`
+/// and then trigger a seal MUST also call this helper; otherwise
+/// `hydrate_leaf_inputs` will fail with "no content_path for chunk_id".
+fn stage_test_chunks(cfg: &Config, chunks: &[crate::openhuman::memory::tree::types::Chunk]) {
+    let content_root = cfg.memory_tree_content_root();
+    std::fs::create_dir_all(&content_root).expect("create content_root for test");
+    let staged =
+        content_store::stage_chunks(&content_root, chunks).expect("stage_chunks for test chunks");
+    // Record the content_path + content_sha256 pointers in SQLite so the
+    // store's `get_chunk_content_pointers` can resolve them later.
+    crate::openhuman::memory::tree::store::with_connection(cfg, |conn| {
+        let tx = conn.unchecked_transaction()?;
+        crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+        tx.commit()?;
+        Ok(())
+    })
+    .expect("persist staged chunk pointers");
+}
 
 fn test_config() -> (TempDir, Config) {
     let tmp = TempDir::new().unwrap();
@@ -82,6 +103,8 @@ async fn crossing_budget_triggers_seal() {
     let c1 = mk_chunk(0, per_leaf);
     let c2 = mk_chunk(1, per_leaf);
     upsert_chunks(&cfg, &[c1.clone(), c2.clone()]).unwrap();
+    // Stage both chunks to disk so the seal's hydrator can read full bodies.
+    stage_test_chunks(&cfg, &[c1.clone(), c2.clone()]);
 
     // Two leaves whose combined token_sum (12k) exceeds the 10k budget.
     let leaf1 = LeafRef {
@@ -188,6 +211,8 @@ async fn fanout_at_l1_triggers_l2_seal() {
     for seq in 0..fanout {
         let chunk = mk_chunk(seq);
         upsert_chunks(&cfg, &[chunk.clone()]).unwrap();
+        // Stage to disk so the seal hydrator can read the full body.
+        stage_test_chunks(&cfg, &[chunk.clone()]);
         let leaf = LeafRef {
             chunk_id: chunk.id.clone(),
             token_count: chunk.token_count,
@@ -269,6 +294,8 @@ async fn upper_level_does_not_seal_below_fanout() {
             partial_message: false,
         };
         upsert_chunks(&cfg, &[chunk.clone()]).unwrap();
+        // Stage to disk so the seal hydrator can read the full body.
+        stage_test_chunks(&cfg, &[chunk.clone()]);
         let leaf = LeafRef {
             chunk_id: chunk.id,
             token_count: chunk.token_count,
@@ -345,6 +372,9 @@ fn seed_leaf(
         partial_message: false,
     };
     upsert_chunks(cfg, &[chunk.clone()]).unwrap();
+    // Stage the chunk to disk so `hydrate_leaf_inputs` can read the full body
+    // via `read_chunk_body` during a seal triggered by `append_leaf`.
+    stage_test_chunks(cfg, &[chunk.clone()]);
     // Mirror production indexing: entities go into mem_tree_entity_index
     // so the seal hydrator can pull them via list_entity_ids_for_node.
     for entity_id in &entities {

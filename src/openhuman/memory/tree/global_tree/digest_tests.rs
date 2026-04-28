@@ -1,4 +1,5 @@
 use super::*;
+use crate::openhuman::memory::tree::content_store;
 use crate::openhuman::memory::tree::source_tree::bucket_seal::{
     append_leaf, LabelStrategy, LeafRef,
 };
@@ -8,6 +9,24 @@ use crate::openhuman::memory::tree::source_tree::types::TreeStatus;
 use crate::openhuman::memory::tree::store::upsert_chunks;
 use crate::openhuman::memory::tree::types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef};
 use tempfile::TempDir;
+
+/// Stage a batch of chunks to the content store so that `read_chunk_body`
+/// can find the on-disk file during seals. Tests that call `upsert_chunks`
+/// and then trigger a seal MUST also call this helper; otherwise
+/// `hydrate_leaf_inputs` will fail with "no content_path for chunk_id".
+fn stage_test_chunks(cfg: &Config, chunks: &[Chunk]) {
+    let content_root = cfg.memory_tree_content_root();
+    std::fs::create_dir_all(&content_root).expect("create content_root for test");
+    let staged =
+        content_store::stage_chunks(&content_root, chunks).expect("stage_chunks for test chunks");
+    crate::openhuman::memory::tree::store::with_connection(cfg, |conn| {
+        let tx = conn.unchecked_transaction()?;
+        crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+        tx.commit()?;
+        Ok(())
+    })
+    .expect("persist staged chunk pointers");
+}
 
 fn test_config() -> (TempDir, Config) {
     let tmp = TempDir::new().unwrap();
@@ -61,6 +80,7 @@ async fn seed_source_tree_with_sealed_l1(cfg: &Config, scope: &str, ts: DateTime
         partial_message: false,
     };
     upsert_chunks(cfg, &[c1.clone(), c2.clone()]).unwrap();
+    stage_test_chunks(cfg, &[c1.clone(), c2.clone()]);
 
     let leaf1 = LeafRef {
         chunk_id: c1.id.clone(),
@@ -264,6 +284,7 @@ async fn seed_source_tree_with_labeled_l1(
         });
     }
     upsert_chunks(cfg, &chunks).unwrap();
+    stage_test_chunks(cfg, &chunks);
 
     for chunk in &chunks {
         for entity_id in &entities {

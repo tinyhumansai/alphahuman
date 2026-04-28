@@ -23,6 +23,7 @@ use std::collections::VecDeque;
 use anyhow::Result;
 
 use crate::openhuman::config::Config;
+use crate::openhuman::memory::tree::content_store::read as content_read;
 use crate::openhuman::memory::tree::retrieval::types::{
     hit_from_chunk, hit_from_summary, RetrievalHit,
 };
@@ -179,15 +180,27 @@ fn walk_with_embeddings(
             continue;
         }
         // Is it a summary?
-        if let Some(summary) = store::get_summary(config, &id)? {
+        if let Some(mut summary) = store::get_summary(config, &id)? {
             let scope = store::get_tree(config, &summary.tree_id)?
                 .map(|t| t.scope)
                 .unwrap_or_else(|| root_tree_scope.clone());
+            // Hydrate the full body from disk — `summary.content` is a
+            // ≤500-char preview after the MD-on-disk migration.
+            // Non-fatal fallback for pre-MD-migration rows.
+            match content_read::read_summary_body(config, &id) {
+                Ok(body) => summary.content = body,
+                Err(e) => {
+                    log::warn!(
+                        "[retrieval::drill_down] read_summary_body failed — serving preview: {e:#}"
+                    );
+                }
+            }
             // Summary embeddings live on the struct directly (Phase 4 amend).
             embeddings.push(summary.embedding.clone());
+            let child_ids = summary.child_ids.clone();
             out.push(hit_from_summary(&summary, &scope));
             if depth < max_depth {
-                for next in summary.child_ids {
+                for next in child_ids {
                     frontier.push_back((next, depth + 1));
                 }
             }
@@ -195,11 +208,21 @@ fn walk_with_embeddings(
         }
         // Else try as a chunk (leaf). Chunk embeddings live in a separate
         // blob column — fetch via the existing accessor.
-        if let Some(chunk) = get_chunk(config, &id)? {
+        if let Some(mut chunk) = get_chunk(config, &id)? {
             // Propagate DB errors rather than silently treating them as
             // "no embedding" — the caller should know if the store is broken.
             let emb = get_chunk_embedding(config, &chunk.id)?;
             embeddings.push(emb);
+            // Hydrate the full body from disk — `chunk.content` is a
+            // ≤500-char preview after the MD-on-disk migration.
+            match content_read::read_chunk_body(config, &id) {
+                Ok(body) => chunk.content = body,
+                Err(e) => {
+                    log::warn!(
+                        "[retrieval::drill_down] read_chunk_body failed — serving preview: {e:#}"
+                    );
+                }
+            }
             // Score unknown here; 0.0 neutral placeholder.
             out.push(hit_from_chunk(&chunk, "", &chunk.metadata.source_id, 0.0));
             continue;
@@ -215,6 +238,7 @@ fn walk_with_embeddings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::memory::tree::content_store;
     use crate::openhuman::memory::tree::source_tree::bucket_seal::{
         append_leaf, LabelStrategy, LeafRef,
     };
@@ -242,6 +266,8 @@ mod tests {
         let ts = Utc::now();
         let tree = get_or_create_source_tree(cfg, "slack:#eng").unwrap();
         let summariser = InertSummariser::new();
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).unwrap();
         let mut leaf_ids: Vec<String> = Vec::new();
         for seq in 0..2u32 {
             let c = Chunk {
@@ -263,6 +289,16 @@ mod tests {
                 partial_message: false,
             };
             upsert_chunks(cfg, &[c.clone()]).unwrap();
+            // Stage to disk so `hydrate_leaf_inputs` can read the full body
+            // via `read_chunk_body` during the seal triggered by `append_leaf`.
+            let staged = content_store::stage_chunks(&content_root, &[c.clone()]).unwrap();
+            crate::openhuman::memory::tree::store::with_connection(cfg, |conn| {
+                let tx = conn.unchecked_transaction()?;
+                crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+                tx.commit()?;
+                Ok(())
+            })
+            .unwrap();
             leaf_ids.push(c.id.clone());
             append_leaf(
                 cfg,
@@ -431,15 +467,24 @@ mod tests {
             seq_in_source: 3,
             ..leaf_a_1.clone()
         };
-        upsert_chunks(
-            cfg,
-            &[
-                leaf_a_1.clone(),
-                leaf_a_2.clone(),
-                leaf_b_1.clone(),
-                leaf_b_2.clone(),
-            ],
-        )
+        let all_leaves = [
+            leaf_a_1.clone(),
+            leaf_a_2.clone(),
+            leaf_b_1.clone(),
+            leaf_b_2.clone(),
+        ];
+        upsert_chunks(cfg, &all_leaves).unwrap();
+        // Stage to disk so `walk_with_embeddings` can read full bodies via
+        // `read_chunk_body` for leaf hits returned by the drill-down.
+        let content_root = cfg.memory_tree_content_root();
+        std::fs::create_dir_all(&content_root).unwrap();
+        let staged = content_store::stage_chunks(&content_root, &all_leaves).unwrap();
+        crate::openhuman::memory::tree::store::with_connection(cfg, |conn| {
+            let tx = conn.unchecked_transaction()?;
+            crate::openhuman::memory::tree::store::upsert_staged_chunks_tx(&tx, &staged)?;
+            tx.commit()?;
+            Ok(())
+        })
         .unwrap();
 
         let l1_a = SummaryNode {
