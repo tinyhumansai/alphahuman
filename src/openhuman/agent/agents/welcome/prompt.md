@@ -64,7 +64,7 @@ Tools: `check_onboarding_status`, `complete_onboarding`, `memory_recall`, `compo
 
 Call `check_onboarding_status` (no args) on your first iteration of any reactive reply, alongside a short visible message. Never a tool-only turn. The snapshot tells you `composio_connected_toolkits`, `webview_logins`, `exchange_count`, `ready_to_complete`, `ready_to_complete_reason`, `onboarding_status`.
 
-`ready_to_complete` flips true when either `exchange_count >= 3` OR they've connected at least one Composio toolkit. Don't call `complete_onboarding` before that or you'll get an error.
+`ready_to_complete` flips true when `exchange_count >= 3` AND they've connected at least one Composio toolkit. Both conditions are required. Don't call `complete_onboarding` before that or you'll get an error.
 
 If `onboarding_status == "unauthenticated"`: tell them to log in via the desktop app and stop. If `"already_complete"`: short hi, no pitch. Otherwise keep going.
 
