@@ -8,29 +8,12 @@ import {
   waitForWindowVisible,
 } from '../helpers/element-helpers';
 import { supportsExecuteScript } from '../helpers/platform';
-import { completeOnboardingIfVisible, navigateViaHash } from '../helpers/shared-flows';
+import {
+  completeOnboardingIfVisible,
+  navigateViaHash,
+  openAddAccountModal,
+} from '../helpers/shared-flows';
 import { startMockServer, stopMockServer } from '../mock-server';
-
-async function openAddAccountModal(): Promise<void> {
-  // The "Add app" affordance is a button whose only labelled descendants are an
-  // SVG plus a tooltip span with `pointer-events: none`. None of the shared
-  // helpers (clickButton / clickText) can target it cleanly because the
-  // accessible name lives only on `aria-label`, so we reach for the explicit
-  // selector here. Tracking a follow-up to add a `clickByAriaLabel` helper.
-  const opened = await browser.execute(() => {
-    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
-    const addBtn = buttons.find(b => b.getAttribute('aria-label') === 'Add app');
-    if (addBtn) {
-      addBtn.click();
-      return true;
-    }
-    return false;
-  });
-  if (!opened) {
-    throw new Error('Could not locate Add app button on /accounts');
-  }
-  await waitForText('Add account', 5_000);
-}
 
 /**
  * Smoke spec for the WhatsApp Web account integration (feature 10.1.2).
@@ -118,25 +101,28 @@ describe('WhatsApp account integration smoke', () => {
     });
 
     // 2) Redux must record a new account with provider === "whatsapp" — the
-    // backing state mock-effect that proves registration happened, not just
-    // that the modal vanished. This pulls Redux directly because the Accounts
-    // rail tooltip and the modal both render the literal string "WhatsApp Web",
-    // so a DOM text assertion alone cannot distinguish them.
-    const registered = await browser.execute(() => {
-      const winAny = window as unknown as { __OPENHUMAN_STORE__?: { getState: () => unknown } };
-      const state = winAny.__OPENHUMAN_STORE__?.getState() as
-        | { accounts?: { accounts?: Record<string, { provider?: string }> } }
-        | undefined;
-      const accounts = state?.accounts?.accounts ?? {};
-      return Object.values(accounts).some(a => a.provider === 'whatsapp');
-    });
-    if (registered === undefined) {
-      // Store not exposed in this build — fall back to a strict DOM check that
-      // requires the rail-only "WhatsApp Web" tooltip to remain after the modal
-      // closes (the only place the label persists post-pick).
-      expect(await textExists('WhatsApp Web')).toBe(true);
-    } else {
-      expect(registered).toBe(true);
-    }
+    // backing-state mock-effect that proves registration happened, not just
+    // that the modal vanished. The Accounts rail tooltip and the modal both
+    // render the literal string "WhatsApp Web", so a DOM text assertion alone
+    // cannot distinguish them. The store handle is exposed on
+    // `window.__OPENHUMAN_STORE__` from `app/src/store/index.ts`.
+    const registered = await browser.waitUntil(
+      async () =>
+        await browser.execute(() => {
+          const winAny = window as unknown as { __OPENHUMAN_STORE__?: { getState: () => unknown } };
+          const state = winAny.__OPENHUMAN_STORE__?.getState() as
+            | { accounts?: { accounts?: Record<string, { provider?: string }> } }
+            | undefined;
+          if (!state) return false;
+          const accounts = state.accounts?.accounts ?? {};
+          return Object.values(accounts).some(a => a.provider === 'whatsapp');
+        }),
+      {
+        timeout: 5_000,
+        timeoutMsg:
+          'Redux accounts slice never recorded a whatsapp provider after picking the WhatsApp Web tile',
+      }
+    );
+    expect(registered).toBe(true);
   });
 });
