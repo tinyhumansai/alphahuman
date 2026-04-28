@@ -36,7 +36,7 @@ fn default_root_dir_name() -> &'static str {
     }
 }
 
-fn default_root_openhuman_dir() -> Result<PathBuf, String> {
+pub fn default_root_openhuman_dir() -> Result<PathBuf, String> {
     if let Ok(workspace) = std::env::var("OPENHUMAN_WORKSPACE") {
         let trimmed = workspace.trim();
         if !trimmed.is_empty() {
@@ -50,7 +50,7 @@ fn default_root_openhuman_dir() -> Result<PathBuf, String> {
     Ok(home.join(default_root_dir_name()))
 }
 
-fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
+pub fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
     let path = default_openhuman_dir.join(ACTIVE_USER_STATE_FILE);
     let contents = std::fs::read_to_string(path).ok()?;
     let state: ActiveUserState = toml::from_str(&contents).ok()?;
