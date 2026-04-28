@@ -11,6 +11,7 @@
  * Mounted once at AppShell root.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isTauri as coreIsTauri } from '@tauri-apps/api/core';
 
 import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
 import {
@@ -205,7 +206,7 @@ const NotificationsBody = ({ close }: { close: () => void }) => {
     setError(null);
     try {
       const granted = await ensureNotificationPermission();
-      if (!granted) {
+      if (coreIsTauri() && !granted) {
         setStatus('error');
         setError(
           'Notification permission was denied. Please enable notifications for OpenHuman in System Settings → Notifications.'
@@ -227,7 +228,6 @@ const NotificationsBody = ({ close }: { close: () => void }) => {
       await showNativeNotification({
         title: 'OpenHuman is good to go',
         body: 'You will get pings here when something needs your attention.',
-        tag: 'welcome-notification-test',
       });
       if (cancelledRef.current) {
         return;

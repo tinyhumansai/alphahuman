@@ -51,18 +51,23 @@ async function waitForNotificationsSections(timeout = 10_000): Promise<void> {
  * Fails fast if the sidecar is not reachable within the timeout.
  */
 async function waitForCoreSidecar(timeout = 30_000): Promise<void> {
-  const deadline = Date.now() + timeout;
   let lastErr: unknown;
-  while (Date.now() < deadline) {
-    const result = await callOpenhumanRpc('openhuman.about_info', {});
-    if (result.ok) {
-      stepLog('core sidecar ready', { result: result.result });
-      return;
+  await browser.waitUntil(
+    async () => {
+      const result = await callOpenhumanRpc('openhuman.about_info', {});
+      if (result.ok) {
+        stepLog('core sidecar ready', { result: result.result });
+        return true;
+      }
+      lastErr = result.error;
+      return false;
+    },
+    {
+      timeout,
+      interval: 1_000,
+      timeoutMsg: `Core sidecar not ready after ${timeout}ms: ${String(lastErr)}`,
     }
-    lastErr = result.error;
-    await browser.pause(1_000);
-  }
-  throw new Error(`Core sidecar not ready after ${timeout}ms: ${String(lastErr)}`);
+  );
 }
 
 describe('Notifications', () => {
@@ -134,7 +139,7 @@ describe('Notifications', () => {
     if (initialUnread > 0) {
       expect(finalUnread).toBeLessThan(initialUnread);
     } else {
-      expect(finalUnread).toBeGreaterThanOrEqual(0);
+      expect(finalUnread).toBe(0);
     }
   });
 
@@ -207,6 +212,8 @@ describe('Notifications', () => {
       return;
     }
 
+    // E2E command-wiring validation intentionally exercises the low-level
+    // invoke bridge from the webview context.
     const state = await browser.execute(async () => {
       const invoker = (window as unknown as { __TAURI_INTERNALS__?: { invoke?: Function } })
         .__TAURI_INTERNALS__?.invoke;
@@ -234,6 +241,8 @@ describe('Notifications', () => {
       return;
     }
 
+    // E2E command-wiring validation intentionally exercises the low-level
+    // invoke bridge from the webview context.
     const result = await browser.execute(async () => {
       const invoker = (window as unknown as { __TAURI_INTERNALS__?: { invoke?: Function } })
         .__TAURI_INTERNALS__?.invoke;

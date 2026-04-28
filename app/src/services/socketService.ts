@@ -279,12 +279,12 @@ class SocketService {
       socketLog('Disconnecting', { userId: uid });
       this.socket.disconnect();
       this.socket = null;
+      store.dispatch(resetForUser({ userId: uid }));
     }
     this.token = null;
     this.mcpTransport = null;
     this.listenerMap.clear();
     this.pendingListeners = [];
-    store.dispatch(resetForUser({ userId: uid }));
   }
 
   /**

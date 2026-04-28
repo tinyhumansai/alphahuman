@@ -7,7 +7,6 @@ const errLog = debug('native-notifications:bridge:error');
 export interface ShowNativeNotificationArgs {
   title: string;
   body: string;
-  tag?: string;
 }
 
 /**

@@ -52,35 +52,27 @@ function dispatchAndMaybeBanner(
   timestampOverride?: number
 ): void {
   const prefs = store.getState().notifications.preferences;
-  console.log('[notifications:service] dispatchAndMaybeBanner', {
+  log(
+    '[dispatch] category=%s id=%s enabled=%s focused=%s',
     category,
-    id: item.id,
-    title: item.title,
-    categoryEnabled: prefs[category],
-    windowFocused: windowIsFocused(),
-  });
+    item.id,
+    prefs[category],
+    windowIsFocused()
+  );
   if (!prefs[category]) {
     log('category %s disabled, skipping', category);
-    console.warn(
-      '[notifications:service] Category disabled, skipping:',
-      category,
-      '| prefs:',
-      prefs
-    );
     return;
   }
   const timestamp = timestampOverride && timestampOverride > 0 ? timestampOverride : Date.now();
   const full: NotificationItem = { ...item, category, timestamp, read: false };
-  console.log('[notifications:service] Dispatching to Redux notificationSlice', full);
+  log('[dispatch] enqueue id=%s title=%s', full.id, full.title);
   store.dispatch(notificationReceived(full));
   // Only fire OS-level banner when the user isn't already looking at the
   // window — otherwise the in-app center is enough and a native toast is
   // redundant noise.
   if (!windowIsFocused()) {
-    console.log('[notifications:service] Window not focused — firing native banner');
-    void showNativeNotification({ title: full.title, body: full.body, tag: full.id });
-  } else {
-    console.log('[notifications:service] Window is focused — skipping native banner (in-app only)');
+    log('[dispatch] window unfocused, firing native banner id=%s', full.id);
+    void showNativeNotification({ title: full.title, body: full.body });
   }
 }
 
@@ -103,12 +95,11 @@ export function startNativeNotificationsService(): void {
   // Fire-and-forget — permission state is logged for diagnostics.
   void ensureNotificationPermission().then(granted => {
     log('notification permission ensured: granted=%s', granted);
-    console.log('[notifications:service] Permission check complete — granted:', granted);
   });
 
   chatDoneListener = (...args: unknown[]) => {
     const p = (args[0] ?? {}) as ChatDonePayload;
-    console.log('[notifications:service] socket event: chat_done', p);
+    log('[socket] chat_done');
     dispatchAndMaybeBanner('agents', {
       id: `chat_done:${p.thread_id ?? 'unknown'}:${p.request_id ?? Date.now()}`,
       title: 'Agent reply ready',
@@ -119,7 +110,7 @@ export function startNativeNotificationsService(): void {
 
   chatErrorListener = (...args: unknown[]) => {
     const p = (args[0] ?? {}) as ChatErrorPayload;
-    console.log('[notifications:service] socket event: chat_error', p);
+    log('[socket] chat_error');
     dispatchAndMaybeBanner('system', {
       id: `chat_error:${p.thread_id ?? 'unknown'}:${p.request_id ?? Date.now()}`,
       title: 'Agent error',
@@ -133,9 +124,9 @@ export function startNativeNotificationsService(): void {
   // bus. See src/openhuman/notifications/bus.rs.
   coreNotificationListener = (...args: unknown[]) => {
     const p = (args[0] ?? {}) as CoreNotificationPayload;
-    console.log('[notifications:service] socket event: core_notification', p);
+    log('[socket] core_notification id=%s category=%s', p.id, p.category);
     if (!p.id || !p.title) {
-      console.warn('[notifications:service] core_notification missing id/title — dropped', p);
+      log('[socket] core_notification missing id/title dropped');
       return;
     }
     const serverTs = p.timestamp_ms && p.timestamp_ms > 0 ? p.timestamp_ms : Date.now();
@@ -153,7 +144,7 @@ export function startNativeNotificationsService(): void {
 
   disconnectListener = (...args: unknown[]) => {
     const reason = typeof args[0] === 'string' ? args[0] : 'unknown';
-    console.log('[notifications:service] socket event: disconnect — reason:', reason);
+    log('[socket] disconnect reason=%s', reason);
     dispatchAndMaybeBanner('system', {
       id: `socket_disconnect:${Date.now()}`,
       title: 'Connection lost',
@@ -167,9 +158,6 @@ export function startNativeNotificationsService(): void {
   socketService.on('disconnect', disconnectListener);
 
   log('started — subscribed to chat_done, chat_error, core_notification, disconnect');
-  console.log(
-    '[notifications:service] Started — listeners registered for: chat_done, chat_error, core_notification, disconnect'
-  );
 }
 
 export function stopNativeNotificationsService(): void {
