@@ -13,7 +13,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useChannelDefinitions } from '../hooks/useChannelDefinitions';
-import { ensureNotificationPermission, showNativeNotification } from '../lib/nativeNotifications/tauriBridge';
+import {
+  ensureNotificationPermission,
+  showNativeNotification,
+} from '../lib/nativeNotifications/tauriBridge';
 import { purgeWebviewAccount } from '../services/webviewAccountService';
 import { addAccount, removeAccount } from '../store/accountsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -192,7 +195,9 @@ const NotificationsBody = ({ close }: { close: () => void }) => {
       const granted = await ensureNotificationPermission();
       if (!granted) {
         setStatus('error');
-        setError('Notification permission was denied. Please enable notifications for OpenHuman in System Settings → Notifications.');
+        setError(
+          'Notification permission was denied. Please enable notifications for OpenHuman in System Settings → Notifications.'
+        );
         return;
       }
       // Delay the test ping so users can move focus away from OpenHuman.

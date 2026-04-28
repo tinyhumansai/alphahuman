@@ -61,7 +61,12 @@ function dispatchAndMaybeBanner(
   });
   if (!prefs[category]) {
     log('category %s disabled, skipping', category);
-    console.warn('[notifications:service] Category disabled, skipping:', category, '| prefs:', prefs);
+    console.warn(
+      '[notifications:service] Category disabled, skipping:',
+      category,
+      '| prefs:',
+      prefs
+    );
     return;
   }
   const timestamp = timestampOverride && timestampOverride > 0 ? timestampOverride : Date.now();
@@ -162,7 +167,9 @@ export function startNativeNotificationsService(): void {
   socketService.on('disconnect', disconnectListener);
 
   log('started — subscribed to chat_done, chat_error, core_notification, disconnect');
-  console.log('[notifications:service] Started — listeners registered for: chat_done, chat_error, core_notification, disconnect');
+  console.log(
+    '[notifications:service] Started — listeners registered for: chat_done, chat_error, core_notification, disconnect'
+  );
 }
 
 export function stopNativeNotificationsService(): void {

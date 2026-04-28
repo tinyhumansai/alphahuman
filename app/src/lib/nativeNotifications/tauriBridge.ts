@@ -53,11 +53,7 @@ export async function showNativeNotification(args: ShowNativeNotificationArgs): 
   }
   try {
     await invoke('plugin:notification|notify', {
-      options: {
-        title: args.title,
-        body: args.body,
-        sound: 'default',
-      },
+      options: { title: args.title, body: args.body, sound: 'default' },
     });
   } catch (err) {
     errLog('plugin:notification|notify failed: %O', err);
