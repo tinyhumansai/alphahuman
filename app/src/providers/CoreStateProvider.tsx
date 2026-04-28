@@ -64,6 +64,18 @@ interface CoreStateContextValue extends CoreState {
   setOnboardingCompletedFlag: (value: boolean) => Promise<void>;
   setEncryptionKey: (value: string | null) => Promise<void>;
   setPrimaryWalletAddress: (value: string | null) => Promise<void>;
+  /**
+   * Shallow-merge `patch` into `state.snapshot`. Top-level keys in `patch`
+   * REPLACE the existing value — they are not deep-merged.
+   *
+   * This means passing a nested object (e.g. `{ localState: { encryptionKey: 'x' } }`)
+   * will CLOBBER sibling fields on that object (`primaryWalletAddress`,
+   * `onboardingTasks`). Only flat top-level fields are safe to patch directly:
+   * `currentUser`, `onboardingCompleted`, `chatOnboardingCompleted`,
+   * `analyticsEnabled`, `sessionToken`. For nested-object updates, use the
+   * dedicated setter (`setEncryptionKey`, `setPrimaryWalletAddress`,
+   * `setOnboardingTasks`) which preserves siblings.
+   */
   patchSnapshot: (patch: Partial<CoreAppSnapshot>) => void;
   setOnboardingTasks: (value: CoreOnboardingTasks | null) => Promise<void>;
   storeSessionToken: (token: string, user?: object) => Promise<void>;
