@@ -142,19 +142,54 @@ impl EntityExtractor for LlmEntityExtractor {
         // JSON parse) is logged as a warn and returns an empty
         // `ExtractedEntities` rather than `Err`. This makes the extractor
         // safe to call from any context, not just `score_chunk` (which
-        // separately catches errors from its own extractor chain). A caller
-        // distinguishes "LLM had nothing to say" from "LLM ran and returned
-        // zero entities" by inspecting `llm_importance` — `None` means the
-        // call didn't complete successfully.
-        Ok(self.extract_or_empty(text).await)
+        // separately catches errors from its own extractor chain).
+        //
+        // Transport failures get bounded retry-with-backoff before falling
+        // back to empty — see [`Self::try_extract`]. Non-transport failures
+        // (HTTP non-success, malformed JSON) fall back immediately because
+        // retrying the same input would yield the same bad response.
+        const MAX_ATTEMPTS: u32 = 3;
+        const BASE_BACKOFF_MS: u64 = 250;
+
+        for attempt in 0..MAX_ATTEMPTS {
+            match self.try_extract(text).await {
+                Some(extracted) => return Ok(extracted),
+                None => {
+                    // Transport failure. Retry with exponential backoff
+                    // unless we've exhausted attempts.
+                    if attempt + 1 < MAX_ATTEMPTS {
+                        let delay_ms = BASE_BACKOFF_MS * 2u64.pow(attempt);
+                        log::warn!(
+                            "[memory_tree::extract::llm] transport failure, retrying in \
+                             {delay_ms}ms (attempt {}/{})",
+                            attempt + 2,
+                            MAX_ATTEMPTS
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    }
+                }
+            }
+        }
+
+        log::warn!(
+            "[memory_tree::extract::llm] transport failed after {} attempts — \
+             returning empty extraction",
+            MAX_ATTEMPTS
+        );
+        Ok(ExtractedEntities::default())
     }
 }
 
 impl LlmEntityExtractor {
-    /// Internal: wraps the actual HTTP call and returns `ExtractedEntities`
-    /// for every failure mode via soft-fallback. Split out of `extract` so
-    /// the error branches can share logging without `?`-propagation.
-    async fn extract_or_empty(&self, text: &str) -> ExtractedEntities {
+    /// Internal: one attempt at calling Ollama.
+    ///
+    /// Returns:
+    /// - `Some(extracted)` — call completed (HTTP returned). Includes the
+    ///   "HTTP non-success" and "malformed JSON" cases, which return
+    ///   `Some(empty)` because retrying the same input won't help.
+    /// - `None` — transport-level failure (DNS, connect refused, timeout
+    ///   before any HTTP response). Caller may retry.
+    async fn try_extract(&self, text: &str) -> Option<ExtractedEntities> {
         let url = format!("{}/api/chat", self.cfg.endpoint.trim_end_matches('/'));
         let body = self.build_request(text);
         log::debug!(
@@ -167,10 +202,9 @@ impl LlmEntityExtractor {
             Ok(r) => r,
             Err(e) => {
                 log::warn!(
-                    "[memory_tree::extract::llm] transport failure to {url}: {e} — \
-                     returning empty extraction"
+                    "[memory_tree::extract::llm] transport failure to {url}: {e}"
                 );
-                return ExtractedEntities::default();
+                return None;
             }
         };
 
@@ -182,7 +216,7 @@ impl LlmEntityExtractor {
                  returning empty extraction",
                 truncate_for_log(&body, 200)
             );
-            return ExtractedEntities::default();
+            return Some(ExtractedEntities::default());
         }
 
         let envelope: OllamaChatResponse = match resp.json().await {
@@ -192,7 +226,7 @@ impl LlmEntityExtractor {
                     "[memory_tree::extract::llm] response body not Ollama-shaped JSON: {e} — \
                      returning empty extraction"
                 );
-                return ExtractedEntities::default();
+                return Some(ExtractedEntities::default());
             }
         };
         log::debug!(
@@ -208,11 +242,11 @@ impl LlmEntityExtractor {
                      response: {e}; content was: {} — returning empty extraction",
                     truncate_for_log(&envelope.message.content, 400)
                 );
-                return ExtractedEntities::default();
+                return Some(ExtractedEntities::default());
             }
         };
 
-        parsed.into_extracted_entities(text, &self.cfg)
+        Some(parsed.into_extracted_entities(text, &self.cfg))
     }
 }
 
