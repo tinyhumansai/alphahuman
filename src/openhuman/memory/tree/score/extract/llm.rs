@@ -201,9 +201,7 @@ impl LlmEntityExtractor {
         let resp = match self.http.post(&url).json(&body).send().await {
             Ok(r) => r,
             Err(e) => {
-                log::warn!(
-                    "[memory_tree::extract::llm] transport failure to {url}: {e}"
-                );
+                log::warn!("[memory_tree::extract::llm] transport failure to {url}: {e}");
                 return None;
             }
         };
