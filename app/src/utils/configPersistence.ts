@@ -4,7 +4,6 @@
  * Handles storing/retrieving user preferences like RPC URL using
  * localStorage (web) or Tauri store (desktop).
  */
-
 import { isTauri } from './tauriCommands';
 
 // Storage key for RPC URL preference

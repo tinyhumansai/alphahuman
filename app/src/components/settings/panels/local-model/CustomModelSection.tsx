@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import {
   openhumanGetConfig,
   openhumanUpdateModelSettings,
@@ -58,7 +59,8 @@ const CustomModelSection = () => {
       <h3 className="text-sm font-semibold text-stone-900">Custom Provider (OpenAI Compatible)</h3>
       <div className="bg-stone-50 rounded-lg border border-stone-200 p-4 space-y-4">
         <p className="text-xs text-stone-500">
-          Configure a custom OpenAI-compatible backend (like vLLM or LiteLLM). If set, this will route requests to your custom endpoint instead of the standard local or built-in backends.
+          Configure a custom OpenAI-compatible backend (like vLLM or LiteLLM). If set, this will
+          route requests to your custom endpoint instead of the standard local or built-in backends.
         </p>
 
         {isLoading ? (
@@ -66,9 +68,7 @@ const CustomModelSection = () => {
         ) : (
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">
-                Base URL
-              </label>
+              <label className="block text-xs font-medium text-stone-700 mb-1">Base URL</label>
               <input
                 type="text"
                 value={apiUrl}
@@ -78,9 +78,7 @@ const CustomModelSection = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-700 mb-1">
-                API Key
-              </label>
+              <label className="block text-xs font-medium text-stone-700 mb-1">API Key</label>
               <input
                 type="password"
                 value={apiKey}

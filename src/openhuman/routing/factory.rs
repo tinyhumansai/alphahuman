@@ -40,7 +40,11 @@ pub fn new_provider(
         .filter(|s| !s.is_empty());
 
     let provider_kind = local_ai_config.provider.trim().to_ascii_lowercase();
-    let use_openai_compat_local = override_base.is_some() || matches!(provider_kind.as_str(), "llamacpp" | "llama-server" | "custom_openai");
+    let use_openai_compat_local = override_base.is_some()
+        || matches!(
+            provider_kind.as_str(),
+            "llamacpp" | "llama-server" | "custom_openai"
+        );
 
     let (provider_label, local_base, health) = if use_openai_compat_local {
         let base = override_base
@@ -52,7 +56,11 @@ pub fn new_provider(
             "[routing] local inference configured via OpenAI-compat (non-ollama)"
         );
         (
-            if provider_kind == "custom_openai" { "custom_openai" } else { "llamacpp" },
+            if provider_kind == "custom_openai" {
+                "custom_openai"
+            } else {
+                "llamacpp"
+            },
             base,
             Arc::new(LocalHealthChecker::with_probe_url(probe, LOCAL_HEALTH_TTL)),
         )
@@ -66,17 +74,11 @@ pub fn new_provider(
         )
     };
 
-    let auth_style = if local_ai_config.api_key.is_some() {
-        AuthStyle::Bearer
-    } else {
-        AuthStyle::Bearer
-    };
-
     let local: Box<dyn Provider> = Box::new(OpenAiCompatibleProvider::new(
         provider_label,
         &local_base,
-        local_ai_config.api_key.as_deref(), // local servers do not require authentication, but custom endpoints might
-        auth_style,
+        local_ai_config.api_key.as_deref(),
+        AuthStyle::Bearer,
     ));
 
     IntelligentRoutingProvider::new(

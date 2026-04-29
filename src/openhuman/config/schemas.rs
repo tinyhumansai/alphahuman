@@ -588,8 +588,8 @@ fn handle_get_config(_params: Map<String, Value>) -> ControllerFuture {
 fn handle_get_client_config(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let config = config_rpc::load_config_with_timeout().await?;
-        let app_version = std::env::var("OPENHUMAN_APP_VERSION")
-            .unwrap_or_else(|_| "unknown".to_string());
+        let app_version =
+            std::env::var("OPENHUMAN_APP_VERSION").unwrap_or_else(|_| "unknown".to_string());
         to_json(serde_json::json!({
             "api_url": config.api_url,
             "default_model": config.default_model,
@@ -769,7 +769,7 @@ fn handle_update_voice_server_settings(params: Map<String, Value>) -> Controller
         let update = deserialize_params::<VoiceServerSettingsUpdate>(params)?;
         let patch = config_rpc::VoiceServerSettingsPatch {
             auto_start: update.auto_start,
-            hotkey: update.hotoken,
+            hotkey: update.hotkey,
             activation_mode: update.activation_mode,
             skip_cleanup: update.skip_cleanup,
             min_duration_secs: update.min_duration_secs,

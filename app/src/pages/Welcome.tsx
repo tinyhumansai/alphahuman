@@ -4,6 +4,8 @@ import OAuthProviderButton from '../components/oauth/OAuthProviderButton';
 import { oauthProviderConfigs } from '../components/oauth/providerConfigs';
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
 import { sendEmailMagicLink } from '../services/api/authApi';
+import { clearCoreRpcUrlCache } from '../services/coreRpcClient';
+import { useDeepLinkAuthState } from '../store/deepLinkAuthState';
 import {
   clearStoredRpcUrl,
   getDefaultRpcUrl,
@@ -12,7 +14,6 @@ import {
   normalizeRpcUrl,
   storeRpcUrl,
 } from '../utils/configPersistence';
-import { useDeepLinkAuthState } from '../store/deepLinkAuthState';
 import { isTauri } from '../utils/tauriCommands';
 
 // Desktop deep-link scheme root; must match DESKTOP_FRONTEND_URI on the backend
@@ -50,6 +51,7 @@ const Welcome = () => {
     }
 
     storeRpcUrl(normalized);
+    clearCoreRpcUrlCache();
     setRpcUrlError(null);
     setConnectionTested(true);
 
@@ -60,6 +62,7 @@ const Welcome = () => {
   // Reset RPC URL to default
   const handleResetRpcUrl = () => {
     clearStoredRpcUrl();
+    clearCoreRpcUrlCache();
     setRpcUrl(getDefaultRpcUrl());
     setRpcUrlError(null);
     setConnectionTested(false);
@@ -82,18 +85,14 @@ const Welcome = () => {
       const response = await fetch(normalized, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'openhuman.ping',
-          params: {},
-        }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'openhuman.ping', params: {} }),
       });
 
       if (response.ok || response.status === 400 || response.status === 405) {
         // 400/405 means the endpoint exists but method not found - still valid
         setConnectionTested(true);
         storeRpcUrl(normalized);
+        clearCoreRpcUrlCache();
       } else {
         setRpcUrlError(`Connection failed: ${response.status} ${response.statusText}`);
       }

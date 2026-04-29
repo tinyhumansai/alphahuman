@@ -49,6 +49,16 @@ const LEGACY_METHOD_ALIASES: Record<string, string> = {
 let nextJsonRpcId = 1;
 let resolvedCoreRpcUrl: string | null = null;
 let resolvingCoreRpcUrl: Promise<string> | null = null;
+
+/**
+ * Invalidate the cached core RPC URL so the next call to getCoreRpcUrl()
+ * re-resolves from the user-configured or environment-default value.
+ * Call this after the user saves a new RPC URL preference.
+ */
+export function clearCoreRpcUrlCache(): void {
+  resolvedCoreRpcUrl = null;
+  resolvingCoreRpcUrl = null;
+}
 const coreRpcLog = debug('core-rpc');
 const coreRpcError = debug('core-rpc:error');
 
