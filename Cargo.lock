@@ -4574,6 +4574,7 @@ dependencies = [
  "hostname",
  "hound",
  "html2md",
+ "iana-time-zone",
  "image",
  "landlock",
  "lettre",

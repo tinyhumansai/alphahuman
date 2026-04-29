@@ -77,8 +77,8 @@ jobs:
           cargo tauri build -c "$TAURI_CONFIG_OVERRIDE" --bundles deb
         env:
           NODE_ENV: production
-          CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
-          CARGO_PROFILE_RELEASE_LTO: 'false'
-          CARGO_PROFILE_RELEASE_STRIP: 'true'
-          CARGO_PROFILE_RELEASE_DEBUG: 'false'
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+          CARGO_PROFILE_RELEASE_DEBUG: "false"

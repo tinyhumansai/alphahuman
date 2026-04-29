@@ -65,6 +65,7 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures = "0.3"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
+iana-time-zone = "0.1"
 cron = "0.12"
 futures-util = "0.3"
 directories = "6"
