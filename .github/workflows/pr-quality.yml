@@ -66,6 +66,7 @@ jobs:
             --exclude '^http://localhost'
             --exclude '^https?://127\.0\.0\.1'
             --exclude 'docs/install\.md#apt-debianubuntu$'
+            --exclude '^https://github\.com/tinyhumansai/homebrew-openhuman'
             'docs/**/*.md'
             'src/**/README.md'
             '.github/PULL_REQUEST_TEMPLATE.md'
