@@ -44,7 +44,7 @@ impl Tool for CheckOnboardingStatusTool {
          ```\n\
          # Onboarding Status\n\
          \n\
-         - **status:** pending (ready_to_complete: false, reason: fewer_than_min_exchanges_and_no_skills_connected)\n\
+         - **status:** pending (ready_to_complete: false, reason: no_apps_connected)\n\
          - **auth:** yes (session_token)\n\
          - **exchanges:** 1\n\
          - **composio:** gmail\n\
@@ -60,9 +60,9 @@ impl Tool for CheckOnboardingStatusTool {
          session cookie for that provider; reference it instead of asking \
          them to log in again.\n\
          \n\
-         `ready_to_complete` flips true when at least one of:\n\
-         * The user has had at least 3 back-and-forth exchanges, or\n\
-         * The user has connected at least one Composio integration.\n\
+         `ready_to_complete` flips true when at least one app is connected:\n\
+         * At least one webview login is active (built-in browser app), or\n\
+         * At least one Composio integration is connected.\n\
          \n\
          `status`:\n\
          * `pending` — authenticated, conversation in progress. Check \
@@ -106,8 +106,8 @@ async fn check_status() -> anyhow::Result<ToolResult> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
-    let state = compute_state(&config).await;
     let webview_logins = crate::openhuman::webview_accounts::detect_webview_logins();
+    let state = compute_state(&config, &webview_logins).await;
 
     tracing::debug!(
         authenticated = state.is_authenticated,
