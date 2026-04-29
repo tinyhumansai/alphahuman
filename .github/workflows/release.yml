@@ -570,6 +570,13 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_CORE }}
+          # Must match the release tag the running core binary reports
+          # (`openhuman@<version>+<sha>`, see `build_release_tag` in
+          # src/main.rs). If this drifts, DIFs attach to a different
+          # release than events and stack traces stay un-symbolicated.
+          SENTRY_RELEASE:
+            openhuman@${{ needs.prepare-build.outputs.version }}+${{
+            needs.prepare-build.outputs.sha }}
           VERSION: ${{ needs.prepare-build.outputs.version }}
           MATRIX_TARGET: ${{ matrix.settings.target }}
         run: |
@@ -590,6 +597,14 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_TAURI }}
+          # Must match the release tag the running shell binary reports
+          # (`openhuman@<version>+<sha>`, see `build_sentry_release_tag` in
+          # app/src-tauri/src/lib.rs). If this drifts, DIFs attach to a
+          # different release than events and stack traces stay
+          # un-symbolicated.
+          SENTRY_RELEASE:
+            openhuman@${{ needs.prepare-build.outputs.version }}+${{
+            needs.prepare-build.outputs.sha }}
           VERSION: ${{ needs.prepare-build.outputs.version }}
           MATRIX_TARGET: ${{ matrix.settings.target }}
         run: |
