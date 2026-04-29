@@ -332,9 +332,6 @@ const threadSlice = createSlice({
       .addCase(persistReaction.fulfilled, (state, action) => {
         appendMessageToCache(state, action.payload.threadId, action.payload.message, true);
       })
-      .addCase(updateThreadLabels.fulfilled, () => {
-        // Redundant as updateThreadLabels thunk already dispatches loadThreads()
-      })
       .addCase(deleteThread.fulfilled, (state, action) => {
         delete state.messagesByThreadId[action.payload.threadId];
       })

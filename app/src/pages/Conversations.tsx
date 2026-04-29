@@ -811,12 +811,21 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     return Array.from(new Set(threads.flatMap(t => t.labels ?? []))).sort();
   }, [threads]);
 
-  const labelTabs = useMemo(() => {
-    return [
-      { label: 'All', value: 'all' },
-      ...allLabels.map(l => ({ label: l.charAt(0).toUpperCase() + l.slice(1), value: l })),
-    ];
-  }, [allLabels]);
+  // Fixed tab set so categories don't disappear when empty and the active
+  // filter state remains unambiguous regardless of what threads exist.
+  const labelTabs = [
+    { label: 'All', value: 'all' },
+    { label: 'Work', value: 'work' },
+    { label: 'Briefing', value: 'briefing' },
+    { label: 'Notification', value: 'notification' },
+  ];
+
+  // Reset stale selectedLabel when the last thread carrying that label is deleted.
+  useEffect(() => {
+    if (selectedLabel !== 'all' && !allLabels.includes(selectedLabel)) {
+      setSelectedLabel('all');
+    }
+  }, [allLabels, selectedLabel]);
 
   const isSidebar = variant === 'sidebar';
 
@@ -859,7 +868,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
           </div>
           <div className="flex-1 overflow-y-auto">
             {sortedThreads.length === 0 ? (
-              <p className="px-4 py-6 text-xs text-stone-400 text-center">No threads yet</p>
+              <p className="px-4 py-6 text-xs text-stone-400 text-center">
+                {selectedLabel === 'all' ? 'No threads yet' : `No "${selectedLabel}" threads`}
+              </p>
             ) : (
               sortedThreads.map(thread => (
                 <div

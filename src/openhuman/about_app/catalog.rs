@@ -117,6 +117,16 @@ const CAPABILITIES: &[Capability] = &[
         privacy: None,
     },
     Capability {
+        id: "conversation.label_filter",
+        name: "Thread Label Filters",
+        domain: "conversation",
+        category: CapabilityCategory::Conversation,
+        description: "Filter the thread list by label (Work, Briefing, Notification) using the tab bar at the top of the thread list.",
+        how_to: "Conversations > Label tabs",
+        status: CapabilityStatus::Beta,
+        privacy: None,
+    },
+    Capability {
         id: "intelligence.analyze_actionable_items",
         name: "Analyze Actionable Items",
         domain: "intelligence",

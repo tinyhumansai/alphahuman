@@ -153,9 +153,17 @@ pub async fn thread_create_new(
             id,
             title,
             created_at,
-            labels: request.labels.or(Some(vec!["work".to_string()])),
+            // Pass labels through as-is; the store's infer_labels() applies
+            // the same default on index rebuild, so this is the single source
+            // of truth for default labels.
+            labels: request.labels,
         },
     )?;
+    tracing::debug!(
+        thread_id = %thread.id,
+        labels = ?thread.labels,
+        "[threads] created new thread"
+    );
     Ok(envelope(
         thread_to_summary(thread),
         Some(counts([("num_threads", 1)])),
@@ -368,6 +376,10 @@ pub async fn thread_generate_title(
 }
 
 /// Updates labels for a conversation thread.
+///
+/// An empty `labels` vec is valid and clears all labels from the thread,
+/// making it invisible in every non-"All" filter view. Callers should
+/// ensure this is intentional.
 pub async fn thread_update_labels(
     request: UpdateConversationThreadLabelsRequest,
 ) -> Result<RpcOutcome<ApiEnvelope<ConversationThreadSummary>>, String> {
@@ -375,9 +387,14 @@ pub async fn thread_update_labels(
     let thread = conversations::update_thread_labels(
         dir,
         &request.thread_id,
-        request.labels,
+        request.labels.clone(),
         &chrono::Utc::now().to_rfc3339(),
     )?;
+    tracing::debug!(
+        thread_id = %request.thread_id,
+        labels = ?request.labels,
+        "[threads] updated thread labels"
+    );
     Ok(envelope(
         thread_to_summary(thread),
         Some(counts([("num_threads", 1)])),
