@@ -26,7 +26,7 @@ import { OnboardingContext, type OnboardingDraft } from './OnboardingContext';
  * `addMessageLocal`), so the user only sees the agent's reply.
  */
 const WELCOME_TRIGGER_MESSAGE =
-  'the user just finished the desktop onboarding wizard. welcome the user.';
+  'the user just finished the desktop onboarding wizard. welcome the user. say something interesting from the profile information above';
 
 /**
  * Model id used for the welcome trigger send. Mirrors the constant in
