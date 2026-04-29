@@ -824,7 +824,10 @@ async fn json_rpc_thread_labels_create_and_update() {
         json!({ "labels": ["custom"] }),
     )
     .await;
-    let created = assert_no_jsonrpc_error(&create, "threads_create_new with labels");
+    let create_outer = assert_no_jsonrpc_error(&create, "threads_create_new with labels");
+    let created = create_outer
+        .get("data")
+        .expect("data envelope in create response");
     let thread_id = created
         .get("id")
         .and_then(Value::as_str)
@@ -850,7 +853,10 @@ async fn json_rpc_thread_labels_create_and_update() {
         json!({ "thread_id": thread_id, "labels": ["work", "briefing"] }),
     )
     .await;
-    let updated = assert_no_jsonrpc_error(&update, "threads_update_labels");
+    let update_outer = assert_no_jsonrpc_error(&update, "threads_update_labels");
+    let updated = update_outer
+        .get("data")
+        .expect("data envelope in update response");
     let updated_labels = updated
         .get("labels")
         .and_then(Value::as_array)
@@ -866,7 +872,10 @@ async fn json_rpc_thread_labels_create_and_update() {
 
     // 3. Verify the updated labels are reflected in threads_list.
     let list = post_json_rpc(&rpc_base, 9003, "openhuman.threads_list", json!({})).await;
-    let list_result = assert_no_jsonrpc_error(&list, "threads_list after label update");
+    let list_outer = assert_no_jsonrpc_error(&list, "threads_list after label update");
+    let list_result = list_outer
+        .get("data")
+        .expect("data envelope in list response");
     let threads = list_result
         .get("threads")
         .and_then(Value::as_array)
