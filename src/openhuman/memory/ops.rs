@@ -949,12 +949,12 @@ pub async fn memory_sync_channel(
         "[memory.sync] memory_sync_channel: MemorySyncRequested published channel_id={}",
         params.channel_id
     );
-    Ok(RpcOutcome::single_log(
+    Ok(RpcOutcome::new(
         SyncChannelResult {
             requested: true,
             channel_id: params.channel_id,
         },
-        "memory sync requested for channel",
+        vec![],
     ))
 }
 
@@ -969,10 +969,7 @@ pub async fn memory_sync_all() -> Result<RpcOutcome<SyncAllResult>, String> {
         crate::core::event_bus::DomainEvent::MemorySyncRequested { channel_id: None },
     );
     tracing::debug!("[memory.sync] memory_sync_all: MemorySyncRequested(all) published");
-    Ok(RpcOutcome::single_log(
-        SyncAllResult { requested: true },
-        "memory sync requested for all channels",
-    ))
+    Ok(RpcOutcome::new(SyncAllResult { requested: true }, vec![]))
 }
 
 /// Run the tree summarizer over all (or a constrained set of) namespaces.
@@ -1006,11 +1003,41 @@ pub async fn memory_learn_all(
             tracing::debug!("[memory.learn] constrained to namespaces: {:?}", filtered);
             filtered
         }
-        _ => {
+        Some(requested) => {
+            // Explicit empty list → no-op (don't fall back to all namespaces).
+            let mut seen = BTreeSet::new();
+            let filtered: Vec<_> = requested
+                .iter()
+                .filter(|ns| all_ns.contains(ns))
+                .filter(|ns| seen.insert((*ns).clone()))
+                .cloned()
+                .collect();
+            tracing::debug!(
+                "[memory.learn] Some([]) empty request → no-op or filtered to {:?}",
+                filtered
+            );
+            filtered
+        }
+        None => {
             tracing::debug!("[memory.learn] using all {} namespaces", all_ns.len());
             all_ns
         }
     };
+
+    // Short-circuit when there are no namespaces to process — avoids loading
+    // config (and the local_ai.enabled guard) for an empty batch.
+    if target_ns.is_empty() {
+        tracing::info!(
+            "[memory.learn] memory_learn_all: no namespaces to process, returning early"
+        );
+        return Ok(RpcOutcome::new(
+            LearnAllResult {
+                namespaces_processed: 0,
+                results: vec![],
+            },
+            vec![],
+        ));
+    }
 
     let config = crate::openhuman::config::Config::load_or_init()
         .await
@@ -1057,12 +1084,12 @@ pub async fn memory_learn_all(
             .map(|r| (&r.namespace, &r.status))
             .collect::<Vec<_>>()
     );
-    Ok(RpcOutcome::single_log(
+    Ok(RpcOutcome::new(
         LearnAllResult {
             namespaces_processed,
             results,
         },
-        "memory learn all completed",
+        vec![],
     ))
 }
 

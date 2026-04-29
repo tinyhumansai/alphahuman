@@ -394,13 +394,15 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
     try {
       const result = await memoryLearnAll();
       setLearnResult(result);
-      await loadWorkspace();
-      await refetchStats();
       onToast({
         type: 'success',
         title: 'Learn Complete',
         message: `${result.namespaces_processed} namespace(s) processed.`,
       });
+      // Refresh workspace data after a successful learn; errors here are
+      // non-fatal (learn already completed) so we don't surface them as
+      // "Learn Failed".
+      void Promise.allSettled([loadWorkspace(), refetchStats()]);
     } catch (err) {
       onToast({
         type: 'error',
