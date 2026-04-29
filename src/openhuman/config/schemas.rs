@@ -100,6 +100,7 @@ struct VoiceServerSettingsUpdate {
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         schemas("get_config"),
+        schemas("get_client_config"),
         schemas("update_model_settings"),
         schemas("update_memory_settings"),
         schemas("update_screen_intelligence_settings"),
@@ -128,6 +129,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("get_config"),
             handler: handle_get_config,
+        },
+        RegisteredController {
+            schema: schemas("get_client_config"),
+            handler: handle_get_client_config,
         },
         RegisteredController {
             schema: schemas("update_model_settings"),
@@ -225,6 +230,32 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 comment: "Config snapshot with workspace and config paths.",
                 required: true,
             }],
+        },
+        "get_client_config" => ControllerSchema {
+            namespace: "config",
+            function: "get_client_config",
+            description: "Read safe client-facing config fields (api_url, feature flags). No secrets.",
+            inputs: vec![],
+            outputs: vec![
+                FieldSchema {
+                    name: "api_url",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Configured backend API URL, if any.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "default_model",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Default model identifier.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "app_version",
+                    ty: TypeSchema::String,
+                    comment: "OpenHuman core version.",
+                    required: true,
+                },
+            ],
         },
         "update_model_settings" => ControllerSchema {
             namespace: "config",
@@ -553,11 +584,28 @@ fn handle_get_config(_params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async { to_json(config_rpc::load_and_get_config_snapshot().await?) })
 }
 
+fn handle_get_client_config(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move {
+        let config = config_rpc::load_config_with_timeout().await?;
+        let app_version =
+            std::env::var("OPENHUMAN_APP_VERSION").unwrap_or_else(|_| "unknown".to_string());
+        to_json(RpcOutcome::new(
+            serde_json::json!({
+                "api_url": config.api_url,
+                "default_model": config.default_model,
+                "app_version": app_version,
+            }),
+            vec!["client config read".to_string()],
+        ))
+    })
+}
+
 fn handle_update_model_settings(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
         let update = deserialize_params::<ModelSettingsUpdate>(params)?;
         let patch = config_rpc::ModelSettingsPatch {
             api_url: update.api_url,
+            api_key: None,
             default_model: update.default_model,
             default_temperature: update.default_temperature,
         };

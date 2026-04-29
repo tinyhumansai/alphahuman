@@ -1,10 +1,11 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { type ChatSendError, chatSendError } from '../chat/chatSendError';
 import TokenUsagePill from '../components/chat/TokenUsagePill';
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
+import PillTabBar from '../components/PillTabBar';
 import UpsellBanner from '../components/upsell/UpsellBanner';
 import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import UsageLimitModal from '../components/upsell/UsageLimitModal';
@@ -33,6 +34,8 @@ import {
 import type { ConfirmationModal as ConfirmationModalType } from '../types/intelligence';
 import type { ThreadMessage } from '../types/thread';
 import { splitAgentMessageIntoBubbles } from '../utils/agentMessageBubbles';
+import { BILLING_DASHBOARD_URL } from '../utils/links';
+import { openUrl } from '../utils/openUrl';
 import {
   isTauri,
   notifyOverlaySttState,
@@ -149,6 +152,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [isPlayingReply, setIsPlayingReply] = useState(false);
+  const [selectedLabel, setSelectedLabel] = useState<string>('all');
   const [inlineSuggestionValue, setInlineSuggestionValue] = useState('');
   const [sendError, setSendError] = useState<ChatSendError | null>(null);
   const socketStatus = useAppSelector(selectSocketStatus);
@@ -790,9 +794,38 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const shouldRenderTimelineBeforeLatestAgentMessage =
     selectedThreadToolTimeline.length > 0 && !isSending && Boolean(latestVisibleAgentMessage);
 
-  const sortedThreads = [...threads].sort(
-    (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
-  );
+  const filteredThreads = useMemo(() => {
+    return threads.filter(t => {
+      if (selectedLabel === 'all') return true;
+      return t.labels?.includes(selectedLabel);
+    });
+  }, [threads, selectedLabel]);
+
+  const sortedThreads = useMemo(() => {
+    return [...filteredThreads].sort(
+      (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
+  }, [filteredThreads]);
+
+  const allLabels = useMemo(() => {
+    return Array.from(new Set(threads.flatMap(t => t.labels ?? []))).sort();
+  }, [threads]);
+
+  // Fixed tab set so categories don't disappear when empty and the active
+  // filter state remains unambiguous regardless of what threads exist.
+  const labelTabs = [
+    { label: 'All', value: 'all' },
+    { label: 'Work', value: 'work' },
+    { label: 'Briefing', value: 'briefing' },
+    { label: 'Notification', value: 'notification' },
+  ];
+
+  // Reset stale selectedLabel when the last thread carrying that label is deleted.
+  useEffect(() => {
+    if (selectedLabel !== 'all' && !allLabels.includes(selectedLabel)) {
+      setSelectedLabel('all');
+    }
+  }, [allLabels, selectedLabel]);
 
   const isSidebar = variant === 'sidebar';
 
@@ -825,9 +858,19 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
               </svg>
             </button>
           </div>
+          <div className="px-4 py-2 border-b border-stone-50">
+            <PillTabBar
+              items={labelTabs}
+              selected={selectedLabel}
+              onChange={setSelectedLabel}
+              containerClassName="flex gap-1 overflow-x-auto py-1 scrollbar-hide"
+            />
+          </div>
           <div className="flex-1 overflow-y-auto">
             {sortedThreads.length === 0 ? (
-              <p className="px-4 py-6 text-xs text-stone-400 text-center">No threads yet</p>
+              <p className="px-4 py-6 text-xs text-stone-400 text-center">
+                {selectedLabel === 'all' ? 'No threads yet' : `No "${selectedLabel}" threads`}
+              </p>
             ) : (
               sortedThreads.map(thread => (
                 <div
@@ -996,7 +1039,8 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                     )}
                   <div
                     className={`group/msg flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className="relative w-full md:max-w-[75%]">
+                    <div
+                      className={`relative ${msg.sender === 'user' ? 'w-fit max-w-[75%]' : 'w-full md:max-w-[75%]'}`}>
                       {msg.sender === 'agent' ? (
                         <div className="space-y-1">
                           {splitAgentMessageIntoBubbles(msg.content).map(
@@ -1041,7 +1085,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                           )}
                         </div>
                       ) : (
-                        <div className="rounded-2xl px-4 py-2.5 bg-primary-500 text-white rounded-br-md">
+                        <div className="rounded-2xl px-4 py-2.5 bg-primary-500 text-white rounded-br-md break-words overflow-hidden">
                           <BubbleMarkdown content={msg.content} tone="user" />
                           {latestVisibleMessage?.id === msg.id && (
                             <p className="mt-1 text-[10px] text-white/60">
@@ -1290,7 +1334,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                       title="Approaching usage limit"
                       message={`You've used ${Math.round(Math.max(usagePct10h, usagePct7d) * 100)}% of your inference budget. Upgrade for higher limits.`}
                       ctaLabel="Upgrade"
-                      onCtaClick={() => navigate('/settings/billing')}
+                      onCtaClick={() => {
+                        void openUrl(BILLING_DASHBOARD_URL);
+                      }}
                       dismissible
                       onDismiss={() => dismissBanner('conversations-warning')}
                     />
@@ -1321,7 +1367,9 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   </div>
                   {shouldShowBudgetCompletedMessage && (
                     <button
-                      onClick={() => navigate('/settings/billing')}
+                      onClick={() => {
+                        void openUrl(BILLING_DASHBOARD_URL);
+                      }}
                       className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-coral-500 hover:bg-coral-400 text-white text-xs font-medium transition-colors">
                       Top Up
                     </button>

@@ -151,6 +151,7 @@ pub fn snapshot_config_json(config: &Config) -> Result<serde_json::Value, String
 #[derive(Debug, Clone, Default)]
 pub struct ModelSettingsPatch {
     pub api_url: Option<String>,
+    pub api_key: Option<String>,
     pub default_model: Option<String>,
     pub default_temperature: Option<f64>,
 }
@@ -222,6 +223,14 @@ pub async fn apply_model_settings(
             None
         } else {
             Some(api_url)
+        };
+    }
+    if let Some(api_key) = update.api_key {
+        let trimmed_key = api_key.trim();
+        config.api_key = if trimmed_key.is_empty() {
+            None
+        } else {
+            Some(trimmed_key.to_string())
         };
     }
     if let Some(model) = update.default_model {

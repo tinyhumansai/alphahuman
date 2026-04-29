@@ -220,6 +220,7 @@ async fn apply_model_settings_updates_fields_and_persists_snapshot() {
     let mut cfg = tmp_config(&tmp);
     let patch = ModelSettingsPatch {
         api_url: Some("https://api.example.test".into()),
+        api_key: None,
         default_model: Some("gpt-4o".into()),
         default_temperature: Some(0.25),
     };
@@ -240,6 +241,7 @@ async fn apply_model_settings_empty_strings_clear_optional_fields() {
     cfg.default_model = Some("prev-model".into());
     let patch = ModelSettingsPatch {
         api_url: Some("".into()),
+        api_key: None,
         default_model: Some("".into()),
         default_temperature: None,
     };

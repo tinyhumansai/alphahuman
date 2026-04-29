@@ -29,6 +29,7 @@ use super::tool_prep::{
 };
 use super::types::{SubagentMode, SubagentRunError, SubagentRunOptions, SubagentRunOutcome};
 use crate::openhuman::agent::harness::definition::{AgentDefinition, PromptSource};
+use crate::openhuman::agent::harness::with_current_sandbox_mode;
 use crate::openhuman::context::prompt::{
     render_subagent_system_prompt, PromptContext, PromptTool, SubagentRenderOptions,
 };
@@ -65,12 +66,20 @@ pub async fn run_subagent(
         "[subagent_runner] dispatching"
     );
 
-    let outcome = if definition.uses_fork_context {
-        let fork = current_fork().ok_or(SubagentRunError::NoForkContext)?;
-        run_fork_mode(definition, task_prompt, &options, &parent, &fork, &task_id).await?
-    } else {
-        run_typed_mode(definition, task_prompt, &options, &parent, &task_id).await?
-    };
+    // Install the sub-agent's declared `sandbox_mode` as the active
+    // task-local for every tool invocation inside this run. Tools that
+    // want to gate on it (e.g. `composio_execute` rejecting
+    // Write/Admin slugs under `ReadOnly`) read it via
+    // `current_sandbox_mode()`; tools that don't care just ignore it.
+    let outcome = with_current_sandbox_mode(definition.sandbox_mode, async {
+        if definition.uses_fork_context {
+            let fork = current_fork().ok_or(SubagentRunError::NoForkContext)?;
+            run_fork_mode(definition, task_prompt, &options, &parent, &fork, &task_id).await
+        } else {
+            run_typed_mode(definition, task_prompt, &options, &parent, &task_id).await
+        }
+    })
+    .await?;
 
     tracing::info!(
         agent_id = %definition.id,
@@ -530,6 +539,7 @@ async fn run_typed_mode(
         connected_identities_md: crate::openhuman::agent::prompts::render_connected_identities(),
         include_profile: !definition.omit_profile,
         include_memory_md: !definition.omit_memory_md,
+        user_identity: crate::openhuman::app_state::peek_cached_current_user_identity(),
     };
 
     let system_prompt = match &definition.system_prompt {
@@ -562,12 +572,25 @@ async fn run_typed_mode(
     // Merge explicit orchestrator context with the parent's auto-loaded
     // memory context, but only when the definition opts into memory
     // inheritance.
+    let now = chrono::Local::now();
+    let now_str = format!(
+        "Current Date & Time: {} ({})",
+        now.format("%Y-%m-%d %H:%M:%S"),
+        now.format("%Z")
+    );
+
     let mut context_parts: Vec<&str> = Vec::new();
     if !definition.omit_memory_context {
         if let Some(ref mem_ctx) = parent.memory_context {
             context_parts.push(mem_ctx);
         }
     }
+
+    // Always include temporal context for typed sub-agents. System prompts
+    // for sub-agents are byte-stable for KV cache reuse, so "now" must
+    // ride in the user message.
+    context_parts.push(&now_str);
+
     if let Some(ref ctx) = options.context {
         context_parts.push(ctx);
     }

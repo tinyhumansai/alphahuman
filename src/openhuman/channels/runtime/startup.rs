@@ -88,6 +88,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     };
     let provider: Arc<dyn Provider> = Arc::from(providers::create_intelligent_routing_provider(
         config.api_url.as_deref(),
+        config.api_key.as_deref(),
         &config,
         &provider_runtime_options,
     )?);
@@ -270,6 +271,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
             sl.channel_id.clone(),
             sl.allowed_users.clone(),
         )));
+        // Memory-tree ingestion is handled by the Composio-backed
+        // `SlackProvider`, which runs inside `composio::periodic` and
+        // fires per-connection on its own 15-minute cadence. No spawn
+        // required here.
     }
 
     if let Some(ref mm) = config.channels_config.mattermost {
