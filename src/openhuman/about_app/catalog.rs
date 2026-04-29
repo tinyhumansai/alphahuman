@@ -197,6 +197,16 @@ const CAPABILITIES: &[Capability] = &[
         privacy: None,
     },
     Capability {
+        id: "intelligence.memory_tree_retrieval",
+        name: "Memory Tree Retrieval (chat)",
+        domain: "intelligence",
+        category: CapabilityCategory::Intelligence,
+        description: "Ask questions about your ingested email/chat/document memory in chat. The orchestrator can resolve names to canonical ids, query summaries by source/topic/global window, drill into details, and cite raw chunks.",
+        how_to: "Chat > ask the assistant about people, conversations, or windows",
+        status: CapabilityStatus::Beta,
+        privacy: LOCAL_RAW,
+    },
+    Capability {
         id: "intelligence.slack_memory_ingest",
         name: "Slack Memory Ingestion",
         domain: "intelligence",
