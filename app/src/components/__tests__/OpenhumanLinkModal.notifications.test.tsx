@@ -9,9 +9,7 @@ import {
 } from '../../lib/nativeNotifications/tauriBridge';
 import OpenhumanLinkModal, { OPENHUMAN_LINK_EVENT } from '../OpenhumanLinkModal';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  isTauri: vi.fn(),
-}));
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: vi.fn() }));
 
 vi.mock('../../lib/nativeNotifications/tauriBridge', () => ({
   ensureNotificationPermission: vi.fn(),
@@ -50,7 +48,9 @@ describe('OpenhumanLinkModal notifications test flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test notification' }));
     await flushAsyncWork();
 
-    expect(screen.getByText(/Test notification sent\. If you didn’t receive it/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Test notification sent\. If you didn’t receive it/i)
+    ).toBeInTheDocument();
     expect(showNativeNotification).toHaveBeenCalledWith(
       expect.objectContaining({ tag: 'welcome-notification-test' })
     );
@@ -114,7 +114,9 @@ describe('OpenhumanLinkModal notifications test flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry test notification' }));
     await flushAsyncWork();
 
-    expect(screen.getByText(/Test notification sent\. If you didn’t receive it/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Test notification sent\. If you didn’t receive it/i)
+    ).toBeInTheDocument();
     expect(showNativeNotification).toHaveBeenCalledTimes(1);
   });
 });

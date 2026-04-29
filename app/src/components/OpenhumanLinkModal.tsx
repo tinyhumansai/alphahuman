@@ -284,7 +284,8 @@ const NotificationsBody = ({ close }: { close: () => void }) => {
       </button>
       {status === 'sent' && (
         <p className="text-xs text-sage-700">
-          Test notification sent. If you didn’t receive it, go to System Settings → Notifications → OpenHuman, turn on Allow Notifications, and set Banner Style to Persistent.
+          Test notification sent. If you didn’t receive it, go to System Settings → Notifications →
+          OpenHuman, turn on Allow Notifications, and set Banner Style to Persistent.
         </p>
       )}
       {status === 'error' && <p className="text-xs text-coral-600">Couldn't send: {error}</p>}

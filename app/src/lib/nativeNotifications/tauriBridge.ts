@@ -22,9 +22,9 @@ function isGrantedState(state: string): boolean {
   return state === 'granted' || state === 'provisional' || state === 'ephemeral';
 }
 
-export async function getNotificationPermissionState(
-  options?: { requestIfNeeded?: boolean }
-): Promise<NotificationPermissionState> {
+export async function getNotificationPermissionState(options?: {
+  requestIfNeeded?: boolean;
+}): Promise<NotificationPermissionState> {
   const requestIfNeeded = options?.requestIfNeeded ?? true;
   if (!isTauri()) {
     return 'not_tauri';
