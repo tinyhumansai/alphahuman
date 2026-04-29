@@ -394,6 +394,8 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
     try {
       const result = await memoryLearnAll();
       setLearnResult(result);
+      await loadWorkspace();
+      await refetchStats();
       onToast({
         type: 'success',
         title: 'Learn Complete',
@@ -408,7 +410,7 @@ export function MemoryWorkspace({ onToast }: MemoryWorkspaceProps) {
     } finally {
       setLearning(false);
     }
-  }, [onToast]);
+  }, [loadWorkspace, onToast, refetchStats]);
 
   // ---------------------------------------------------------------------------
   // Derived data

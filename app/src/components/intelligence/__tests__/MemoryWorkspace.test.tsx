@@ -19,8 +19,13 @@ vi.mock('../../../hooks/useIntelligenceStats', () => ({
 vi.mock('../../../services/api/channelConnectionsApi', () => ({
   channelConnectionsApi: {
     listStatus: vi.fn().mockResolvedValue([
-      { channel_id: 'telegram-main', status: 'connected', connected: true },
-      { channel_id: 'discord-bot', status: 'connected', connected: true },
+      {
+        channel_id: 'telegram-main',
+        auth_mode: 'managed_dm',
+        connected: true,
+        has_credentials: true,
+      },
+      { channel_id: 'discord-bot', auth_mode: 'bot_token', connected: true, has_credentials: true },
     ]),
   },
 }));
@@ -211,7 +216,7 @@ describe('MemoryWorkspace – Sync section', () => {
     // Last Sync buttons are per-channel (first is the header)
     fireEvent.click(syncBtns[syncBtns.length - 1]);
     await waitFor(() => {
-      expect(vi.mocked(tauriMod.memorySyncChannel)).toHaveBeenCalled();
+      expect(vi.mocked(tauriMod.memorySyncChannel)).toHaveBeenCalledWith('discord-bot');
     });
   });
 });

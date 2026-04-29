@@ -996,9 +996,11 @@ pub async fn memory_learn_all(
 
     let target_ns: Vec<String> = match &params.namespaces {
         Some(requested) if !requested.is_empty() => {
+            let mut seen = BTreeSet::new();
             let filtered: Vec<_> = requested
                 .iter()
                 .filter(|ns| all_ns.contains(ns))
+                .filter(|ns| seen.insert((*ns).clone()))
                 .cloned()
                 .collect();
             tracing::debug!("[memory.learn] constrained to namespaces: {:?}", filtered);
@@ -1013,6 +1015,10 @@ pub async fn memory_learn_all(
     let config = crate::openhuman::config::Config::load_or_init()
         .await
         .map_err(|e| format!("load config: {e}"))?;
+
+    if !config.local_ai.enabled {
+        return Err("memory_learn_all requires local_ai.enabled=true".to_string());
+    }
 
     let mut results = Vec::with_capacity(target_ns.len());
     for namespace in &target_ns {
