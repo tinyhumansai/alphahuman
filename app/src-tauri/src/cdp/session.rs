@@ -1,18 +1,18 @@
 //! Per-account CDP session opener. One long-lived task per webview account
 //! that keeps a session attached to the target for the lifetime of the
-//! webview so the UA override (and any future per-target overrides) stays
-//! applied.
+//! webview.
 //!
-//! Why long-lived: `Emulation.setUserAgentOverride` reverts when the
-//! session detaches. If we attached just once and dropped, subsequent HTTP
-//! requests + navigator reads would revert to WKWebView defaults.
+//! Why long-lived: the session subscribes to `Page.loadEventFired` (used as
+//! a belt-and-braces signal for `webview-account:load`). If we attached
+//! once and dropped, the load signal would never reach the frontend.
 //!
 //! Pairs with the placeholder URL the webview is created with — the opener
 //! finds the target by its unique `openhuman:{account_id}` marker in the
-//! initial URL, applies the UA override, then navigates the target to the
-//! real provider URL with a `#openhuman-account-{id}` fragment appended so
-//! other scanners (discord/telegram/slack/whatsapp) can disambiguate
-//! multi-account setups without title-marker injection.
+//! initial URL, injects the notification-permission shim before the page's
+//! own JS runs, then navigates the target to the real provider URL with a
+//! `#openhuman-account-{id}` fragment appended so other scanners
+//! (discord/telegram/slack/whatsapp) can disambiguate multi-account setups
+//! without title-marker injection.
 
 use std::time::Duration;
 
@@ -21,7 +21,7 @@ use tauri::{AppHandle, Runtime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use super::{browser_ws_url, find_page_target_where, set_user_agent_override, CdpConn, UaSpec};
+use super::{browser_ws_url, find_page_target_where, CdpConn};
 use crate::webview_accounts::emit_load_finished;
 
 /// Backoff between failed attach attempts / reconnects. Intentionally
@@ -169,17 +169,6 @@ async fn run_session_cycle<R: Runtime>(
         .and_then(|x| x.as_str())
         .ok_or_else(|| "attach missing sessionId".to_string())?
         .to_string();
-
-    // UA override BEFORE navigate so the first real HTTP request carries
-    // the Chrome UA at the network layer AND navigator.* readouts return
-    // the spoofed values from the very first page script.
-    let ua = UaSpec::chrome_mac();
-    set_user_agent_override(&mut cdp, &session_id, &ua).await?;
-    log::info!(
-        "[cdp-session][{}] ua override applied session={}",
-        account_id,
-        session_id
-    );
 
     // Stub the Web Notifications permission API before any provider JS
     // runs. Without this, providers like Slack and Gmail show in-app

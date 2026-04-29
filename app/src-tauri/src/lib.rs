@@ -1,35 +1,30 @@
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 compile_error!("src-tauri host is desktop-only. Non-desktop targets are not supported.");
 
-#[cfg(feature = "cef")]
 mod cdp;
-#[cfg(all(feature = "cef", target_os = "macos"))]
+#[cfg(target_os = "macos")]
 mod cef_preflight;
+mod cef_profile;
 mod core_process;
 mod core_update;
-#[cfg(feature = "cef")]
 mod discord_scanner;
 mod gmail;
-#[cfg(feature = "cef")]
 mod gmessages_scanner;
-#[cfg(feature = "cef")]
 mod imessage_scanner;
 mod notification_settings;
-#[cfg(feature = "cef")]
 mod screen_capture;
-#[cfg(feature = "cef")]
 mod slack_scanner;
-#[cfg(feature = "cef")]
 mod telegram_scanner;
 mod webview_accounts;
 mod webview_apis;
 mod whatsapp_scanner;
+mod window_state;
 
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
 use tauri::WindowEvent;
-#[cfg(not(all(target_os = "linux", feature = "cef")))]
+#[cfg(not(target_os = "linux"))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -47,17 +42,8 @@ use objc2::ClassType;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSPanel, NSWindowCollectionBehavior, NSWindowStyleMask};
 
-// Runtime backend alias. `AppHandle`/`WebviewWindow` get their default `R`
-// (the runtime generic) from whichever runtime feature the tauri crate has
-// enabled — and when we drop `tauri/wry` in favor of `tauri/cef`, `Wry`
-// disappears entirely, so plain `AppHandle` (no generic) stops resolving.
-// Every helper that touches an `AppHandle` or `WebviewWindow` threads this
-// alias through its signature; tauri command handlers get the right runtime
-// automatically from the `#[tauri::command]` macro.
-#[cfg(feature = "cef")]
+// CEF is the only runtime; alias kept so command handlers thread the runtime generic uniformly.
 pub(crate) type AppRuntime = tauri::Cef;
-#[cfg(not(feature = "cef"))]
-pub(crate) type AppRuntime = tauri::Wry;
 
 /// Tracks the currently registered dictation hotkey string so we can unregister it later.
 struct DictationHotkeyState(Mutex<Vec<String>>);
@@ -328,6 +314,47 @@ async fn restart_core_process(
     let _guard = state.inner().restart_lock().await;
     log::debug!("[core] restart_core_process: acquired restart lock");
     state.inner().restart().await
+}
+
+#[tauri::command]
+async fn restart_app(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
+    log::info!("[app] restart_app invoked from frontend");
+    // Persist main-window geometry and hide the window before exit so
+    // the macOS WindowServer doesn't briefly black-out the desktop layer
+    // on the (now defunct) display when the focused app dies, and so
+    // the new process can land its window on the same display+position
+    // the user had it on. (#900 secondary fixes)
+    if let Some(window) = app.get_webview_window("main") {
+        window_state::save_main(&window);
+        if let Err(err) = window.hide() {
+            log::warn!("[app] hide main window before restart failed: {err}");
+        }
+    }
+    app.restart();
+}
+
+/// Read the authoritative active user id from `active_user.toml` so the
+/// frontend can seed `userScopedStorage` BEFORE redux-persist hydrates.
+///
+/// The previous frontend-only seed (a `localStorage` key) was bound to the
+/// per-user CEF profile dir, so on every restart-driven user flip the new
+/// process read whatever value the new profile's `localStorage` happened to
+/// hold from a prior session — usually stale, triggering a false re-flip and
+/// a restart loop. The Rust core writes `active_user.toml` atomically as part
+/// of `auth_store_session`, so it's the only profile-independent source of
+/// truth available to the UI at boot. Reuses
+/// `cef_profile::default_root_openhuman_dir()` so the lookup honors
+/// `OPENHUMAN_WORKSPACE` overrides used in test harnesses. (#900)
+#[tauri::command]
+fn get_active_user_id() -> Result<Option<String>, String> {
+    let dir = cef_profile::default_root_openhuman_dir()?;
+    Ok(cef_profile::read_active_user_id(&dir))
+}
+
+#[tauri::command]
+async fn schedule_cef_profile_purge(user_id: Option<String>) -> Result<String, String> {
+    let queued = cef_profile::queue_profile_purge_for_user(user_id.as_deref())?;
+    Ok(queued.display().to_string())
 }
 
 /// Information about an available shell-app update returned to the frontend.
@@ -610,8 +637,13 @@ fn show_native_notification(
     tag: Option<String>,
 ) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
+    let permission_state = app
+        .notification()
+        .permission_state()
+        .map(|s| format!("{s:?}"))
+        .unwrap_or_else(|e| format!("err({e})"));
     log::debug!(
-        "[notify] show_native_notification title_chars={} body_chars={} tag={:?}",
+        "[notify] show_native_notification title_chars={} body_chars={} tag={:?} permission={permission_state}",
         title.len(),
         body.len(),
         tag
@@ -620,9 +652,100 @@ fn show_native_notification(
     if !body.is_empty() {
         builder = builder.body(&body);
     }
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.sound("default");
+    }
     builder
         .show()
         .map_err(|e| format!("notification show failed: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notification_permission_state_inner() -> Result<String, String> {
+    use std::ptr::NonNull;
+    use std::sync::mpsc;
+
+    use block2::RcBlock;
+    use objc2_user_notifications::{
+        UNAuthorizationStatus, UNNotificationSettings, UNUserNotificationCenter,
+    };
+
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let (tx, rx) = mpsc::channel::<String>();
+    let completion = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
+        let status = unsafe { settings.as_ref().authorizationStatus() };
+        let state = if status == UNAuthorizationStatus::Authorized {
+            "granted"
+        } else if status == UNAuthorizationStatus::Denied {
+            "denied"
+        } else if status == UNAuthorizationStatus::NotDetermined {
+            "not_determined"
+        } else if status == UNAuthorizationStatus::Provisional {
+            "provisional"
+        } else if status == UNAuthorizationStatus::Ephemeral {
+            "ephemeral"
+        } else {
+            "unknown"
+        };
+        let _ = tx.send(state.to_string());
+    });
+    center.getNotificationSettingsWithCompletionHandler(&completion);
+    rx.recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| "timed out waiting for macOS notification settings".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notification_permission_request_inner() -> Result<String, String> {
+    use block2::RcBlock;
+    use objc2::runtime::Bool;
+    use objc2_foundation::NSError;
+    use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
+    use std::sync::mpsc;
+
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let (tx, rx) = mpsc::channel::<bool>();
+    let options = UNAuthorizationOptions::Alert
+        | UNAuthorizationOptions::Badge
+        | UNAuthorizationOptions::Sound;
+    let completion = RcBlock::new(move |granted: Bool, _error: *mut NSError| {
+        let _ = tx.send(granted.as_bool());
+    });
+    center.requestAuthorizationWithOptions_completionHandler(options, &completion);
+    let granted = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|_| "timed out waiting for macOS permission prompt result".to_string())?;
+    if granted {
+        Ok("granted".to_string())
+    } else {
+        // If the user denies or notifications are disabled for the app,
+        // macOS reports `false` here.
+        Ok("denied".to_string())
+    }
+}
+
+#[tauri::command]
+fn notification_permission_state() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return macos_notification_permission_state_inner();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("granted".to_string())
+    }
+}
+
+#[tauri::command]
+fn notification_permission_request() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return macos_notification_permission_request_inner();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("granted".to_string())
+    }
 }
 
 fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
@@ -640,16 +763,16 @@ fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
         .map_err(|err| format!("failed to focus main window: {err}"))?;
     Ok(())
 }
-#[cfg(all(target_os = "linux", feature = "cef"))]
+#[cfg(target_os = "linux")]
 fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
     let _ = app;
     log::warn!(
-        "[tray] skipping tray setup on linux+cef: tray menu creation still panics inside GTK during packaged runs"
+        "[tray] skipping tray setup on linux: tray menu creation still panics inside GTK during packaged runs"
     );
     Ok(())
 }
 
-#[cfg(not(all(target_os = "linux", feature = "cef")))]
+#[cfg(not(target_os = "linux"))]
 fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
     log::info!("[tray] setting up tray icon");
 
@@ -703,6 +826,49 @@ fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
     Ok(())
 }
 
+const CEF_PREWARM_LABEL: &str = "cef-prewarm";
+
+/// Spawn a hidden 1×1 child webview at `about:blank` on the main window so
+/// CEF's child-webview render path is hot before the user clicks an
+/// account. The first `webview_account_open` then skips the cold
+/// renderer-process spinup. Idempotent — bails if the prewarm webview
+/// already exists.
+fn spawn_cef_prewarm(app: &AppHandle<AppRuntime>) -> Result<(), String> {
+    use tauri::webview::WebviewBuilder;
+    use tauri::WebviewUrl;
+
+    if app.get_webview(CEF_PREWARM_LABEL).is_some() {
+        return Ok(());
+    }
+    let parent = app
+        .get_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    let url: tauri::Url = "about:blank"
+        .parse()
+        .map_err(|e| format!("about:blank parse: {e}"))?;
+    let builder = WebviewBuilder::new(CEF_PREWARM_LABEL, WebviewUrl::External(url));
+    parent
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(-20000.0, -20000.0),
+            tauri::LogicalSize::new(1.0, 1.0),
+        )
+        .map_err(|e| format!("add_child failed: {e}"))?;
+    log::info!("[cef-prewarm] hidden warmup webview spawned");
+    Ok(())
+}
+
+/// Drop the prewarm webview if still alive. Called from `RunEvent::Exit`
+/// so its CEF browser is torn down before `cef::shutdown()` runs.
+fn teardown_cef_prewarm<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let Some(wv) = app.get_webview(CEF_PREWARM_LABEL) else {
+        return Err("no prewarm webview".into());
+    };
+    wv.close().map_err(|e| e.to_string())?;
+    log::info!("[cef-prewarm] teardown ok");
+    Ok(())
+}
+
 pub fn run() {
     let daemon_mode = is_daemon_mode();
 
@@ -711,6 +877,14 @@ pub fn run() {
         .parse_filters(&default_filter)
         .try_init();
 
+    // The vendored tauri-cef dev-server proxy builds a reqwest 0.13 client
+    // (see vendor/tauri-cef/crates/tauri/src/protocol/tauri.rs) which calls
+    // rustls 0.23's `CryptoProvider::get_default()`. rustls 0.23 no longer
+    // picks a provider implicitly — without one installed, the proxy panics
+    // with "No provider set" the first time `tauri dev` forwards a request.
+    // Install the ring provider once before any HTTPS client is built.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // CEF cache-lock preflight (macOS only): if another OpenHuman instance
     // is already holding the CEF user-data-dir, the vendored
     // `tauri-runtime-cef` panics inside `cef::initialize` with a Rust
@@ -718,20 +892,22 @@ pub fn run() {
     // here and exit cleanly with a message that names the lock-holder PID
     // and the workaround. Stale locks (PID dead) are removed and we
     // continue, matching Chromium's own startup recovery.
-    #[cfg(all(feature = "cef", target_os = "macos"))]
+    match cef_profile::prepare_process_cache_path() {
+        Ok(path) => log::debug!("[cef-profile] startup cache path={}", path.display()),
+        Err(error) => {
+            log::error!(
+                "[cef-profile] failed to configure per-user CEF cache; refusing to start with shared/global cache: {error}"
+            );
+            std::process::exit(1);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
     if let Err(e) = cef_preflight::check_default_cache() {
         eprintln!("\n[openhuman] {e}\n");
         std::process::exit(1);
     }
 
-    // Runtime selection: default build uses wry (WKWebView on macOS), the
-    // `cef` feature swaps to Chromium Embedded Framework. The switch is at
-    // Builder construction only — everything downstream (plugins, commands,
-    // events, state, tray, deep links, child webviews) uses the shared
-    // tauri-runtime trait surface and does not care which backend drives it.
-    #[cfg(not(feature = "cef"))]
-    let builder = tauri::Builder::<tauri::Wry>::new();
-    #[cfg(feature = "cef")]
     let builder = {
         // Bypass macOS Keychain. Without this, every embedded service that
         // touches password / cookie / encryption-key storage triggers a
@@ -742,11 +918,20 @@ pub fn run() {
         // manager. Both are no-ops on Windows/Linux, so safe to always set.
         //
         // In debug builds we additionally expose the Chrome DevTools
-        // Protocol on localhost:9222 so every CEF webview can be inspected
-        // from a regular browser (right-click "Inspect" does not propagate
-        // to CEF child webviews on macOS). Release builds intentionally do
-        // NOT open the CDP port — it would let any process on the machine
-        // drive the embedded WhatsApp/Slack/etc. webviews.
+        // Protocol on localhost:19222 so every CEF webview can be
+        // inspected from a regular browser (right-click "Inspect" does
+        // not propagate to CEF child webviews on macOS). Release builds
+        // intentionally do NOT open the CDP port — it would let any
+        // process on the machine drive the embedded WhatsApp/Slack/etc.
+        // webviews.
+        //
+        // The port was 9222 (Chromium's default) but ollama's
+        // OpenAI-compatible server squats on 127.0.0.1:9222 in some
+        // installs, which silently broke CDP attach (our client hit
+        // ollama, the WS handshake failed, child webviews stayed at
+        // about:blank → black screen). Picked 19222 to dodge that
+        // collision; if you change it here also update
+        // `cdp::CDP_PORT` and `whatsapp_scanner::CDP_PORT`.
         //
         // NOTE: flags must be prefixed with `--`. The runtime's
         // `on_before_command_line_processing` dispatch (in
@@ -765,9 +950,15 @@ pub fn run() {
             // silently disappears and huddle/call buttons no-op.
             ("--enable-features", Some("SharedArrayBuffer")),
         ];
-        if cfg!(debug_assertions) {
-            args.push(("--remote-debugging-port", Some("9222")));
-        }
+        // Always expose the CDP port, not just in debug. The webview-accounts
+        // CDP session opener navigates each embedded provider webview from its
+        // `about:blank#openhuman-acct-...` placeholder to the real provider URL
+        // via `Page.navigate`. Without this port available in release builds,
+        // the CDP client can't attach (`browser_ws_url()` 404s on /json/version),
+        // the navigation never fires, and the embedded webview stays on
+        // `about:blank` (blank panel for Telegram / WhatsApp / Slack / Discord).
+        // Same port the `cdp::CDP_HOST`/`cdp::CDP_PORT` constants expect.
+        args.push(("--remote-debugging-port", Some("19222")));
         tauri::Builder::<tauri::Cef>::new().command_line_args::<&str, &str>(args)
     };
 
@@ -799,20 +990,14 @@ pub fn run() {
         .manage(DictationHotkeyState(Mutex::new(Vec::new())))
         .manage(webview_accounts::WebviewAccountsState::default())
         .manage(notification_settings::NotificationSettingsState::new());
-    #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(imessage_scanner::ScannerRegistry::new()));
-    #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(
         gmessages_scanner::ScannerRegistry::new(),
     ));
     let builder = builder.manage(whatsapp_scanner::ScannerRegistry::new());
-    #[cfg(feature = "cef")]
     let builder = builder.manage(std::sync::Arc::new(slack_scanner::ScannerRegistry::new()));
-    #[cfg(feature = "cef")]
     let builder = builder.manage(discord_scanner::ScannerRegistry::new());
-    #[cfg(feature = "cef")]
     let builder = builder.manage(telegram_scanner::ScannerRegistry::new());
-    #[cfg(feature = "cef")]
     let builder = builder.manage(screen_capture::ScreenShareState::new());
     builder
         .setup(move |app| {
@@ -867,8 +1052,8 @@ pub fn run() {
             // providers (gmail, whatsapp, slack, …) already have a live
             // session cookie. Best-effort — if we can't resolve the path
             // the core treats every provider as logged_out.
-            if let Ok(cache_dir) = app.path().app_cache_dir() {
-                let cookies_db = cache_dir.join("cef").join("Default").join("Cookies");
+            if let Some(cache_dir) = cef_profile::configured_cache_path_from_env() {
+                let cookies_db = cache_dir.join("Default").join("Cookies");
                 log::debug!("[webview_accounts] exposing cookies DB path to core");
                 std::env::set_var("OPENHUMAN_CEF_COOKIES_DB", &cookies_db);
             } else {
@@ -876,7 +1061,7 @@ pub fn run() {
                 // stale path from a previous run or the parent shell.
                 std::env::remove_var("OPENHUMAN_CEF_COOKIES_DB");
                 log::warn!(
-                    "[webview_accounts] could not resolve app_cache_dir — core \
+                    "[webview_accounts] could not resolve configured CEF cache dir — core \
                      will report all webview providers as logged_out"
                 );
             }
@@ -902,6 +1087,24 @@ pub fn run() {
                     log::warn!("[core-update] auto-update check failed (non-fatal): {err}");
                 }
             });
+
+            // Restore last-known window position+size before showing the
+            // window so the user's first paint after a restart-driven flow
+            // (#900 identity flip) lands on the same display they used,
+            // not back at the default centered initial size on the
+            // primary monitor. `tauri.conf.json` ships `visible: false`
+            // / `center: false` for the main window so the placement
+            // happens before the first paint and there's no jump.
+            if let Some(window) = app.get_webview_window("main") {
+                if !window_state::restore_main(&window) {
+                    window_state::center_main(&window);
+                }
+                if !daemon_mode {
+                    if let Err(err) = window.show() {
+                        log::warn!("[window-state] show main window failed: {err}");
+                    }
+                }
+            }
 
             if daemon_mode {
                 if let Some(window) = app.get_webview_window("main") {
@@ -933,6 +1136,40 @@ pub fn run() {
             // until the Ready event fires. Creating the tray here would panic on
             // Linux with "GTK has not been initialized".
             log::info!("[tray] deferring tray setup to RunEvent::Ready");
+
+            // CEF cold-start warmup. Spawns a 1×1 hidden child webview on
+            // the main window at `about:blank` so CEF's render-process /
+            // compositor for child webviews is hot before the user clicks
+            // an account — first cold open of a real provider drops from
+            // "spin up renderer + navigate" to just "navigate".
+            //
+            // Earlier builds had this disabled because of a "blank webview
+            // on first onboarding open" report; we now park the warmup at
+            // a far off-screen position and never reveal it (matching the
+            // 1×1-on-screen pattern used for cold account spawns), and
+            // tear it down in the shutdown sequence below. Disable at
+            // runtime with `OPENHUMAN_CEF_PREWARM=0` if it regresses.
+            {
+                let prewarm_enabled = std::env::var("OPENHUMAN_CEF_PREWARM")
+                    .map(|v| {
+                        let v = v.trim().to_ascii_lowercase();
+                        !(v == "0" || v == "false" || v == "no" || v == "off")
+                    })
+                    .unwrap_or(true);
+                if prewarm_enabled {
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Defer one tick so the main window finishes its
+                        // first paint before we attach a sibling webview.
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        if let Err(e) = spawn_cef_prewarm(&app_handle) {
+                            log::warn!("[cef-prewarm] failed (non-fatal): {e}");
+                        }
+                    });
+                } else {
+                    log::info!("[cef-prewarm] disabled via OPENHUMAN_CEF_PREWARM");
+                }
+            }
 
             // Dev convenience: if OPENHUMAN_DEV_AUTO_WHATSAPP=<account-id>
             // is set, spawn that account's webview at startup so the
@@ -1180,7 +1417,7 @@ pub fn run() {
                 }
             }
 
-            #[cfg(all(target_os = "macos", feature = "cef"))]
+            #[cfg(target_os = "macos")]
             {
                 use std::sync::Arc;
                 // The scanner task self-gates on `channels_config.imessage` via
@@ -1205,6 +1442,9 @@ pub fn run() {
             check_app_update,
             apply_app_update,
             restart_core_process,
+            restart_app,
+            get_active_user_id,
+            schedule_cef_profile_purge,
             service_install_direct,
             service_start_direct,
             service_stop_direct,
@@ -1228,11 +1468,8 @@ pub fn run() {
             webview_accounts::webview_set_focused_account,
             notification_settings::notification_settings_get,
             notification_settings::notification_settings_set,
-            #[cfg(feature = "cef")]
             screen_capture::screen_share_begin_session,
-            #[cfg(feature = "cef")]
             screen_capture::screen_share_thumbnail,
-            #[cfg(feature = "cef")]
             screen_capture::screen_share_finalize_session,
             gmail::gmail_list_labels,
             gmail::gmail_list_messages,
@@ -1241,6 +1478,9 @@ pub fn run() {
             gmail::gmail_send,
             gmail::gmail_trash,
             gmail::gmail_add_label,
+            gmail::gmail_find_linkedin_profile_url,
+            notification_permission_state,
+            notification_permission_request,
             activate_main_window,
             show_native_notification
         ])
@@ -1276,13 +1516,47 @@ pub fn run() {
                     log::error!("[macos] failed to show main window on reopen: {err}");
                 }
             }
-            RunEvent::Exit => {
+            RunEvent::ExitRequested { .. } => {
+                // Run our cleanup BEFORE CEF's own Exit handler does
+                // `close_all_windows() → cef::shutdown()`. Doing this in
+                // RunEvent::Exit instead races CEF's teardown and the
+                // `browser_count == 0` CHECK in `cef::shutdown` panics on
+                // macOS Cmd+Q (issue #920). The order matters:
+                //   1. close our child webviews so CEF processes the
+                //      close requests during the Exit-phase message pump
+                //      (gives them time to settle before cef::shutdown).
+                //   2. abort our long-lived tokio tasks so they're not
+                //      driving CDP traffic against CEF as it tears down.
+                //   3. stop the webview_apis WS listener so its accept
+                //      loop releases the loopback port.
+                //   4. SIGTERM the core sidecar (non-blocking). Tauri
+                //      spawned the child so we own its lifecycle, but we
+                //      do not wait — that would block the main thread
+                //      and starve CEF's UI loop. The kernel reaps the
+                //      child after Tauri exits.
+                log::info!("[app] RunEvent::ExitRequested — early teardown");
+
+                let _ = teardown_cef_prewarm(app_handle);
+
+                if let Some(state) =
+                    app_handle.try_state::<webview_accounts::WebviewAccountsState>()
+                {
+                    state.shutdown_all(app_handle);
+                }
+
+                webview_apis::server::stop();
+
                 if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
                     let core = core.inner().clone();
                     tauri::async_runtime::block_on(async move {
-                        core.shutdown().await;
+                        core.send_terminate_signal().await;
                     });
                 }
+
+                log::info!("[app] RunEvent::ExitRequested — early teardown complete");
+            }
+            RunEvent::Exit => {
+                log::info!("[app] RunEvent::Exit");
             }
             _ => {}
         });

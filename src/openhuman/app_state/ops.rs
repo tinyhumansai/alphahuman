@@ -3,7 +3,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use log::{debug, warn};
 use once_cell::sync::Lazy;
@@ -26,7 +26,17 @@ use crate::rpc::RpcOutcome;
 
 const LOG_PREFIX: &str = "[app_state]";
 const APP_STATE_FILENAME: &str = "app-state.json";
+const CURRENT_USER_REFRESH_TTL: Duration = Duration::from_secs(5);
 static APP_STATE_FILE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static CURRENT_USER_CACHE: Lazy<Mutex<Option<CachedCurrentUser>>> = Lazy::new(|| Mutex::new(None));
+
+#[derive(Debug, Clone)]
+struct CachedCurrentUser {
+    api_base: String,
+    token: String,
+    fetched_at: Instant,
+    user: Value,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -295,6 +305,58 @@ async fn fetch_current_user(config: &Config, token: &str) -> Result<Option<Value
     Ok(Some(user))
 }
 
+fn sanitize_snapshot_user(user: Option<Value>) -> Option<Value> {
+    match user {
+        Some(Value::Object(map)) if map.is_empty() => None,
+        Some(Value::Null) => None,
+        other => other,
+    }
+}
+
+async fn fetch_current_user_cached(config: &Config, token: &str) -> Result<Option<Value>, String> {
+    let api_base = effective_api_url(&config.api_url)
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+
+    {
+        let cache = CURRENT_USER_CACHE.lock();
+        if let Some(entry) = cache.as_ref() {
+            if entry.api_base == api_base
+                && entry.token == token
+                && entry.fetched_at.elapsed() < CURRENT_USER_REFRESH_TTL
+            {
+                debug!(
+                    "{LOG_PREFIX} using cached current user age_ms={}",
+                    entry.fetched_at.elapsed().as_millis()
+                );
+                return Ok(Some(entry.user.clone()));
+            }
+        }
+    }
+
+    let fetched = sanitize_snapshot_user(fetch_current_user(config, token).await?);
+
+    let mut cache = CURRENT_USER_CACHE.lock();
+    match fetched.clone() {
+        Some(user) => {
+            debug!("{LOG_PREFIX} refreshed current user from backend");
+            *cache = Some(CachedCurrentUser {
+                api_base,
+                token: token.to_string(),
+                fetched_at: Instant::now(),
+                user,
+            });
+        }
+        None => {
+            debug!("{LOG_PREFIX} backend returned empty current user; clearing cache");
+            *cache = None;
+        }
+    }
+
+    Ok(fetched)
+}
+
 async fn build_runtime_snapshot(config: &Config) -> RuntimeSnapshot {
     let screen_intelligence = {
         let _ = crate::openhuman::screen_intelligence::global_engine()
@@ -341,15 +403,21 @@ async fn build_runtime_snapshot(config: &Config) -> RuntimeSnapshot {
 
 pub async fn snapshot() -> Result<RpcOutcome<AppStateSnapshot>, String> {
     let config = config_rpc::load_config_with_timeout().await?;
-    let auth = build_session_state(&config)?;
+    let mut auth = build_session_state(&config)?;
     let session_token = get_session_token(&config)?;
-    let current_user = auth.user.clone().or(
-        if let Some(token) = session_token.clone().filter(|t| !t.trim().is_empty()) {
-            fetch_current_user(&config, &token).await?
-        } else {
-            None
-        },
-    );
+    let stored_user = sanitize_snapshot_user(auth.user.clone());
+    let current_user = if let Some(token) = session_token.clone().filter(|t| !t.trim().is_empty()) {
+        match fetch_current_user_cached(&config, &token).await {
+            Ok(fresh_user) => fresh_user.or(stored_user.clone()),
+            Err(error) => {
+                warn!("{LOG_PREFIX} current user refresh failed; using stored snapshot fallback: {error}");
+                stored_user.clone()
+            }
+        }
+    } else {
+        stored_user.clone()
+    };
+    auth.user = current_user.clone();
     let local_state = load_stored_app_state(&config)?;
     let runtime = build_runtime_snapshot(&config).await;
 
@@ -420,3 +488,7 @@ pub async fn update_local_state(
         vec!["core local app state updated".to_string()],
     ))
 }
+
+#[cfg(test)]
+#[path = "ops_tests.rs"]
+mod tests;
