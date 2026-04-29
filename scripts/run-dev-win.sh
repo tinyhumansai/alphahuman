@@ -6,16 +6,27 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 APP_DIR="$REPO_ROOT/app"
 cd "$APP_DIR"
 
+# Load .env first so project env vars are available, but before we compute
+# Windows-specific paths so tailored values (CEF_PATH, PATH, etc.) are set
+# after .env is applied and cannot be clobbered by it.
+# shellcheck source=../scripts/load-dotenv.sh
+source "$REPO_ROOT/scripts/load-dotenv.sh"
+
 if ! command -v cygpath >/dev/null 2>&1; then
   echo "[run-dev-win] cygpath not found. Run this script from Git Bash or MSYS2."
   exit 1
 fi
 
+if [[ -z "${LOCALAPPDATA:-}" ]]; then
+  echo "[run-dev-win] LOCALAPPDATA is unset; cannot resolve the CEF cache directory." >&2
+  exit 1
+fi
+
 export LIBCLANG_PATH="/c/Program Files/LLVM/bin"
 
-# CEF runtime lives under LOCALAPPDATA on Windows, not the macOS Library cache.
+# CEF runtime lives under LOCALAPPDATA on Windows.
 # ensure-tauri-cli.sh stages it here; fall back to a default if unset.
-CEF_PATH="${CEF_PATH:-$(cygpath -u "${LOCALAPPDATA:-$APPDATA}")/tauri-cef}"
+CEF_PATH="${CEF_PATH:-$(cygpath -u "$LOCALAPPDATA")/tauri-cef}"
 export CEF_PATH
 
 to_unix_path() {
@@ -86,7 +97,6 @@ export PATH="$PATH_PREFIX:$PATH"
 
 "$PNPM_EXE" tauri:ensure
 "$PNPM_EXE" core:stage
-source ../scripts/load-dotenv.sh
 # Use the vendored tauri-cef CLI (via the pnpm tauri script) so the
 # CEF runtime is correctly bundled. APPLE_SIGNING_IDENTITY is macOS-only
 # and is intentionally omitted here.
