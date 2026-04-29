@@ -995,7 +995,7 @@ pub fn run() {
         gmessages_scanner::ScannerRegistry::new(),
     ));
     let builder = builder.manage(whatsapp_scanner::ScannerRegistry::new());
-    let builder = builder.manage(std::sync::Arc::new(slack_scanner::ScannerRegistry::new()));
+    let builder = builder.manage(slack_scanner::ScannerRegistry::new());
     let builder = builder.manage(discord_scanner::ScannerRegistry::new());
     let builder = builder.manage(telegram_scanner::ScannerRegistry::new());
     let builder = builder.manage(screen_capture::ScreenShareState::new());
