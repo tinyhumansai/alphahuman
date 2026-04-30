@@ -2772,11 +2772,10 @@ mod tests {
     fn gmeet_landing_popup_navigates_parent() {
         // Bare meet.google.com (no room code) should also be kept
         // in-app — matches the "back to Meet home" UX after hangup.
-        assert!(popup_should_navigate_parent(
-            "google-meet",
-            &url("https://meet.google.com/"),
-        )
-        .is_some());
+        assert!(
+            popup_should_navigate_parent("google-meet", &url("https://meet.google.com/"),)
+                .is_some()
+        );
     }
 
     #[test]
@@ -2797,11 +2796,10 @@ mod tests {
         // External link in the post-call review screen, for instance.
         // Should NOT navigate the parent — should fall through to the
         // system-browser path.
-        assert!(popup_should_navigate_parent(
-            "google-meet",
-            &url("https://example.com/blog"),
-        )
-        .is_none());
+        assert!(
+            popup_should_navigate_parent("google-meet", &url("https://example.com/blog"),)
+                .is_none()
+        );
     }
 
     #[test]

@@ -89,7 +89,10 @@ fn origin_of(url: &str) -> Option<String> {
 /// a specific host? Tolerates an explicit port suffix on `origin` so the
 /// callers can pass canonical hosts without hard-coding default ports.
 fn origin_host_is(origin: &str, host: &str) -> bool {
-    let Some(rest) = origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://")) else {
+    let Some(rest) = origin
+        .strip_prefix("https://")
+        .or_else(|| origin.strip_prefix("http://"))
+    else {
         return false;
     };
     let host_part = rest.split(':').next().unwrap_or(rest);
@@ -437,16 +440,25 @@ mod tests {
     #[test]
     fn origin_host_is_matches_canonical_origin() {
         assert!(origin_host_is("https://meet.google.com", "meet.google.com"));
-        assert!(origin_host_is("http://meet.google.com:8080", "meet.google.com"));
+        assert!(origin_host_is(
+            "http://meet.google.com:8080",
+            "meet.google.com"
+        ));
         assert!(origin_host_is("https://MEET.GOOGLE.COM", "meet.google.com"));
     }
 
     #[test]
     fn origin_host_is_rejects_non_match() {
         // Different host
-        assert!(!origin_host_is("https://workspace.google.com", "meet.google.com"));
+        assert!(!origin_host_is(
+            "https://workspace.google.com",
+            "meet.google.com"
+        ));
         // Subdomain mismatch
-        assert!(!origin_host_is("https://chat.meet.google.com", "meet.google.com"));
+        assert!(!origin_host_is(
+            "https://chat.meet.google.com",
+            "meet.google.com"
+        ));
         // Non-http scheme
         assert!(!origin_host_is("about:blank", "meet.google.com"));
         assert!(!origin_host_is("file:///etc/hosts", "meet.google.com"));
