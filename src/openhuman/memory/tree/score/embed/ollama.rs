@@ -98,10 +98,34 @@ impl OllamaEmbedder {
     }
 }
 
+/// Override for Ollama's per-model `num_ctx` default. We always request
+/// `num_ctx = 8192` so embedding models that natively support a larger
+/// context (e.g. `nomic-embed-text` v1.5, max 8192 tokens) actually use
+/// it.
+///
+/// **Why this matters**: Ollama's default `num_ctx` for `nomic-embed-text`
+/// is 2048, NOT the model's nominal max of 8192. Without this override,
+/// long chunks (~1500+ chunker-tokens) fail with `500 Internal Server
+/// Error: "the input length exceeds the context length"` — even though
+/// the chunker stays under its own 3000-token cap. The chunker's
+/// char-based heuristic underestimates BERT-WordPiece token counts by
+/// ~1.5–2x for HTML-derived markdown, so 1500 chunker-tokens can be 2500+
+/// real tokens, busting the 2048 default.
+///
+/// For embedding models that don't natively support 8192, Ollama clamps
+/// `num_ctx` to the model's actual maximum — overriding upward is safe.
+const EMBED_NUM_CTX: u32 = 8192;
+
 #[derive(Serialize)]
 struct EmbedRequest<'a> {
     model: &'a str,
     prompt: &'a str,
+    options: EmbedOptions,
+}
+
+#[derive(Serialize)]
+struct EmbedOptions {
+    num_ctx: u32,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +150,9 @@ impl Embedder for OllamaEmbedder {
         let req = EmbedRequest {
             model: &self.model,
             prompt: text,
+            options: EmbedOptions {
+                num_ctx: EMBED_NUM_CTX,
+            },
         };
         let resp = self
             .client
@@ -224,6 +251,12 @@ mod tests {
                 async move {
                     assert_eq!(body["model"], "nomic-embed-text");
                     assert_eq!(body["prompt"], "hello world");
+                    // Regression: we must explicitly request the embedder's
+                    // full nominal context. Ollama's per-model default for
+                    // `nomic-embed-text` is num_ctx=2048, which causes long
+                    // chunks (~1500+ chunker-tokens) to fail. See doc on
+                    // `EMBED_NUM_CTX`.
+                    assert_eq!(body["options"]["num_ctx"], 8192);
                     Json(serde_json::json!({ "embedding": v }))
                 }
             }),
