@@ -12,8 +12,41 @@ use crate::openhuman::local_ai::{
     self, LocalAiAssetsStatus, LocalAiDownloadsProgress, LocalAiEmbeddingResult,
     LocalAiSpeechResult, LocalAiTtsResult,
 };
+use crate::openhuman::prompt_injection::{
+    enforce_prompt_input, PromptEnforcementAction, PromptEnforcementContext,
+};
 use crate::openhuman::providers::{self, ProviderRuntimeOptions};
 use crate::rpc::RpcOutcome;
+
+fn prompt_guard_user_message(action: PromptEnforcementAction) -> &'static str {
+    match action {
+        PromptEnforcementAction::Allow => "Message accepted.",
+        PromptEnforcementAction::Blocked => {
+            "Prompt blocked by security policy. Please rephrase without instruction overrides or exfiltration requests."
+        }
+        PromptEnforcementAction::ReviewBlocked => {
+            "Prompt flagged for security review and was not processed. Please rephrase clearly."
+        }
+    }
+}
+
+fn enforce_user_prompt_or_reject(prompt: &str, source: &'static str) -> Result<(), String> {
+    let decision = enforce_prompt_input(
+        prompt,
+        PromptEnforcementContext {
+            source,
+            request_id: None,
+            user_id: None,
+            session_id: Some("local_ai"),
+        },
+    );
+    match decision.action {
+        PromptEnforcementAction::Allow => Ok(()),
+        PromptEnforcementAction::Blocked | PromptEnforcementAction::ReviewBlocked => {
+            Err(prompt_guard_user_message(decision.action).to_string())
+        }
+    }
+}
 
 /// Executes a single chat turn with an AI agent.
 ///
@@ -32,6 +65,8 @@ pub async fn agent_chat(
     model_override: Option<String>,
     temperature: Option<f64>,
 ) -> Result<RpcOutcome<String>, String> {
+    enforce_user_prompt_or_reject(message, "local_ai.ops.agent_chat")?;
+
     if let Some(model) = model_override {
         config.default_model = Some(model);
     }
@@ -50,6 +85,8 @@ pub async fn agent_chat_simple(
     model_override: Option<String>,
     temperature: Option<f64>,
 ) -> Result<RpcOutcome<String>, String> {
+    enforce_user_prompt_or_reject(message, "local_ai.ops.agent_chat_simple")?;
+
     let mut effective = config.clone();
     if let Some(model) = model_override {
         effective.default_model = Some(model);
@@ -169,6 +206,8 @@ pub async fn local_ai_summarize(
     text: &str,
     max_tokens: Option<u32>,
 ) -> Result<RpcOutcome<String>, String> {
+    enforce_user_prompt_or_reject(text.trim(), "local_ai.ops.local_ai_summarize")?;
+
     let service = local_ai::global(config);
     let status = service.status();
     if !matches!(status.state.as_str(), "ready") {
@@ -191,6 +230,8 @@ pub async fn local_ai_prompt(
     max_tokens: Option<u32>,
     no_think: Option<bool>,
 ) -> Result<RpcOutcome<String>, String> {
+    enforce_user_prompt_or_reject(prompt.trim(), "local_ai.ops.local_ai_prompt")?;
+
     let service = local_ai::global(config);
     let status = service.status();
     if !matches!(status.state.as_str(), "ready") {
@@ -210,6 +251,8 @@ pub async fn local_ai_vision_prompt(
     image_refs: &[String],
     max_tokens: Option<u32>,
 ) -> Result<RpcOutcome<String>, String> {
+    enforce_user_prompt_or_reject(prompt.trim(), "local_ai.ops.local_ai_vision_prompt")?;
+
     let service = local_ai::global(config);
     let output = service
         .vision_prompt(config, prompt.trim(), image_refs, max_tokens)
@@ -380,6 +423,13 @@ pub async fn local_ai_chat(
 
     if messages.is_empty() {
         return Err("messages must not be empty".to_string());
+    }
+
+    for msg in messages
+        .iter()
+        .filter(|m| m.role.eq_ignore_ascii_case("user"))
+    {
+        enforce_user_prompt_or_reject(msg.content.as_str(), "local_ai.ops.local_ai_chat")?;
     }
 
     let ollama_messages: Vec<crate::openhuman::local_ai::ollama_api::OllamaChatMessage> = messages
