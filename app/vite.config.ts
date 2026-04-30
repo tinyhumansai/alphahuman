@@ -62,6 +62,21 @@ function maybeSentryPlugin(): PluginOption | null {
   });
 }
 
+function guardCefRelListSupportsPlugin(): PluginOption {
+  return {
+    name: "openhuman:guard-cef-rel-list-supports",
+    enforce: "post",
+    renderChunk(code) {
+      const unsafe =
+        'relList && relList.supports && relList.supports("modulepreload")';
+      const guarded =
+        'relList && typeof relList.supports === "function" && relList.supports("modulepreload")';
+      const next = code.split(unsafe).join(guarded);
+      return next === code ? null : { code: next, map: null };
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   root: "src",
@@ -79,9 +94,9 @@ export default defineConfig(async () => ({
     outDir: "../dist",
     emptyOutDir: true,
     // Desktop CEF has surfaced a runtime where `link.relList.supports` is
-    // truthy but not callable, which breaks Vite's injected modulepreload
-    // polyfill before React mounts (blank white window).
-    modulePreload: { polyfill: false },
+    // truthy but not callable. Vite calls it both in the modulepreload
+    // polyfill and the dynamic-import preload helper, before React mounts.
+    modulePreload: false,
     // Emit source maps so @sentry/vite-plugin can upload them; the plugin
     // deletes the on-disk .map files after upload so users don't receive
     // them in the shipped bundle.
@@ -96,6 +111,7 @@ export default defineConfig(async () => ({
         global: true,
       },
     }),
+    guardCefRelListSupportsPlugin(),
     react(),
     maybeSentryPlugin(),
   ].filter(Boolean) as PluginOption[],
