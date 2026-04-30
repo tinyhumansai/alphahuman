@@ -161,8 +161,22 @@ fn save_seen(path: &Path, state: &SeenState) {
             return;
         }
     };
-    if let Err(e) = std::fs::write(path, body) {
-        log::warn!("[gmail-notify-poll] write {} failed: {}", path.display(), e);
+    // Atomic write: write to a sibling temp file then rename. Without this,
+    // a crash mid-`fs::write` leaves a truncated `seen.json` and the next
+    // launch re-toasts the entire backlog.
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, body) {
+        log::warn!("[gmail-notify-poll] write {} failed: {}", tmp.display(), e);
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        log::warn!(
+            "[gmail-notify-poll] rename {} -> {} failed: {}",
+            tmp.display(),
+            path.display(),
+            e
+        );
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -249,11 +263,12 @@ fn fire_toast<R: Runtime>(app: &AppHandle<R>, account_id: &str, msg: &gmail::typ
         (_, Some(sn)) if !sn.is_empty() => sn.to_string(),
         _ => "New message".to_string(),
     };
+    // Don't log msg.subject — that is user email content and would land in
+    // long-lived app logs. id is opaque and safe to retain for debugging.
     log::info!(
-        "[gmail-notify-poll][{}] firing toast id={} subject={:?}",
+        "[gmail-notify-poll][{}] firing toast id={}",
         account_id,
-        msg.id,
-        msg.subject
+        msg.id
     );
     forward_synthetic_notification(app, account_id, "gmail", title, body);
 }
