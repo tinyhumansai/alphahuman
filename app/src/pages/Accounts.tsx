@@ -200,8 +200,7 @@ const Accounts = () => {
           the main content pane. Hidden during welcome lockdown (#883) so
           the user cannot navigate to a connected account or add a new one. */}
       {!welcomeLocked && (
-        <aside
-          className="z-30 flex w-16 flex-none flex-col items-center gap-2 bg-white/60 py-3 backdrop-blur-md my-3 ml-3 rounded-2xl border border-stone-200/70 shadow-soft">
+        <aside className="z-30 flex w-16 flex-none flex-col items-center gap-2 bg-white/60 py-3 backdrop-blur-md my-3 ml-3 rounded-2xl border border-stone-200/70 shadow-soft">
           <RailButton active={isAgentSelected} onClick={selectAgent} tooltip="Agent">
             <AgentIcon className="h-9 w-9 rounded-lg" />
           </RailButton>
