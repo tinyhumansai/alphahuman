@@ -5,28 +5,17 @@ import { useDeepLinkAuthState } from '../../store/deepLinkAuthState';
 import Welcome from '../Welcome';
 
 const oauthButtonSpy = vi.fn();
-const oauthOverrideSpy = vi.fn();
 
 vi.mock('../../components/RotatingTetrahedronCanvas', () => ({
   default: () => <div data-testid="welcome-logo" />,
 }));
 
 vi.mock('../../components/oauth/OAuthProviderButton', () => ({
-  default: ({
-    provider,
-    onClickOverride,
-  }: {
-    provider: { id: string };
-    onClickOverride?: () => void;
-  }) => (
+  default: ({ provider }: { provider: { id: string } }) => (
     <button
       type="button"
       onClick={() => {
         oauthButtonSpy(provider.id);
-        if (onClickOverride) {
-          oauthOverrideSpy(provider.id);
-          onClickOverride();
-        }
       }}>
       {provider.id}
     </button>
@@ -47,7 +36,6 @@ vi.mock('../../store/deepLinkAuthState', () => ({ useDeepLinkAuthState: vi.fn() 
 describe('Welcome auth entrypoint', () => {
   beforeEach(() => {
     oauthButtonSpy.mockReset();
-    oauthOverrideSpy.mockReset();
     vi.mocked(useDeepLinkAuthState).mockReturnValue({ isProcessing: false, errorMessage: null });
   });
 
@@ -62,7 +50,7 @@ describe('Welcome auth entrypoint', () => {
     expect(screen.queryByRole('button', { name: 'discord' })).not.toBeInTheDocument();
   });
 
-  it('keeps OAuth buttons as blank clicks on the welcome screen', () => {
+  it('triggers OAuth buttons normally on the welcome screen', () => {
     render(<Welcome />);
 
     fireEvent.click(screen.getByRole('button', { name: 'google' }));
@@ -72,9 +60,6 @@ describe('Welcome auth entrypoint', () => {
     expect(oauthButtonSpy).toHaveBeenNthCalledWith(1, 'google');
     expect(oauthButtonSpy).toHaveBeenNthCalledWith(2, 'github');
     expect(oauthButtonSpy).toHaveBeenNthCalledWith(3, 'twitter');
-    expect(oauthOverrideSpy).toHaveBeenNthCalledWith(1, 'google');
-    expect(oauthOverrideSpy).toHaveBeenNthCalledWith(2, 'github');
-    expect(oauthOverrideSpy).toHaveBeenNthCalledWith(3, 'twitter');
     expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
