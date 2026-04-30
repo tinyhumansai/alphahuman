@@ -45,8 +45,7 @@ describe('useBackendUrl', () => {
 
     unmount();
     resolveFn?.('https://api.example.com');
-
-    await new Promise(r => setTimeout(r, 10));
+    await Promise.resolve();
     expect(result.current).toBeNull();
   });
 });
