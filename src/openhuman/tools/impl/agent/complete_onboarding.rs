@@ -105,7 +105,9 @@ async fn complete() -> anyhow::Result<ToolResult> {
     );
 
     if !state.ready_to_complete {
-        return Ok(ToolResult::error(build_not_ready_to_complete_error()));
+        return Ok(ToolResult::error(build_not_ready_to_complete_error(
+            &state.ready_to_complete_reason,
+        )));
     }
 
     // ── Finalize ──────────────────────────────────────────────────

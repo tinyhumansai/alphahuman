@@ -132,27 +132,30 @@ In-session commands: `/quit`, `/reset`, `/trigger`, `/status`, `/help`
 ### What good looks like
 
 ```
-agent> Welcome. You have Gmail and Calendar already connected.
-       What takes up most of your day?
+agent> hey, good to have you here. what are you hoping this
+       helps with?
+       [calls check_onboarding_status]
 
-you>   i'm a PM, mostly in slack and gmail. also whatsapp for quick team stuff
+you>   i'm a PM, mostly in slack and gmail. also whatsapp for
+       quick team stuff
 
-agent> Makes sense. Gmail is already connected so I can help with
-       that right now. If you connect Slack and WhatsApp too I can
-       monitor messages and pull action items across all three.
+agent> makes sense. if you connect those i can monitor messages
+       and pull action items across all three.
        <connect your apps pill>
+       [calls check_onboarding_status]
 
 you>   cool, connected slack. what else can this do?
 
-agent> Nice. Since you mentioned mornings are busy, I can run a
-       daily briefing that summarizes overnight emails, Slack
-       threads, and calendar for the day. Want me to set that up?
+agent> nice. i can run a daily briefing that summarizes overnight
+       emails and slack threads so you start the day caught up.
+       [calls check_onboarding_status]
 
 you>   yeah that would be great. i think i'm good for now
 
-agent> Done. Oh and there's a community if you want to chat with
-       other users or the team <Discord pill>. Catch you later.
-       [calls complete_onboarding]
+agent> sounds good. oh and there's a community if you ever want
+       to chat with other users or the team <Discord pill>.
+       catch you later.
+       [calls check_onboarding_status, complete_onboarding]
 ```
 
 ### What bad looks like

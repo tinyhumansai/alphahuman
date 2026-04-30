@@ -70,12 +70,18 @@ pub(crate) fn engagement_criteria_met(
 }
 
 /// Build the user-facing error string for premature `complete_onboarding`
-/// calls.
-pub(crate) fn build_not_ready_to_complete_error() -> String {
-    "Cannot complete onboarding yet: the user hasn't connected any apps. \
-     At least one built-in app login (webview) or one connected integration \
-     is required before onboarding can be finalized."
-        .to_string()
+/// calls. The reason string comes from `compute_state().ready_to_complete_reason`.
+pub(crate) fn build_not_ready_to_complete_error(reason: &str) -> String {
+    match reason {
+        "unauthenticated" => "Cannot complete onboarding: the user is not signed in. \
+             Guide them to log in via the desktop login flow first."
+            .to_string(),
+        "already_complete" => "Onboarding is already complete.".to_string(),
+        _ => "Cannot complete onboarding yet: the user hasn't connected any apps. \
+             At least one built-in app login (webview) or one connected integration \
+             is required before onboarding can be finalized."
+            .to_string(),
+    }
 }
 
 /// Reset the welcome exchange counter to zero. Test-only.
@@ -465,10 +471,25 @@ mod tests {
     }
 
     #[test]
-    fn premature_complete_error_mentions_apps() {
-        let msg = build_not_ready_to_complete_error();
+    fn premature_complete_error_no_apps() {
+        let msg = build_not_ready_to_complete_error("no_apps_connected");
         assert!(
             msg.contains("hasn't connected any apps"),
+            "unexpected wording: {msg}"
+        );
+    }
+
+    #[test]
+    fn premature_complete_error_unauthenticated() {
+        let msg = build_not_ready_to_complete_error("unauthenticated");
+        assert!(msg.contains("not signed in"), "unexpected wording: {msg}");
+    }
+
+    #[test]
+    fn premature_complete_error_already_complete() {
+        let msg = build_not_ready_to_complete_error("already_complete");
+        assert!(
+            msg.contains("already complete"),
             "unexpected wording: {msg}"
         );
     }

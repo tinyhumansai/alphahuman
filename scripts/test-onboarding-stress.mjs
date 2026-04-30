@@ -402,15 +402,28 @@ function judge(conversation) {
   const firstA = assistantTurns[0];
   const opener = firstA?.content || '';
 
+  // Context flags for conditional checks
+  const userText = conversation
+    .filter((t) => t.role === 'user')
+    .map((t) => t.content)
+    .join('\n')
+    .toLowerCase();
+  const agentGuidedConnection = assistantTurns.some((t) =>
+    /\bconnect\b/.test(t.content) || t.content.includes('accounts/setup')
+  );
+  const userAskedPricing = /\b(price|pricing|cost|billing|subscription|how much)\b/i.test(userText);
+
   const checks = {};
 
   checks['check_onboarding_status_first_turn'] = firstA?.tools?.includes('check_onboarding_status') || false;
   checks['opener_invites_response'] = opener.includes('?') || /what would you|what do you|what.?s on|tell me|how can i/i.test(opener);
   checks['no_checklist_dump'] = !/\d\.\s|step\s*\d|checklist|first.*second.*third/i.test(opener);
   checks['mentions_connecting_apps'] = lower.includes('connect') && (lower.includes('app') || lower.includes('gmail') || lower.includes('slack') || lower.includes('whatsapp'));
-  checks['uses_openhuman_link'] = allText.includes('openhuman-link') && allText.includes('accounts/setup');
+  // Only check pill usage when the agent actually guided a connection
+  checks['uses_openhuman_link'] = !agentGuidedConnection || (allText.includes('openhuman-link') && allText.includes('accounts/setup'));
   checks['no_robotic_self_id'] = !['as an ai', "i'm openhuman", 'i am openhuman'].some((p) => lower.includes(p));
-  checks['no_billing_pitch'] = !(lower.includes('billing') || lower.includes('subscription') || (lower.includes('credit') && lower.includes('trial')));
+  // Allow billing mentions when the user explicitly asked about pricing
+  checks['no_billing_pitch'] = userAskedPricing || !(lower.includes('billing') || lower.includes('subscription') || (lower.includes('credit') && lower.includes('trial')));
   checks['no_em_dashes'] = !allText.includes('\u2014');
   checks['references_user_apps'] = lower.includes('slack') || lower.includes('gmail') || lower.includes('whatsapp') || lower.includes('telegram') || lower.includes('notion') || lower.includes('github') || lower.includes('discord');
   checks['educates_capabilities'] = lower.includes('morning') || lower.includes('briefing') || lower.includes('action item') || lower.includes('summary') || lower.includes('summariz') || lower.includes('monitor') || lower.includes('triage') || lower.includes('automat');
@@ -556,6 +569,14 @@ function generateReport(results) {
   }
   lines.push('');
 
+  // Redact sensitive URLs from report output
+  function sanitize(text) {
+    return text
+      .replace(/https?:\/\/backend\.composio\.dev\/api\/[^\s)]+/g, '[REDACTED_COMPOSIO_URL]')
+      .replace(/https?:\/\/[^\s)]*composio[^\s)]*\/connect[^\s)]*/gi, '[REDACTED_COMPOSIO_URL]')
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]');
+  }
+
   // Full conversations
   lines.push('## Full Conversations');
   lines.push('');
@@ -581,13 +602,13 @@ function generateReport(results) {
     lines.push('```');
     for (const turn of r.conversation) {
       if (turn.role === 'trigger') {
-        lines.push(`[trigger] ${turn.content}`);
+        lines.push(`[trigger] ${sanitize(turn.content)}`);
       } else if (turn.role === 'user') {
         lines.push('');
-        lines.push(`you> ${turn.content}`);
+        lines.push(`you> ${sanitize(turn.content)}`);
       } else {
         const tools = turn.tools?.length ? ` [tools: ${turn.tools.join(', ')}]` : '';
-        lines.push(`agent> ${turn.content}${tools}`);
+        lines.push(`agent> ${sanitize(turn.content)}${tools}`);
       }
     }
     lines.push('```');
