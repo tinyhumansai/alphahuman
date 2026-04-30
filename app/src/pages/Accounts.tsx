@@ -195,7 +195,7 @@ const Accounts = () => {
   }, [ctxMenu]);
 
   return (
-    <div className="relative flex h-full overflow-hidden">
+    <div className="relative flex h-full gap-3 overflow-hidden">
       {/* Narrow icon rail — always rendered as a floating card alongside
           the main content pane. Hidden during welcome lockdown (#883) so
           the user cannot navigate to a connected account or add a new one. */}
