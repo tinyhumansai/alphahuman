@@ -8,6 +8,8 @@
 pub mod conn;
 pub mod input;
 pub mod session;
+#[cfg(debug_assertions)]
+pub mod slack_huddle_probe;
 pub mod snapshot;
 pub mod target;
 

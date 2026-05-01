@@ -29,6 +29,40 @@ use crate::webview_accounts::emit_load_finished;
 /// 500ms.
 const ATTACH_BACKOFF: Duration = Duration::from_secs(2);
 
+/// Debug-only env var that gates the slack huddle probe (#1074). When set to
+/// `"1"` AND we're in a debug build AND the account is loading a slack origin,
+/// we enable extra CDP domains (`Target.setDiscoverTargets`, `Network.enable`)
+/// and log every `Target.*`, `Page.*`, and `Network.*` event we receive on
+/// the parent slack session so the orchestrator can identify which network
+/// signal carries the huddle URL and how the popup target's lifecycle looks.
+/// Never enabled in release builds; never logs request/response bodies, full
+/// ws frames, or auth tokens — see `slack_huddle_probe::redact_head`.
+#[cfg(debug_assertions)]
+const SLACK_HUDDLE_PROBE_ENV: &str = "OPENHUMAN_SLACK_HUDDLE_PROBE";
+
+/// Hosts that count as "the slack provider" for probe purposes. Matches the
+/// allowed-host list in `webview_accounts/mod.rs` (`slack.com`, `slack-edge.com`,
+/// `slackb.com`) but only the canonical app origin matters here since the
+/// huddle UI lives on `app.slack.com`.
+#[cfg(debug_assertions)]
+fn is_slack_real_url(real_url: &str) -> bool {
+    if let Some(origin) = origin_of(real_url) {
+        return origin_host_is(&origin, "app.slack.com") || origin_host_is(&origin, "slack.com");
+    }
+    false
+}
+
+/// Is the slack-huddle probe active for this session? Only compiled in debug
+/// builds; the env var gives us an explicit per-run opt-in so the probe is
+/// silent by default even in `pnpm dev:app`.
+#[cfg(debug_assertions)]
+fn slack_huddle_probe_active(real_url: &str) -> bool {
+    if std::env::var(SLACK_HUDDLE_PROBE_ENV).ok().as_deref() != Some("1") {
+        return false;
+    }
+    is_slack_real_url(real_url)
+}
+
 /// Watchdog budget before we synthesise a `webview-account:load` event with
 /// `state: "timeout"` so the frontend can switch from an empty loading state
 /// to explicit retry/help UI on flaky networks. Matches issue #867.
@@ -343,6 +377,19 @@ async fn run_session_cycle<R: Runtime>(
     cdp.call("Page.enable", json!({}), Some(&session_id))
         .await?;
 
+    // Slack-huddle popup-blank probe (#1074). Compiled out of release
+    // entirely; opt-in via `OPENHUMAN_SLACK_HUDDLE_PROBE=1` even in debug.
+    // Enables Target discovery + Network on the parent slack session so the
+    // pump callback below can log the events we need to identify which
+    // network signal carries the huddle URL and how the popup target's
+    // lifecycle looks. See `cdp::slack_huddle_probe` for redaction rules.
+    #[cfg(debug_assertions)]
+    let huddle_probe_active = slack_huddle_probe_active(real_url);
+    #[cfg(debug_assertions)]
+    if huddle_probe_active {
+        super::slack_huddle_probe::enable_domains(&mut cdp, account_id, &session_id).await;
+    }
+
     // Drive the webview from the placeholder to the real provider URL.
     // Fragment survives same-origin navigations so scanners can match on
     // it indefinitely. Skip navigation if the target is already on the
@@ -378,9 +425,22 @@ async fn run_session_cycle<R: Runtime>(
     let cb_app = app.clone();
     let cb_account_id = account_id.to_string();
     let cb_real_url = real_url.to_string();
-    cdp.pump_events(&session_id, move |method, _params| {
+    cdp.pump_events(&session_id, move |method, params| {
         if method == "Page.loadEventFired" {
             emit_load_finished(&cb_app, &cb_account_id, "finished", &cb_real_url);
+        }
+        // Slack huddle probe — debug builds only, gated by env var checked
+        // above. The flag was captured before `pump_events` so we don't pay
+        // an env lookup per CDP event.
+        #[cfg(debug_assertions)]
+        if huddle_probe_active {
+            super::slack_huddle_probe::on_event(method, params);
+        }
+        // Drop the unused-param warning in release, where the probe arm is
+        // compiled out and only `Page.loadEventFired` consumes `method`.
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = params;
         }
     })
     .await
