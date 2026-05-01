@@ -110,10 +110,7 @@ mod tests {
         with_thread_id("propagated", async {
             let captured = current_thread_id();
             let handle = tokio::spawn(async move {
-                with_thread_id(captured.unwrap_or_default(), async {
-                    current_thread_id()
-                })
-                .await
+                with_thread_id(captured.unwrap_or_default(), async { current_thread_id() }).await
             });
             let observed = handle.await.unwrap();
             assert_eq!(observed.as_deref(), Some("propagated"));
