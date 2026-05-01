@@ -3,6 +3,7 @@ import { Composition } from "remotion";
 import { HelloWorld, myCompSchema } from "./HelloWorld";
 import { Logo, myCompSchema2 } from "./HelloWorld/Logo";
 import { Ghosty, ghostySchema } from "./Ghosty/Ghosty";
+import { GhostyIdle, ghostyIdleSchema } from "./Ghosty/GhostyIdle";
 
 // Each <Composition> is an entry in the sidebar!
 
@@ -50,7 +51,7 @@ export const RemotionRoot: React.FC = () => {
               --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le
       */}
       <Composition
-        id="Ghosty"
+        id="GhostyWave"
         component={Ghosty}
         durationInFrames={180}
         fps={30}
@@ -60,6 +61,22 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={{
           bodyColor: "#1a1a1a" as const,
           blushColor: "#f5a3ad" as const,
+          arm: "wave" as const,
+        }}
+      />
+
+      <Composition
+        id="GhostyIdle"
+        component={GhostyIdle}
+        durationInFrames={180}
+        fps={30}
+        width={1080}
+        height={1080}
+        schema={ghostyIdleSchema}
+        defaultProps={{
+          bodyColor: "#1a1a1a" as const,
+          blushColor: "#f5a3ad" as const,
+          arm: "none" as const,
         }}
       />
     </>
