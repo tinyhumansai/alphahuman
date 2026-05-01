@@ -1440,21 +1440,73 @@ pub fn run() {
 
                 if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
                     let core = core.inner().clone();
-                    // InProcess: aborts the embedded server task (synchronous, safe
-                    // on the UI thread). ChildProcess: SIGTERM only, no wait, so we
-                    // don't starve CEF's UI loop before `cef::shutdown` runs.
+                    // Aborts the embedded server task. Synchronous and safe on
+                    // the UI thread — `JoinHandle::abort` returns immediately.
                     tauri::async_runtime::block_on(async move {
                         core.send_terminate_signal().await;
                     });
                 }
 
+                // Give CEF's UI message loop a brief window to process the
+                // queued browser close messages before the runtime calls
+                // `cef::shutdown()`. Without this, a webview that was mid-load
+                // when the user quit can race the shutdown and leave its
+                // renderer helper orphaned (re-parented to launchd on macOS).
+                std::thread::sleep(std::time::Duration::from_millis(50));
+
                 log::info!("[app] RunEvent::ExitRequested — early teardown complete");
             }
             RunEvent::Exit => {
-                log::info!("[app] RunEvent::Exit");
+                log::info!("[app] RunEvent::Exit — cef::shutdown follows");
             }
             _ => {}
         });
+
+    // Belt-and-suspenders sweep: after Tauri's event loop returns the
+    // vendored runtime has already called `cef::shutdown()`. In normal
+    // operation every CEF helper (GPU / Network / Utility / Renderer) is
+    // gone by now. If anything is still alive — e.g. a renderer that was
+    // mid-spawn when the user quit — it would otherwise be re-parented to
+    // launchd on macOS / init on Linux and survive the GUI exit. SIGTERM
+    // its children before this process actually exits.
+    //
+    // We don't `wait()` on them: the kernel will reap them as our exit
+    // unwinds, and any helper that ignores SIGTERM is a CEF bug we'd
+    // rather see in Activity Monitor than silently SIGKILL.
+    sweep_orphan_children();
+}
+
+/// Send SIGTERM to every direct child of the current process. No-op on
+/// non-Unix platforms (Windows job objects already kill CEF helpers when
+/// the parent exits).
+fn sweep_orphan_children() {
+    #[cfg(unix)]
+    {
+        let pid = std::process::id();
+        match std::process::Command::new("pkill")
+            .args(["-TERM", "-P", &pid.to_string()])
+            .status()
+        {
+            Ok(status) => {
+                // pkill exits 0 if it killed at least one process, 1 if no
+                // matches (the healthy case after cef::shutdown), 2/3 on
+                // error. Both 0 and 1 are expected; log 0 loudly so we
+                // notice when the safety net actually catches something.
+                match status.code() {
+                    Some(0) => log::warn!(
+                        "[app] sweep: SIGTERM'd leftover child processes after cef::shutdown"
+                    ),
+                    Some(1) => log::info!("[app] sweep: no leftover children (clean exit)"),
+                    other => log::warn!("[app] sweep: pkill exited with {:?}", other),
+                }
+            }
+            Err(e) => log::warn!("[app] sweep: failed to invoke pkill: {e}"),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        log::debug!("[app] sweep: skipped on non-unix platform");
+    }
 }
 
 pub fn run_core_from_args(args: &[String]) -> Result<(), String> {
