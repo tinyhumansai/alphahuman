@@ -4,12 +4,20 @@ import { z } from "zod";
 import { zColor } from "@remotion/zod-types";
 import { ARM_PATH, BODY_PATH, LEFT_LEG_PATH, RIGHT_LEG_PATH, VIEWBOX } from "./paths";
 import { GhostyDefs } from "./Defs";
+import { RecordingFace } from "./RecordingFace";
+import { LoadingFace } from "./LoadingFace";
 
 export const ghostySchema = z.object({
   bodyColor: zColor(),
   blushColor: zColor(),
   /** "wave" = animated waving arm. "none" = no arm at all. */
   arm: z.enum(["wave", "none"]).default("wave"),
+  /** "normal" = eyes/mouth/blush. "recording" = pulsing red dot. "loading" = spinning ring. */
+  face: z.enum(["normal", "recording", "loading"]).default("normal"),
+  /** Recording dot color (only used when face="recording"). */
+  recordingColor: zColor().default("#ff3b30"),
+  /** Spinner color (only used when face="loading"). */
+  loadingColor: zColor().default("#ffffff"),
 });
 
 export type GhostyProps = z.infer<typeof ghostySchema>;
@@ -23,7 +31,15 @@ export type GhostyProps = z.infer<typeof ghostySchema>;
  */
 export const GhostyCharacter: React.FC<
   GhostyProps & { idPrefix?: string }
-> = ({ bodyColor, blushColor, arm = "wave", idPrefix = "ghosty" }) => {
+> = ({
+  bodyColor,
+  blushColor,
+  arm = "wave",
+  face = "normal",
+  recordingColor = "#ff3b30",
+  loadingColor = "#ffffff",
+  idPrefix = "ghosty",
+}) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
 
@@ -105,24 +121,32 @@ export const GhostyCharacter: React.FC<
             <rect x={0} y={0} width={1000} height={1000} filter={`url(#${id("grain")})`} />
           </g>
 
-          <ellipse cx={360} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
-          <ellipse cx={680} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
+          {face === "normal" && (
+            <>
+              <ellipse cx={360} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
+              <ellipse cx={680} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
 
-          <g>
-            <ellipse cx={415} cy={515} rx={30} ry={40 * blinkScale} fill="#0a0a0a" />
-            <ellipse cx={625} cy={515} rx={30} ry={40 * blinkScale} fill="#0a0a0a" />
-            {!inBlink && (
-              <>
-                <circle cx={425} cy={501} r={7} fill="#ffffff" />
-                <circle cx={635} cy={501} r={7} fill="#ffffff" />
-              </>
-            )}
-          </g>
+              <g>
+                <ellipse cx={415} cy={515} rx={30} ry={40 * blinkScale} fill="#0a0a0a" />
+                <ellipse cx={625} cy={515} rx={30} ry={40 * blinkScale} fill="#0a0a0a" />
+                {!inBlink && (
+                  <>
+                    <circle cx={425} cy={501} r={7} fill="#ffffff" />
+                    <circle cx={635} cy={501} r={7} fill="#ffffff" />
+                  </>
+                )}
+              </g>
 
-          <path d="M478,570 Q520,617 562,570 Q520,597 478,570 Z" fill="#0a0a0a" />
+              <path d="M478,570 Q520,617 562,570 Q520,597 478,570 Z" fill="#0a0a0a" />
 
-          <ellipse cx={360} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
-          <ellipse cx={680} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
+              <ellipse cx={360} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
+              <ellipse cx={680} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
+            </>
+          )}
+
+          {face === "recording" && <RecordingFace frame={frame} fps={fps} color={recordingColor} />}
+
+          {face === "loading" && <LoadingFace frame={frame} fps={fps} color={loadingColor} />}
         </g>
       </svg>
     </AbsoluteFill>
