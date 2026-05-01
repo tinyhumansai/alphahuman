@@ -2112,8 +2112,14 @@ pub async fn webview_account_purge<R: Runtime>(
     // toasts for messages that arrived while the previous session was
     // active. Lives outside `data_directory_for` because that path is
     // CEF-owned; the seen-set is OpenHuman-owned state.
+    //
+    // `args.account_id` arrives unsanitized from IPC. `data_directory_for`
+    // above already enforces `sanitize_account_id`, but we re-validate here
+    // explicitly so a future refactor that moves the data-dir cleanup can't
+    // silently turn this into a path-traversal foothold for `remove_dir_all`.
     if let Ok(base) = app.path().app_local_data_dir() {
-        let notify_dir = base.join("gmail").join(&args.account_id);
+        let notify_account_id = sanitize_account_id(&args.account_id)?;
+        let notify_dir = base.join("gmail").join(notify_account_id);
         if notify_dir.exists() {
             if let Err(err) = std::fs::remove_dir_all(&notify_dir) {
                 log::warn!(
@@ -2917,5 +2923,37 @@ mod tests {
             "https://accounts.google.com/o/oauth2/v2/auth?code=secret#frag",
         ));
         assert_eq!(redacted, "https://accounts.google.com/o/oauth2/v2/auth");
+    }
+
+    // ── account_id sanitizer (path-traversal guard) ──────────
+    //
+    // `sanitize_account_id` is the only barrier between IPC-supplied
+    // account ids and `create_dir_all` / `remove_dir_all` paths under
+    // `app_local_data_dir`. The Gmail seen-set purge in
+    // `webview_account_purge` reuses it explicitly so a future refactor
+    // that drops the surrounding `data_directory_for` call can't turn
+    // this site into a path-traversal sink.
+    #[test]
+    fn sanitize_account_id_accepts_alnum_dash_underscore() {
+        assert_eq!(sanitize_account_id("acct-1").unwrap(), "acct-1");
+        assert_eq!(sanitize_account_id("ACCT_2").unwrap(), "ACCT_2");
+        assert_eq!(sanitize_account_id("a1b2c3").unwrap(), "a1b2c3");
+    }
+
+    #[test]
+    fn sanitize_account_id_rejects_traversal() {
+        assert!(sanitize_account_id("..").is_err());
+        assert!(sanitize_account_id("../etc").is_err());
+        assert!(sanitize_account_id("a/b").is_err());
+        assert!(sanitize_account_id("a\\b").is_err());
+        assert!(sanitize_account_id("a..b").is_err());
+    }
+
+    #[test]
+    fn sanitize_account_id_rejects_empty_and_whitespace() {
+        assert!(sanitize_account_id("").is_err());
+        assert!(sanitize_account_id(" ").is_err());
+        assert!(sanitize_account_id("a b").is_err());
+        assert!(sanitize_account_id("\nabc").is_err());
     }
 }
