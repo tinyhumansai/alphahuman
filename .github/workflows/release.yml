@@ -551,12 +551,12 @@ jobs:
           # Core is linked into the Tauri binary as a path dep, so all Rust
           # debug info — core + shell — lives under the shell's target dir.
           # upload-dif scans recursively.
-          deps_dir="app/src-tauri/target/${MATRIX_TARGET}/release/deps"
-          if [ -d "$deps_dir" ]; then
-            echo "==> Uploading symbols from $deps_dir to ${SENTRY_PROJECT}"
-            bash scripts/upload_sentry_symbols.sh "$VERSION" "$deps_dir"
+          dif_dir="app/src-tauri/target/${MATRIX_TARGET}/release"
+          if [ -d "$dif_dir" ]; then
+            echo "==> Uploading symbols from $dif_dir to ${SENTRY_PROJECT}"
+            bash scripts/upload_sentry_symbols.sh "$VERSION" "$dif_dir"
           else
-            echo "==> Skipping $deps_dir (not present)"
+            echo "==> Skipping $dif_dir (not present)"
           fi
 
       # tauri-action previously uploaded non-macOS installer assets directly

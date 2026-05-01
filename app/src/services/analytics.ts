@@ -16,7 +16,13 @@
 import * as Sentry from '@sentry/react';
 
 import { getCoreStateSnapshot } from '../lib/coreState/store';
-import { APP_ENVIRONMENT, IS_DEV, SENTRY_DSN, SENTRY_RELEASE } from '../utils/config';
+import {
+  APP_ENVIRONMENT,
+  IS_DEV,
+  SENTRY_DSN,
+  SENTRY_RELEASE,
+  SENTRY_SMOKE_TEST,
+} from '../utils/config';
 
 /** Check if the current user has opted into analytics. */
 export function isAnalyticsEnabled(): boolean {
@@ -51,8 +57,11 @@ export function initSentry(): void {
     sendDefaultPii: false,
 
     beforeSend(event) {
+      // Always allow the smoke-test event through so pipeline validation works
+      // even when the user hasn't opted into analytics yet on first boot.
+      const isSmokeTest = event.message === 'react-sentry-smoke-test';
       // Drop events when the user hasn't opted into analytics.
-      if (!isAnalyticsEnabled()) return null;
+      if (!isSmokeTest && !isAnalyticsEnabled()) return null;
 
       // Strip anything that could carry Redux / localStorage / request bodies.
       event.breadcrumbs = [];
@@ -104,8 +113,10 @@ export function initSentry(): void {
   // Optional smoke trigger for verifying the pipeline end-to-end. Set
   // `VITE_SENTRY_SMOKE_TEST=true` for one build (or in `.env.local` for
   // local verification) and the next initSentry call will fire a test
-  // message before returning. No-op when unset.
-  if (import.meta.env.VITE_SENTRY_SMOKE_TEST === 'true') {
+  // message before returning. No-op when unset. The smoke event bypasses
+  // the analytics-consent gate in `beforeSend` so it reaches Sentry even
+  // on a fresh install where consent hasn't been granted yet.
+  if (SENTRY_SMOKE_TEST) {
     Sentry.captureMessage('react-sentry-smoke-test', 'info');
   }
 }

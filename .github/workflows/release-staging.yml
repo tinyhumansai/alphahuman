@@ -280,6 +280,10 @@ jobs:
           CORE_MANIFEST: ${{ steps.core-paths.outputs.core_manifest }}
           CORE_BIN_NAME: ${{ steps.core-paths.outputs.core_bin_name }}
           OPENHUMAN_APP_ENV: staging
+          # Bake the short SHA into the CLI binary so build_release_tag() in
+          # src/main.rs produces openhuman@<version>+<sha> — matching the
+          # Sentry release tag used when uploading the standalone CLI symbols.
+          OPENHUMAN_BUILD_SHA: ${{ needs.prepare-build.outputs.short_sha }}
       - name: Stage sidecar for Tauri bundler
         shell: bash
         run: |
