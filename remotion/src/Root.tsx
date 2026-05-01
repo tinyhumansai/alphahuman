@@ -2,6 +2,7 @@ import "./index.css";
 import { Composition } from "remotion";
 import { HelloWorld, myCompSchema } from "./HelloWorld";
 import { Logo, myCompSchema2 } from "./HelloWorld/Logo";
+import { Ghosty, ghostySchema } from "./Ghosty/Ghosty";
 
 // Each <Composition> is an entry in the sidebar!
 
@@ -40,6 +41,26 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={{
           logoColor1: "#91dAE2" as const,
           logoColor2: "#86A8E7" as const,
+        }}
+      />
+
+      {/* Ghosty: rendered with a transparent background.
+          Render to alpha MOV with:
+            npx remotion render Ghosty out/ghosty.mov \
+              --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le
+      */}
+      <Composition
+        id="Ghosty"
+        component={Ghosty}
+        durationInFrames={180}
+        fps={30}
+        width={1080}
+        height={1080}
+        schema={ghostySchema}
+        defaultProps={{
+          bodyColor: "#1a1a1a" as const,
+          blushColor: "#f5a3ad" as const,
+          mouthColor: "#c8455a" as const,
         }}
       />
     </>
