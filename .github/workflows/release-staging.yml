@@ -3,7 +3,9 @@ name: Release (Staging)
 on:
   workflow_dispatch: {}
 permissions:
-  contents: read
+  # `contents: write` is required for the patch bump commit and the
+  # `v<version>-staging` tag push performed by `prepare-build` below.
+  contents: write
   packages: read
 concurrency:
   group: release-staging
@@ -17,7 +19,11 @@ concurrency:
 # ---------------------------------------------------------------------------
 jobs:
   # =========================================================================
-  # Phase 1: Resolve build context (no version bump, no tag)
+  # Phase 1: Patch-bump on the staging branch and create the immutable
+  # `v<version>-staging` tag at that commit. The build matrix below then
+  # checks out the tag (not the branch tip) so reruns reproduce byte-for-
+  # byte. Production promotion (`release.yml`, `release_source =
+  # staging_tag`) reads this tag verbatim.
   # =========================================================================
   prepare-build:
     name: Prepare build context
@@ -30,6 +36,10 @@ jobs:
     environment: Production
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+      # Immutable staging tag created by this run, e.g. `v1.2.4-staging`.
+      # Downstream consumers (release.yml `staging_tag` promotion, Sentry,
+      # installer asset names) reference this rather than the bare SHA.
+      tag: ${{ steps.resolve.outputs.tag }}
       sha: ${{ steps.resolve.outputs.sha }}
       # First 12 chars of `sha`. Matches the truncation runtime code in
       # config.ts / vite.config.ts / main.rs / app/src-tauri/src/lib.rs
@@ -45,30 +55,93 @@ jobs:
         run: |
           echo "This workflow can only run from staging. Current ref: $GITHUB_REF"
           exit 1
+      - name: Generate GitHub App token
+        id: app-token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.XGITHUB_APP_ID }}
+          private_key: ${{ secrets.XGITHUB_APP_PRIVATE_KEY }}
       - name: Checkout staging
         uses: actions/checkout@v4
         with:
           ref: staging
-          fetch-depth: 1
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
+      - name: Configure Git
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git fetch origin --tags --prune --prune-tags
+          git checkout staging
+          git pull origin staging --ff-only
+      # Patch-only bump for staging cuts. Minor/major promotions are owned
+      # by `release.yml` and only happen on the production path. The bump
+      # commit lands on the staging branch so subsequent staging cuts see
+      # the new floor; merging staging back to main is a separate PR.
+      - name: Bump patch version
+        id: bump
+        run: node scripts/release/bump-version.js patch
+      - name: Verify version sync
+        run: node scripts/release/verify-version-sync.js "${{ steps.bump.outputs.version }}"
+      - name: Compute staging tag
+        id: tagname
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          STAGING_TAG="v${VERSION}-staging"
+          echo "tag=${STAGING_TAG}" >> "$GITHUB_OUTPUT"
+      - name: Ensure staging tag does not already exist
+        env:
+          TAG: ${{ steps.tagname.outputs.tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists locally: $TAG"
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "Tag already exists on origin: $TAG"
+            exit 1
+          fi
+      - name: Commit, push and tag staging cut
+        id: push
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.tagname.outputs.tag }}
+        run: |
+          git add app/package.json app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml Cargo.toml
+          git commit -m "chore(staging): v${VERSION}"
+          git push origin staging
+          git tag -a "$TAG" -m "Staging cut $TAG"
+          git push origin "$TAG"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Resolve build outputs
         id: resolve
         shell: bash
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: ${{ steps.tagname.outputs.tag }}
+          SHA: ${{ steps.push.outputs.sha }}
         run: |
-          VERSION="$(node -p "require('./app/package.json').version")"
-          SHA="$(git rev-parse HEAD)"
           # Match the 12-char truncation runtime code applies to
           # VITE_BUILD_SHA / OPENHUMAN_BUILD_SHA when constructing the
           # release tag at startup, so SENTRY_RELEASE assembled in CI
           # agrees with the tag events emit.
           SHORT_SHA="${SHA:0:12}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "build_ref=$SHA" >> "$GITHUB_OUTPUT"
+          # Build from the immutable staging tag rather than the branch tip
+          # so reruns of this workflow rebuild the same content even if the
+          # branch has moved on.
+          echo "build_ref=$TAG" >> "$GITHUB_OUTPUT"
           echo "base_url=https://staging-api.tinyhumans.ai/" >> "$GITHUB_OUTPUT"
 
   # =========================================================================
@@ -435,3 +508,37 @@ jobs:
           echo "==> Recording deploy marker: ${SENTRY_RELEASE} -> ${SENTRY_ENVIRONMENT}"
           sentry-cli releases deploys "${SENTRY_RELEASE}" new \
             -e "${SENTRY_ENVIRONMENT}"
+
+  # =========================================================================
+  # Cleanup: delete the staging tag if the build matrix failed. The version
+  # bump commit on the staging branch stays — reverting it would risk a
+  # race with concurrent merges into staging. Operators can manually push
+  # a follow-up bump if they need the same patch number on the next cut.
+  # =========================================================================
+  cleanup-failed-staging:
+    name: Remove staging tag if build failed
+    runs-on: ubuntu-latest
+    environment: Production
+    needs: [prepare-build, build-desktop]
+    if: >-
+      always()
+      && needs.prepare-build.result == 'success'
+      && (needs.build-desktop.result == 'failure' || needs.build-desktop.result == 'cancelled')
+    steps:
+      - name: Delete remote staging tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tag = '${{ needs.prepare-build.outputs.tag }}';
+            try {
+              await github.rest.git.deleteRef({ owner, repo, ref: `tags/${tag}` });
+              core.info(`Deleted remote staging tag ${tag}`);
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Staging tag ${tag} already absent on remote`);
+              } else {
+                throw e;
+              }
+            }

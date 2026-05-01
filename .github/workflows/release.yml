@@ -3,14 +3,27 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      build_target:
-        description: Build target environment
+      release_source:
+        description: |
+          Source ref for the production build.
+          - staging_tag: build the latest (or explicit) staging tag — recommended; the artifact
+            QA already exercised gets promoted to production.
+          - main_head: build main @ HEAD with a fresh version bump (escape hatch for hotfixes).
         required: true
         type: choice
-        default: production
-        options: [production, staging]
+        default: staging_tag
+        options: [staging_tag, main_head]
+      staging_tag:
+        description:
+          Specific staging tag to promote (e.g. v1.2.4-staging). Leave empty to use the
+          latest matching tag. Ignored when release_source = main_head.
+        required: false
+        type: string
+        default: ""
       release_type:
-        description: Version increment type
+        description:
+          Version increment type. Only consulted when release_source = main_head;
+          staging_tag promotions inherit the staging tag's version verbatim.
         required: false
         default: patch
         type: choice
@@ -19,7 +32,9 @@ permissions:
   contents: write
   packages: write
 concurrency:
-  group: release-${{ github.event.inputs.build_target || 'production' }}-main
+  # Distinct group from release-staging.yml so promotions and staging cuts can
+  # run independently. The two workflows never touch the same tags or refs.
+  group: release-production
   cancel-in-progress: false
 # ---------------------------------------------------------------------------
 # Job dependency graph
@@ -44,7 +59,7 @@ concurrency:
 # ---------------------------------------------------------------------------
 jobs:
   # =========================================================================
-  # Phase 1: Version bump, commit, tag
+  # Phase 1: Resolve build ref and (for main_head) bump version + create tag
   # =========================================================================
   prepare-build:
     name: Prepare build context
@@ -62,58 +77,55 @@ jobs:
       # artifacts attach to the same release events report.
       short_sha: ${{ steps.resolve.outputs.short_sha }}
       build_ref: ${{ steps.resolve.outputs.build_ref }}
-      release_enabled: ${{ steps.resolve.outputs.release_enabled }}
       base_url: ${{ steps.resolve.outputs.base_url }}
     steps:
       - name: Enforce main branch
+        # Both flows operate against main: main_head bumps and tags from main
+        # HEAD; staging_tag promotion creates the production tag from main
+        # (the tag's commit object lives in the same repo, so the tag is
+        # reachable via direct ref regardless of where it sits in history).
         if: github.ref != 'refs/heads/main'
         run: |
           echo "This workflow can only run from main. Current ref: $GITHUB_REF"
           exit 1
       - name: Generate GitHub App token
-        if: inputs.build_target == 'production'
         id: app-token
         uses: tibdex/github-app-token@v1
         with:
           app_id: ${{ secrets.XGITHUB_APP_ID }}
           private_key: ${{ secrets.XGITHUB_APP_PRIVATE_KEY }}
-      - name: Checkout main for production release
-        if: inputs.build_target == 'production'
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-      - name: Checkout main for staging build
-        if: inputs.build_target == 'staging'
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24.x
       - name: Configure Git
-        if: inputs.build_target == 'production'
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
-          git fetch origin --tags
+          git fetch origin --tags --prune --prune-tags
           git checkout main
           git pull origin main --ff-only
-      - name: Compute next version and sync release files
-        if: inputs.build_target == 'production'
+
+      # ── Path A: main_head ────────────────────────────────────────────────
+      # Bump version on main, commit, push, tag.
+      - name: Compute next version and sync release files (main_head)
+        if: inputs.release_source == 'main_head'
         id: bump
         run: node scripts/release/bump-version.js "${{ inputs.release_type }}"
-      - name: Verify release version sync
-        if: inputs.build_target == 'production'
+      - name: Verify release version sync (main_head)
+        if: inputs.release_source == 'main_head'
         run: node scripts/release/verify-version-sync.js "${{ steps.bump.outputs.version }}"
-      - name: Ensure tag does not already exist
-        if: inputs.build_target == 'production'
+      - name: Ensure tag does not already exist (main_head)
+        if: inputs.release_source == 'main_head'
         env:
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
@@ -125,8 +137,8 @@ jobs:
             echo "Tag already exists on origin: $TAG"
             exit 1
           fi
-      - name: Commit, push and tag
-        if: inputs.build_target == 'production'
+      - name: Commit, push and tag (main_head)
+        if: inputs.release_source == 'main_head'
         id: push
         env:
           VERSION: ${{ steps.bump.outputs.version }}
@@ -138,25 +150,98 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # ── Path B: staging_tag ──────────────────────────────────────────────
+      # Resolve a previously cut staging tag, derive the production version
+      # from its package.json (no further bump — patch was applied during the
+      # staging cut), and create the production v<version> tag at the same
+      # commit. The artifact contents are byte-identical to what staging
+      # validated, modulo build-time env (BASE_URL, OPENHUMAN_APP_ENV, etc.).
+      - name: Resolve staging tag (staging_tag)
+        if: inputs.release_source == 'staging_tag'
+        id: stagingtag
+        env:
+          EXPLICIT_TAG: ${{ inputs.staging_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EXPLICIT_TAG" ]; then
+            STAGING_TAG="$EXPLICIT_TAG"
+          else
+            STAGING_TAG="$(git tag -l 'v*-staging' --sort=-v:refname | head -n 1)"
+          fi
+          if [ -z "$STAGING_TAG" ]; then
+            echo "No staging tags found matching v*-staging."
+            exit 1
+          fi
+          if ! git rev-parse --verify "refs/tags/$STAGING_TAG" >/dev/null 2>&1; then
+            echo "Staging tag not present locally: $STAGING_TAG"
+            exit 1
+          fi
+          STAGING_SHA="$(git rev-list -n 1 "$STAGING_TAG")"
+          # Strip the -staging suffix to get the production version.
+          PROD_VERSION="${STAGING_TAG#v}"
+          PROD_VERSION="${PROD_VERSION%-staging}"
+          PROD_TAG="v${PROD_VERSION}"
+          # Sanity-check the staging commit's manifests agree on the version
+          # — if they drift, the bundled installer will report a different
+          # version than the GitHub Release tag.
+          MANIFEST_VERSION="$(git show "${STAGING_TAG}:app/package.json" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(d).version||""))')"
+          if [ "$MANIFEST_VERSION" != "$PROD_VERSION" ]; then
+            echo "Staging tag $STAGING_TAG version mismatch: tag implies $PROD_VERSION but app/package.json says $MANIFEST_VERSION"
+            exit 1
+          fi
+          echo "staging_tag=$STAGING_TAG" >> "$GITHUB_OUTPUT"
+          echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
+          echo "prod_version=$PROD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "prod_tag=$PROD_TAG" >> "$GITHUB_OUTPUT"
+      - name: Ensure production tag does not already exist (staging_tag)
+        if: inputs.release_source == 'staging_tag'
+        env:
+          TAG: ${{ steps.stagingtag.outputs.prod_tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists locally: $TAG"
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "Tag already exists on origin: $TAG"
+            exit 1
+          fi
+      - name: Create production tag at staging commit (staging_tag)
+        if: inputs.release_source == 'staging_tag'
+        id: promote
+        env:
+          STAGING_TAG: ${{ steps.stagingtag.outputs.staging_tag }}
+          STAGING_SHA: ${{ steps.stagingtag.outputs.staging_sha }}
+          PROD_TAG: ${{ steps.stagingtag.outputs.prod_tag }}
+        run: |
+          git tag -a "$PROD_TAG" "$STAGING_SHA" -m "Release $PROD_TAG (promoted from $STAGING_TAG)"
+          git push origin "$PROD_TAG"
+          echo "sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Resolve build outputs
         id: resolve
         shell: bash
+        env:
+          RELEASE_SOURCE: ${{ inputs.release_source }}
+          BUMP_VERSION: ${{ steps.bump.outputs.version }}
+          BUMP_TAG: ${{ steps.bump.outputs.tag }}
+          PUSH_SHA: ${{ steps.push.outputs.sha }}
+          PROMOTE_VERSION: ${{ steps.stagingtag.outputs.prod_version }}
+          PROMOTE_TAG: ${{ steps.stagingtag.outputs.prod_tag }}
+          PROMOTE_SHA: ${{ steps.promote.outputs.sha }}
         run: |
-          if [ "${{ inputs.build_target }}" = "production" ]; then
-            VERSION="${{ steps.bump.outputs.version }}"
-            TAG="${{ steps.bump.outputs.tag }}"
-            SHA="${{ steps.push.outputs.sha }}"
-            BUILD_REF="$TAG"
-            RELEASE_ENABLED="true"
-            BASE_URL="https://api.tinyhumans.ai/"
+          if [ "$RELEASE_SOURCE" = "main_head" ]; then
+            VERSION="$BUMP_VERSION"
+            TAG="$BUMP_TAG"
+            SHA="$PUSH_SHA"
           else
-            VERSION="$(node -p "require('./app/package.json').version")"
-            TAG=""
-            SHA="$(git rev-parse HEAD)"
-            BUILD_REF="$SHA"
-            RELEASE_ENABLED="false"
-            BASE_URL="https://staging-api.tinyhumans.ai/"
+            VERSION="$PROMOTE_VERSION"
+            TAG="$PROMOTE_TAG"
+            SHA="$PROMOTE_SHA"
           fi
+          BUILD_REF="$TAG"
+          BASE_URL="https://api.tinyhumans.ai/"
           # Match the 12-char truncation runtime code applies to
           # VITE_BUILD_SHA / OPENHUMAN_BUILD_SHA when constructing the release
           # tag at startup, so SENTRY_RELEASE assembled in CI agrees with
@@ -167,7 +252,6 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "build_ref=$BUILD_REF" >> "$GITHUB_OUTPUT"
-          echo "release_enabled=$RELEASE_ENABLED" >> "$GITHUB_OUTPUT"
           echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
 
   # =========================================================================
@@ -177,7 +261,6 @@ jobs:
     name: Create GitHub release
     runs-on: ubuntu-latest
     environment: Production
-    if: needs.prepare-build.outputs.release_enabled == 'true'
     needs: prepare-build
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
@@ -220,11 +303,7 @@ jobs:
   build-desktop:
     name: "Desktop: ${{ matrix.settings.artifact_suffix }}"
     needs: [prepare-build, create-release]
-    if: >-
-      always()
-      && needs.prepare-build.result == 'success'
-      && (needs.prepare-build.outputs.release_enabled != 'true'
-          || needs.create-release.result == 'success')
+    if: needs.create-release.result == 'success'
     runs-on: ${{ matrix.settings.platform }}
     environment: Production
     strategy:
@@ -250,8 +329,8 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Keep in sync with DEFAULT_TELEGRAM_BOT_USERNAME_* in channels/controllers/ops.rs
-      OPENHUMAN_TELEGRAM_BOT_USERNAME: ${{ inputs.build_target == 'staging' && 'alphahumantest_bot' || 'openhumanaibot' }}
-      VITE_TELEGRAM_BOT_USERNAME: ${{ inputs.build_target == 'staging' && 'alphahumantest_bot' || 'openhumanaibot' }}
+      OPENHUMAN_TELEGRAM_BOT_USERNAME: openhumanaibot
+      VITE_TELEGRAM_BOT_USERNAME: openhumanaibot
     steps:
       - name: Checkout build ref
         uses: actions/checkout@v4
@@ -259,14 +338,6 @@ jobs:
           ref: ${{ needs.prepare-build.outputs.build_ref }}
           fetch-depth: 1
           submodules: recursive
-      - name: Configure staging app environment
-        if: inputs.build_target == 'staging'
-        shell: bash
-        run: |
-          echo "OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
-          echo "VITE_OPENHUMAN_APP_ENV=staging" >> "$GITHUB_ENV"
-          echo "OPENHUMAN_TELEGRAM_BOT_USERNAME=alphahumantest_bot" >> "$GITHUB_ENV"
-          echo "VITE_TELEGRAM_BOT_USERNAME=alphahumantest_bot" >> "$GITHUB_ENV"
       - name: Set Xcode version
         if: matrix.settings.platform == 'macos-latest'
         uses: maxim-lobanov/setup-xcode@v1
@@ -301,8 +372,8 @@ jobs:
         run: |
           set +e
           for BIN in \
-            app/src-tauri/target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/OpenHuman \
-            target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/OpenHuman; do
+            app/src-tauri/target/${{ matrix.settings.target }}/release/OpenHuman \
+            target/${{ matrix.settings.target }}/release/OpenHuman; do
             if [ -x "$BIN" ]; then
               echo "ldd $BIN"
               ldd "$BIN" | grep 'not found' || echo "  all resolved"
@@ -457,8 +528,8 @@ jobs:
         working-directory: app
         env:
           BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
-          OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
-          VITE_OPENHUMAN_APP_ENV: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          OPENHUMAN_APP_ENV: production
+          VITE_OPENHUMAN_APP_ENV: production
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           # Re-declare Vite env so tauri.conf.json's `beforeBuildCommand`
           # (`vite build`) bakes Sentry + debug flags into the final bundle.
@@ -508,11 +579,7 @@ jobs:
           # Inline NODE_OPTIONS so it reaches the vite child spawned by
           # beforeBuildCommand. Step-level env was observed not to propagate
           # on macos-arm64 runners, causing OOM at node's ~2GB auto default.
-          if [ "${{ inputs.build_target }}" = "staging" ]; then
-            NODE_OPTIONS="--max-old-space-size=8192" cargo tauri build --debug -c "$TAURI_CONFIG_OVERRIDE" $MATRIX_ARGS
-          else
-            NODE_OPTIONS="--max-old-space-size=8192" cargo tauri build -c "$TAURI_CONFIG_OVERRIDE" $MATRIX_ARGS
-          fi
+          NODE_OPTIONS="--max-old-space-size=8192" cargo tauri build -c "$TAURI_CONFIG_OVERRIDE" $MATRIX_ARGS
 
       # Upload Rust debug info to Sentry so backend + Tauri-shell stack traces
       # symbolicate in production. The frontend source maps are handled by
@@ -522,9 +589,7 @@ jobs:
       # Symbols are keyed by debug-ID, so it's safe to run per-matrix-target
       # without collisions — Sentry merges artifacts across platforms.
       - name: Upload core sidecar debug symbols to Sentry
-        if:
-          needs.prepare-build.outputs.release_enabled == 'true' && env.SENTRY_AUTH_TOKEN
-          != ''
+        if: env.SENTRY_AUTH_TOKEN != ''
         shell: bash
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -557,21 +622,18 @@ jobs:
       # to the release. Replicate that for Linux + Windows here (macOS goes
       # through the re-sign + notarize path below and uploads separately).
       - name: Upload non-macOS installers to release
-        if:
-          needs.prepare-build.outputs.release_enabled == 'true' && matrix.settings.platform
-          != 'macos-latest'
+        if: matrix.settings.platform != 'macos-latest'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare-build.outputs.tag }}
           MATRIX_TARGET: ${{ matrix.settings.target }}
-          BUILD_PROFILE: ${{ inputs.build_target == 'staging' && 'debug' || 'release' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           BUNDLE_ROOTS=(
-            "app/src-tauri/target/${MATRIX_TARGET}/${BUILD_PROFILE}/bundle"
-            "target/${MATRIX_TARGET}/${BUILD_PROFILE}/bundle"
+            "app/src-tauri/target/${MATRIX_TARGET}/release/bundle"
+            "target/${MATRIX_TARGET}/release/bundle"
           )
           UPLOAD=()
           for root in "${BUNDLE_ROOTS[@]}"; do
@@ -604,8 +666,8 @@ jobs:
           # depending on workspace config — search both
           APP_PATH=""
           for candidate in \
-            "app/src-tauri/target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/macos/OpenHuman.app" \
-            "target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/macos/OpenHuman.app"; do
+            "app/src-tauri/target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app" \
+            "target/${{ matrix.settings.target }}/release/bundle/macos/OpenHuman.app"; do
             if [ -d "$candidate" ]; then
               APP_PATH="$candidate"
               break
@@ -614,7 +676,7 @@ jobs:
 
           # Fallback: search for it
           if [ -z "$APP_PATH" ]; then
-            APP_PATH="$(find . -path "*/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/macos/OpenHuman.app" -type d 2>/dev/null | head -1)"
+            APP_PATH="$(find . -path "*/release/bundle/macos/OpenHuman.app" -type d 2>/dev/null | head -1)"
           fi
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: Could not find OpenHuman.app bundle anywhere"
@@ -652,9 +714,7 @@ jobs:
             "${{ steps.locate-app.outputs.app_path }}" \
             "${{ steps.locate-app.outputs.bundle_dir }}"
       - name: Re-upload notarized macOS artifacts to release
-        if:
-          matrix.settings.platform == 'macos-latest' && needs.prepare-build.outputs.release_enabled
-          == 'true'
+        if: matrix.settings.platform == 'macos-latest'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -674,16 +734,6 @@ jobs:
           APP_PATH="${{ steps.locate-app.outputs.app_path }}"
           echo "Checking staple at: $APP_PATH"
           xcrun stapler validate "$APP_PATH" || echo "WARNING: Staple validation failed"
-      - name: Upload staging desktop bundles
-        if: needs.prepare-build.outputs.release_enabled != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name:
-            desktop-bundles-${{ matrix.settings.platform }}-${{ matrix.settings.artifact_suffix
-            }}
-          path: |
-            app/src-tauri/target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/**
-            target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/**
 
   # =========================================================================
   # Phase 5: Record a single Sentry deploy marker once the release has
@@ -703,7 +753,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     needs: [prepare-build, publish-release]
-    if: needs.prepare-build.outputs.release_enabled == 'true'
     env:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
     steps:
@@ -724,7 +773,7 @@ jobs:
           SENTRY_RELEASE:
             openhuman@${{ needs.prepare-build.outputs.version }}+${{
             needs.prepare-build.outputs.short_sha }}
-          SENTRY_ENVIRONMENT: ${{ inputs.build_target == 'staging' && 'staging' || 'production' }}
+          SENTRY_ENVIRONMENT: production
         run: |
           set -euo pipefail
           echo "==> Recording deploy marker: ${SENTRY_RELEASE} -> ${SENTRY_ENVIRONMENT}"
@@ -737,11 +786,7 @@ jobs:
   build-docker:
     name: "Docker: build and push"
     needs: [prepare-build, create-release]
-    if: >-
-      always()
-      && needs.prepare-build.result == 'success'
-      && needs.prepare-build.outputs.release_enabled == 'true'
-      && needs.create-release.result == 'success'
+    if: needs.create-release.result == 'success'
     runs-on: ubuntu-latest
     environment: Production
     env:
@@ -766,15 +811,12 @@ jobs:
   # Phase 3c: Generate and upload latest.json for the Tauri auto-updater.
   # Runs after every platform has uploaded its updater artifact (.sig files
   # from createUpdaterArtifacts) so the manifest can reference all four
-  # platform entries. Production-only — staging builds don't feed the public
-  # updater endpoint.
+  # platform entries.
   # =========================================================================
   publish-updater-manifest:
     name: Publish updater manifest (latest.json)
     needs: [prepare-build, create-release, build-desktop]
-    if: >-
-      needs.prepare-build.outputs.release_enabled == 'true'
-      && needs.build-desktop.result == 'success'
+    if: needs.build-desktop.result == 'success'
     runs-on: ubuntu-latest
     environment: Production
     steps:
@@ -806,8 +848,7 @@ jobs:
       - build-docker
       - publish-updater-manifest
     if: >-
-      needs.prepare-build.outputs.release_enabled == 'true'
-      && needs.build-desktop.result == 'success'
+      needs.build-desktop.result == 'success'
       && needs.build-docker.result == 'success'
       && needs.publish-updater-manifest.result == 'success'
     steps:
@@ -839,32 +880,6 @@ jobs:
             }
             core.info('All required installer assets are present.');
 
-      # - name: Promote Docker image from staging to release tags
-      #   env:
-      #     REGISTRY: ghcr.io
-      #     IMAGE_NAME: tinyhumansai/openhuman-core
-      #     TAG: ${{ needs.prepare-release.outputs.tag }}
-      #   run: |
-      #  # Log in to GHCR
-      #     echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      #     STAGING="${REGISTRY}/${IMAGE_NAME}:staging-${TAG}"
-      #     VERSIONED="${REGISTRY}/${IMAGE_NAME}:${TAG}"
-      #     LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
-
-      #     echo "Promoting ${STAGING} → ${VERSIONED}, ${LATEST}"
-      #     docker buildx imagetools create --tag "${VERSIONED}" --tag "${LATEST}" "${STAGING}"
-
-      # - name: Append Docker pull instructions to release notes
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     TAG: ${{ needs.prepare-release.outputs.tag }}
-      #     IMAGE_NAME: tinyhumansai/openhuman-core
-      #   run: |
-      #     gh release view "${TAG}" --repo tinyhumansai/openhuman --json body -q .body > /tmp/body.md
-      #     printf '\n---\n\n### Docker\n\n```\ndocker pull ghcr.io/%s:%s\ndocker run -p 7788:7788 --env-file .env ghcr.io/%s:%s\n```\n' \
-      #       "${IMAGE_NAME}" "${TAG}" "${IMAGE_NAME}" "${TAG}" >> /tmp/body.md
-      #     gh release edit "${TAG}" --repo tinyhumansai/openhuman --notes-file /tmp/body.md
       - name: Publish release
         uses: actions/github-script@v7
         with:
@@ -893,7 +908,6 @@ jobs:
       - publish-updater-manifest
     if: >-
       always()
-      && needs.prepare-build.outputs.release_enabled == 'true'
       && needs.create-release.result == 'success'
       && (needs.build-desktop.result == 'failure' || needs.build-desktop.result ==
       'cancelled'
