@@ -39,10 +39,17 @@ impl Signals {
 
 fn sample_power() -> (bool, Option<f32>) {
     // Env overrides win — useful for CI, container hosts that misreport,
-    // and manual debugging of the throttle path on a desktop.
-    let env_on_ac = std::env::var("OPENHUMAN_ON_AC_POWER")
-        .ok()
-        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"));
+    // and manual debugging of the throttle path on a desktop. Only
+    // explicit truthy/falsy tokens count: garbage values yield None so
+    // the real probe still gets to answer (vs. silently coercing to
+    // "on battery" and triggering throttling on every misconfigured host).
+    let env_on_ac = std::env::var("OPENHUMAN_ON_AC_POWER").ok().and_then(|v| {
+        match v.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" => Some(true),
+            "0" | "false" | "no" => Some(false),
+            _ => None,
+        }
+    });
     let env_charge = std::env::var("OPENHUMAN_BATTERY_CHARGE")
         .ok()
         .and_then(|v| v.parse::<f32>().ok())

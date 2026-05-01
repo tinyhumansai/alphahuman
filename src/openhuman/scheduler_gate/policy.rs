@@ -40,13 +40,20 @@ pub fn decide(signals: &Signals, cfg: &SchedulerGateConfig) -> Policy {
         return Policy::Aggressive;
     }
 
+    // Clamp config-supplied thresholds so a malformed config.toml (e.g.
+    // `battery_floor = 1.5` or a negative cpu threshold) can't silently
+    // disable / force throttling — the field is `f32` and serde won't
+    // reject out-of-domain values for us.
+    let battery_floor = cfg.battery_floor.clamp(0.0, 1.0);
+    let cpu_threshold = cfg.cpu_busy_threshold_pct.clamp(0.0, 100.0);
+
     let battery_ok = signals.on_ac_power
         || signals
             .battery_charge
-            .map(|c| c >= cfg.battery_floor)
+            .map(|c| c >= battery_floor)
             .unwrap_or(true); // no battery present == treat as plugged in
 
-    let cpu_ok = signals.cpu_usage_pct <= cfg.cpu_busy_threshold_pct;
+    let cpu_ok = signals.cpu_usage_pct <= cpu_threshold;
 
     if battery_ok && cpu_ok {
         Policy::Normal
@@ -140,6 +147,32 @@ mod tests {
             &signals(true, Some(0.95), 90.0, false),
             &cfg(SchedulerGateMode::Auto),
         );
+        assert_eq!(p, Policy::Throttled);
+    }
+
+    #[test]
+    fn out_of_range_battery_floor_is_clamped() {
+        // 1.5 clamped to 1.0 — with charge < 1.0 on battery, must throttle.
+        let mut c = cfg(SchedulerGateMode::Auto);
+        c.battery_floor = 1.5;
+        let p = decide(&signals(false, Some(0.99), 10.0, false), &c);
+        assert_eq!(p, Policy::Throttled);
+        // -1.0 clamped to 0.0 — any non-zero charge passes the floor.
+        c.battery_floor = -1.0;
+        let p = decide(&signals(false, Some(0.05), 10.0, false), &c);
+        assert_eq!(p, Policy::Normal);
+    }
+
+    #[test]
+    fn out_of_range_cpu_threshold_is_clamped() {
+        // 200.0 clamped to 100.0 — nothing above it, never throttles on CPU.
+        let mut c = cfg(SchedulerGateMode::Auto);
+        c.cpu_busy_threshold_pct = 200.0;
+        let p = decide(&signals(true, None, 99.0, false), &c);
+        assert_eq!(p, Policy::Normal);
+        // -10.0 clamped to 0.0 — any positive CPU usage throttles.
+        c.cpu_busy_threshold_pct = -10.0;
+        let p = decide(&signals(true, None, 5.0, false), &c);
         assert_eq!(p, Policy::Throttled);
     }
 
