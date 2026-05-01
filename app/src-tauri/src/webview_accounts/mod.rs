@@ -97,14 +97,11 @@ fn provider_allowed_hosts(provider: &str) -> &'static [&'static str] {
             "googleusercontent.com",
             "gstatic.com",
             "googleapis.com",
-            // Google's SSO sign-in flow does a cross-domain `SetSID` step on
-            // accounts.youtube.com (`accounts.youtube.com/accounts/SetSID?…
-            // &continue=https://mail.google.com/…`) to propagate the
-            // `__Secure-1PSID` cookie across Google properties. Without
-            // youtube.com here the navigation falls out to the system
-            // browser, the auth cookies never land in the CEF profile, and
-            // post-2FA login hangs on a blank page indefinitely.
-            "youtube.com",
+            // The cross-domain `accounts.youtube.com/accounts/SetSID?…` cookie
+            // hop used by Google's SSO post-password flow is handled in
+            // `url_is_internal` via `is_google_sso_host`, so we do NOT list a
+            // broad `youtube.com` suffix here — that would also keep ordinary
+            // YouTube links trapped inside the embedded provider webview.
         ],
         "slack" => &["slack.com", "slack-edge.com", "slackb.com"],
         "discord" => &[
@@ -118,9 +115,8 @@ fn provider_allowed_hosts(provider: &str) -> &'static [&'static str] {
             "googleusercontent.com",
             "gstatic.com",
             "googleapis.com",
-            // Same Google SSO `SetSID` cross-domain hop as gmail — see the
-            // comment in the gmail arm.
-            "youtube.com",
+            // `accounts.youtube.com` SSO hop is handled in `url_is_internal`
+            // via `is_google_sso_host` — see the comment in the gmail arm.
         ],
         "zoom" => &["zoom.us", "zoom.com", "zoomgov.com", "zdassets.com"],
         "browserscan" => &["browserscan.net"],
