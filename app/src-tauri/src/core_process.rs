@@ -72,12 +72,9 @@ impl CoreProcessHandle {
                 let port = self.port;
                 log::info!("[core] spawning embedded in-process core server on port {port}");
                 let task = tokio::spawn(async move {
-                    if let Err(e) = openhuman_core::core::jsonrpc::run_server_embedded(
-                        None,
-                        Some(port),
-                        true,
-                    )
-                    .await
+                    if let Err(e) =
+                        openhuman_core::core::jsonrpc::run_server_embedded(None, Some(port), true)
+                            .await
                     {
                         log::error!("[core] embedded core server exited with error: {e}");
                     } else {
@@ -100,9 +97,9 @@ impl CoreProcessHandle {
                     let task = guard.take().expect("checked is_some");
                     drop(guard);
                     return match task.await {
-                        Ok(_) => Err(
-                            "in-process core server exited before becoming ready".to_string()
-                        ),
+                        Ok(_) => {
+                            Err("in-process core server exited before becoming ready".to_string())
+                        }
                         Err(err) => Err(format!(
                             "in-process core server task failed before ready: {err}"
                         )),
