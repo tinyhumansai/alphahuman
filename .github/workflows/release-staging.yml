@@ -22,9 +22,21 @@ jobs:
   prepare-build:
     name: Prepare build context
     runs-on: ubuntu-latest
+    # Reuse the Production GitHub Actions environment so Sentry vars
+    # (`OPENHUMAN_*_SENTRY_DSN`, `SENTRY_PROJECT_*`, `SENTRY_ORG`,
+    # `SENTRY_AUTH_TOKEN`) and `VITE_DEBUG` resolve here too. Staging
+    # events differentiate from production via the `environment` tag set
+    # at runtime — separate Sentry projects are not needed.
+    environment: Production
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       sha: ${{ steps.resolve.outputs.sha }}
+      # First 12 chars of `sha`. Matches the truncation runtime code in
+      # config.ts / vite.config.ts / main.rs / app/src-tauri/src/lib.rs
+      # applies when computing `openhuman@<version>+<short_sha>`. Use this
+      # (not `sha`) anywhere CI constructs SENTRY_RELEASE so uploaded
+      # artifacts attach to the same release events report.
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
       build_ref: ${{ steps.resolve.outputs.build_ref }}
       base_url: ${{ steps.resolve.outputs.base_url }}
     steps:
@@ -48,8 +60,14 @@ jobs:
         run: |
           VERSION="$(node -p "require('./app/package.json').version")"
           SHA="$(git rev-parse HEAD)"
+          # Match the 12-char truncation runtime code applies to
+          # VITE_BUILD_SHA / OPENHUMAN_BUILD_SHA when constructing the
+          # release tag at startup, so SENTRY_RELEASE assembled in CI
+          # agrees with the tag events emit.
+          SHORT_SHA="${SHA:0:12}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "build_ref=$SHA" >> "$GITHUB_OUTPUT"
           echo "base_url=https://staging-api.tinyhumans.ai/" >> "$GITHUB_OUTPUT"
 
@@ -60,6 +78,13 @@ jobs:
     name: "Desktop: ${{ matrix.settings.artifact_suffix }}"
     needs: [prepare-build]
     runs-on: ${{ matrix.settings.platform }}
+    # Reuse the Production GH Actions environment so the Sentry vars and
+    # `SENTRY_AUTH_TOKEN` secret resolve here. Staging builds tag their
+    # events with `environment: staging` at runtime (set by APP_ENVIRONMENT
+    # in app/src/utils/config.ts and resolve_sentry_environment() in the
+    # Rust shell), so they're filterable in Sentry without separate
+    # projects.
+    environment: Production
     strategy:
       fail-fast: false
       matrix:
@@ -271,11 +296,104 @@ jobs:
           BASE_URL: ${{ needs.prepare-build.outputs.base_url }}
           VITE_BACKEND_URL: ${{ needs.prepare-build.outputs.base_url }}
           VITE_DEBUG: ${{ vars.VITE_DEBUG }}
+          # ----- Sentry wiring (mirrors release.yml's build-desktop step) -----
+          # React frontend Sentry DSN — baked by the Vite plugin via
+          # `import.meta.env.VITE_SENTRY_DSN`. Without this, `Sentry.init`
+          # in app/src/services/analytics.ts returns early and no events
+          # report from the staging build.
+          VITE_SENTRY_DSN: ${{ vars.OPENHUMAN_REACT_SENTRY_DSN }}
+          # Tauri shell DSN — baked into the shell binary via
+          # `option_env!("OPENHUMAN_TAURI_SENTRY_DSN")` at compile time.
+          OPENHUMAN_TAURI_SENTRY_DSN: ${{ vars.OPENHUMAN_TAURI_SENTRY_DSN }}
+          # Build SHA threaded through to both the Vite bundle and the
+          # Tauri shell so all surfaces emit the same release tag.
+          OPENHUMAN_BUILD_SHA: ${{ needs.prepare-build.outputs.sha }}
+          VITE_BUILD_SHA: ${{ needs.prepare-build.outputs.sha }}
+          # Use short_sha (12 chars) — matches what config.ts /
+          # vite.config.ts / main.rs / app/src-tauri/src/lib.rs all slice
+          # VITE_BUILD_SHA / OPENHUMAN_BUILD_SHA down to at runtime when
+          # emitting events. The vite plugin reads SENTRY_RELEASE raw, so
+          # a long-SHA value here would tag uploads against a different
+          # release than events report.
+          SENTRY_RELEASE:
+            openhuman@${{ needs.prepare-build.outputs.version }}+${{
+            needs.prepare-build.outputs.short_sha }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          # SENTRY_PROJECT here is consumed by sentry-vite-plugin during
+          # the Vite build — uploads frontend source maps to the React
+          # Sentry project. The Rust DIFs go to SENTRY_PROJECT_CORE in the
+          # dedicated step below.
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_REACT }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_CONFIG_OVERRIDE: ${{ steps.config-overrides.outputs.json }}
           MATRIX_ARGS: ${{ matrix.settings.args }}
         run: |
           NODE_OPTIONS="--max-old-space-size=8192" cargo tauri build --debug -c "$TAURI_CONFIG_OVERRIDE" $MATRIX_ARGS
+
+      # Upload Rust debug info to Sentry so backend + Tauri-shell stack
+      # traces symbolicate in the staging Sentry project too. Frontend
+      # source maps are handled by sentry-vite-plugin in the build step
+      # above; this is the Rust half. Symbols are keyed by debug-ID, so
+      # it's safe to run per-matrix-target without collisions — Sentry
+      # merges artifacts across platforms.
+      - name: Upload core sidecar debug symbols to Sentry
+        if: env.SENTRY_AUTH_TOKEN != ''
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_CORE }}
+          # Must match the release tag the running core binary reports
+          # (`openhuman@<version>+<short_sha>`, see `build_release_tag` in
+          # src/main.rs). Uses short_sha (12 chars) — see the prepare-build
+          # outputs comment. If this drifts, DIFs attach to a different
+          # release than events and stack traces stay un-symbolicated.
+          SENTRY_RELEASE:
+            openhuman@${{ needs.prepare-build.outputs.version }}+${{
+            needs.prepare-build.outputs.short_sha }}
+          VERSION: ${{ needs.prepare-build.outputs.version }}
+          MATRIX_TARGET: ${{ matrix.settings.target }}
+        run: |
+          set -euo pipefail
+          # Core is linked into the Tauri binary as a path dep, so all Rust
+          # debug info — core + shell — lives under the shell's target dir.
+          # upload-dif scans recursively. Staging uses the `debug` profile.
+          deps_dir="app/src-tauri/target/${MATRIX_TARGET}/debug/deps"
+          if [ -d "$deps_dir" ]; then
+            echo "==> Uploading symbols from $deps_dir to ${SENTRY_PROJECT}"
+            bash scripts/upload_sentry_symbols.sh "$VERSION" "$deps_dir"
+          else
+            echo "==> Skipping $deps_dir (not present)"
+          fi
+
+      # Record a single Sentry deploy marker per matrix target so the
+      # release page shows commits → deploys for the staging environment.
+      # Lives in its own step — `sentry-cli releases deploys ... new` does
+      # NOT deduplicate by (release, env), so emitting it inside
+      # upload_sentry_symbols.sh would add a row per script invocation.
+      - name: Record Sentry deploy marker
+        if: env.SENTRY_AUTH_TOKEN != ''
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          # Marker lives on the React project's release; events from all
+          # surfaces share the same `openhuman@<version>+<short_sha>`
+          # release tag, so the marker on any single project's release
+          # shows in Sentry's "Deploys" tab for that release group.
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_REACT }}
+          SENTRY_RELEASE:
+            openhuman@${{ needs.prepare-build.outputs.version }}+${{
+            needs.prepare-build.outputs.short_sha }}
+          SENTRY_ENVIRONMENT: staging
+        run: |
+          set -euo pipefail
+          echo "==> Recording deploy marker: ${SENTRY_RELEASE} -> ${SENTRY_ENVIRONMENT}"
+          sentry-cli releases deploys "${SENTRY_RELEASE}" new \
+            -e "${SENTRY_ENVIRONMENT}" || {
+            echo "[WARN] deploy marker failed (non-fatal)"
+          }
 
       - name: Upload staging desktop bundles
         uses: actions/upload-artifact@v4
