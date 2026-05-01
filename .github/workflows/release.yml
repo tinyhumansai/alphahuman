@@ -686,19 +686,23 @@ jobs:
             target/${{ matrix.settings.target }}/${{ inputs.build_target == 'staging' && 'debug' || 'release' }}/bundle/**
 
   # =========================================================================
-  # Phase 3a-bis: Record a single Sentry deploy marker once the matrix is
-  # complete. Lives in its own job (not inside `build-desktop`) because
+  # Phase 5: Record a single Sentry deploy marker once the release has
+  # actually been published. Hangs off `publish-release` rather than
+  # `build-desktop` so we don't write a Sentry deploy row for a release
+  # that subsequently fails `build-docker` / `publish-updater-manifest`
+  # and gets deleted by `cleanup-failed-release`. `publish-release` itself
+  # already requires the full build matrix + docker + updater manifest to
+  # succeed, so this transitively waits for all of them.
+  #
   # `sentry-cli releases deploys ... new` does NOT deduplicate by
-  # (release, env) — running it inside the matrix would add one row per
-  # platform. One row per release is the right shape: re-runs of CI for
-  # the same release intentionally produce additional rows representing
-  # separate deploy attempts.
+  # (release, env), so this job stays single-runner — running it inside
+  # the matrix would add one row per platform.
   # =========================================================================
   record-sentry-deploy:
     name: Record Sentry deploy marker
     runs-on: ubuntu-latest
     environment: Production
-    needs: [prepare-build, build-desktop]
+    needs: [prepare-build, publish-release]
     if: needs.prepare-build.outputs.release_enabled == 'true'
     env:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
