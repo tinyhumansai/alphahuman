@@ -57,10 +57,7 @@
           "libgdk-pixbuf-2.0-0",
           "libglib2.0-0"
         ],
-        "args": [
-          "--enable-features=UseOzonePlatform",
-          "--ozone-platform=x11"
-        ]
+        "desktop-template": "main.desktop"
       }
     },
     "createUpdaterArtifacts": false,
