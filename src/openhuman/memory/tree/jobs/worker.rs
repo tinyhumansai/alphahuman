@@ -78,6 +78,11 @@ async fn run_once_with_semaphore(config: &Config, llm_slots: Arc<Semaphore>) -> 
     };
 
     let permit = if job.kind.is_llm_bound() {
+        // Cooperative throttle: defer/serialise LLM-bound jobs when the
+        // host is on battery, busy, or the user has paused background
+        // AI work. Returns immediately in Aggressive/Normal mode so we
+        // pay zero cost on plugged-in desktops with headroom.
+        crate::openhuman::scheduler_gate::wait_for_capacity().await;
         Some(llm_slots.acquire().await?)
     } else {
         None
