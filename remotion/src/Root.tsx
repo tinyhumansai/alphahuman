@@ -60,7 +60,6 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={{
           bodyColor: "#1a1a1a" as const,
           blushColor: "#f5a3ad" as const,
-          mouthColor: "#c8455a" as const,
         }}
       />
     </>

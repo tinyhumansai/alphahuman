@@ -1,17 +1,11 @@
 import React from "react";
-import {
-  AbsoluteFill,
-  spring,
-  useCurrentFrame,
-  useVideoConfig,
-} from "remotion";
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { z } from "zod";
 import { zColor } from "@remotion/zod-types";
 
 export const ghostySchema = z.object({
   bodyColor: zColor(),
   blushColor: zColor(),
-  mouthColor: zColor(),
 });
 
 export type GhostyProps = z.infer<typeof ghostySchema>;
@@ -26,6 +20,18 @@ const BODY_PATH =
   "C190,860 137,770 140,625 " + // lower-left → left widest
   "C145,420 300,240 500,240 Z"; // left widest → back to apex
 
+// Two soft mitten-shaped legs/feet that flare outward from the base.
+const LEFT_LEG_PATH =
+  "M310,880 " +
+  "C220,895 150,940 175,985 " +
+  "C200,1020 290,1020 360,990 " +
+  "C420,965 430,915 400,890 Z";
+const RIGHT_LEG_PATH =
+  "M690,880 " +
+  "C780,895 850,940 825,985 " +
+  "C800,1020 710,1020 640,990 " +
+  "C580,965 570,915 600,890 Z";
+
 // Raised mitten arm sticking up-right from the body's right shoulder.
 const ARM_PATH =
   "M800,560 " +
@@ -35,7 +41,6 @@ const ARM_PATH =
 export const Ghosty: React.FC<GhostyProps> = ({
   bodyColor,
   blushColor,
-  mouthColor,
 }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -54,13 +59,11 @@ export const Ghosty: React.FC<GhostyProps> = ({
   // Wave: oscillating arm rotation.
   const wave = Math.sin((frame / fps) * Math.PI * 2.4) * 12;
 
-  // Blink every ~2.6s for ~6 frames.
+  // Blink every ~2.6s for ~6 frames — offset so frame 0 is eyes open.
   const blinkPeriod = Math.round(fps * 2.6);
-  const inBlink = frame % blinkPeriod < 6;
+  const blinkOffset = Math.round(blinkPeriod / 2);
+  const inBlink = (frame + blinkOffset) % blinkPeriod < 6;
   const blinkScale = inBlink ? 0.12 : 1;
-
-  // Pop-in on mount.
-  const pop = spring({ frame, fps, config: { damping: 12, stiffness: 120 } });
 
   const VB = 1000;
   const size = Math.min(width, height) * 0.85;
@@ -71,7 +74,7 @@ export const Ghosty: React.FC<GhostyProps> = ({
         width={size}
         height={size}
         viewBox={`0 0 ${VB} ${VB}`}
-        style={{ overflow: "visible", transform: `scale(${pop})` }}
+        style={{ overflow: "visible" }}
       >
         <defs>
           {/* Body shading: many stops to keep the dark gradient smooth (avoid banding). */}
@@ -142,7 +145,13 @@ export const Ghosty: React.FC<GhostyProps> = ({
           <ellipse cx={0} cy={0} rx={260} ry={28} fill="url(#ghosty-ground)" />
         </g>
 
-        {/* Body + head-dot bob together so the dot stays touching the body. */}
+        {/* Legs stay planted — they don't bob with the body. */}
+        <g filter="url(#ghosty-drop)">
+          <path d={LEFT_LEG_PATH} fill="url(#ghosty-body)" />
+          <path d={RIGHT_LEG_PATH} fill="url(#ghosty-body)" />
+        </g>
+
+        {/* Body + head-dot bob together; legs stay fixed below. */}
         <g transform={`translate(0, ${bob})`} filter="url(#ghosty-drop)">
           {/* Top head-dot — floats and squashes against the body apex. */}
           <g
@@ -176,43 +185,42 @@ export const Ghosty: React.FC<GhostyProps> = ({
           </g>
 
           {/* Blush */}
-          <ellipse cx={360} cy={605} rx={48} ry={22} fill={blushColor} opacity={0.85} />
-          <ellipse cx={680} cy={605} rx={48} ry={22} fill={blushColor} opacity={0.85} />
+          <ellipse cx={360} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
+          <ellipse cx={680} cy={545} rx={48} ry={22} fill={blushColor} opacity={0.85} />
 
           {/* Eyes */}
           <g>
             <ellipse
               cx={415}
-              cy={575}
+              cy={515}
               rx={30}
               ry={40 * blinkScale}
               fill="#0a0a0a"
             />
             <ellipse
               cx={625}
-              cy={575}
+              cy={515}
               rx={30}
               ry={40 * blinkScale}
               fill="#0a0a0a"
             />
             {!inBlink && (
               <>
-                <circle cx={425} cy={561} r={7} fill="#ffffff" />
-                <circle cx={635} cy={561} r={7} fill="#ffffff" />
+                <circle cx={425} cy={501} r={7} fill="#ffffff" />
+                <circle cx={635} cy={501} r={7} fill="#ffffff" />
               </>
             )}
           </g>
 
-          {/* Mouth: small open smile with tongue. */}
+          {/* Mouth: closed smile. */}
           <path
-            d="M478,630 Q520,677 562,630 Q520,657 478,630 Z"
+            d="M478,570 Q520,617 562,570 Q520,597 478,570 Z"
             fill="#0a0a0a"
           />
-          <ellipse cx={520} cy={649} rx={12} ry={6} fill={mouthColor} />
 
           {/* Subtle blush glow ring to give cheeks dimension. */}
-          <ellipse cx={360} cy={605} rx={56} ry={26} fill={blushColor} opacity={0.18} />
-          <ellipse cx={680} cy={605} rx={56} ry={26} fill={blushColor} opacity={0.18} />
+          <ellipse cx={360} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
+          <ellipse cx={680} cy={545} rx={56} ry={26} fill={blushColor} opacity={0.18} />
         </g>
       </svg>
     </AbsoluteFill>
