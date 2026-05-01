@@ -16,25 +16,31 @@ Welcome to your Remotion project!
 **Install Dependencies**
 
 ```console
-npm i
+pnpm install
 ```
 
 **Start Preview**
 
 ```console
-npm run dev
+pnpm dev
 ```
 
-**Render video**
+**Render a single variant** (produces `out/<CompositionId>.mov` — transparent ProRes 4444)
 
 ```console
-npx remotion render
+pnpm render GhostyWave
+```
+
+**Render all variants**
+
+```console
+pnpm render:all
 ```
 
 **Upgrade Remotion**
 
 ```console
-npx remotion upgrade
+pnpm exec remotion upgrade
 ```
 
 ## Docs

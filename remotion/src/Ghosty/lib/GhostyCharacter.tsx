@@ -76,7 +76,7 @@ export const GhostyCharacter: React.FC<
         viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
         style={{ overflow: "visible" }}
       >
-        <GhostyDefs idPrefix={idPrefix} />
+        <GhostyDefs idPrefix={idPrefix} bodyColor={bodyColor} />
 
         {/* Ground shadow. */}
         <g

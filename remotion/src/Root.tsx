@@ -1,3 +1,4 @@
+import type { FC } from "react";
 import "./index.css";
 import { Composition } from "remotion";
 import { Ghosty, ghostySchema } from "./Ghosty/Ghosty";
@@ -24,7 +25,7 @@ const SHARED_DEFAULTS = {
   loadingColor: "#ffffff" as const,
 };
 
-export const RemotionRoot: React.FC = () => {
+export const RemotionRoot: FC = () => {
   return (
     <>
       <Composition

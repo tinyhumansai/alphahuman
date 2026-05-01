@@ -3,7 +3,12 @@ import { BODY_PATH } from "./paths";
 
 // Renders the shared <defs> (gradients / filters / clip) used by a Ghosty character.
 // IDs are namespaced via `idPrefix` so multiple Ghostys can co-exist on the same page.
-export const GhostyDefs: React.FC<{ idPrefix: string }> = ({ idPrefix }) => {
+// `bodyColor` drives the mid-point stop of the body/dot radial gradients so the
+// character's colour is configurable via the composition's defaultProps.
+export const GhostyDefs: React.FC<{ idPrefix: string; bodyColor: string }> = ({
+  idPrefix,
+  bodyColor,
+}) => {
   const id = (k: string) => `${idPrefix}-${k}`;
   return (
     <defs>
@@ -11,7 +16,7 @@ export const GhostyDefs: React.FC<{ idPrefix: string }> = ({ idPrefix }) => {
         <stop offset="0%" stopColor="#45454a" />
         <stop offset="15%" stopColor="#393940" />
         <stop offset="30%" stopColor="#2d2d33" />
-        <stop offset="45%" stopColor="#232328" />
+        <stop offset="45%" stopColor={bodyColor} />
         <stop offset="60%" stopColor="#1a1a1e" />
         <stop offset="75%" stopColor="#121215" />
         <stop offset="88%" stopColor="#0a0a0c" />
@@ -20,7 +25,7 @@ export const GhostyDefs: React.FC<{ idPrefix: string }> = ({ idPrefix }) => {
       <radialGradient id={id("dot")} cx="0.35" cy="0.3" r="1">
         <stop offset="0%" stopColor="#45454a" />
         <stop offset="20%" stopColor="#363639" />
-        <stop offset="45%" stopColor="#232326" />
+        <stop offset="45%" stopColor={bodyColor} />
         <stop offset="70%" stopColor="#15151a" />
         <stop offset="100%" stopColor="#050507" />
       </radialGradient>
