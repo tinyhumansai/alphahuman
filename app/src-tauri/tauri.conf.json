@@ -48,9 +48,6 @@
       "../../src/openhuman/agent/prompts",
       "recipes/**/*"
     ],
-    "externalBin": [
-      "binaries/openhuman-core"
-    ],
     "linux": {
       "deb": {
         "depends": [

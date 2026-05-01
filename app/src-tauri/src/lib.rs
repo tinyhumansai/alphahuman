@@ -6,7 +6,6 @@ mod cdp;
 mod cef_preflight;
 mod cef_profile;
 mod core_process;
-mod core_update;
 mod discord_scanner;
 mod gmail;
 mod gmessages_scanner;
@@ -198,112 +197,31 @@ fn configure_overlay_window_macos(window: &WebviewWindow<AppRuntime>) {
     }
 }
 
-/// Resolve the core binary, preferring the staged sidecar.
-fn resolve_core_bin() -> Result<std::path::PathBuf, String> {
-    if let Some(bin) = core_process::default_core_bin() {
-        return Ok(bin);
-    }
-    std::env::current_exe().map_err(|e| format!("cannot resolve executable: {e}"))
-}
-
-/// Run the core binary with the given CLI args and return its stdout.
-async fn run_core_cli(args: Vec<String>) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || {
-        let bin = resolve_core_bin()?;
-        let is_self = {
-            let current = std::env::current_exe().ok();
-            current
-                .as_ref()
-                .and_then(|c| std::fs::canonicalize(c).ok())
-                .zip(std::fs::canonicalize(&bin).ok())
-                .map_or(false, |(a, b)| a == b)
-        };
-
-        let mut cmd = std::process::Command::new(&bin);
-        if is_self {
-            cmd.arg("core");
-        }
-        cmd.args(&args);
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        log::info!(
-            "[service-direct] running {:?} {}{}",
-            bin,
-            if is_self { "core " } else { "" },
-            args.join(" ")
-        );
-
-        let output = cmd
-            .output()
-            .map_err(|e| format!("failed to execute core binary: {e}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "core binary exited with {}: {}",
-                output.status,
-                stderr.trim()
-            ));
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    })
-    .await
-    .map_err(|e| format!("task join error: {e}"))?
-}
-
-#[tauri::command]
-async fn service_install_direct() -> Result<String, String> {
-    run_core_cli(vec!["service".into(), "install".into()]).await
-}
-
-#[tauri::command]
-async fn service_start_direct() -> Result<String, String> {
-    run_core_cli(vec!["service".into(), "start".into()]).await
-}
-
-#[tauri::command]
-async fn service_stop_direct() -> Result<String, String> {
-    run_core_cli(vec!["service".into(), "stop".into()]).await
-}
-
-#[tauri::command]
-async fn service_status_direct() -> Result<String, String> {
-    run_core_cli(vec!["service".into(), "status".into()]).await
-}
-
-#[tauri::command]
-async fn service_uninstall_direct() -> Result<String, String> {
-    run_core_cli(vec!["service".into(), "uninstall".into()]).await
-}
-
-/// Check if the core sidecar is outdated and whether a newer version is available on GitHub.
-/// Returns version info, compatibility status, and update availability.
+/// Core update is handled by the Tauri shell auto-updater (`tauri-plugin-updater`)
+/// since the core ships in-process with the app. This command is kept as a
+/// no-op stub so the frontend's `checkCoreUpdate` keeps working without errors;
+/// it always reports the running version as up-to-date.
 #[tauri::command]
 async fn check_core_update(
-    state: tauri::State<'_, core_process::CoreProcessHandle>,
+    _state: tauri::State<'_, core_process::CoreProcessHandle>,
 ) -> Result<serde_json::Value, String> {
-    let rpc_url = state.inner().rpc_url();
-    let info = core_update::check_full(&rpc_url).await?;
-    serde_json::to_value(&info).map_err(|e| format!("serialize error: {e}"))
+    let version = env!("CARGO_PKG_VERSION");
+    Ok(serde_json::json!({
+        "running_version": version,
+        "minimum_version": version,
+        "outdated": false,
+        "latest_version": version,
+        "update_available": false,
+    }))
 }
 
-/// Trigger a full core update: download latest from GitHub, stage, kill old, restart.
-/// Uses `force=true` so it updates to the latest release even if the running core
-/// meets the minimum version requirement.
+/// Stub kept for frontend compatibility — use `apply_app_update` instead.
 #[tauri::command]
 async fn apply_core_update(
-    state: tauri::State<'_, core_process::CoreProcessHandle>,
-    app: tauri::AppHandle<AppRuntime>,
+    _state: tauri::State<'_, core_process::CoreProcessHandle>,
+    _app: tauri::AppHandle<AppRuntime>,
 ) -> Result<(), String> {
-    log::info!("[core-update] manual apply_core_update invoked from frontend");
-    core_update::check_and_update_core(state.inner().clone(), Some(app), true).await
+    Err("core ships in-process; use the Tauri shell updater (apply_app_update) instead".into())
 }
 
 #[tauri::command]
@@ -1034,17 +952,9 @@ pub fn run() {
                 return Err("webview_apis bridge failed to start — aborting setup".into());
             }
 
-            let core_run_mode = core_process::default_core_run_mode(daemon_mode);
-            let core_bin = if matches!(core_run_mode, core_process::CoreRunMode::ChildProcess) {
-                core_process::default_core_bin()
-            } else {
-                None
-            };
-            let core_handle = core_process::CoreProcessHandle::new(
-                core_process::default_core_port(),
-                core_bin,
-                core_run_mode,
-            );
+            let _ = daemon_mode;
+            let core_handle =
+                core_process::CoreProcessHandle::new(core_process::default_core_port());
             std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
 
             // Expose the shared CEF cookies SQLite path to the core sidecar
@@ -1067,25 +977,12 @@ pub fn run() {
             }
 
             app.manage(core_handle.clone());
-            let app_handle_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(err) = core_handle.ensure_running().await {
-                    log::error!("[core] failed to start core process: {err}");
+                    log::error!("[core] failed to start embedded core: {err}");
                     return;
                 }
-                log::info!("[core] core process ready");
-
-                // Check if the running core is outdated and auto-update if needed.
-                let update_handle = core_handle.clone();
-                if let Err(err) = core_update::check_and_update_core(
-                    update_handle,
-                    Some(app_handle_for_update),
-                    false,
-                )
-                .await
-                {
-                    log::warn!("[core-update] auto-update check failed (non-fatal): {err}");
-                }
+                log::info!("[core] embedded core ready");
             });
 
             // Restore last-known window position+size before showing the
@@ -1445,11 +1342,6 @@ pub fn run() {
             restart_app,
             get_active_user_id,
             schedule_cef_profile_purge,
-            service_install_direct,
-            service_start_direct,
-            service_stop_direct,
-            service_status_direct,
-            service_uninstall_direct,
             register_dictation_hotkey,
             unregister_dictation_hotkey,
             webview_accounts::webview_account_open,
@@ -1548,6 +1440,9 @@ pub fn run() {
 
                 if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
                     let core = core.inner().clone();
+                    // InProcess: aborts the embedded server task (synchronous, safe
+                    // on the UI thread). ChildProcess: SIGTERM only, no wait, so we
+                    // don't starve CEF's UI loop before `cef::shutdown` runs.
                     tauri::async_runtime::block_on(async move {
                         core.send_terminate_signal().await;
                     });
@@ -1563,16 +1458,12 @@ pub fn run() {
 }
 
 pub fn run_core_from_args(args: &[String]) -> Result<(), String> {
-    let core_bin = crate::core_process::default_core_bin()
-        .ok_or_else(|| "openhuman-core binary not found".to_string())?;
-    let status = std::process::Command::new(core_bin)
-        .args(args)
-        .status()
-        .map_err(|e| format!("failed to execute core binary: {e}"))?;
-    if !status.success() {
-        return Err(format!("core binary exited with status {status}"));
-    }
-    Ok(())
+    // Core lives in-process: dispatch directly through the linked `openhuman_core`
+    // library instead of shelling out to a separate binary. The Tauri main()
+    // routes `OpenHuman core <args>` here so users can still drive the core CLI
+    // from the bundled app.
+    let owned: Vec<String> = args.to_vec();
+    openhuman_core::run_core_from_args(&owned).map_err(|e| format!("{e:#}"))
 }
 
 #[cfg(test)]
