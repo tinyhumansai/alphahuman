@@ -8,8 +8,8 @@
 //! skill-executor wording stays scoped to `integrations_agent/prompt.rs`).
 
 use crate::openhuman::context::prompt::{
-    render_tools, render_user_files, render_user_identity, render_workspace,
-    ConnectedIntegration, PromptContext,
+    render_tools, render_user_files, render_user_identity, render_workspace, ConnectedIntegration,
+    PromptContext,
 };
 use anyhow::Result;
 use std::fmt::Write;
@@ -151,15 +151,24 @@ mod tests {
             id: None,
         });
         let body = build(&ctx).unwrap();
-        assert!(body.contains("## User"), "should contain user identity heading");
+        assert!(
+            body.contains("## User"),
+            "should contain user identity heading"
+        );
         assert!(body.contains("Alice"), "should contain the user's name");
-        assert!(body.contains("alice@example.com"), "should contain the user's email");
+        assert!(
+            body.contains("alice@example.com"),
+            "should contain the user's email"
+        );
     }
 
     #[test]
     fn build_omits_user_identity_when_absent() {
         let body = build(&ctx_with(&[])).unwrap();
-        assert!(!body.contains("## User"), "should not contain user identity when None");
+        assert!(
+            !body.contains("## User"),
+            "should not contain user identity when None"
+        );
     }
 
     #[test]
