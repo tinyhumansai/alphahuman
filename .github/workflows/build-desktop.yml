@@ -335,7 +335,17 @@ jobs:
           # src/main.rs produces openhuman@<version>+<sha> matching the
           # Sentry release tag used when uploading the standalone CLI symbols.
           OPENHUMAN_BUILD_SHA: ${{ inputs.short_sha }}
+          # Bake the core Sentry DSN into the binary via `option_env!` in
+          # src/main.rs. Without this the standalone CLI ships with Sentry
+          # disabled and the symbols uploaded below have nothing to attach
+          # to. Same DSN as `release-packages.yml` uses for the Linux arm64
+          # tarball — there is one openhuman-core Sentry project that all
+          # standalone-CLI surfaces report to.
+          OPENHUMAN_SENTRY_DSN: ${{ vars.OPENHUMAN_SENTRY_DSN }}
         run: |
+          if [ -z "${OPENHUMAN_SENTRY_DSN}" ]; then
+            echo "::warning::vars.OPENHUMAN_SENTRY_DSN is empty — the standalone CLI artifact will ship without crash reporting."
+          fi
           cargo build \
             --manifest-path "$CORE_MANIFEST" \
             --target "$MATRIX_TARGET" \
@@ -387,8 +397,13 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           # SENTRY_PROJECT here is consumed by sentry-vite-plugin during the
           # Vite build that runs inside `cargo tauri build` — it uploads
-          # frontend source maps to the React Sentry project. Rust DIFs go to
-          # the Tauri / core projects in the dedicated steps below.
+          # frontend source maps to the React Sentry project. Both staging
+          # and production push source maps (the plugin gates on
+          # `SENTRY_AUTH_TOKEN`, which both callers inherit via
+          # `secrets: inherit`); the React project differentiates the two
+          # via the `environment` tag set at runtime in analytics.ts. Rust
+          # DIFs go to the Tauri / core projects in the dedicated steps
+          # below.
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_REACT }}
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.settings.platform == 'macos-latest' && '10.15' || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
