@@ -149,6 +149,84 @@ pub struct ComposioCreateTriggerResponse {
     pub status: Option<String>,
 }
 
+// ── Trigger management (catalog + active list + enable/disable) ─────
+
+/// Per-repo descriptor used by GitHub-scoped available triggers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioAvailableTriggerRepo {
+    pub owner: String,
+    pub repo: String,
+}
+
+/// One entry in `GET /agent-integrations/composio/triggers/available`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioAvailableTrigger {
+    pub slug: String,
+    /// `"static"` or `"github_repo"`.
+    pub scope: String,
+    #[serde(
+        rename = "defaultConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_config: Option<serde_json::Value>,
+    #[serde(
+        rename = "requiredConfigKeys",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub required_config_keys: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<ComposioAvailableTriggerRepo>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ComposioAvailableTriggersResponse {
+    #[serde(default)]
+    pub triggers: Vec<ComposioAvailableTrigger>,
+}
+
+/// One entry in `GET /agent-integrations/composio/triggers`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioActiveTrigger {
+    pub id: String,
+    pub slug: String,
+    pub toolkit: String,
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+    #[serde(
+        rename = "triggerConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub trigger_config: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ComposioActiveTriggersResponse {
+    #[serde(default)]
+    pub triggers: Vec<ComposioActiveTrigger>,
+}
+
+/// Response body of `POST /agent-integrations/composio/triggers` (enable).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioEnableTriggerResponse {
+    #[serde(rename = "triggerId")]
+    pub trigger_id: String,
+    pub slug: String,
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+}
+
+/// Response body of `DELETE /agent-integrations/composio/triggers/:id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComposioDisableTriggerResponse {
+    #[serde(default)]
+    pub deleted: bool,
+}
+
 // ── Triggers ────────────────────────────────────────────────────────
 
 /// Payload of the `composio:trigger` Socket.IO event emitted by the backend

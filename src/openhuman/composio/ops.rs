@@ -26,9 +26,11 @@ use super::providers::{
     get_provider, ProviderContext, ProviderUserProfile, SyncOutcome, SyncReason,
 };
 use super::types::{
-    ComposioAuthorizeResponse, ComposioConnectionsResponse, ComposioCreateTriggerResponse,
-    ComposioDeleteResponse, ComposioExecuteResponse, ComposioGithubReposResponse,
-    ComposioToolkitsResponse, ComposioToolsResponse, ComposioTriggerHistoryResult,
+    ComposioActiveTriggersResponse, ComposioAuthorizeResponse, ComposioAvailableTriggersResponse,
+    ComposioConnectionsResponse, ComposioCreateTriggerResponse, ComposioDeleteResponse,
+    ComposioDisableTriggerResponse, ComposioEnableTriggerResponse, ComposioExecuteResponse,
+    ComposioGithubReposResponse, ComposioToolkitsResponse, ComposioToolsResponse,
+    ComposioTriggerHistoryResult,
 };
 
 /// Resolve a [`ComposioClient`] from the root config, or return an
@@ -291,6 +293,80 @@ pub async fn composio_create_trigger(
         vec![format!(
             "composio: trigger {trigger_id} created for slug {slug}"
         )],
+    ))
+}
+
+// ── Trigger management (catalog + enable/disable) ──────────────────
+
+pub async fn composio_list_available_triggers(
+    config: &Config,
+    toolkit: &str,
+    connection_id: Option<String>,
+) -> OpResult<RpcOutcome<ComposioAvailableTriggersResponse>> {
+    tracing::debug!(toolkit = %toolkit, ?connection_id, "[composio] rpc list_available_triggers");
+    let client = resolve_client(config)?;
+    let resp = client
+        .list_available_triggers(toolkit, connection_id.as_deref())
+        .await
+        .map_err(|e| format!("[composio] list_available_triggers failed: {e:#}"))?;
+    let count = resp.triggers.len();
+    Ok(RpcOutcome::new(
+        resp,
+        vec![format!(
+            "composio: {count} available trigger(s) for toolkit {toolkit}"
+        )],
+    ))
+}
+
+pub async fn composio_list_triggers(
+    config: &Config,
+    toolkit: Option<String>,
+) -> OpResult<RpcOutcome<ComposioActiveTriggersResponse>> {
+    tracing::debug!(?toolkit, "[composio] rpc list_triggers");
+    let client = resolve_client(config)?;
+    let resp = client
+        .list_active_triggers(toolkit.as_deref())
+        .await
+        .map_err(|e| format!("[composio] list_triggers failed: {e:#}"))?;
+    let count = resp.triggers.len();
+    Ok(RpcOutcome::new(
+        resp,
+        vec![format!("composio: {count} active trigger(s) listed")],
+    ))
+}
+
+pub async fn composio_enable_trigger(
+    config: &Config,
+    connection_id: &str,
+    slug: &str,
+    trigger_config: Option<serde_json::Value>,
+) -> OpResult<RpcOutcome<ComposioEnableTriggerResponse>> {
+    tracing::debug!(slug = %slug, connection_id = %connection_id, "[composio] rpc enable_trigger");
+    let client = resolve_client(config)?;
+    let resp = client
+        .enable_trigger(connection_id, slug, trigger_config)
+        .await
+        .map_err(|e| format!("[composio] enable_trigger failed: {e:#}"))?;
+    let trigger_id = resp.trigger_id.clone();
+    Ok(RpcOutcome::new(
+        resp,
+        vec![format!("composio: enabled trigger {slug} → {trigger_id}")],
+    ))
+}
+
+pub async fn composio_disable_trigger(
+    config: &Config,
+    trigger_id: &str,
+) -> OpResult<RpcOutcome<ComposioDisableTriggerResponse>> {
+    tracing::debug!(trigger_id = %trigger_id, "[composio] rpc disable_trigger");
+    let client = resolve_client(config)?;
+    let resp = client
+        .disable_trigger(trigger_id)
+        .await
+        .map_err(|e| format!("[composio] disable_trigger failed: {e:#}"))?;
+    Ok(RpcOutcome::new(
+        resp,
+        vec![format!("composio: disabled trigger {trigger_id}")],
     ))
 }
 
