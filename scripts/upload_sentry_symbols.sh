@@ -115,14 +115,15 @@ ensure_sentry_cli() {
     local version="${SENTRY_CLI_VERSION:-3.4.1}"
     local download_url="https://github.com/getsentry/sentry-cli/releases/download/${version}/sentry-cli-${os_arch}"
 
-    # Create temporary directory for installation. Cleanup runs as a
-    # RETURN trap (function-scoped) rather than EXIT so it can still see
-    # `tmp_dir` — EXIT fires after the function returns, by which point
-    # `local tmp_dir` is out of scope and `set -u` errors with
-    # "tmp_dir: unbound variable".
+    # Create temporary directory for installation. Cleanup is inline at the
+    # success path + each early-exit branch below — we deliberately do NOT
+    # use a trap. Bash traps are globally scoped (not function-scoped), so
+    # `trap '... $tmp_dir ...' RETURN` defined here fires on EVERY
+    # subsequent function return (including main's at end-of-script) by
+    # which point `local tmp_dir` is gone and `set -u` errors with
+    # "tmp_dir: unbound variable". An EXIT trap has the same problem.
     local tmp_dir
     tmp_dir="$(mktemp -d)"
-    trap 'rm -rf "$tmp_dir"' RETURN
 
     # Download and install. `--fail` / `--fail-with-body` is critical:
     # without it, curl returns 0 on a 404 and writes the error HTML to
@@ -131,15 +132,18 @@ ensure_sentry_cli() {
     if command -v curl &> /dev/null; then
         curl --fail --silent --show-error --location "${download_url}" -o "${tmp_dir}/sentry-cli" || {
             log_error "Failed to download sentry-cli from ${download_url}"
+            rm -rf "$tmp_dir"
             exit 1
         }
     elif command -v wget &> /dev/null; then
         wget --quiet --show-progress=off "${download_url}" -O "${tmp_dir}/sentry-cli" || {
             log_error "Failed to download sentry-cli from ${download_url}"
+            rm -rf "$tmp_dir"
             exit 1
         }
     else
         log_error "Neither curl nor wget found. Cannot download sentry-cli."
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
@@ -147,10 +151,12 @@ ensure_sentry_cli() {
     # error page that slipped through (defence-in-depth alongside --fail).
     if [[ ! -s "${tmp_dir}/sentry-cli" ]]; then
         log_error "sentry-cli download is empty"
+        rm -rf "$tmp_dir"
         exit 1
     fi
     if head -c 4 "${tmp_dir}/sentry-cli" | grep -q '^<'; then
         log_error "sentry-cli download looks like HTML (got an error page from ${download_url})"
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
@@ -169,9 +175,14 @@ ensure_sentry_cli() {
             log_info "sentry-cli installed to /usr/local/bin/sentry-cli"
         else
             log_error "Cannot write to ${install_dir} or /usr/local/bin. Please install sentry-cli manually."
+            rm -rf "$tmp_dir"
             exit 1
         fi
     fi
+
+    # `mv` already emptied tmp_dir of the binary; rmdir the now-empty
+    # directory so we don't leak it on every CI run.
+    rm -rf "$tmp_dir"
 
     # Update PATH hash for current session (won't persist without shell restart)
     hash -r
