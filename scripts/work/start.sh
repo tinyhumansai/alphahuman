@@ -92,7 +92,9 @@ if [ "$do_checkout" = "1" ]; then
     git fetch upstream
     git merge --ff-only upstream/main || git merge upstream/main
   fi
-  git pull --ff-only origin main || true
+  if git remote get-url origin >/dev/null 2>&1; then
+    git pull --ff-only origin main
+  fi
   git submodule update --init --recursive
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then

@@ -42,4 +42,5 @@ is created on demand and is safe to delete — nothing else writes there.
 - **Stable surface** — the runners' flags can churn; this wrapper keeps the
   contract small (positional + a couple of flags) so prompts don't break.
 
-The wrappers don't replace `pnpm test:*` — they call into them.
+The wrappers don't replace the project test runners — they invoke the
+underlying tools/scripts with log capture.

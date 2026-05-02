@@ -32,7 +32,10 @@ fi
 repo_root="$(debug_repo_root)"
 log_dir="$(debug_log_dir)"
 [ -n "$suffix" ] || suffix="$(basename "$spec" .spec.ts)"
-log="$log_dir/e2e-${suffix}-$(debug_timestamp).log"
+safe_suffix="$(basename -- "$suffix")"
+safe_suffix="${safe_suffix//[^[:alnum:]._-]/-}"
+[ -n "$safe_suffix" ] || safe_suffix="spec"
+log="$log_dir/e2e-${safe_suffix}-$(debug_timestamp).log"
 
 echo "[debug:e2e] spec: $spec"
 echo "[debug:e2e] log:  $log"
