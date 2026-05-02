@@ -17,7 +17,7 @@ Production web builds embed a **minimum supported app semver** at **build time**
 | `VITE_MINIMUM_SUPPORTED_APP_VERSION` | e.g. `0.51.0` — desktop app must be **≥** this to finish `openhuman://oauth/success`.                                 |
 | `VITE_LATEST_APP_DOWNLOAD_URL`       | Optional; defaults to `https://github.com/tinyhumansai/openhuman/releases/latest`. Opened when the gate blocks OAuth. |
 
-Configure these as **GitHub Actions variables**. They must be present on **both** the standalone **`pnpm build`** step and the **`tauri-apps/tauri-action`** step env in `.github/workflows/release.yml` and `build-windows.yml` so the Vite bundle embedded in shipped installers includes the gate. Leave `VITE_MINIMUM_SUPPORTED_APP_VERSION` **unset** for local dev (gate disabled).
+Configure these as **GitHub Actions variables**. They must be present on **both** the standalone **`pnpm build`** step and the **`tauri-apps/tauri-action`** step env in `.github/workflows/build-desktop.yml` (the reusable matrix invoked by `release-production.yml` / `release-staging.yml`) and `build-windows.yml` so the Vite bundle embedded in shipped installers includes the gate. Leave `VITE_MINIMUM_SUPPORTED_APP_VERSION` **unset** for local dev (gate disabled).
 
 Implementation: `app/src/utils/oauthAppVersionGate.ts`, `app/src/utils/desktopDeepLinkListener.ts`.
 
@@ -41,7 +41,9 @@ Two first-class GitHub Actions workflows, one per environment. Pick by intent ra
 | Workflow                                                | Branch    | Bumps   | Tags pushed                | Concurrency group       | Use when                                                              |
 | ------------------------------------------------------- | --------- | ------- | -------------------------- | ----------------------- | --------------------------------------------------------------------- |
 | [`release-staging.yml`](../.github/workflows/release-staging.yml) | `staging` | `patch` only | `v<version>-staging`        | `release-staging`       | Cutting a staging build for QA. Runs frequently; narrow semver moves. |
-| [`release.yml`](../.github/workflows/release.yml)       | `main`    | `patch` / `minor` / `major` (only on `main_head`) | `v<version>`                | `release-production`    | Promoting a validated staging tag, or hotfixing from `main` HEAD.     |
+| [`release-production.yml`](../.github/workflows/release-production.yml) | `main`    | `patch` / `minor` / `major` (only on `main_head`) | `v<version>`                | `release-production`    | Promoting a validated staging tag, or hotfixing from `main` HEAD.     |
+
+The matrix build / sign / Sentry-DIF / artifact-upload pipeline used by both flows lives in [`.github/workflows/build-desktop.yml`](../.github/workflows/build-desktop.yml) as a `workflow_call` reusable workflow. The two top-level workflows above own ref resolution, version bumping, tagging, and publish/cleanup; the build itself is shared.
 
 ### Cutting a staging build
 
@@ -52,13 +54,13 @@ Two first-class GitHub Actions workflows, one per environment. Pick by intent ra
 
 ### Promoting to production (default flow)
 
-1. Run **Release** via `workflow_dispatch` with `release_source = staging_tag` (the default).
+1. Run **Release Production** via `workflow_dispatch` with `release_source = staging_tag` (the default).
 2. Leave `staging_tag` blank to promote the latest `v*-staging`, or pass an explicit tag (e.g. `v1.2.4-staging`) to pin.
 3. The workflow strips `-staging`, creates `v<version>` at the same commit, and runs the production build matrix from that tag. **No further version bump** — the artifact reuses what staging already validated.
 
 ### Hotfix from `main` HEAD
 
-1. Run **Release** via `workflow_dispatch` with `release_source = main_head` and the desired `release_type` (`patch` / `minor` / `major`).
+1. Run **Release Production** via `workflow_dispatch` with `release_source = main_head` and the desired `release_type` (`patch` / `minor` / `major`).
 2. The workflow runs the legacy bump-and-tag path: bump on `main`, commit `chore(release): vX.Y.Z`, push, tag `vX.Y.Z`, build.
 3. Use this only when a production-only fix needs to ship without going through staging.
 
