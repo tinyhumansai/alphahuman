@@ -106,7 +106,13 @@ ensure_sentry_cli() {
             ;;
     esac
 
-    local version="2.34.2"
+    # `2.34.2` was never a real release of getsentry/sentry-cli (we presumably
+    # confused it with python-sentry-sdk versions — sentry-python ships those
+    # numbers, sentry-cli's 2.x series is gone from the releases page). Pin
+    # to 3.4.1, the latest stable that matches the `--log-level=warn` flag
+    # the upload step uses (2.x called it `--log-level=warning`). Override
+    # via SENTRY_CLI_VERSION if a future bump is needed.
+    local version="${SENTRY_CLI_VERSION:-3.4.1}"
     local download_url="https://github.com/getsentry/sentry-cli/releases/download/${version}/sentry-cli-${os_arch}"
 
     # Create temporary directory for installation. Cleanup runs as a
