@@ -12,6 +12,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    # The CI container's default `sh` is dash, which rejects `set -o pipefail`
+    # and bashisms like `mapfile`. Force bash for every `run:` step.
+    shell: bash
+
 jobs:
   frontend-coverage:
     name: Frontend Coverage (Vitest)
