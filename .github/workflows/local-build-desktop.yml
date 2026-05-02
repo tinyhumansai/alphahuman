@@ -1,0 +1,111 @@
+---
+# Local / debug-only entry point for the reusable build-desktop matrix.
+#
+# Wraps `build-desktop.yml` in a `workflow_dispatch` so it can be invoked:
+#   - From the GitHub Actions UI as a one-off, against any tag/SHA, with
+#     no version bump and no GH App token (only `secrets.GITHUB_TOKEN`
+#     is consulted, which the runner provides automatically).
+#   - Locally via `act` without needing the XGITHUB_APP_* secrets that
+#     `release-staging.yml`'s prepare-build requires (and without
+#     producing a real `vX.Y.Z-staging` tag every time you iterate on
+#     the build matrix).
+#
+# Inputs default to a staging-style debug build of `main` HEAD; override
+# any of them in the dispatch dialog (or via `act --input`).
+name: Local Build Desktop (debug)
+on:
+  workflow_dispatch:
+    inputs:
+      build_ref:
+        description: Git ref to build (tag, branch, or SHA). Defaults to main HEAD.
+        type: string
+        required: false
+        default: main
+      version:
+        description:
+          SemVer version string (no `v` prefix) baked into Sentry release. Leave
+          blank to read from `app/package.json` at the resolved ref.
+        type: string
+        required: false
+        default: ""
+      app_env:
+        description: APP_ENVIRONMENT label baked into the bundle.
+        type: choice
+        required: true
+        default: staging
+        options: [production, staging]
+      build_profile:
+        description: Cargo profile.
+        type: choice
+        required: true
+        default: debug
+        options: [debug, release]
+      with_macos_signing:
+        description: Sign + notarize macOS bundles. Off by default for local runs (no Apple keychain).
+        type: boolean
+        required: false
+        default: false
+      build_sidecar:
+        description: Build the standalone openhuman-core CLI binary alongside the Tauri shell.
+        type: boolean
+        required: false
+        default: false
+permissions:
+  # No write access required — nothing in this workflow pushes commits or
+  # tags. Reusable workflow may upload Actions artifacts, which only needs
+  # the default GITHUB_TOKEN.
+  contents: read
+  packages: read
+concurrency:
+  group: local-build-desktop-${{ github.event.inputs.build_ref }}
+  cancel-in-progress: true
+jobs:
+  resolve:
+    name: Resolve build context
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build_ref }}
+          fetch-depth: 1
+      - name: Resolve outputs
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="$(node -p "require('./app/package.json').version")"
+          fi
+          SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="${SHA:0:12}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+  build-desktop:
+    name: Build desktop matrix
+    needs: [resolve]
+    uses: ./.github/workflows/build-desktop.yml
+    secrets: inherit
+    with:
+      build_ref: ${{ inputs.build_ref }}
+      tag: ${{ needs.resolve.outputs.version }}-local
+      version: ${{ needs.resolve.outputs.version }}
+      sha: ${{ needs.resolve.outputs.sha }}
+      short_sha: ${{ needs.resolve.outputs.short_sha }}
+      base_url: ${{ inputs.app_env == 'production' && 'https://api.tinyhumans.ai/' || 'https://staging-api.tinyhumans.ai/' }}
+      app_env: ${{ inputs.app_env }}
+      build_profile: ${{ inputs.build_profile }}
+      telegram_bot_username: ${{ inputs.app_env == 'production' && 'openhumanaibot' || 'alphahumantest_bot' }}
+      with_macos_signing: ${{ inputs.with_macos_signing }}
+      with_release_upload: false
+      with_updater: false
+      build_sidecar: ${{ inputs.build_sidecar }}
