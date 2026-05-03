@@ -57,7 +57,10 @@ pub(crate) fn envelope<T: Serialize>(
 /// Wraps an error in an RPC API envelope.
 ///
 /// This provides a consistent error reporting format for the memory system.
-pub(crate) fn error_envelope<T: Serialize>(code: &str, message: String) -> RpcOutcome<ApiEnvelope<T>> {
+pub(crate) fn error_envelope<T: Serialize>(
+    code: &str,
+    message: String,
+) -> RpcOutcome<ApiEnvelope<T>> {
     RpcOutcome::new(
         ApiEnvelope {
             data: None,

@@ -12,9 +12,18 @@ pub(super) const FUNCTIONS: &[&str] = &["sync_channel", "sync_all", "ingestion_s
 
 pub(super) fn controllers() -> Vec<RegisteredController> {
     vec![
-        RegisteredController { schema: schema("sync_channel").unwrap(), handler: handle_sync_channel },
-        RegisteredController { schema: schema("sync_all").unwrap(), handler: handle_sync_all },
-        RegisteredController { schema: schema("ingestion_status").unwrap(), handler: handle_ingestion_status },
+        RegisteredController {
+            schema: schema("sync_channel").unwrap(),
+            handler: handle_sync_channel,
+        },
+        RegisteredController {
+            schema: schema("sync_all").unwrap(),
+            handler: handle_sync_all,
+        },
+        RegisteredController {
+            schema: schema("ingestion_status").unwrap(),
+            handler: handle_ingestion_status,
+        },
     ]
 }
 

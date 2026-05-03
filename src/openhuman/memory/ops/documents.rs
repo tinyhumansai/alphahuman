@@ -6,12 +6,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openhuman::memory::{
-    ApiEnvelope, DeleteDocumentRequest, DeleteDocumentResponse, EmptyRequest,
-    ListDocumentsRequest, ListDocumentsResponse, ListNamespacesResponse, MemoryIngestionConfig,
-    MemoryIngestionRequest, MemoryIngestionResult, MemoryInitRequest, MemoryInitResponse,
-    MemoryRecallItem, NamespaceDocumentInput, NamespaceRetrievalContext, PaginationMeta,
-    QueryNamespaceRequest, QueryNamespaceResponse, RecallContextRequest, RecallContextResponse,
-    RecallMemoriesRequest, RecallMemoriesResponse,
+    ApiEnvelope, DeleteDocumentRequest, DeleteDocumentResponse, EmptyRequest, ListDocumentsRequest,
+    ListDocumentsResponse, ListNamespacesResponse, MemoryIngestionConfig, MemoryIngestionRequest,
+    MemoryIngestionResult, MemoryInitRequest, MemoryInitResponse, MemoryRecallItem,
+    NamespaceDocumentInput, NamespaceRetrievalContext, PaginationMeta, QueryNamespaceRequest,
+    QueryNamespaceResponse, RecallContextRequest, RecallContextResponse, RecallMemoriesRequest,
+    RecallMemoriesResponse,
 };
 use crate::rpc::RpcOutcome;
 

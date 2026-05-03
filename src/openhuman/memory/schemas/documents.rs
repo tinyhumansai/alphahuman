@@ -36,21 +36,66 @@ pub(super) const FUNCTIONS: &[&str] = &[
 
 pub(super) fn controllers() -> Vec<RegisteredController> {
     vec![
-        RegisteredController { schema: schema("init").unwrap(), handler: handle_init },
-        RegisteredController { schema: schema("list_documents").unwrap(), handler: handle_list_documents },
-        RegisteredController { schema: schema("list_namespaces").unwrap(), handler: handle_list_namespaces },
-        RegisteredController { schema: schema("delete_document").unwrap(), handler: handle_delete_document },
-        RegisteredController { schema: schema("query_namespace").unwrap(), handler: handle_query_namespace },
-        RegisteredController { schema: schema("recall_context").unwrap(), handler: handle_recall_context },
-        RegisteredController { schema: schema("recall_memories").unwrap(), handler: handle_recall_memories },
-        RegisteredController { schema: schema("namespace_list").unwrap(), handler: handle_namespace_list },
-        RegisteredController { schema: schema("doc_put").unwrap(), handler: handle_doc_put },
-        RegisteredController { schema: schema("doc_ingest").unwrap(), handler: handle_doc_ingest },
-        RegisteredController { schema: schema("doc_list").unwrap(), handler: handle_doc_list },
-        RegisteredController { schema: schema("doc_delete").unwrap(), handler: handle_doc_delete },
-        RegisteredController { schema: schema("context_query").unwrap(), handler: handle_context_query },
-        RegisteredController { schema: schema("context_recall").unwrap(), handler: handle_context_recall },
-        RegisteredController { schema: schema("clear_namespace").unwrap(), handler: handle_clear_namespace },
+        RegisteredController {
+            schema: schema("init").unwrap(),
+            handler: handle_init,
+        },
+        RegisteredController {
+            schema: schema("list_documents").unwrap(),
+            handler: handle_list_documents,
+        },
+        RegisteredController {
+            schema: schema("list_namespaces").unwrap(),
+            handler: handle_list_namespaces,
+        },
+        RegisteredController {
+            schema: schema("delete_document").unwrap(),
+            handler: handle_delete_document,
+        },
+        RegisteredController {
+            schema: schema("query_namespace").unwrap(),
+            handler: handle_query_namespace,
+        },
+        RegisteredController {
+            schema: schema("recall_context").unwrap(),
+            handler: handle_recall_context,
+        },
+        RegisteredController {
+            schema: schema("recall_memories").unwrap(),
+            handler: handle_recall_memories,
+        },
+        RegisteredController {
+            schema: schema("namespace_list").unwrap(),
+            handler: handle_namespace_list,
+        },
+        RegisteredController {
+            schema: schema("doc_put").unwrap(),
+            handler: handle_doc_put,
+        },
+        RegisteredController {
+            schema: schema("doc_ingest").unwrap(),
+            handler: handle_doc_ingest,
+        },
+        RegisteredController {
+            schema: schema("doc_list").unwrap(),
+            handler: handle_doc_list,
+        },
+        RegisteredController {
+            schema: schema("doc_delete").unwrap(),
+            handler: handle_doc_delete,
+        },
+        RegisteredController {
+            schema: schema("context_query").unwrap(),
+            handler: handle_context_query,
+        },
+        RegisteredController {
+            schema: schema("context_recall").unwrap(),
+            handler: handle_context_recall,
+        },
+        RegisteredController {
+            schema: schema("clear_namespace").unwrap(),
+            handler: handle_clear_namespace,
+        },
     ]
 }
 
@@ -447,10 +492,13 @@ fn handle_doc_ingest(params: Map<String, Value>) -> ControllerFuture {
 
 fn handle_doc_list(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
-        let namespace = params
-            .get("namespace")
-            .and_then(|v| v.as_str())
-            .map(|ns| NamespaceOnlyParams { namespace: ns.to_string() });
+        let namespace =
+            params
+                .get("namespace")
+                .and_then(|v| v.as_str())
+                .map(|ns| NamespaceOnlyParams {
+                    namespace: ns.to_string(),
+                });
         to_json(rpc::doc_list(namespace).await?)
     })
 }

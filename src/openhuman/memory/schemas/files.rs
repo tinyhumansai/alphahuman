@@ -15,9 +15,18 @@ pub(super) const FUNCTIONS: &[&str] = &["list_files", "read_file", "write_file"]
 
 pub(super) fn controllers() -> Vec<RegisteredController> {
     vec![
-        RegisteredController { schema: schema("list_files").unwrap(), handler: handle_list_files },
-        RegisteredController { schema: schema("read_file").unwrap(), handler: handle_read_file },
-        RegisteredController { schema: schema("write_file").unwrap(), handler: handle_write_file },
+        RegisteredController {
+            schema: schema("list_files").unwrap(),
+            handler: handle_list_files,
+        },
+        RegisteredController {
+            schema: schema("read_file").unwrap(),
+            handler: handle_read_file,
+        },
+        RegisteredController {
+            schema: schema("write_file").unwrap(),
+            handler: handle_write_file,
+        },
     ]
 }
 
