@@ -44,8 +44,6 @@ pub struct MemoryConfig {
     #[serde(default = "default_min_relevance_score")]
     pub min_relevance_score: f64,
     #[serde(default)]
-    pub response_cache_enabled: bool,
-    #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
 }
 
@@ -71,7 +69,6 @@ impl Default for MemoryConfig {
             embedding_model: default_embedding_model(),
             embedding_dimensions: default_embedding_dims(),
             min_relevance_score: default_min_relevance_score(),
-            response_cache_enabled: false,
             sqlite_open_timeout_secs: None,
         }
     }

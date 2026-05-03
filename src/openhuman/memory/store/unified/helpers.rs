@@ -8,7 +8,7 @@ use super::UnifiedMemory;
 
 impl UnifiedMemory {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn write_markdown_doc(
+    pub(crate) async fn write_markdown_doc(
         &self,
         namespace: &str,
         doc_id: &str,
@@ -21,7 +21,7 @@ impl UnifiedMemory {
         content: &str,
     ) -> anyhow::Result<String> {
         let docs_dir = self.namespace_dir(namespace).join("docs");
-        std::fs::create_dir_all(&docs_dir)?;
+        tokio::fs::create_dir_all(&docs_dir).await?;
         let rel_path = format!(
             "memory/namespaces/{}/docs/{doc_id}.md",
             Self::sanitize_namespace(namespace)
@@ -38,7 +38,7 @@ impl UnifiedMemory {
             created_at,
             updated_at
         );
-        std::fs::write(abs_path, format!("{header}{content}\n"))?;
+        tokio::fs::write(abs_path, format!("{header}{content}\n")).await?;
         Ok(rel_path)
     }
 

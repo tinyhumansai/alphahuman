@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::openhuman::memory::embeddings::EmbeddingProvider;
+use crate::openhuman::embeddings::EmbeddingProvider;
 
 /// SQLite-backed unified memory store.
 ///

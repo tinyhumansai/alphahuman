@@ -12,7 +12,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
-use crate::openhuman::memory::embeddings::EmbeddingProvider;
+use crate::openhuman::embeddings::EmbeddingProvider;
 use crate::openhuman::memory::store::types::GLOBAL_NAMESPACE;
 
 use super::UnifiedMemory;

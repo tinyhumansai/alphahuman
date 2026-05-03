@@ -7,7 +7,6 @@
 
 pub mod chunker;
 pub mod conversations;
-pub mod embeddings;
 pub mod global;
 pub mod ingestion;
 pub mod ops;

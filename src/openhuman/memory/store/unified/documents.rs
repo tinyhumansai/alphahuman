@@ -66,6 +66,7 @@ impl UnifiedMemory {
                 updated_at,
                 &input.content,
             )
+            .await
             .map_err(|e| e.to_string())?;
 
         let tags_json = serde_json::to_string(&input.tags).map_err(|e| e.to_string())?;
@@ -205,6 +206,7 @@ impl UnifiedMemory {
                 updated_at,
                 &input.content,
             )
+            .await
             .map_err(|e| e.to_string())?;
 
         let tags_json = serde_json::to_string(&input.tags).map_err(|e| e.to_string())?;
@@ -444,7 +446,7 @@ impl UnifiedMemory {
         // Remove on-disk markdown files for this namespace.
         let docs_dir = self.namespace_dir(&ns).join("docs");
         if docs_dir.exists() {
-            std::fs::remove_dir_all(&docs_dir).map_err(|e| {
+            tokio::fs::remove_dir_all(&docs_dir).await.map_err(|e| {
                 format!(
                     "clear_namespace remove docs dir {}: {e}",
                     docs_dir.display()
@@ -501,7 +503,7 @@ impl UnifiedMemory {
 
         if let Some(rel) = rel_path {
             let abs = self.workspace_dir.join(rel);
-            let _ = std::fs::remove_file(abs);
+            let _ = tokio::fs::remove_file(abs).await;
         }
         Ok(json!({"deleted": deleted, "namespace": ns, "documentId": document_id }))
     }

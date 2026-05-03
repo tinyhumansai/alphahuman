@@ -11,7 +11,7 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::openhuman::memory::embeddings::{self, EmbeddingProvider};
+use crate::openhuman::embeddings::{self, EmbeddingProvider};
 use crate::openhuman::memory::ingestion::queue as ingestion_queue;
 use crate::openhuman::memory::ingestion::{
     IngestionJob, IngestionQueue, IngestionState, MemoryIngestionConfig, MemoryIngestionRequest,
