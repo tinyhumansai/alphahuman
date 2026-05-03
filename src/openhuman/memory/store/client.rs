@@ -179,11 +179,7 @@ impl MemoryClient {
             Err(_) => placeholder_id.clone(),
         };
 
-        state.mark_completed(
-            &document_id,
-            success,
-            chrono::Utc::now().timestamp_millis(),
-        );
+        state.mark_completed(&document_id, success, chrono::Utc::now().timestamp_millis());
         crate::core::event_bus::publish_global(
             crate::core::event_bus::DomainEvent::MemoryIngestionCompleted {
                 document_id,

@@ -1,13 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useMemoryIngestionStatus } from '../useMemoryIngestionStatus';
+
 const mockCallCoreRpc = vi.fn();
 
 vi.mock('../../services/coreRpcClient', () => ({
   callCoreRpc: (args: unknown) => mockCallCoreRpc(args),
 }));
-
-import { useMemoryIngestionStatus } from '../useMemoryIngestionStatus';
 
 describe('useMemoryIngestionStatus', () => {
   beforeEach(() => {
@@ -45,9 +45,7 @@ describe('useMemoryIngestionStatus', () => {
       lastSuccess: true,
     });
     expect(result.current.error).toBeNull();
-    expect(mockCallCoreRpc).toHaveBeenCalledWith({
-      method: 'openhuman.memory_ingestion_status',
-    });
+    expect(mockCallCoreRpc).toHaveBeenCalledWith({ method: 'openhuman.memory_ingestion_status' });
   });
 
   it('reports an error when the RPC fails and keeps idle defaults', async () => {
@@ -65,11 +63,7 @@ describe('useMemoryIngestionStatus', () => {
   it('refresh() re-issues the RPC and updates status', async () => {
     mockCallCoreRpc
       .mockResolvedValueOnce({ running: false, queue_depth: 0 })
-      .mockResolvedValueOnce({
-        running: true,
-        queue_depth: 1,
-        current_document_id: 'doc-2',
-      });
+      .mockResolvedValueOnce({ running: true, queue_depth: 1, current_document_id: 'doc-2' });
 
     const { result } = renderHook(() => useMemoryIngestionStatus());
     await waitFor(() => expect(result.current.loading).toBe(false));
