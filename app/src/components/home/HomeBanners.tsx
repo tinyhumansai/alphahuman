@@ -87,9 +87,18 @@ export function PromotionalCreditsBanner({ promoCredits }: { promoCredits: numbe
   );
 }
 
-export function EarlyBirdyBanner() {
+export function EarlyBirdyBanner({ onDismiss }: { onDismiss?: () => void }) {
   return (
-    <div className="mb-3 mt-3 rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 px-4 py-4 text-left shadow-soft">
+    <div className="relative mb-3 mt-3 rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 px-4 py-4 text-left shadow-soft">
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss early bird banner"
+          className="absolute right-3 top-3 rounded-md p-1 text-orange-500 hover:bg-orange-100 hover:text-orange-700">
+          ✕
+        </button>
+      )}
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-lg">
           🐦

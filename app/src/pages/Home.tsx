@@ -8,6 +8,7 @@ import {
   PromotionalCreditsBanner,
   UsageLimitBanner,
 } from '../components/home/HomeBanners';
+import { dismissBanner, shouldShowBanner } from '../components/upsell/upsellDismissState';
 import { useUsageState } from '../hooks/useUsageState';
 import { useUser } from '../hooks/useUser';
 import { useAppSelector } from '../store/hooks';
@@ -47,6 +48,16 @@ const Home = () => {
   const isFreeTier =
     user?.subscription?.plan === 'FREE' || !user?.subscription?.hasActiveSubscription;
   const showPromoBanner = isFreeTier && promoCredits > 0.01;
+
+  // Early birdy banner: once dismissed it stays gone (cooldown longer than any realistic session).
+  const [showEarlyBirdy, setShowEarlyBirdy] = useState(() =>
+    shouldShowBanner('home-earlybirdy', Number.MAX_SAFE_INTEGER)
+  );
+
+  const handleDismissEarlyBirdy = () => {
+    dismissBanner('home-earlybirdy');
+    setShowEarlyBirdy(false);
+  };
 
   const welcomeVariants = useMemo(
     () => [`Welcome, ${userName} 👋`, `Let's cook, ${userName} 🧑‍🍳.`, `Time to Zone In 🧘🏻`],
@@ -167,7 +178,7 @@ const Home = () => {
           </button>
         </div>
 
-        <EarlyBirdyBanner />
+        {showEarlyBirdy && <EarlyBirdyBanner onDismiss={handleDismissEarlyBirdy} />}
 
         <DiscordBanner />
 
