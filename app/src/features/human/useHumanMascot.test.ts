@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatEventListeners } from '../../services/chatService';
 import { VISEMES } from './Mascot/visemes';
 import { ACK_FACE_HOLD_MS, pickViseme, useHumanMascot } from './useHumanMascot';
+import { playBase64Audio } from './voice/audioPlayer';
+import { synthesizeSpeech } from './voice/ttsClient';
 
 vi.mock('../../services/chatService', () => ({
   subscribeChatEvents: (listeners: ChatEventListeners) => {
@@ -14,9 +16,38 @@ vi.mock('../../services/chatService', () => ({
   },
 }));
 
-vi.mock('./voice/ttsClient', () => ({ synthesizeSpeech: vi.fn() }));
+vi.mock('./voice/ttsClient', () => ({
+  synthesizeSpeech: vi.fn(),
+  visemesFromAlignment: (alignment: { char: string; start_ms: number; end_ms: number }[]) =>
+    alignment.map(a => ({ viseme: 'aa', start_ms: a.start_ms, end_ms: a.end_ms })),
+}));
 
 vi.mock('./voice/audioPlayer', () => ({ playBase64Audio: vi.fn() }));
+
+function makeFakePlayback(durationMs = 100) {
+  let stopped = false;
+  let resolveEnded!: () => void;
+  let rejectEnded!: (e: Error) => void;
+  const ended = new Promise<void>((res, rej) => {
+    resolveEnded = res;
+    rejectEnded = rej;
+  });
+  return {
+    handle: {
+      currentMs: () => (stopped ? -1 : 0),
+      stop: () => {
+        stopped = true;
+        rejectEnded(new Error('stopped'));
+      },
+      ended,
+    },
+    finishNaturally: () => {
+      stopped = true;
+      resolveEnded();
+    },
+    durationMs,
+  };
+}
 
 let capturedListeners: ChatEventListeners | null = null;
 
@@ -173,6 +204,41 @@ describe('useHumanMascot state machine', () => {
     expect(result.current.face).toBe('listening');
   });
 
+  it('clears the ack timer when a new turn starts before the hold finishes', () => {
+    const { result } = renderHook(() => useHumanMascot({ speakReplies: false }));
+    act(() => {
+      capturedListeners?.onDone?.(
+        fakeEvent({
+          full_response: 'hi',
+          rounds_used: 1,
+          total_input_tokens: 1,
+          total_output_tokens: 1,
+        })
+      );
+    });
+    expect(result.current.face).toBe('happy');
+    act(() => {
+      capturedListeners?.onInferenceStart?.(fakeEvent({}));
+    });
+    expect(result.current.face).toBe('thinking');
+    // Advancing past the original hold must NOT flip back to idle since the
+    // timer was cleared by the new turn.
+    act(() => {
+      vi.advanceTimersByTime(ACK_FACE_HOLD_MS + 1);
+    });
+    expect(result.current.face).toBe('thinking');
+  });
+
+  it('successful tool result returns the face to thinking', () => {
+    const { result } = renderHook(() => useHumanMascot());
+    act(() => {
+      capturedListeners?.onToolResult?.(
+        fakeEvent({ tool_name: 'search', skill_id: 's', output: 'ok', success: true, round: 1 })
+      );
+    });
+    expect(result.current.face).toBe('thinking');
+  });
+
   it('listening does not override speaking', () => {
     const { result, rerender } = renderHook(
       ({ listening }: { listening: boolean }) => useHumanMascot({ listening }),
@@ -183,5 +249,103 @@ describe('useHumanMascot state machine', () => {
     });
     rerender({ listening: true });
     expect(result.current.face).toBe('speaking');
+  });
+});
+
+describe('useHumanMascot TTS playback', () => {
+  beforeEach(() => {
+    capturedListeners = null;
+    vi.useFakeTimers();
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockReset();
+    (playBase64Audio as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function fakeDone(text: string) {
+    return {
+      thread_id: 't',
+      request_id: 'r',
+      full_response: text,
+      rounds_used: 1,
+      total_input_tokens: 1,
+      total_output_tokens: 1,
+    };
+  }
+
+  it('runs a full TTS playback flow: thinking → speaking → happy → idle', async () => {
+    const fake = makeFakePlayback();
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      audio_base64: 'AAA=',
+      audio_mime: 'audio/mpeg',
+      visemes: [{ viseme: 'aa', start_ms: 0, end_ms: 100 }],
+    });
+    (playBase64Audio as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fake.handle);
+
+    const { result } = renderHook(() => useHumanMascot({ speakReplies: true }));
+    await act(async () => {
+      capturedListeners?.onDone?.(fakeDone('hello'));
+      // Let synthesizeSpeech and playBase64Audio resolve.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.face).toBe('speaking');
+
+    await act(async () => {
+      fake.finishNaturally();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.face).toBe('happy');
+
+    act(() => {
+      vi.advanceTimersByTime(ACK_FACE_HOLD_MS + 1);
+    });
+    expect(result.current.face).toBe('idle');
+  });
+
+  it('falls back to alignment-derived visemes when backend ships no cues', async () => {
+    const fake = makeFakePlayback();
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      audio_base64: 'AAA=',
+      audio_mime: 'audio/mpeg',
+      visemes: [],
+      alignment: [{ char: 'h', start_ms: 0, end_ms: 50 }],
+    });
+    (playBase64Audio as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fake.handle);
+
+    const { result } = renderHook(() => useHumanMascot({ speakReplies: true }));
+    await act(async () => {
+      capturedListeners?.onDone?.(fakeDone('hi'));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.face).toBe('speaking');
+    await act(async () => {
+      fake.finishNaturally();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it('shows concerned (not happy) when synthesizeSpeech rejects', async () => {
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('voice down'));
+
+    const { result } = renderHook(() => useHumanMascot({ speakReplies: true }));
+    await act(async () => {
+      capturedListeners?.onDone?.(fakeDone('hello'));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.face).toBe('concerned');
+    act(() => {
+      vi.advanceTimersByTime(ACK_FACE_HOLD_MS + 1);
+    });
+    expect(result.current.face).toBe('idle');
   });
 });
