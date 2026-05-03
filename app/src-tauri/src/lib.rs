@@ -418,6 +418,11 @@ async fn apply_app_update(
 
     if let Err(e) = download_result {
         log::error!("[app-update] download/install failed: {e}");
+        // Same recovery as `install_app_update`: the .app wasn't swapped,
+        // so revive the in-process core we shut down above.
+        if let Err(start_err) = state.inner().ensure_running().await {
+            log::error!("[app-update] failed to restart core after apply error: {start_err}");
+        }
         let _ = app.emit("app-update:status", "error");
         return Err(format!("download_and_install failed: {e}"));
     }
@@ -589,6 +594,12 @@ async fn install_app_update(
     let _ = app.emit("app-update:status", "installing");
     if let Err(e) = staged.update.install(staged.bytes) {
         log::error!("[app-update] install failed: {e}");
+        // The .app on disk wasn't replaced, so we keep running the
+        // pre-install build — bring the core back up before returning
+        // so the user can keep working instead of being silently offline.
+        if let Err(start_err) = core_state.inner().ensure_running().await {
+            log::error!("[app-update] failed to restart core after install error: {start_err}");
+        }
         let _ = app.emit("app-update:status", "error");
         return Err(format!("install failed: {e}"));
     }

@@ -107,28 +107,28 @@ describe('AppUpdatePrompt', () => {
     expect(screen.getByRole('button', { name: /Later/ })).toBeInTheDocument();
   });
 
-  it('clicking "Restart now" invokes installAppUpdate', async () => {
+  it('clicking "Restart now" invokes installAppUpdate (the staged path)', async () => {
     mockInstallAppUpdate.mockResolvedValueOnce(undefined);
-    mockDownloadAppUpdate.mockResolvedValueOnce({ ready: true, version: '0.51.0', body: null });
 
     renderWithProviders(
       <AppUpdatePrompt autoCheck={false} initialCheckDelayMs={0} recheckIntervalMs={0} />
     );
     await waitFor(() => expect(statusListeners.length).toBeGreaterThan(0));
 
-    // Stage a fake download via the public API + emit ready_to_install.
+    // The Rust side emits `ready_to_install` once bytes are staged. The
+    // hook's status listener flips `stagedRef` to true on that event, so a
+    // subsequent install() must take the fast staged path and call
+    // `installAppUpdate` directly — never falling back to the legacy
+    // combined `applyAppUpdate`.
     emitStatus('ready_to_install');
 
     const restartBtn = await screen.findByRole('button', { name: /Restart now/ });
     fireEvent.click(restartBtn);
 
-    // Without a prior real download, the hook falls back to applyAppUpdate.
-    // That's the expected behavior when nothing is staged in the hook ref.
     await waitFor(() => {
-      expect(
-        mockInstallAppUpdate.mock.calls.length + mockApplyAppUpdate.mock.calls.length
-      ).toBeGreaterThan(0);
+      expect(mockInstallAppUpdate).toHaveBeenCalledTimes(1);
     });
+    expect(mockApplyAppUpdate).not.toHaveBeenCalled();
   });
 
   it('clicking "Later" hides the banner without calling install', async () => {

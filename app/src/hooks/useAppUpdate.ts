@@ -257,12 +257,23 @@ export function useAppUpdate(options: UseAppUpdateOptions = {}): UseAppUpdateRes
     }
     console.info('[app-update] hook.install: starting');
     setError(null);
+    // The Rust side consumes the staged bytes via `slot.take()` before
+    // calling `Update::install`, so once we invoke install_app_update the
+    // backend no longer has a pending update — keep `stagedRef` in sync so
+    // a retry after a transient install failure falls back to the legacy
+    // `apply` path (fresh check + download + install) instead of looping
+    // on a now-empty Rust state slot.
+    stagedRef.current = false;
     try {
       await installAppUpdate();
       console.debug('[app-update] hook.install: returned without restart');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[app-update] hook.install: failed', message);
+      // Defensive — the early clear above already handled this, but if a
+      // future change moves the install_app_update call without resetting
+      // the ref, this guarantees retries don't reuse a consumed staging.
+      stagedRef.current = false;
       if (mountedRef.current) {
         setError(message);
         setPhase('error');

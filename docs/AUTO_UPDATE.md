@@ -73,7 +73,7 @@ artifacts. Use this recipe.
 1. **Pick a target older than the published release.** Edit all four version
    sources to a known-older value (e.g. `0.53.0` if `0.53.4` is published):
 
-   ```
+   ```text
    app/package.json::version
    app/src-tauri/Cargo.toml::package.version
    app/src-tauri/tauri.conf.json::version
@@ -86,38 +86,58 @@ artifacts. Use this recipe.
 2. **Build a packaged bundle locally.**
 
    ```bash
-   pnpm tauri:ensure        # vendored CEF-aware tauri-cli
-   cd app && pnpm core:stage
-   pnpm tauri build         # NOT `tauri dev` — must be a packaged .app
+   pnpm --filter openhuman-app tauri:ensure   # vendored CEF-aware tauri-cli
+   pnpm --filter openhuman-app tauri:build:ui # exports CEF_PATH + builds the .app
    ```
 
+   `tauri:build:ui` exports `CEF_PATH=~/Library/Caches/tauri-cef` before
+   running `cargo tauri build` — the bundler needs this to copy
+   `Chromium Embedded Framework.framework` into `Contents/Frameworks/`.
+   A bare `pnpm tauri build` skips that step and the resulting binary
+   panics in `cef::library_loader::LibraryLoader::new`.
+
    On macOS the artifact lands in
-   `app/src-tauri/target/release/bundle/macos/openhuman.app`.
+   `app/src-tauri/target/release/bundle/macos/OpenHuman.app`.
 
 3. **Run the packaged build.**
 
    ```bash
-   open app/src-tauri/target/release/bundle/macos/openhuman.app
+   open app/src-tauri/target/release/bundle/macos/OpenHuman.app
+   # or, with Rust + frontend logs in the terminal:
+   ./app/src-tauri/target/release/bundle/macos/OpenHuman.app/Contents/MacOS/OpenHuman
    ```
 
-   Open the developer console (or watch `~/Library/Logs/openhuman/*.log`).
-   You should see `[app-update]` lines on probe + apply.
+   You should see `[app-update]` lines start to flow ~30 seconds after
+   launch (auto-check), or immediately after clicking
+   **Settings → About → Check for updates**.
 
 4. **Trigger the check** — either wait ~30s for the auto-check, or open
-   **Settings → About** → **Check for updates**. The banner should appear
-   with the published version number and release notes.
+   **Settings → About** → **Check for updates**. The check is silent;
+   the prompt appears only once the download has staged.
 
-5. **Click "Install & Restart"**. Watch the logs:
+5. **Watch the auto-download flow** (fires automatically — no click needed
+   to start the download). Expected log sequence:
 
-   - `[app-update] manual apply_app_update invoked from frontend`
-   - `[app-update] downloading <version>`
-   - `[app-update] download complete — installing`
+   - `[app-update] check requested (current: <old-version>)`
+   - `[app-update] update available: <old> -> <new>`
+   - `[app-update] download_app_update invoked from frontend`
+   - `[app-update] downloading <new-version> (background)`
+   - `[app-update] download complete — staging for install`
+   - `[app-update] staged <new-version> — awaiting user-initiated install`
+
+   At this point the bottom-right banner appears: **"Update v<new-version>
+   ready to install"** with **Restart now** / **Later** buttons.
+
+6. **Click "Restart now"**. Expected log sequence:
+
+   - `[app-update] install_app_update invoked from frontend`
+   - `[app-update] installing staged version <new-version>`
    - `[app-update] install complete — relaunching`
 
    The app relaunches itself; the new bundle's version (in
    **Settings → About**) should match the published release.
 
-6. **Confirm the core sidecar came back up.** `[core]` log lines should
+7. **Confirm the core sidecar came back up.** `[core]` log lines should
    appear after relaunch and `core_rpc` calls from the UI must succeed.
 
 ### Troubleshooting
