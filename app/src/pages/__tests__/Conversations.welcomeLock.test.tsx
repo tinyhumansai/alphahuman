@@ -147,6 +147,7 @@ function buildStore(overrides: {
 
   return configureStore({
     reducer: { thread: threadReducer, chatRuntime: chatRuntimeReducer, socket: socketReducer },
+    // Cast via unknown to avoid strict preloadedState type mismatch in tests
     preloadedState: {
       thread: {
         threads,
@@ -159,7 +160,7 @@ function buildStore(overrides: {
         isLoadingMessages: false,
         messagesError: null,
       },
-    } as never,
+    } as unknown as Parameters<typeof configureStore>[0]['preloadedState'],
   });
 }
 

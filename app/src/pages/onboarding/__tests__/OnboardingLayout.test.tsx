@@ -4,7 +4,7 @@
  * when `completeAndExit` runs successfully.
  */
 import { configureStore } from '@reduxjs/toolkit';
-import { act, fireEvent, screen , render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -79,7 +79,7 @@ function buildStore() {
         isLoadingMessages: false,
         messagesError: null,
       },
-    } as never,
+    } as unknown as Parameters<typeof configureStore>[0]['preloadedState'],
   });
 }
 
