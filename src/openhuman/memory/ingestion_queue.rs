@@ -8,10 +8,13 @@
 //! from the actual extraction process.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 
+use crate::core::event_bus::{publish_global, DomainEvent};
 use crate::openhuman::memory::ingestion::MemoryIngestionConfig;
+use crate::openhuman::memory::ingestion_state::IngestionState;
 use crate::openhuman::memory::store::{NamespaceDocumentInput, UnifiedMemory};
 
 /// A job submitted to the ingestion worker.
@@ -37,6 +40,8 @@ pub struct IngestionJob {
 pub struct IngestionQueue {
     /// Sender half of the job queue channel.
     tx: mpsc::UnboundedSender<IngestionJob>,
+    /// Shared state — singleton lock, queue depth, status snapshot.
+    state: IngestionState,
 }
 
 impl IngestionQueue {
@@ -52,9 +57,12 @@ impl IngestionQueue {
     /// worker has shut down (e.g., during application termination) and the
     /// job was dropped.
     pub fn submit(&self, job: IngestionJob) -> bool {
+        self.state.enqueue();
         match self.tx.send(job) {
             Ok(()) => true,
             Err(e) => {
+                // Worker is gone — undo the enqueue bump so depth stays accurate.
+                self.state.dequeue();
                 log::warn!(
                     "[memory:ingestion_queue] failed to enqueue job (worker gone?): {}",
                     e.0.document.title,
@@ -62,6 +70,13 @@ impl IngestionQueue {
                 false
             }
         }
+    }
+
+    /// Returns a clone of the shared ingestion state. Use this to drive the
+    /// status RPC or to share the singleton lock with synchronous ingest
+    /// paths that bypass the queue.
+    pub fn state(&self) -> IngestionState {
+        self.state.clone()
     }
 }
 
@@ -77,14 +92,23 @@ impl IngestionQueue {
 /// any number of producers. The worker runs on a dedicated tokio task,
 /// processing jobs sequentially so ingestion work stays serialized.
 pub fn start_worker(memory: Arc<UnifiedMemory>) -> IngestionQueue {
-    // Create an unbounded channel for the ingestion jobs.
+    let state = IngestionState::new();
+    start_worker_with_state(memory, state)
+}
+
+/// Start a worker bound to a caller-supplied [`IngestionState`]. Useful when
+/// the synchronous ingest path needs to share the same singleton lock and
+/// snapshot as the queue worker.
+pub fn start_worker_with_state(
+    memory: Arc<UnifiedMemory>,
+    state: IngestionState,
+) -> IngestionQueue {
     let (tx, rx) = mpsc::unbounded_channel::<IngestionJob>();
 
-    // Spawn the worker loop as a background task.
-    tokio::spawn(ingestion_worker(memory, rx));
+    tokio::spawn(ingestion_worker(memory, rx, state.clone()));
 
     log::info!("[memory:ingestion_queue] background worker started");
-    IngestionQueue { tx }
+    IngestionQueue { tx, state }
 }
 
 /// The main worker loop for background document ingestion.
@@ -99,6 +123,7 @@ pub fn start_worker(memory: Arc<UnifiedMemory>) -> IngestionQueue {
 async fn ingestion_worker(
     memory: Arc<UnifiedMemory>,
     mut rx: mpsc::UnboundedReceiver<IngestionJob>,
+    state: IngestionState,
 ) {
     log::debug!("[memory:ingestion_queue] worker loop entered");
 
@@ -113,8 +138,24 @@ async fn ingestion_worker(
              doc_id={document_id}, title={title}",
         );
 
-        // Perform the graph extraction. This is the most resource-intensive step.
-        match memory
+        // Acquire the singleton lock so only one ingestion runs at a time
+        // (covers both queue worker and synchronous callers sharing this
+        // state). Decrement the pending-queue counter only after we hold the
+        // lock — while we're blocked waiting on it the job is still queued.
+        let _guard = state.acquire().await;
+        state.dequeue();
+
+        let queue_depth = state.snapshot().queue_depth;
+        state.mark_running(&document_id, &title, &namespace);
+        publish_global(DomainEvent::MemoryIngestionStarted {
+            document_id: document_id.clone(),
+            title: title.clone(),
+            namespace: namespace.clone(),
+            queue_depth,
+        });
+
+        let started = Instant::now();
+        let success = match memory
             .extract_graph(&document_id, &job.document, &job.config)
             .await
         {
@@ -127,14 +168,27 @@ async fn ingestion_worker(
                     result.relation_count,
                     result.chunk_count,
                 );
+                true
             }
             Err(e) => {
                 log::error!(
                     "[memory:ingestion_queue] extraction failed namespace={namespace} \
                      doc_id={document_id} title={title}: {e}",
                 );
+                false
             }
-        }
+        };
+
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        let completed_at_ms = chrono::Utc::now().timestamp_millis();
+        state.mark_completed(&document_id, success, completed_at_ms);
+        publish_global(DomainEvent::MemoryIngestionCompleted {
+            document_id,
+            namespace,
+            success,
+            elapsed_ms,
+            queue_depth: state.snapshot().queue_depth,
+        });
     }
 
     log::info!("[memory:ingestion_queue] worker shut down (channel closed)");

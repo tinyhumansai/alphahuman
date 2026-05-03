@@ -55,6 +55,7 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("sync_channel"),
         schemas("sync_all"),
         schemas("learn_all"),
+        schemas("ingestion_status"),
     ]
 }
 
@@ -168,6 +169,10 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("learn_all"),
             handler: handle_learn_all,
+        },
+        RegisteredController {
+            schema: schemas("ingestion_status"),
+            handler: handle_ingestion_status,
         },
     ]
 }
@@ -993,6 +998,63 @@ pub fn schemas(function: &str) -> ControllerSchema {
             ],
         },
 
+        "ingestion_status" => ControllerSchema {
+            namespace: "memory",
+            function: "ingestion_status",
+            description: "Returns the current memory-ingestion status (whether a job is running, the in-flight document, queue depth, and most recent completion). Safe to poll.",
+            inputs: vec![],
+            outputs: vec![
+                FieldSchema {
+                    name: "running",
+                    ty: TypeSchema::Bool,
+                    comment: "True while an ingestion job is running on the local extraction LLM.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "current_document_id",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Document id of the in-flight job.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "current_title",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Title of the in-flight document.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "current_namespace",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Namespace of the in-flight document.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "queue_depth",
+                    ty: TypeSchema::U64,
+                    comment: "Number of jobs waiting behind the current one.",
+                    required: true,
+                },
+                FieldSchema {
+                    name: "last_completed_at",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::I64)),
+                    comment: "Unix-ms timestamp of the most recent completion.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "last_document_id",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::String)),
+                    comment: "Document id of the most recent completed job.",
+                    required: false,
+                },
+                FieldSchema {
+                    name: "last_success",
+                    ty: TypeSchema::Option(Box::new(TypeSchema::Bool)),
+                    comment: "Whether the most recent job succeeded.",
+                    required: false,
+                },
+            ],
+        },
+
         // ----- fallback -----
         _other => ControllerSchema {
             namespace: "memory",
@@ -1207,6 +1269,10 @@ fn handle_learn_all(params: Map<String, Value>) -> ControllerFuture {
         let payload = parse_params::<LearnAllParams>(params)?;
         to_json(rpc::memory_learn_all(payload).await?)
     })
+}
+
+fn handle_ingestion_status(_params: Map<String, Value>) -> ControllerFuture {
+    Box::pin(async move { to_json(rpc::memory_ingestion_status().await?) })
 }
 
 // ---------------------------------------------------------------------------

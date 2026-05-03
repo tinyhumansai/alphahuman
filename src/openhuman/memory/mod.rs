@@ -11,6 +11,7 @@ pub mod embeddings;
 pub mod global;
 pub mod ingestion;
 pub mod ingestion_queue;
+pub mod ingestion_state;
 pub mod ops;
 pub mod rpc_models;
 pub mod schemas;
@@ -24,6 +25,7 @@ pub use ingestion::{
     MemoryIngestionRequest, MemoryIngestionResult, DEFAULT_MEMORY_EXTRACTION_MODEL,
 };
 pub use ingestion_queue::{IngestionJob, IngestionQueue};
+pub use ingestion_state::{IngestionState, IngestionStatusSnapshot};
 pub use ops as rpc;
 pub use ops::*;
 pub use rpc_models::*;

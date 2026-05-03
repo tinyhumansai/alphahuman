@@ -29,6 +29,7 @@ const ALL_FUNCTIONS: &[&str] = &[
     "sync_channel",
     "sync_all",
     "learn_all",
+    "ingestion_status",
 ];
 
 #[test]
