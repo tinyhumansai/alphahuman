@@ -3,23 +3,20 @@
  * createNewThread call with the ONBOARDING_WELCOME_THREAD_LABEL) is executed
  * when `completeAndExit` runs successfully.
  */
-import { act, fireEvent, screen } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
-import { render } from '@testing-library/react';
+import { act, fireEvent, screen , render } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ONBOARDING_WELCOME_THREAD_LABEL } from '../../../constants/onboardingChat';
-import threadReducer from '../../../store/threadSlice';
 import socketReducer from '../../../store/socketSlice';
+import threadReducer from '../../../store/threadSlice';
 import { useOnboardingContext } from '../OnboardingContext';
 
 // ── Module-level mocks ─────────────────────────────────────────────────────
 
-vi.mock('../../../providers/CoreStateProvider', () => ({
-  useCoreState: vi.fn(),
-}));
+vi.mock('../../../providers/CoreStateProvider', () => ({ useCoreState: vi.fn() }));
 
 vi.mock('../../../services/api/userApi', () => ({
   userApi: { onboardingComplete: vi.fn().mockResolvedValue(undefined) },
@@ -29,13 +26,9 @@ vi.mock('../../../services/chatService', () => ({
   chatSend: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../../utils/toolDefinitions', () => ({
-  getDefaultEnabledTools: vi.fn(() => []),
-}));
+vi.mock('../../../utils/toolDefinitions', () => ({ getDefaultEnabledTools: vi.fn(() => []) }));
 
-vi.mock('../components/BetaBanner', () => ({
-  default: () => <div data-testid="beta-banner" />,
-}));
+vi.mock('../components/BetaBanner', () => ({ default: () => <div data-testid="beta-banner" /> }));
 
 // ── Spy on threadSlice actions dispatched ──────────────────────────────────
 
@@ -73,10 +66,7 @@ function TriggerComplete() {
 
 function buildStore() {
   return configureStore({
-    reducer: {
-      thread: threadReducer,
-      socket: socketReducer,
-    },
+    reducer: { thread: threadReducer, socket: socketReducer },
     preloadedState: {
       thread: {
         threads: [],
@@ -107,11 +97,7 @@ async function setupLayout() {
       onboardingCompleted: false,
       chatOnboardingCompleted: false,
       analyticsEnabled: false,
-      localState: {
-        encryptionKey: null,
-        primaryWalletAddress: null,
-        onboardingTasks: null,
-      },
+      localState: { encryptionKey: null, primaryWalletAddress: null, onboardingTasks: null },
       runtime: { screenIntelligence: null, localAi: null, autocomplete: null, service: null },
     },
     isBootstrapping: false,

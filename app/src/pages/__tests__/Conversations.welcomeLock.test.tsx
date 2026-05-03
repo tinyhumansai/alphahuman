@@ -11,9 +11,9 @@
  */
 import { configureStore } from '@reduxjs/toolkit';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ONBOARDING_WELCOME_THREAD_LABEL } from '../../constants/onboardingChat';
 import chatRuntimeReducer from '../../store/chatRuntimeSlice';
@@ -23,9 +23,7 @@ import type { Thread } from '../../types/thread';
 
 // ── Module-level mocks ─────────────────────────────────────────────────────
 
-vi.mock('../../providers/CoreStateProvider', () => ({
-  useCoreState: vi.fn(),
-}));
+vi.mock('../../providers/CoreStateProvider', () => ({ useCoreState: vi.fn() }));
 
 vi.mock('../../lib/coreState/store', () => ({
   isWelcomeLocked: vi.fn(),
@@ -57,10 +55,7 @@ vi.mock('../../hooks/useUsageState', () => ({
 }));
 
 vi.mock('../../hooks/useStickToBottom', () => ({
-  useStickToBottom: () => ({
-    containerRef: { current: null },
-    endRef: { current: null },
-  }),
+  useStickToBottom: () => ({ containerRef: { current: null }, endRef: { current: null } }),
 }));
 
 vi.mock('../../components/chat/TokenUsagePill', () => ({
@@ -81,13 +76,9 @@ vi.mock('../../components/PillTabBar', () => ({
   ),
 }));
 
-vi.mock('../../components/upsell/UpsellBanner', () => ({
-  default: () => null,
-}));
+vi.mock('../../components/upsell/UpsellBanner', () => ({ default: () => null }));
 
-vi.mock('../../components/upsell/UsageLimitModal', () => ({
-  default: () => null,
-}));
+vi.mock('../../components/upsell/UsageLimitModal', () => ({ default: () => null }));
 
 vi.mock('../../components/upsell/upsellDismissState', () => ({
   shouldShowBanner: vi.fn(() => false),
@@ -101,17 +92,11 @@ vi.mock('./conversations/components/AgentMessageBubble', () => ({
   BubbleMarkdown: () => null,
 }));
 
-vi.mock('./conversations/components/CitationChips', () => ({
-  CitationChips: () => null,
-}));
+vi.mock('./conversations/components/CitationChips', () => ({ CitationChips: () => null }));
 
-vi.mock('./conversations/components/LimitPill', () => ({
-  LimitPill: () => null,
-}));
+vi.mock('./conversations/components/LimitPill', () => ({ LimitPill: () => null }));
 
-vi.mock('./conversations/components/ToolTimelineBlock', () => ({
-  ToolTimelineBlock: () => null,
-}));
+vi.mock('./conversations/components/ToolTimelineBlock', () => ({ ToolTimelineBlock: () => null }));
 
 vi.mock('./conversations/utils/format', () => ({
   buildAcceptedInlineCompletion: vi.fn(() => ''),
@@ -161,11 +146,7 @@ function buildStore(overrides: {
   const { threads = [], selectedThreadId = null, welcomeThreadId = null } = overrides;
 
   return configureStore({
-    reducer: {
-      thread: threadReducer,
-      chatRuntime: chatRuntimeReducer,
-      socket: socketReducer,
-    },
+    reducer: { thread: threadReducer, chatRuntime: chatRuntimeReducer, socket: socketReducer },
     preloadedState: {
       thread: {
         threads,
@@ -188,12 +169,7 @@ async function renderConversations(opts: {
   selectedThreadId?: string | null;
   welcomeThreadId?: string | null;
 }) {
-  const {
-    welcomeLocked,
-    threads = [],
-    selectedThreadId = null,
-    welcomeThreadId = null,
-  } = opts;
+  const { welcomeLocked, threads = [], selectedThreadId = null, welcomeThreadId = null } = opts;
 
   const { useCoreState } = await import('../../providers/CoreStateProvider');
   const coreStateModule = await import('../../lib/coreState/store');
