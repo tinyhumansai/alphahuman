@@ -62,7 +62,7 @@ const Home = () => {
   const socketStatus = useAppSelector(selectSocketStatus);
   const statusCopy = {
     connected:
-      'Your device is connected. Keep the app running to keep the connection alive. Message your assistant with the button below.',
+      'Your device is connected. Keep the app running to keep the connection alive. Message your agent with the button below.',
     connecting: 'Connecting. Hang tight, this usually takes a second.',
     disconnected:
       'Your device is offline right now. Check your network or restart the app to reconnect.',
