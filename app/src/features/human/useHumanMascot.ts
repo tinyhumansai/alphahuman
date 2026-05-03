@@ -11,6 +11,13 @@ import { findActiveFrame, oculusVisemeToShape } from './voice/visemeMap';
 const VISEME_DECAY_MS = 180;
 
 /**
+ * How long to hold a transient acknowledgement face (`happy`, `concerned`)
+ * before decaying back to `idle`. Tuned to feel like a soft beat rather than
+ * a snap. Exported for tests.
+ */
+export const ACK_FACE_HOLD_MS = 700;
+
+/**
  * Pick a viseme from the trailing letter of a text delta. Heuristic — we
  * have no phoneme data — but it gives the mouth varied motion that tracks
  * the streaming text instead of just opening and closing the same way.
@@ -49,26 +56,43 @@ export interface UseHumanMascotOptions {
   /** When true, post-stream replies are sent to ElevenLabs and the mouth
    *  follows the returned viseme timeline while the audio plays. */
   speakReplies?: boolean;
+  /** When true, force the mascot into a `listening` pose. Caller is responsible
+   *  for setting this while the mic is hot (e.g. from voice dictation state). */
+  listening?: boolean;
+}
+
+export interface UseHumanMascotResult {
+  face: MascotFace;
+  viseme: VisemeShape;
 }
 
 /**
- * Drives the mascot's face/mouth from chat events, with three phases:
- * - inference_start → thinking
- * - text_delta → speaking, pseudo-lipsync from the trailing letter of each delta
- * - chat_done (with `speakReplies`) → speaking, real visemes from TTS audio
- *   for the full response; falls back to neutral when audio ends or fails
+ * Drives the mascot's face/mouth from agent + voice lifecycle events.
+ *
+ * Mapping (kept in one place so the visual model stays coherent):
+ *
+ * - `inference_start` → `thinking`
+ * - `iteration_start` round > 1 or `tool_call` → `confused` (heavy reasoning)
+ * - `tool_result success=false` → `concerned` (held briefly)
+ * - `text_delta` → `speaking`, pseudo-lipsync from the trailing letter
+ * - `chat_done` (no TTS) → `happy` (held briefly), then `idle`
+ * - `chat_done` (TTS enabled) → `thinking` while synthesizing → `speaking`
+ *   with real visemes → `idle` when the audio ends
+ * - `chat_error`, TTS failure → `concerned` (held briefly), then `idle`
+ * - `listening` option override → `listening` (highest priority)
+ *
+ * Errors and unavailable voice degrade cleanly: speech failures fall through
+ * to text-only behavior and surface as a brief `concerned` beat.
  */
-export function useHumanMascot(options: UseHumanMascotOptions = {}): {
-  face: MascotFace;
-  viseme: VisemeShape;
-} {
-  const { speakReplies = false } = options;
+export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMascotResult {
+  const { speakReplies = false, listening = false } = options;
   const speakRef = useRef(speakReplies);
   speakRef.current = speakReplies;
 
-  const [face, setFace] = useState<MascotFace>('normal');
+  const [face, setFace] = useState<MascotFace>('idle');
   const targetRef = useRef<VisemeShape>(VISEMES.REST);
   const lastDeltaAtRef = useRef(0);
+  const ackTimerRef = useRef<number | null>(null);
 
   // TTS playback state — non-null while audio is mid-flight.
   const playbackRef = useRef<PlaybackHandle | null>(null);
@@ -80,19 +104,59 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): {
 
   const [, force] = useState(0);
 
+  function clearAckTimer() {
+    if (ackTimerRef.current != null) {
+      window.clearTimeout(ackTimerRef.current);
+      ackTimerRef.current = null;
+    }
+  }
+
+  function holdThenIdle(ackFace: MascotFace, ms = ACK_FACE_HOLD_MS) {
+    clearAckTimer();
+    setFace(ackFace);
+    ackTimerRef.current = window.setTimeout(() => {
+      ackTimerRef.current = null;
+      setFace('idle');
+    }, ms);
+  }
+
   useEffect(() => {
     const unsub = subscribeChatEvents({
-      onInferenceStart: () => setFace('thinking'),
+      onInferenceStart: () => {
+        clearAckTimer();
+        setFace('thinking');
+      },
+      onIterationStart: e => {
+        // Subsequent iterations mean the agent is grinding through tool rounds.
+        if (e.round > 1) {
+          clearAckTimer();
+          setFace('confused');
+        }
+      },
+      onToolCall: () => {
+        clearAckTimer();
+        setFace('confused');
+      },
+      onToolResult: e => {
+        if (!e.success) {
+          // Don't fully derail — let the next inference step take over.
+          setFace('concerned');
+        } else {
+          setFace('thinking');
+        }
+      },
       onTextDelta: e => {
         // Pseudo-lipsync only kicks in if no real audio is playing.
         if (playbackRef.current) return;
+        clearAckTimer();
         setFace('speaking');
         targetRef.current = pickViseme(e.delta);
         lastDeltaAtRef.current = window.performance.now();
       },
       onDone: e => {
         if (!speakRef.current || !e.full_response?.trim()) {
-          setFace('normal');
+          // Soft acknowledgement beat instead of snapping back to idle.
+          holdThenIdle('happy');
           return;
         }
         // Fire-and-forget — startTtsPlayback owns its cleanup via finally.
@@ -104,11 +168,12 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): {
         playbackRef.current?.stop();
         playbackRef.current = null;
         visemeFramesRef.current = [];
-        setFace('normal');
+        holdThenIdle('concerned');
       },
     });
     return () => {
       unsub();
+      clearAckTimer();
       // Same — invalidate in-flight callbacks before tearing down.
       playbackSeqRef.current++;
       playbackRef.current?.stop();
@@ -123,12 +188,21 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): {
     playbackRef.current = null;
     visemeFramesRef.current = [];
     visemeCursorRef.current = 0;
+    clearAckTimer();
     const seq = ++playbackSeqRef.current;
     const isStillCurrent = () => playbackSeqRef.current === seq;
+    let degraded = false;
 
     try {
       setFace('thinking');
-      const tts = await synthesizeSpeech(text);
+      let tts;
+      try {
+        tts = await synthesizeSpeech(text);
+      } catch (err) {
+        // Voice path unavailable — degrade cleanly to text-only behavior.
+        if (isStillCurrent()) degraded = true;
+        throw err;
+      }
       if (!isStillCurrent()) return;
       visemeFramesRef.current = tts.visemes ?? [];
       visemeCursorRef.current = 0;
@@ -148,7 +222,11 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): {
       if (isStillCurrent()) {
         playbackRef.current = null;
         visemeFramesRef.current = [];
-        setFace('normal');
+        if (degraded) {
+          holdThenIdle('concerned');
+        } else {
+          holdThenIdle('happy');
+        }
       }
     }
   }
@@ -184,5 +262,9 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): {
     viseme = lerpViseme(targetRef.current, VISEMES.REST, decay);
   }
 
-  return { face, viseme };
+  // `listening` is an external override so callers wiring dictation state
+  // can reflect mic-on without racing the chat event subscription.
+  const effectiveFace: MascotFace = listening && face !== 'speaking' ? 'listening' : face;
+
+  return { face: effectiveFace, viseme };
 }
