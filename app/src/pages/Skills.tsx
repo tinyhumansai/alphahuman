@@ -8,7 +8,6 @@ import {
   type ComposioToolkitMeta,
   KNOWN_COMPOSIO_TOOLKITS,
 } from '../components/composio/toolkitMeta';
-import ConnectionBadge, { isMessagingId } from '../components/ConnectionBadge';
 import { ToastContainer } from '../components/intelligence/Toast';
 import AutocompleteSetupModal from '../components/skills/AutocompleteSetupModal';
 import CreateSkillModal from '../components/skills/CreateSkillModal';
@@ -570,6 +569,10 @@ export default function Skills() {
       <div className="space-y-2">
         {items.map(item => {
           if (item.kind === 'builtin') {
+            /* v8 ignore start -- BUILT_IN_SKILLS list is empty today; the per-id
+               branches below are kept for re-enabling screen-intelligence /
+               text-autocomplete / voice-stt and shouldn't drag the diff-coverage
+               gate down while they're unreachable. */
             if (item.id === 'screen-intelligence') {
               return (
                 <UnifiedSkillCard
@@ -658,26 +661,7 @@ export default function Skills() {
                 onCtaClick={() => navigate(item.route!)}
               />
             );
-          }
-          if (item.kind === 'channel') {
-            const status = item.channelStatus!;
-            return (
-              <UnifiedSkillCard
-                key={item.id}
-                icon={item.icon}
-                title={item.name}
-                description={item.description}
-                statusLabel={channelStatusLabel(status)}
-                statusColor={channelStatusColor(status)}
-                ctaLabel={status === 'connected' ? 'Manage' : 'Setup'}
-                onCtaClick={() => setChannelModalDef(item.channelDef!)}
-                badge={
-                  isMessagingId(item.channelDef!.id) ? (
-                    <ConnectionBadge kind="messaging" />
-                  ) : undefined
-                }
-              />
-            );
+            /* v8 ignore stop */
           }
           if (item.kind === 'discovered') {
             const skill = item.discoveredSkill!;

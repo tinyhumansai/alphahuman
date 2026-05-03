@@ -73,6 +73,60 @@ describe('Skills page — Channels grid', () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    ['connected', /Connected/i, /sage/],
+    ['connecting', /Connecting/i, /amber/],
+    ['error', /Error/i, /coral/],
+  ] as const)(
+    'styles the Telegram channel tile to reflect the %s connection state',
+    (status, labelPattern, classPattern) => {
+      const preloadedState = {
+        channelConnections: {
+          schemaVersion: 1,
+          migrationCompleted: true,
+          defaultMessagingChannel: 'telegram' as const,
+          connections: {
+            telegram: {
+              managed_dm: undefined,
+              oauth: {
+                channel: 'telegram' as const,
+                authMode: 'oauth' as const,
+                status,
+                selectedDefault: false,
+                lastError: null,
+                capabilities: [],
+                updatedAt: new Date().toISOString(),
+              },
+              bot_token: undefined,
+              api_key: undefined,
+            },
+            discord: {
+              managed_dm: undefined,
+              oauth: undefined,
+              bot_token: undefined,
+              api_key: undefined,
+            },
+            web: {
+              managed_dm: undefined,
+              oauth: undefined,
+              bot_token: undefined,
+              api_key: undefined,
+            },
+          },
+        },
+      };
+
+      renderWithProviders(<Skills />, { initialEntries: ['/skills'], preloadedState });
+      const channelsCard = screen
+        .getByRole('heading', { name: 'Channels' })
+        .closest('.rounded-2xl');
+      const telegramTile = within(channelsCard as HTMLElement).getByRole('button', {
+        name: new RegExp(`Telegram.*${labelPattern.source}`, 'i'),
+      });
+      expect(telegramTile.className).toMatch(classPattern);
+    }
+  );
+
   it('does not surface a Channels chip in the category filter inside the Integrations card', () => {
     renderWithProviders(<Skills />, { initialEntries: ['/skills'] });
 
