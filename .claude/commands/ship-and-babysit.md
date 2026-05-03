@@ -68,24 +68,21 @@ Each tick:
 2. **Fetch CodeRabbit review comments**:
    `gh api repos/tinyhumansai/openhuman/pulls/<PR#>/comments --paginate`
    Filter for comments authored by `coderabbitai` / `coderabbitai[bot]`. Also check issue-level comments: `gh api repos/tinyhumansai/openhuman/issues/<PR#>/comments --paginate`.
-   - For each unresolved CodeRabbit suggestion: read the file/line referenced and apply the fix if it is correct and in scope. If a suggestion is wrong or out of scope, post a dismissing reply on that line before resolving the thread:
+   - For each unresolved CodeRabbit suggestion: read the file/line referenced and apply the fix if it is correct and in scope. If a suggestion is wrong or out of scope, reply *inside the existing thread* (so the reply attaches to the same conversation, not a brand-new review) before resolving:
      ```bash
-     gh api repos/tinyhumansai/openhuman/pulls/<PR#>/reviews \
+     gh api repos/tinyhumansai/openhuman/pulls/comments/<comment_id>/replies \
        -X POST \
-       -f commit_id="$(git rev-parse HEAD)" \
-       -f event=COMMENT \
-       -f 'comments[][path]=<file>' \
-       -F 'comments[][line]=<line>' \
-       -f 'comments[][body]=**Dismissed:** <reason>'
+       -f body='**Dismissed:** <reason>'
      ```
+     (`<comment_id>` is the top-level review-comment id from `gh api repos/tinyhumansai/openhuman/pulls/<PR#>/comments`. `POST /pulls/<PR#>/reviews` would create a *new* review thread, not a reply.)
    - After fixing, commit and push to `origin`.
    - Mark the corresponding review thread as resolved via the GraphQL API:
      ```bash
      gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<threadId>
      ```
-     To list thread IDs:
+     To list thread IDs (paginated — `reviewThreads` caps at 100 per page, so loop on `pageInfo.hasNextPage` / `endCursor` and feed back as `$cursor` until exhausted, otherwise threads past page 1 silently slip past the exit condition):
      ```bash
-     gh api graphql -f query='query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100){nodes{id isResolved comments(first:1){nodes{author{login} body}}}}}}}' -F owner=tinyhumansai -F repo=openhuman -F num=<PR#>
+     gh api graphql -f query='query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100, after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved comments(first:1){nodes{author{login} body}}}}}}}' -F owner=tinyhumansai -F repo=openhuman -F num=<PR#> -F cursor=
      ```
 3. **Exit condition** — stop the loop when ALL of these are true:
    - All required checks are `SUCCESS`. `PENDING` keeps the loop running, no exceptions — no "green" claim while CI is mid-run.
