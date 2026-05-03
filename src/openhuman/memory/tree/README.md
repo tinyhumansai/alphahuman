@@ -1,6 +1,6 @@
 # Memory tree
 
-Bucket-seal-ready local memory architecture (Phase 1 of issue #707, see [`docs/MEMORY_ARCHITECTURE_LLD.md`](../../../../docs/MEMORY_ARCHITECTURE_LLD.md)). Coexists with the legacy `store/` backend until full replacement.
+Bucket-seal-ready local memory architecture (Phase 1 of issue #707; the LLD design doc `docs/MEMORY_ARCHITECTURE_LLD.md` is referenced by the in-tree module headers but is not checked into this repo). Coexists with the legacy `store/` backend until full replacement.
 
 ## Pipeline
 
