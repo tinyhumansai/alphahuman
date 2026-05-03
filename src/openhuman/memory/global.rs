@@ -73,7 +73,14 @@ pub fn init_default() -> Result<MemoryClientRef, String> {
 /// Callers that can tolerate "not yet ready" should use
 /// [`client_if_ready`] instead.
 pub fn client() -> Result<MemoryClientRef, String> {
-    GLOBAL_CLIENT.get().cloned().ok_or_else(|| {
+    client_from(&GLOBAL_CLIENT)
+}
+
+/// Implementation backing [`client`] — extracted so unit tests can pass a
+/// freshly-constructed local `OnceLock` and assert the uninitialised-error
+/// contract without racing the process-global singleton.
+fn client_from(slot: &OnceLock<MemoryClientRef>) -> Result<MemoryClientRef, String> {
+    slot.get().cloned().ok_or_else(|| {
         "memory global accessed before init — call init(workspace) at startup".to_string()
     })
 }
@@ -131,16 +138,17 @@ mod tests {
 
     #[tokio::test]
     async fn client_errs_clearly_when_not_initialised() {
-        // We can't guarantee uninitialised state across a test binary, so
-        // only assert the error contract when the global truly isn't set yet.
-        if client_if_ready().is_none() {
-            match client() {
-                Ok(_) => panic!("client() must error when uninitialised"),
-                Err(err) => assert!(
-                    err.contains("init"),
-                    "error should mention init contract, got: {err}"
-                ),
-            }
+        // Use a fresh local `OnceLock` rather than the process-global one:
+        // other tests may have already called `init()` on the singleton, so
+        // an `is_none`-gated check on `GLOBAL_CLIENT` would race / silently
+        // skip. `client_from` lets us assert the contract deterministically.
+        let local: OnceLock<MemoryClientRef> = OnceLock::new();
+        match client_from(&local) {
+            Ok(_) => panic!("client_from(empty) must error"),
+            Err(err) => assert!(
+                err.contains("init"),
+                "error should mention init contract, got: {err}"
+            ),
         }
     }
 }

@@ -278,6 +278,12 @@ pub(crate) fn default_category() -> String {
 // Workspace + memory-client lookup
 // ---------------------------------------------------------------------------
 
+/// Subdirectory under the workspace where the file-based memory RPCs operate.
+/// `ai_*_memory_file` handlers MUST resolve all caller-supplied relative paths
+/// against this directory — never the workspace root — to avoid leaking access
+/// to repo files such as `Cargo.toml`, `.env`, or source files.
+const MEMORY_SUBDIR: &str = "memory";
+
 /// Returns the current workspace directory from configuration.
 pub(crate) async fn current_workspace_dir() -> Result<PathBuf, String> {
     Config::load_or_init()
@@ -286,14 +292,14 @@ pub(crate) async fn current_workspace_dir() -> Result<PathBuf, String> {
         .map_err(|e| format!("load config: {e}"))
 }
 
-/// Returns the active memory client from the process-global singleton,
-/// lazily initializing it if necessary.
+/// Returns the active memory client from the process-global singleton.
+///
+/// Returns an error if the singleton has not been initialised yet — callers
+/// (and startup wiring) must call [`crate::openhuman::memory::global::init`]
+/// once at process startup. There is intentionally no lazy fallback here:
+/// see the doc comment on `global::client` for why.
 pub(crate) async fn active_memory_client() -> Result<MemoryClientRef, String> {
-    if let Some(client) = super::super::global::client_if_ready() {
-        return Ok(client);
-    }
-    let workspace_dir = current_workspace_dir().await?;
-    super::super::global::init(workspace_dir)
+    super::super::global::client()
 }
 
 // ---------------------------------------------------------------------------
@@ -301,10 +307,15 @@ pub(crate) async fn active_memory_client() -> Result<MemoryClientRef, String> {
 // ---------------------------------------------------------------------------
 
 /// Validates that a relative path does not escape the memory directory.
+///
+/// An empty path is allowed and refers to the memory root itself
+/// (`<workspace>/memory`); read-style helpers can resolve it to that
+/// directory. Write helpers reject empty paths separately because they
+/// require a file name component.
 pub(crate) fn validate_memory_relative_path(path: &str) -> Result<(), String> {
     let candidate = Path::new(path);
     if candidate.as_os_str().is_empty() {
-        return Err("memory path must not be empty".to_string());
+        return Ok(());
     }
     if candidate.is_absolute() {
         return Err("absolute paths are not allowed".to_string());
@@ -322,10 +333,9 @@ pub(crate) fn validate_memory_relative_path(path: &str) -> Result<(), String> {
 }
 
 /// Resolves the canonical path to the memory directory within the workspace.
-#[allow(dead_code)]
 pub(crate) async fn resolve_memory_root() -> Result<PathBuf, String> {
     let workspace_dir = current_workspace_dir().await?;
-    let memory_root = workspace_dir.join("memory");
+    let memory_root = workspace_dir.join(MEMORY_SUBDIR);
     tokio::fs::create_dir_all(&memory_root)
         .await
         .map_err(|e| format!("create memory dir {}: {e}", memory_root.display()))?;
@@ -334,31 +344,32 @@ pub(crate) async fn resolve_memory_root() -> Result<PathBuf, String> {
         .map_err(|e| format!("resolve memory dir {}: {e}", memory_root.display()))
 }
 
-/// Resolves and canonicalizes an existing memory path, ensuring it stays within the workspace.
+/// Resolves and canonicalizes an existing memory path, ensuring it stays within
+/// the `<workspace>/memory` directory (not the workspace root). An empty
+/// `relative_path` resolves to the memory root itself.
 pub(crate) async fn resolve_existing_memory_path(relative_path: &str) -> Result<PathBuf, String> {
     validate_memory_relative_path(relative_path)?;
-    let workspace_dir = current_workspace_dir().await?;
-    let canonical_workspace = workspace_dir
-        .canonicalize()
-        .map_err(|e| format!("resolve workspace dir {}: {e}", workspace_dir.display()))?;
-    let full_path = workspace_dir.join(relative_path);
+    let memory_root = resolve_memory_root().await?;
+    let full_path = if relative_path.is_empty() {
+        memory_root.clone()
+    } else {
+        memory_root.join(relative_path)
+    };
     let resolved = full_path
         .canonicalize()
         .map_err(|e| format!("resolve memory path {}: {e}", full_path.display()))?;
-    if !resolved.starts_with(&canonical_workspace) {
-        return Err("memory path escapes the workspace directory".to_string());
+    if !resolved.starts_with(&memory_root) {
+        return Err("memory path escapes the memory directory".to_string());
     }
     Ok(resolved)
 }
 
-/// Resolves a path for writing, creating parent directories and ensuring it stays within the workspace.
+/// Resolves a path for writing, creating parent directories and ensuring it
+/// stays within the `<workspace>/memory` directory (not the workspace root).
 pub(crate) async fn resolve_writable_memory_path(relative_path: &str) -> Result<PathBuf, String> {
     validate_memory_relative_path(relative_path)?;
-    let workspace_dir = current_workspace_dir().await?;
-    let canonical_workspace = workspace_dir
-        .canonicalize()
-        .map_err(|e| format!("resolve workspace dir {}: {e}", workspace_dir.display()))?;
-    let full_path = workspace_dir.join(relative_path);
+    let memory_root = resolve_memory_root().await?;
+    let full_path = memory_root.join(relative_path);
     let parent = full_path
         .parent()
         .ok_or_else(|| "memory path must include a file name".to_string())?;
@@ -368,8 +379,8 @@ pub(crate) async fn resolve_writable_memory_path(relative_path: &str) -> Result<
     let resolved_parent = parent
         .canonicalize()
         .map_err(|e| format!("resolve memory parent {}: {e}", parent.display()))?;
-    if !resolved_parent.starts_with(&canonical_workspace) {
-        return Err("memory path escapes the workspace directory".to_string());
+    if !resolved_parent.starts_with(&memory_root) {
+        return Err("memory path escapes the memory directory".to_string());
     }
     let file_name = full_path
         .file_name()

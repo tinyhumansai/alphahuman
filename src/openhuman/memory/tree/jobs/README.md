@@ -4,7 +4,7 @@ Async job pipeline driving extraction, scoring, summarisation, and digesting off
 
 ## Pipeline shape
 
-```
+```text
 ingest::persist          → enqueues `extract_chunk`
 worker pool (3 tasks):
   extract_chunk          → LLM extraction → admission → enqueue `append_buffer` + `topic_route`

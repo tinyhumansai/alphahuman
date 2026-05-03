@@ -4,7 +4,7 @@ Bucket-seal-ready local memory architecture (Phase 1 of issue #707; the LLD desi
 
 ## Pipeline
 
-```
+```text
 source adapters (chat / email / document)
         │
         ▼
@@ -36,7 +36,7 @@ jobs/         ── background workers + scheduler (extract, admit, seal, diges
 
 - [`mod.rs`](mod.rs) — Phase 1 module banner; re-exports controller registries (`all_memory_tree_*`, `all_retrieval_*`).
 - [`chunker.rs`](chunker.rs) — slice canonical Markdown into ≤`DEFAULT_CHUNK_MAX_TOKENS` chunks; chat/email split at message boundaries, document at paragraphs.
-- [`ingest.rs`](ingest.rs) — orchestrator: `canonicalise -> chunk -> stage_chunks -> fast score -> persist -> enqueue extract jobs`. Hot path; heavy work runs out of `jobs/`.
+- [`ingest.rs`](ingest.rs) — orchestrator: `canonicalize -> chunk -> stage_chunks -> fast score -> persist -> enqueue extract jobs`. Hot path; heavy work runs out of `jobs/`.
 - [`rpc.rs`](rpc.rs) — JSON-RPC handlers for `memory_tree_ingest`, `list_chunks`, `get_chunk`, `trigger_digest`. Delegates to `ingest`/`store`/`jobs`.
 - [`schemas.rs`](schemas.rs) — `ControllerSchema` definitions + `RegisteredController` wiring for the four `memory_tree_*` RPC methods.
 - [`store.rs`](store.rs) — SQLite schema (chunks, score, entity index, trees, summaries, buffers, hotness, jobs) and accessors. Lazily initialised at `<workspace>/memory_tree/chunks.db`.

@@ -95,13 +95,19 @@ pub(super) fn schema(function: &str) -> Option<ControllerSchema> {
     })
 }
 
+#[derive(serde::Deserialize)]
+struct ListFilesParams {
+    #[serde(default)]
+    relative_dir: Option<String>,
+}
+
 fn handle_list_files(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
-        let relative_dir = params
-            .get("relative_dir")
-            .and_then(|v| v.as_str())
-            .unwrap_or("memory")
-            .to_string();
+        // Reject invalid `relative_dir` types (e.g. `123`, `["x"]`) instead of
+        // silently defaulting and masking client errors.
+        let parsed: ListFilesParams = parse_params(params)?;
+        // Empty string == the memory root itself (`<workspace>/memory`).
+        let relative_dir = parsed.relative_dir.unwrap_or_default();
         let payload = ListMemoryFilesRequest { relative_dir };
         to_json(rpc::ai_list_memory_files(payload).await?)
     })

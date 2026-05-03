@@ -234,5 +234,6 @@ fn api_envelope_round_trip_preserves_data_and_meta() {
 
 #[test]
 fn default_memory_relative_dir_is_memory() {
-    assert_eq!(default_memory_relative_dir(), "memory");
+    // Empty string == the memory root itself (`<workspace>/memory`).
+    assert_eq!(default_memory_relative_dir(), "");
 }

@@ -14,4 +14,4 @@ Adapters do not interpret content semantically; they only normalise shape and ca
 
 ## Output contract
 
-The canonicalised Markdown carries no leading `# Header` line — provider/title metadata lives in YAML front-matter written by `content_store/compose.rs`. The chunker relies on the `## ` (chat) and `---\nFrom:` (email) boundaries to split at message granularity.
+The canonicalised Markdown carries no leading `# Header` line — provider/title metadata lives in YAML front-matter written by `content_store/compose.rs`. The chunker relies on the `##` prefix followed by a space (chat) and `---\nFrom:` (email) boundaries to split at message granularity.

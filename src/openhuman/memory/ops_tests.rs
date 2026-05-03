@@ -305,7 +305,10 @@ fn default_constants_are_stable() {
 
 #[test]
 fn validate_memory_relative_path_rejects_empty_absolute_and_traversal() {
-    assert!(validate_memory_relative_path("").is_err());
+    // Empty string is now allowed: it refers to the memory root
+    // (`<workspace>/memory`) since the file-based RPCs resolve everything
+    // relative to that directory rather than the workspace root.
+    assert!(validate_memory_relative_path("").is_ok());
     assert!(validate_memory_relative_path("/etc/passwd").is_err());
     assert!(validate_memory_relative_path("../secrets").is_err());
     assert!(validate_memory_relative_path("ok/subdir/file.md").is_ok());

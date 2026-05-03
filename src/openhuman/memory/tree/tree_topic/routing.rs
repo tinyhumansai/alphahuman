@@ -54,10 +54,14 @@ pub async fn route_leaf_to_topic_trees(
 
     for entity_id in canonical_entities {
         if let Err(e) = route_one_entity(config, leaf, entity_id, summariser).await {
+            let entity_kind = entity_id
+                .split_once(':')
+                .map(|(k, _)| k)
+                .unwrap_or("unknown");
             log::warn!(
-                "[tree_topic::routing] failed routing leaf={} entity={} err={:#}",
+                "[tree_topic::routing] failed routing leaf={} entity_kind={} err={:#}",
                 leaf.chunk_id,
-                entity_id,
+                entity_kind,
                 e
             );
         }
@@ -103,10 +107,14 @@ async fn route_one_entity(
             )
             .await?;
         } else {
+            let entity_kind = entity_id
+                .split_once(':')
+                .map(|(k, _)| k)
+                .unwrap_or("unknown");
             log::debug!(
-                "[tree_topic::routing] skip archived topic tree id={} entity={}",
+                "[tree_topic::routing] skip archived topic tree id={} entity_kind={}",
                 tree.id,
-                entity_id
+                entity_kind
             );
         }
     }

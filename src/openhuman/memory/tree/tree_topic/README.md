@@ -1,6 +1,6 @@
 # Tree topic
 
-Phase 3c (#709) — per-entity topic trees with lazy materialisation. A topic tree groups every chunk mentioning one canonical entity, regardless of source. Trees are spawned only when an entity's hotness crosses [`TOPIC_CREATION_THRESHOLD`]; once spawned they receive new leaves via the ingest path alongside the per-source tree. Tree mechanics (buffer / seal / cascade) reuse [`super::tree_source::bucket_seal`] end-to-end — only the hotness layer and the per-entity fan-out live here.
+Phase 3c (#709) — per-entity topic trees with lazy materialisation. A topic tree groups every chunk mentioning one canonical entity, regardless of source. Trees are spawned only when an entity's hotness crosses `TOPIC_CREATION_THRESHOLD`; once spawned they receive new leaves via the ingest path alongside the per-source tree. Tree mechanics (buffer / seal / cascade) reuse `super::tree_source::bucket_seal` end-to-end — only the hotness layer and the per-entity fan-out live here.
 
 ## Public surface
 

@@ -490,15 +490,20 @@ fn handle_doc_ingest(params: Map<String, Value>) -> ControllerFuture {
     })
 }
 
+#[derive(serde::Deserialize)]
+struct DocListParams {
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
 fn handle_doc_list(params: Map<String, Value>) -> ControllerFuture {
     Box::pin(async move {
-        let namespace =
-            params
-                .get("namespace")
-                .and_then(|v| v.as_str())
-                .map(|ns| NamespaceOnlyParams {
-                    namespace: ns.to_string(),
-                });
+        // Reject invalid `namespace` types (e.g. `123`, `["x"]`) instead of
+        // silently coercing to `None` and returning an unscoped document list.
+        let parsed: DocListParams = parse_params(params)?;
+        let namespace = parsed
+            .namespace
+            .map(|namespace| NamespaceOnlyParams { namespace });
         to_json(rpc::doc_list(namespace).await?)
     })
 }

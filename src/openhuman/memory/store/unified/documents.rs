@@ -503,7 +503,13 @@ impl UnifiedMemory {
 
         if let Some(rel) = rel_path {
             let abs = self.workspace_dir.join(rel);
-            let _ = tokio::fs::remove_file(abs).await;
+            // Surface non-NotFound failures so storage drift between the DB
+            // row and the markdown sidecar is diagnosable.
+            if let Err(e) = tokio::fs::remove_file(&abs).await {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("[memory] failed to remove sidecar {}: {e}", abs.display());
+                }
+            }
         }
         Ok(json!({"deleted": deleted, "namespace": ns, "documentId": document_id }))
     }

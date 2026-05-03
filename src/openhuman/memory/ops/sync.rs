@@ -56,19 +56,14 @@ pub struct IngestionStatusResult {
 pub async fn memory_sync_channel(
     params: SyncChannelParams,
 ) -> Result<RpcOutcome<SyncChannelResult>, String> {
-    tracing::info!(
-        "[memory.sync] memory_sync_channel: entry channel_id={}",
-        params.channel_id
-    );
+    // `channel_id` is a user/context identifier — keep it out of normal logs.
+    tracing::info!("[memory.sync] memory_sync_channel: entry");
     crate::core::event_bus::publish_global(
         crate::core::event_bus::DomainEvent::MemorySyncRequested {
             channel_id: Some(params.channel_id.clone()),
         },
     );
-    tracing::debug!(
-        "[memory.sync] memory_sync_channel: MemorySyncRequested published channel_id={}",
-        params.channel_id
-    );
+    tracing::debug!("[memory.sync] memory_sync_channel: MemorySyncRequested published");
     Ok(RpcOutcome::new(
         SyncChannelResult {
             requested: true,

@@ -8,7 +8,7 @@ The module is organised in concentric layers — the contract on the
 inside, the persistent backend around it, the ingestion + retrieval
 pipelines on top, and the per-domain glue at the edge:
 
-```
+```text
                       ┌──────────────────────────────────────┐
                       │  conversations/   slack_ingestion/   │  per-domain plumbing
                       ├──────────────────────────────────────┤

@@ -379,6 +379,7 @@ pub async fn memory_query_namespace(
     request: QueryNamespaceRequest,
 ) -> Result<RpcOutcome<ApiEnvelope<QueryNamespaceResponse>>, String> {
     let include_references = request.include_references.unwrap_or(true);
+    let requested_limit = request.resolved_limit() as usize;
     let result = async {
         let client = active_memory_client().await?;
         let retrieval_limit = query_limit_for_request(client.as_ref(), &request).await?;
@@ -386,6 +387,12 @@ pub async fn memory_query_namespace(
             .query_namespace_context_data(&request.namespace, &request.query, retrieval_limit)
             .await?;
         context.hits = filter_hits_by_document_ids(context.hits, request.document_ids.as_deref());
+        // `query_limit_for_request` may have over-fetched on purpose so that
+        // the document_id filter has enough candidates; truncate back to what
+        // the caller actually asked for.
+        if context.hits.len() > requested_limit {
+            context.hits.truncate(requested_limit);
+        }
         Ok::<NamespaceRetrievalContext, String>(context)
     }
     .await;

@@ -12,7 +12,7 @@
 pub const TOKEN_MIN: u32 = 10;
 /// Top of the linear ramp from 0 → 1 starting at [`TOKEN_MIN`].
 pub const TOKEN_RAMP_LOW: u32 = 30;
-/// Bottom of the linear ramp from 1 → 0.5 ending at [`TOKEN_MAX`].
+/// Start of the linear ramp from 1 → 0.5 ending at [`TOKEN_MAX`].
 pub const TOKEN_RAMP_HIGH: u32 = 3_000;
 /// Above this token count the score is clamped to 0.5 (oversized content
 /// still carries information but loses the plateau bonus).

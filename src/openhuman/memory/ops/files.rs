@@ -36,6 +36,16 @@ pub async fn ai_list_memory_files(
         .await
         .map_err(|e| format!("read memory directory entry: {e}"))?
     {
+        // Skip subdirectories and symlinks — `ai_read_memory_file` only
+        // consumes regular file entries, and surfacing other entry kinds
+        // here would just produce confusing follow-up read errors.
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("read memory directory entry type: {e}"))?;
+        if !file_type.is_file() {
+            continue;
+        }
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
         if !file_name.is_empty() {

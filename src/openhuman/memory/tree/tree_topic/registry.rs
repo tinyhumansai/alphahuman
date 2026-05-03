@@ -21,11 +21,15 @@ use crate::openhuman::memory::tree::tree_source::types::{Tree, TreeKind, TreeSta
 /// `"email:alice@example.com"` or `"hashtag:launch"`). Scope uses the
 /// canonical id verbatim so re-lookups are stable.
 pub fn get_or_create_topic_tree(config: &Config, entity_id: &str) -> Result<Tree> {
+    let entity_kind = entity_id
+        .split_once(':')
+        .map(|(k, _)| k)
+        .unwrap_or("unknown");
     if let Some(existing) = store::get_tree_by_scope(config, TreeKind::Topic, entity_id)? {
         log::debug!(
-            "[tree_topic::registry] found tree id={} entity={}",
+            "[tree_topic::registry] found tree id={} entity_kind={}",
             existing.id,
-            entity_id
+            entity_kind
         );
         return Ok(existing);
     }
@@ -99,23 +103,30 @@ fn create_new(config: &Config, entity_id: &str) -> Result<Tree> {
         created_at: Utc::now(),
         last_sealed_at: None,
     };
+    let entity_kind = entity_id
+        .split_once(':')
+        .map(|(k, _)| k)
+        .unwrap_or("unknown");
     match store::insert_tree(config, &tree) {
         Ok(()) => {
             log::info!(
-                "[tree_topic::registry] created topic tree id={} entity={}",
+                "[tree_topic::registry] created topic tree id={} entity_kind={}",
                 tree.id,
-                entity_id
+                entity_kind
             );
             Ok(tree)
         }
         Err(err) if is_unique_violation(&err) => {
             log::debug!(
-                "[tree_topic::registry] UNIQUE race for entity={} — re-querying",
-                entity_id
+                "[tree_topic::registry] UNIQUE race for entity_kind={} — re-querying",
+                entity_kind
             );
+            // Re-query is keyed on the full entity_id; only the *log* line
+            // has been redacted. This still surfaces enough context to
+            // diagnose without leaking the recoverable id.
             store::get_tree_by_scope(config, TreeKind::Topic, entity_id)?.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "UNIQUE violation on insert but no row found on re-query for entity {entity_id}"
+                    "UNIQUE violation on insert but no row found on re-query (entity_kind={entity_kind})"
                 )
             })
         }
