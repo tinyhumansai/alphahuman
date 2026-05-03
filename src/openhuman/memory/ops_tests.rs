@@ -1,3 +1,6 @@
+//! Unit tests for the memory `ops` helpers (retrieval context construction,
+//! hit filtering, and LLM context message formatting).
+
 use serde_json::json;
 
 use super::{build_retrieval_context, filter_hits_by_document_ids, format_llm_context_message};

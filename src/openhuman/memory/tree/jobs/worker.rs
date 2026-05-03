@@ -1,3 +1,7 @@
+//! Worker pool: claims jobs from `mem_tree_jobs`, dispatches them through
+//! [`handlers::handle_job`], and settles the row. A small global semaphore
+//! caps concurrent LLM-bound work; non-LLM jobs run unrestricted.
+
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -16,6 +20,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 static WORKER_NOTIFY: OnceLock<Arc<Notify>> = OnceLock::new();
 static STARTED: std::sync::Once = std::sync::Once::new();
 
+/// Notify any idle workers so they re-poll immediately instead of waiting
+/// out [`POLL_INTERVAL`]. Cheap no-op before [`start`] has run.
 pub fn wake_workers() {
     if let Some(notify) = WORKER_NOTIFY.get() {
         notify.notify_waiters();
@@ -67,6 +73,9 @@ pub fn start(config: Config) {
     });
 }
 
+/// Claim and run a single job. Returns `true` when work was processed,
+/// `false` when no eligible row was available. Test entry point — the
+/// production worker loop calls [`run_once_with_semaphore`] directly.
 pub async fn run_once(config: &Config) -> Result<bool> {
     let llm_slots = Arc::new(Semaphore::new(1));
     run_once_with_semaphore(config, llm_slots).await

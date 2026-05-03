@@ -1,3 +1,6 @@
+//! Unit tests for the memory RPC request/response models, covering
+//! deserialization compatibility and limit-resolution helpers.
+
 use super::*;
 use serde_json::json;
 

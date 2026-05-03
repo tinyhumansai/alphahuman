@@ -1,3 +1,10 @@
+//! Per-`JobKind` handler implementations dispatched by the worker pool.
+//!
+//! Each handler parses its payload from `Job::payload_json`, performs its
+//! side effects (DB writes, LLM calls, follow-up enqueues), and returns
+//! `Ok(())` on success or an `anyhow::Error` on retryable failure.
+//! [`handle_job`] fans out to the handler matching the row's `kind`.
+
 use anyhow::{Context, Result};
 
 use crate::openhuman::config::Config;
@@ -20,6 +27,7 @@ use crate::openhuman::memory::tree::tree_source::{
 };
 use crate::openhuman::memory::tree::tree_topic::curator;
 
+/// Dispatch a claimed job to the matching per-kind handler.
 pub async fn handle_job(config: &Config, job: &Job) -> Result<()> {
     match job.kind {
         JobKind::ExtractChunk => handle_extract(config, job).await,

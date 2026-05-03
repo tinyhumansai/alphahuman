@@ -1,3 +1,9 @@
+//! Document CRUD against the `memory_docs` table.
+//!
+//! Owns the upsert pipeline (with chunking + embedding), metadata-only writes
+//! for high-frequency callers, list/delete/clear-namespace operations, and the
+//! markdown sidecar files in `memory/namespaces/<ns>/docs/`.
+
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -8,6 +14,9 @@ use crate::openhuman::memory::store::types::{NamespaceDocumentInput, StoredMemor
 use super::UnifiedMemory;
 
 impl UnifiedMemory {
+    /// Insert or update a document by `(namespace, key)`. Writes the markdown
+    /// sidecar, replaces vector chunks, and embeds them with the configured
+    /// provider.
     pub async fn upsert_document(&self, input: NamespaceDocumentInput) -> Result<String, String> {
         let namespace = Self::sanitize_namespace(&input.namespace);
         let key = input.key.trim().to_string();
@@ -300,6 +309,8 @@ impl UnifiedMemory {
         Ok(docs)
     }
 
+    /// List documents in a namespace, or across all namespaces when `None`.
+    /// Returns `{ "documents": [...], "count": N }` JSON.
     pub async fn list_documents(&self, namespace: Option<&str>) -> Result<Value, String> {
         let conn = self.conn.lock();
         let mut docs = Vec::new();
@@ -357,6 +368,7 @@ impl UnifiedMemory {
         Ok(json!({ "documents": docs, "count": docs.len() }))
     }
 
+    /// Return every distinct namespace that has at least one document.
     pub async fn list_namespaces(&self) -> Result<Vec<String>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
@@ -448,6 +460,8 @@ impl UnifiedMemory {
         Ok(())
     }
 
+    /// Delete a single document plus its vector chunks, graph relations, and
+    /// markdown sidecar. Returns `{ "deleted": bool, "namespace", "documentId" }`.
     pub async fn delete_document(
         &self,
         namespace: &str,

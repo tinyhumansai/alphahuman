@@ -26,6 +26,7 @@ pub enum TreeKind {
 }
 
 impl TreeKind {
+    /// Stable lowercase form used in SQL discriminator columns and ids.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Source => "source",
@@ -34,6 +35,8 @@ impl TreeKind {
         }
     }
 
+    /// Inverse of [`Self::as_str`] — parse back from a discriminator
+    /// string. Errors on unknown variants.
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "source" => Ok(Self::Source),
@@ -54,6 +57,7 @@ pub enum TreeStatus {
 }
 
 impl TreeStatus {
+    /// Stable lowercase form used as the SQL discriminator value.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Active => "active",
@@ -61,6 +65,7 @@ impl TreeStatus {
         }
     }
 
+    /// Inverse of [`Self::as_str`] — parse from the SQL discriminator.
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "active" => Ok(Self::Active),
@@ -158,6 +163,7 @@ impl Buffer {
         }
     }
 
+    /// True when the buffer holds no pending items.
     pub fn is_empty(&self) -> bool {
         self.item_ids.is_empty()
     }

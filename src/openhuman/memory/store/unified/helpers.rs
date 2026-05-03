@@ -1,3 +1,7 @@
+//! Shared helpers used across the unified store: byte/float vector codecs,
+//! cosine similarity, markdown chunking, text/predicate normalization, JSON
+//! attribute merging, and recency scoring.
+
 use crate::openhuman::memory::chunker::chunk_markdown;
 
 use super::UnifiedMemory;

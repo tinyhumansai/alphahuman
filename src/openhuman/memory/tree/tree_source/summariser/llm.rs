@@ -112,6 +112,8 @@ pub struct LlmSummariser {
 }
 
 impl LlmSummariser {
+    /// Build a summariser around `cfg`. Returns an error only if the HTTP
+    /// client fails to construct (timeout / TLS init).
     pub fn new(cfg: LlmSummariserConfig) -> Result<Self> {
         let http = Client::builder()
             .timeout(cfg.timeout)

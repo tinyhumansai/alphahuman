@@ -1,3 +1,5 @@
+//! Tests for the `query` module — hybrid retrieval scoring.
+
 use std::sync::Arc;
 
 use serde_json::json;

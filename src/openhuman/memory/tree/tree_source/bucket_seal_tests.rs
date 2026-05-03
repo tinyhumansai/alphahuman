@@ -1,3 +1,7 @@
+//! Unit tests for [`super::bucket_seal`] — append + cascade-seal mechanics
+//! for source/topic trees. Covers L0 token gating, L≥1 fanout gating,
+//! cascade depth bounds, idempotency on retry, and label-strategy resolution.
+
 use super::*;
 use crate::openhuman::memory::tree::content_store;
 use crate::openhuman::memory::tree::tree_source::registry::get_or_create_source_tree;

@@ -1,3 +1,6 @@
+//! Unit tests for memory RPC schema registration and parameter parsing,
+//! validating that every advertised function name has a registered controller.
+
 use super::*;
 use serde_json::json;
 

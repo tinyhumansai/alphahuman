@@ -34,6 +34,9 @@ use crate::openhuman::memory::store::types::NamespaceDocumentInput;
 use crate::openhuman::memory::UnifiedMemory;
 
 impl UnifiedMemory {
+    /// Run the full ingestion pipeline for a document: parse + chunk + extract
+    /// entities/relations, upsert the document row + vector chunks, and write
+    /// the extracted relations into the namespace graph.
     pub async fn ingest_document(
         &self,
         request: MemoryIngestionRequest,

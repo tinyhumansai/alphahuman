@@ -22,9 +22,14 @@ use crate::openhuman::memory::tree::types::approx_token_count;
 /// provenance visible to a human reading the raw summary.
 const PROVENANCE_PREFIX: &str = "— ";
 
+/// Deterministic, dependency-free [`Summariser`] implementation that
+/// concatenates inputs and truncates to budget. See module docs for why
+/// `entities` and `topics` are intentionally empty.
 pub struct InertSummariser;
 
 impl InertSummariser {
+    /// Construct a fresh summariser. Stateless — multiple instances behave
+    /// identically.
     pub fn new() -> Self {
         Self
     }

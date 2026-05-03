@@ -1,3 +1,7 @@
+//! Unit tests for [`super::digest`] — end-of-day digest emission,
+//! cross-source contribution selection, idempotency on re-runs, and the
+//! cascade-seal trigger for weekly/monthly/yearly levels.
+
 use super::*;
 use crate::openhuman::memory::tree::content_store;
 use crate::openhuman::memory::tree::store::upsert_chunks;

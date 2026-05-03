@@ -34,6 +34,8 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Stable lowercase string form (`"leaf"` / `"summary"`) — matches the
+    /// serde representation and is suitable for SQL discriminator columns.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Leaf => "leaf",

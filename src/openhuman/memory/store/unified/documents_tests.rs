@@ -1,3 +1,5 @@
+//! Tests for the `documents` module — upsert / list / delete / clear-namespace.
+
 use std::sync::Arc;
 
 use serde_json::json;

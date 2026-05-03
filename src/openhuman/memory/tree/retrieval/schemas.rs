@@ -23,6 +23,8 @@ use crate::rpc::RpcOutcome;
 
 const NAMESPACE: &str = "memory_tree";
 
+/// Return one [`ControllerSchema`] per Phase 4 retrieval tool. Used by
+/// the controller registry to publish the `memory_tree.*` schemas.
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         schemas("query_source"),
@@ -34,6 +36,8 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     ]
 }
 
+/// Return one [`RegisteredController`] per Phase 4 retrieval tool — schema
+/// paired with its dispatch handler. Wired into `core::all` at startup.
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
     vec![
         RegisteredController {
@@ -90,6 +94,8 @@ fn query_response_outputs() -> Vec<FieldSchema> {
     ]
 }
 
+/// Look up the [`ControllerSchema`] for a single retrieval `function`
+/// name. Unknown names return a placeholder schema with an `error` field.
 pub fn schemas(function: &str) -> ControllerSchema {
     match function {
         "query_source" => ControllerSchema {

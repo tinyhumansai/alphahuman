@@ -1,3 +1,6 @@
+//! Tests for the ingestion pipeline — `parse_document`, regex extraction,
+//! and `UnifiedMemory::ingest_document` end-to-end.
+
 use std::sync::Arc;
 
 use serde_json::json;

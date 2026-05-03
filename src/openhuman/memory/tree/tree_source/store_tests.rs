@@ -1,3 +1,6 @@
+//! Unit tests for [`super::store`] — round-trip tree / summary / buffer
+//! persistence including embedding blob handling and stale-buffer queries.
+
 use super::*;
 use tempfile::TempDir;
 
