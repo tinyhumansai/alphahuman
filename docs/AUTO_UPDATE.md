@@ -2,24 +2,24 @@
 
 The desktop shell (`app/src-tauri`) auto-updates itself via Tauri's
 [`plugin-updater`](https://tauri.app/plugin/updater/) against a manifest
-published on GitHub Releases. The core sidecar (`openhuman` binary) ships
-inside the `.app` bundle, so a shell update upgrades both.
+published on GitHub Releases. The OpenHuman core sidecar (`openhuman` binary)
+ships inside the `.app` bundle, so a shell update upgrades both.
 
 ## Architecture
 
-| Piece | Role |
-| --- | --- |
-| `app/src-tauri/Cargo.toml` | declares `tauri-plugin-updater` |
-| `app/src-tauri/tauri.conf.json` (`plugins.updater`) | endpoint + minisign pubkey |
-| `app/src-tauri/permissions/allow-app-update.toml` | ACL allow-list for the four updater commands |
-| `app/src-tauri/src/lib.rs::check_app_update` | probe-only; returns version info |
-| `app/src-tauri/src/lib.rs::download_app_update` | downloads bundle bytes, stages them, does NOT install |
-| `app/src-tauri/src/lib.rs::install_app_update` | installs previously-staged bytes + relaunches |
-| `app/src-tauri/src/lib.rs::apply_app_update` | legacy combined download+install+restart (kept for compat) |
-| `app/src/hooks/useAppUpdate.ts` | React state machine, auto-check, auto-download |
-| `app/src/components/AppUpdatePrompt.tsx` | global banner (mounted in `App.tsx`) — silent during download |
-| `app/src/components/settings/panels/AboutPanel.tsx` | manual "Check for updates" |
-| `.github/workflows/release.yml` | builds + signs + publishes `latest.json` |
+| Piece                                               | Role                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `app/src-tauri/Cargo.toml`                          | declares `tauri-plugin-updater`                               |
+| `app/src-tauri/tauri.conf.json` (`plugins.updater`) | endpoint + minisign pubkey                                    |
+| `app/src-tauri/permissions/allow-app-update.toml`   | ACL allow-list for the four updater commands                  |
+| `app/src-tauri/src/lib.rs::check_app_update`        | probe-only; returns version info                              |
+| `app/src-tauri/src/lib.rs::download_app_update`     | downloads bundle bytes, stages them, does NOT install         |
+| `app/src-tauri/src/lib.rs::install_app_update`      | installs previously-staged bytes + relaunches                 |
+| `app/src-tauri/src/lib.rs::apply_app_update`        | legacy combined download+install+restart (kept for compat)    |
+| `app/src/hooks/useAppUpdate.ts`                     | React state machine, auto-check, auto-download                |
+| `app/src/components/AppUpdatePrompt.tsx`            | global banner (mounted in `App.tsx`) — silent during download |
+| `app/src/components/settings/panels/AboutPanel.tsx` | manual "Check for updates"                                    |
+| `.github/workflows/release.yml`                     | builds + signs + publishes `latest.json`                      |
 
 The shell emits two Tauri events while updating:
 
@@ -38,8 +38,10 @@ restarting | up_to_date | error`).
 2. If the manifest reports a newer version, the hook **automatically calls
    `download_app_update`** in the background — the user sees nothing.
 3. Once the bytes are staged, the Rust side emits `ready_to_install` and the
-   bottom-right banner appears: **"Update v0.53.4 ready to install"** with
-   **Restart now** / **Later** buttons.
+   bottom-right banner appears with the header **"Update ready to install"**
+   and a body line of **"Version <version> is ready to install."** (falling
+   back to **"A new version is ready to install."** when the manifest didn't
+   supply a version), followed by **Restart now** / **Later** buttons.
 4. Clicking **Restart now** invokes `install_app_update`, which acquires the
    core restart lock, shuts down the in-process core, calls
    `Update::install(staged_bytes)` (no re-download), and then `app.restart()`.
@@ -50,7 +52,7 @@ restarting | up_to_date | error`).
 Why this flow vs. silent install: a chat / AI app often has in-flight
 conversations and background agent work. Yanking the process away mid-task
 costs more user trust than a one-click "Restart now" prompt earns in
-convenience. We download invisibly so the *only* action the user takes is
+convenience. We download invisibly so the _only_ action the user takes is
 choosing the restart moment.
 
 ## Validating end-to-end (issue #677 acceptance criteria)
@@ -64,9 +66,12 @@ artifacts. Use this recipe.
 - A published GitHub release at a higher version than what you'll build
   locally (e.g. the latest `v0.53.x`). The release must include the signed
   bundle for your platform plus `latest.json`.
-- Access to `TAURI_SIGNING_PRIVATE_KEY` + password if you want to verify
-  signature parsing locally (otherwise the production keys baked into
-  `tauri.conf.json` are enough — verification only needs the pubkey).
+- **No signing key needed for verification.** Minisign signature
+  verification on the downloaded bundle uses the public key already baked
+  into `tauri.conf.json::plugins.updater.pubkey`, which the local build
+  picks up automatically. `TAURI_SIGNING_PRIVATE_KEY` (+ its password) is
+  required only by CI to _sign_ new releases — never to verify existing
+  ones. Treat the private key as a secret and keep it out of dev machines.
 
 ### Recipe
 
@@ -117,7 +122,6 @@ artifacts. Use this recipe.
 
 5. **Watch the auto-download flow** (fires automatically — no click needed
    to start the download). Expected log sequence:
-
    - `[app-update] check requested (current: <old-version>)`
    - `[app-update] update available: <old> -> <new>`
    - `[app-update] download_app_update invoked from frontend`
@@ -125,11 +129,14 @@ artifacts. Use this recipe.
    - `[app-update] download complete — staging for install`
    - `[app-update] staged <new-version> — awaiting user-initiated install`
 
-   At this point the bottom-right banner appears: **"Update v<new-version>
-   ready to install"** with **Restart now** / **Later** buttons.
+   At this point the bottom-right banner appears with the header
+   **"Update ready to install"** and a body line of
+   **"Version <new-version> is ready to install."** (or
+   **"A new version is ready to install."** as the fallback when the
+   manifest didn't supply a version string), followed by **Restart now** /
+   **Later** buttons.
 
 6. **Click "Restart now"**. Expected log sequence:
-
    - `[app-update] install_app_update invoked from frontend`
    - `[app-update] installing staged version <new-version>`
    - `[app-update] install complete — relaunching`
