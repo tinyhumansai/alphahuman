@@ -104,11 +104,12 @@ export function visemesFromAlignment(alignment: AlignmentFrame[]): VisemeFrame[]
 }
 
 function alignmentLetterToCode(chunk: string): string {
-  const ch = chunk
-    .replace(/[^a-zA-Z]/g, '')
-    .slice(-1)
-    .toLowerCase();
-  switch (ch) {
+  const ch = chunk.replace(/[^a-zA-Z]/g, '').slice(-1);
+  return letterToOculusViseme(ch);
+}
+
+function letterToOculusViseme(ch: string): string {
+  switch (ch.toLowerCase()) {
     case 'a':
       return 'aa';
     case 'e':
@@ -149,4 +150,35 @@ function alignmentLetterToCode(chunk: string): string {
     default:
       return 'sil';
   }
+}
+
+/**
+ * Last-resort fallback when the backend returns neither viseme cues nor
+ * char-level alignment (e.g. when the TTS provider / model strips timing
+ * data). Walks the source text and distributes visemes evenly across the
+ * known audio duration so the mouth still animates in lockstep with audio
+ * playback instead of freezing on REST.
+ *
+ * Spaces collapse to `sil` so word boundaries read as natural pauses.
+ * Per-frame duration is clamped to [60ms, 160ms] — fast enough that the
+ * mouth doesn't feel slack on long replies, slow enough to stay readable
+ * on short ones.
+ */
+export function proceduralVisemes(text: string, durationMs: number): VisemeFrame[] {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return [];
+  const total = durationMs > 0 && Number.isFinite(durationMs) ? durationMs : cleaned.length * 80;
+  const step = Math.max(60, Math.min(160, total / cleaned.length));
+  const frames: VisemeFrame[] = [];
+  let t = 0;
+  for (const ch of cleaned) {
+    const code = ch === ' ' ? 'sil' : letterToOculusViseme(ch);
+    const start = Math.round(t);
+    const end = Math.round(t + step);
+    if (end > start) {
+      frames.push({ viseme: code, start_ms: start, end_ms: end });
+    }
+    t += step;
+  }
+  return frames;
 }

@@ -5,7 +5,7 @@ import { subscribeChatEvents } from '../../services/chatService';
 import type { MascotFace } from './Mascot';
 import { lerpViseme, VISEMES, type VisemeShape } from './Mascot/visemes';
 import { type PlaybackHandle, playBase64Audio } from './voice/audioPlayer';
-import { synthesizeSpeech, visemesFromAlignment } from './voice/ttsClient';
+import { proceduralVisemes, synthesizeSpeech, visemesFromAlignment } from './voice/ttsClient';
 import { findActiveFrame, oculusVisemeToShape } from './voice/visemeMap';
 
 const mascotLog = debug('human:mascot');
@@ -216,8 +216,6 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
       } else {
         mascotLog('tts got %d viseme frames from backend', frames.length);
       }
-      visemeFramesRef.current = frames;
-      visemeCursorRef.current = 0;
       // Flip face → speaking before starting playback so the RAF render loop
       // is already running by the time the first viseme frame is due.
       setFace('speaking');
@@ -226,6 +224,20 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
         handle.stop();
         return;
       }
+      if (frames.length === 0) {
+        // Last-resort fallback: backend shipped neither viseme cues nor
+        // alignment (e.g. the new public `tts-v1` model on the hosted
+        // backend). Derive a procedural timeline from the reply text spread
+        // across the actual audio duration so the mouth never freezes.
+        frames = proceduralVisemes(text, handle.durationMs);
+        mascotLog(
+          'tts derived %d procedural viseme frames over %dms',
+          frames.length,
+          handle.durationMs
+        );
+      }
+      visemeFramesRef.current = frames;
+      visemeCursorRef.current = 0;
       playbackRef.current = handle;
       mascotLog('tts playback started — driving lipsync from %d frames', frames.length);
       try {

@@ -16,10 +16,18 @@ vi.mock('../../services/chatService', () => ({
   },
 }));
 
+const proceduralVisemesMock = vi.fn(
+  (text: string, durationMs: number): { viseme: string; start_ms: number; end_ms: number }[] => {
+    if (!text) return [];
+    return [{ viseme: 'aa', start_ms: 0, end_ms: durationMs || 100 }];
+  }
+);
+
 vi.mock('./voice/ttsClient', () => ({
   synthesizeSpeech: vi.fn(),
   visemesFromAlignment: (alignment: { char: string; start_ms: number; end_ms: number }[]) =>
     alignment.map(a => ({ viseme: 'aa', start_ms: a.start_ms, end_ms: a.end_ms })),
+  proceduralVisemes: (text: string, durationMs: number) => proceduralVisemesMock(text, durationMs),
 }));
 
 vi.mock('./voice/audioPlayer', () => ({ playBase64Audio: vi.fn() }));
@@ -35,6 +43,7 @@ function makeFakePlayback(durationMs = 100) {
   return {
     handle: {
       currentMs: () => (stopped ? -1 : 0),
+      durationMs,
       stop: () => {
         stopped = true;
         rejectEnded(new Error('stopped'));
@@ -325,6 +334,33 @@ describe('useHumanMascot TTS playback', () => {
       await Promise.resolve();
     });
     expect(result.current.face).toBe('speaking');
+    await act(async () => {
+      fake.finishNaturally();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it('falls back to procedural visemes when backend ships neither cues nor alignment', async () => {
+    const fake = makeFakePlayback(2000);
+    proceduralVisemesMock.mockClear();
+    (synthesizeSpeech as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      audio_base64: 'AAA=',
+      audio_mime: 'audio/mpeg',
+      visemes: [],
+    });
+    (playBase64Audio as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fake.handle);
+
+    const { result } = renderHook(() => useHumanMascot({ speakReplies: true }));
+    await act(async () => {
+      capturedListeners?.onDone?.(fakeDone('hello there'));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.face).toBe('speaking');
+    expect(proceduralVisemesMock).toHaveBeenCalledWith('hello there', 2000);
+
     await act(async () => {
       fake.finishNaturally();
       await Promise.resolve();

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { callCoreRpc } from '../../../services/coreRpcClient';
-import { synthesizeSpeech, visemesFromAlignment } from './ttsClient';
+import { proceduralVisemes, synthesizeSpeech, visemesFromAlignment } from './ttsClient';
 
 vi.mock('../../../services/coreRpcClient', () => ({ callCoreRpc: vi.fn() }));
 
@@ -91,5 +91,43 @@ describe('visemesFromAlignment', () => {
     ];
     const frames = visemesFromAlignment(alignment);
     expect(frames[frames.length - 1].viseme).toBe(code);
+  });
+});
+
+describe('proceduralVisemes', () => {
+  it('returns empty for empty / whitespace-only text', () => {
+    expect(proceduralVisemes('', 1000)).toEqual([]);
+    expect(proceduralVisemes('   ', 1000)).toEqual([]);
+  });
+
+  it('distributes frames monotonically across the audio duration', () => {
+    const frames = proceduralVisemes('hello', 1000);
+    expect(frames.length).toBe(5);
+    expect(frames[0].start_ms).toBe(0);
+    for (let i = 1; i < frames.length; i++) {
+      expect(frames[i].start_ms).toBeGreaterThanOrEqual(frames[i - 1].start_ms);
+      expect(frames[i].end_ms).toBeGreaterThan(frames[i].start_ms);
+    }
+  });
+
+  it('maps spaces to silence so word breaks read as pauses', () => {
+    const frames = proceduralVisemes('a b', 600);
+    const codes = frames.map(f => f.viseme);
+    expect(codes).toEqual(['aa', 'sil', 'PP']);
+  });
+
+  it('estimates a duration when none is supplied so the mouth still moves', () => {
+    const frames = proceduralVisemes('hi', 0);
+    expect(frames.length).toBe(2);
+    expect(frames[0].end_ms).toBeGreaterThan(frames[0].start_ms);
+  });
+
+  it('clamps per-frame duration when audio is unusually long or short', () => {
+    const long = proceduralVisemes('a', 60_000);
+    expect(long[0].end_ms - long[0].start_ms).toBeLessThanOrEqual(160);
+    const short = proceduralVisemes('abcdefghij', 100);
+    // 100ms / 10 chars = 10ms which is below the floor — frames must still be
+    // visible (≥60ms) even if that overshoots the audio.
+    expect(short[0].end_ms - short[0].start_ms).toBeGreaterThanOrEqual(60);
   });
 });
