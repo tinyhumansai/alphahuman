@@ -218,8 +218,8 @@ pub async fn doc_ingest(
         })
         .await?;
     let msg = format!(
-        "ingested document {} — {} entities, {} relations, {} chunks",
-        result.document_id, result.entity_count, result.relation_count, result.chunk_count,
+        "ingested document — {} entities, {} relations, {} chunks",
+        result.entity_count, result.relation_count, result.chunk_count,
     );
     Ok(RpcOutcome::single_log(result, &msg))
 }
@@ -249,12 +249,9 @@ pub async fn clear_namespace(
     params: ClearNamespaceParams,
 ) -> Result<RpcOutcome<ClearNamespaceResult>, String> {
     let client = active_memory_client().await?;
-    log::debug!(
-        "[memory] clear_namespace RPC: namespace={}",
-        params.namespace
-    );
+    log::debug!("[memory] clear_namespace RPC invoked");
     client.clear_namespace(&params.namespace).await?;
-    let msg = format!("memory namespace '{}' cleared", params.namespace);
+    let msg = "memory namespace cleared".to_string();
     Ok(RpcOutcome::single_log(
         ClearNamespaceResult {
             cleared: true,
