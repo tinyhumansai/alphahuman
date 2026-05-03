@@ -321,6 +321,126 @@ describe('useAppUpdate', () => {
     });
   });
 
+  describe('apply()', () => {
+    it('invokes applyAppUpdate when called manually', async () => {
+      mockApplyAppUpdate.mockResolvedValueOnce(undefined);
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await act(async () => {
+        await result.current.apply();
+      });
+
+      expect(mockApplyAppUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces apply errors as phase=error', async () => {
+      mockApplyAppUpdate.mockRejectedValueOnce(new Error('disk full'));
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await act(async () => {
+        await result.current.apply();
+      });
+
+      expect(result.current.phase).toBe('error');
+      expect(result.current.error).toBe('disk full');
+    });
+
+    it('no-ops when not in Tauri', async () => {
+      mockIsTauri.mockReturnValue(false);
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await act(async () => {
+        await result.current.apply();
+      });
+
+      expect(mockApplyAppUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('install() skip paths', () => {
+    it('no-ops when not in Tauri', async () => {
+      mockIsTauri.mockReturnValue(false);
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await act(async () => {
+        await result.current.install();
+      });
+
+      expect(mockInstallAppUpdate).not.toHaveBeenCalled();
+      expect(mockApplyAppUpdate).not.toHaveBeenCalled();
+    });
+
+    it('surfaces error from the apply fallback when no download is staged', async () => {
+      mockApplyAppUpdate.mockRejectedValueOnce(new Error('boom'));
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await act(async () => {
+        await result.current.install();
+      });
+
+      expect(result.current.phase).toBe('error');
+      expect(result.current.error).toBe('boom');
+    });
+  });
+
+  describe('check() guards', () => {
+    it('skips when a download / install is already in flight', async () => {
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      await emitStatus('downloading');
+      expect(result.current.phase).toBe('downloading');
+
+      const out = await act(async () => result.current.check());
+      expect(out).toBeNull();
+      expect(mockCheckAppUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('download() guards', () => {
+    it('does not start a second download while one is in flight', async () => {
+      let resolveFirst: ((value: unknown) => void) | null = null;
+      mockDownloadAppUpdate.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveFirst = resolve;
+          })
+      );
+
+      const { result } = renderHook(() => useAppUpdate({ autoCheck: false, autoDownload: false }));
+      await flush();
+
+      // Kick off two concurrent downloads — the second should short-circuit.
+      let firstPromise: Promise<void> | undefined;
+      let secondPromise: Promise<void> | undefined;
+      await act(async () => {
+        firstPromise = result.current.download();
+        secondPromise = result.current.download();
+        await Promise.resolve();
+      });
+
+      expect(mockDownloadAppUpdate).toHaveBeenCalledTimes(1);
+
+      // Resolve the first one and let both promises settle so the test's
+      // afterEach (vi.useRealTimers) doesn't see leftover pending work.
+      await act(async () => {
+        resolveFirst?.({ ready: true, version: '0.51.0', body: null });
+        await firstPromise;
+        await secondPromise;
+      });
+    });
+  });
+
   describe('reset()', () => {
     it('clears error state and returns to idle from a quiet phase', async () => {
       mockCheckAppUpdate.mockRejectedValueOnce(new Error('boom'));

@@ -163,6 +163,68 @@ describe('AppUpdatePrompt', () => {
     expect(screen.getByRole('button', { name: /Try again/ })).toBeInTheDocument();
   });
 
+  it('clicking "Try again" after error invokes downloadAppUpdate', async () => {
+    mockDownloadAppUpdate.mockResolvedValueOnce({ ready: true, version: '0.51.0', body: null });
+
+    renderWithProviders(
+      <AppUpdatePrompt autoCheck={false} initialCheckDelayMs={0} recheckIntervalMs={0} />
+    );
+    await waitFor(() => expect(statusListeners.length).toBeGreaterThan(0));
+
+    emitStatus('error');
+
+    const retryBtn = await screen.findByRole('button', { name: /Try again/ });
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(mockDownloadAppUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('shows the installing-phase banner with progress copy', async () => {
+    renderWithProviders(
+      <AppUpdatePrompt autoCheck={false} initialCheckDelayMs={0} recheckIntervalMs={0} />
+    );
+    await waitFor(() => expect(statusListeners.length).toBeGreaterThan(0));
+
+    emitStatus('installing');
+
+    await waitFor(() => {
+      expect(screen.getByText('Installing update')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Installing the new version/i)).toBeInTheDocument();
+  });
+
+  it('shows the restarting-phase banner', async () => {
+    renderWithProviders(
+      <AppUpdatePrompt autoCheck={false} initialCheckDelayMs={0} recheckIntervalMs={0} />
+    );
+    await waitFor(() => expect(statusListeners.length).toBeGreaterThan(0));
+
+    emitStatus('restarting');
+
+    await waitFor(() => {
+      // Header label is "Restarting…" (with the ellipsis char).
+      expect(screen.getByText(/Restarting/)).toBeInTheDocument();
+    });
+  });
+
+  it('clicking "Dismiss" on the error banner hides the prompt', async () => {
+    renderWithProviders(
+      <AppUpdatePrompt autoCheck={false} initialCheckDelayMs={0} recheckIntervalMs={0} />
+    );
+    await waitFor(() => expect(statusListeners.length).toBeGreaterThan(0));
+
+    emitStatus('error');
+    await waitFor(() => expect(screen.getByText('Update failed')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^Dismiss$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Update failed')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders nothing when not in Tauri', async () => {
     mockIsTauri.mockReturnValue(false);
 
