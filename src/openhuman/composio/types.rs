@@ -6,7 +6,60 @@
 //!   - `src/controllers/agentIntegrations/composio/*.ts`
 //!     in the backend repo for the authoritative shapes.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Accepts either a JSON string or an object whose first matching field
+/// (`slug`/`id`/`name`/`key`) is a string. Lets us tolerate upstream
+/// shape drift where a previously-stringy field is now nested in an
+/// object — e.g. `"toolkit": {"slug": "gmail", "logo": "…"}`.
+fn de_string_or_object<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    use serde::de::Error;
+    let v = serde_json::Value::deserialize(d)?;
+    match v {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Object(map) => {
+            for key in ["slug", "id", "name", "key"] {
+                if let Some(serde_json::Value::String(s)) = map.get(key) {
+                    return Ok(s.clone());
+                }
+            }
+            Err(D::Error::custom(
+                "expected string or object with slug/id/name/key field",
+            ))
+        }
+        other => Err(D::Error::custom(format!(
+            "expected string, got {}",
+            match other {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "bool",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::Array(_) => "array",
+                _ => "unknown",
+            }
+        ))),
+    }
+}
+
+/// Like [`de_string_or_object`] but optional and resilient: missing /
+/// null / unrecognized object shapes return `None` instead of erroring.
+fn de_opt_string_or_object<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(match v {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s),
+        Some(serde_json::Value::Object(map)) => {
+            let mut found = None;
+            for key in ["slug", "id", "name", "key", "value", "state"] {
+                if let Some(serde_json::Value::String(s)) = map.get(key) {
+                    found = Some(s.clone());
+                    break;
+                }
+            }
+            found
+        }
+        _ => None,
+    })
+}
 
 // ── Toolkits ────────────────────────────────────────────────────────
 
@@ -189,10 +242,13 @@ pub struct ComposioAvailableTriggersResponse {
 /// One entry in `GET /agent-integrations/composio/triggers`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComposioActiveTrigger {
+    #[serde(deserialize_with = "de_string_or_object")]
     pub id: String,
+    #[serde(deserialize_with = "de_string_or_object")]
     pub slug: String,
+    #[serde(deserialize_with = "de_string_or_object")]
     pub toolkit: String,
-    #[serde(rename = "connectionId")]
+    #[serde(rename = "connectionId", deserialize_with = "de_string_or_object")]
     pub connection_id: String,
     #[serde(
         rename = "triggerConfig",
@@ -200,7 +256,11 @@ pub struct ComposioActiveTrigger {
         skip_serializing_if = "Option::is_none"
     )]
     pub trigger_config: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_string_or_object"
+    )]
     pub state: Option<String>,
 }
 
