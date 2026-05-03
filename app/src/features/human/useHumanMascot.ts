@@ -216,9 +216,10 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
       } else {
         mascotLog('tts got %d viseme frames from backend', frames.length);
       }
-      // Flip face → speaking before starting playback so the RAF render loop
-      // is already running by the time the first viseme frame is due.
-      setFace('speaking');
+      // Stay on `thinking` while the audio decoder is loading metadata so the
+      // mouth doesn't sit at REST under a `speaking` face — once the handle is
+      // ready we publish frames + handle + face atomically and the RAF render
+      // loop picks them up on the same tick.
       const handle = await playBase64Audio(tts.audio_base64, tts.audio_mime ?? 'audio/mpeg');
       if (!isStillCurrent()) {
         handle.stop();
@@ -239,6 +240,7 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
       visemeFramesRef.current = frames;
       visemeCursorRef.current = 0;
       playbackRef.current = handle;
+      setFace('speaking');
       mascotLog('tts playback started — driving lipsync from %d frames', frames.length);
       try {
         await handle.ended;
