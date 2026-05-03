@@ -1016,6 +1016,26 @@ async fn json_rpc_memory_sync_and_learn() {
         "non-existent namespace must be filtered out"
     );
 
+    // ── memory_ingestion_status: idle on a fresh store ──────────────────────
+    let ing_status = post_json_rpc(
+        &rpc_base,
+        7006,
+        "openhuman.memory_ingestion_status",
+        json!({}),
+    )
+    .await;
+    let ing_result = assert_no_jsonrpc_error(&ing_status, "memory_ingestion_status");
+    assert_eq!(
+        ing_result.get("running"),
+        Some(&json!(false)),
+        "ingestion must be idle on a fresh store, got: {ing_result}"
+    );
+    assert_eq!(
+        ing_result.get("queue_depth").and_then(Value::as_u64),
+        Some(0),
+        "queue_depth must be 0 on a fresh store"
+    );
+
     mock_join.abort();
     rpc_join.abort();
 }

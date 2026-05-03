@@ -902,6 +902,28 @@ pub struct SyncAllResult {
     pub requested: bool,
 }
 
+/// Result returned by `memory_ingestion_status`. Mirrors
+/// [`crate::openhuman::memory::IngestionStatusSnapshot`] but is the public RPC
+/// shape — the indirection keeps internal renames from breaking the wire
+/// contract.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct IngestionStatusResult {
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_namespace: Option<String>,
+    pub queue_depth: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_completed_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_success: Option<bool>,
+}
+
 /// Per-namespace outcome for `memory_learn_all`.
 #[derive(Debug, serde::Serialize)]
 pub struct NamespaceLearnResult {
@@ -970,6 +992,30 @@ pub async fn memory_sync_all() -> Result<RpcOutcome<SyncAllResult>, String> {
     );
     tracing::debug!("[memory.sync] memory_sync_all: MemorySyncRequested(all) published");
     Ok(RpcOutcome::new(SyncAllResult { requested: true }, vec![]))
+}
+
+/// Returns the current memory-ingestion status: whether a job is running, the
+/// in-flight document, queue depth, and the most recent completion. Read-only,
+/// safe to poll.
+pub async fn memory_ingestion_status() -> Result<RpcOutcome<IngestionStatusResult>, String> {
+    let snapshot = match crate::openhuman::memory::global::client_if_ready() {
+        Some(c) => c.ingestion_state().snapshot(),
+        // Memory not yet initialised — report idle, no in-flight job.
+        None => Default::default(),
+    };
+    Ok(RpcOutcome::new(
+        IngestionStatusResult {
+            running: snapshot.running,
+            current_document_id: snapshot.current_document_id,
+            current_title: snapshot.current_title,
+            current_namespace: snapshot.current_namespace,
+            queue_depth: snapshot.queue_depth,
+            last_completed_at: snapshot.last_completed_at,
+            last_document_id: snapshot.last_document_id,
+            last_success: snapshot.last_success,
+        },
+        vec![],
+    ))
 }
 
 /// Run the tree summarizer over all (or a constrained set of) namespaces.

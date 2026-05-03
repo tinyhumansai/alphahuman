@@ -17,6 +17,7 @@ import {
   useIntelligenceSocketManager,
 } from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
+import { useMemoryIngestionStatus } from '../hooks/useMemoryIngestionStatus';
 import { useScreenIntelligenceItems } from '../hooks/useScreenIntelligenceItems';
 import { useSubconscious } from '../hooks/useSubconscious';
 import type {
@@ -31,6 +32,7 @@ type IntelligenceTab = 'memory' | 'subconscious' | 'dreams';
 
 export default function Intelligence() {
   const { aiStatus } = useIntelligenceStats();
+  const { status: ingestionStatus } = useMemoryIngestionStatus();
 
   const [activeTab, setActiveTab] = useState<IntelligenceTab>('memory');
   const [sourceFilter, setSourceFilter] = useState<ActionableItemSource | 'all'>('all');
@@ -310,6 +312,21 @@ export default function Intelligence() {
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${systemStatusDot}`} />
                     <span className="text-xs text-stone-400">{systemStatusLabel}</span>
+                  </div>
+                )}
+                {activeTab === 'memory' && (ingestionStatus.running || ingestionStatus.queueDepth > 0) && (
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700"
+                    title={
+                      ingestionStatus.currentTitle
+                        ? `Ingesting: ${ingestionStatus.currentTitle}`
+                        : 'Memory ingestion running'
+                    }>
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    <span className="text-[11px] font-medium">
+                      {ingestionStatus.running ? 'Ingesting' : 'Queued'}
+                      {ingestionStatus.queueDepth > 0 && ` · ${ingestionStatus.queueDepth}`}
+                    </span>
                   </div>
                 )}
                 {activeTab === 'memory' && (
