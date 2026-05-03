@@ -1,11 +1,14 @@
+import debug from 'debug';
 import { useEffect, useRef, useState } from 'react';
 
 import { subscribeChatEvents } from '../../services/chatService';
 import type { MascotFace } from './Mascot';
 import { lerpViseme, VISEMES, type VisemeShape } from './Mascot/visemes';
 import { type PlaybackHandle, playBase64Audio } from './voice/audioPlayer';
-import { synthesizeSpeech } from './voice/ttsClient';
+import { synthesizeSpeech, visemesFromAlignment } from './voice/ttsClient';
 import { findActiveFrame, oculusVisemeToShape } from './voice/visemeMap';
+
+const mascotLog = debug('human:mascot');
 
 /** ms the mouth holds the target viseme before decaying back to rest. */
 const VISEME_DECAY_MS = 180;
@@ -204,15 +207,27 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
         throw err;
       }
       if (!isStillCurrent()) return;
-      visemeFramesRef.current = tts.visemes ?? [];
+      let frames = tts.visemes ?? [];
+      if (frames.length === 0 && tts.alignment && tts.alignment.length > 0) {
+        // Backend didn't ship viseme cues — derive a coarse track from char timings
+        // so the mouth still animates in sync with the audio.
+        frames = visemesFromAlignment(tts.alignment);
+        mascotLog('tts derived %d viseme frames from alignment', frames.length);
+      } else {
+        mascotLog('tts got %d viseme frames from backend', frames.length);
+      }
+      visemeFramesRef.current = frames;
       visemeCursorRef.current = 0;
+      // Flip face → speaking before starting playback so the RAF render loop
+      // is already running by the time the first viseme frame is due.
+      setFace('speaking');
       const handle = await playBase64Audio(tts.audio_base64, tts.audio_mime ?? 'audio/mpeg');
       if (!isStillCurrent()) {
         handle.stop();
         return;
       }
       playbackRef.current = handle;
-      setFace('speaking');
+      mascotLog('tts playback started — driving lipsync from %d frames', frames.length);
       try {
         await handle.ended;
       } catch {
@@ -231,7 +246,9 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
     }
   }
 
-  // RAF loop while we're speaking (either pseudo-lipsync decay or audio-driven).
+  // RAF loop while we're speaking. TTS playback always sets face to
+  // 'speaking' before awaiting the audio, so this also covers the audio-driven
+  // viseme path.
   useEffect(() => {
     if (face !== 'speaking') return;
     let raf = 0;

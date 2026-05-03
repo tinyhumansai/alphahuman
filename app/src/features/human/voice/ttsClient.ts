@@ -1,8 +1,12 @@
-import { apiClient } from '../../../services/apiClient';
+import debug from 'debug';
+
+import { callCoreRpc } from '../../../services/coreRpcClient';
+
+const ttsLog = debug('human:tts');
 
 /**
- * One frame on the ElevenLabs viseme timeline. Backend emits the Oculus /
- * Microsoft 15-set: `sil, PP, FF, TH, DD, kk, CH, SS, nn, RR, aa, E, I, O, U`.
+ * One frame on the viseme timeline. Backend emits the Oculus / Microsoft
+ * 15-set: `sil, PP, FF, TH, DD, kk, CH, SS, nn, RR, aa, E, I, O, U`.
  */
 export interface VisemeFrame {
   viseme: string;
@@ -16,10 +20,14 @@ export interface AlignmentFrame {
   end_ms: number;
 }
 
+/**
+ * Normalized response from the core RPC `openhuman.voice_reply_synthesize`.
+ * The core does the messy "tolerate multiple backend response shapes" work
+ * (see `src/openhuman/voice/reply_speech.rs`) so the UI can stay strict.
+ */
 export interface TtsResponse {
   audio_base64: string;
-  /** mime, e.g. "audio/mpeg". */
-  audio_mime?: string;
+  audio_mime: string;
   visemes: VisemeFrame[];
   alignment?: AlignmentFrame[];
 }
@@ -30,10 +38,115 @@ export interface TtsOptions {
   outputFormat?: string;
 }
 
+/**
+ * Synthesize agent reply speech via the Rust core. The core proxies the
+ * hosted backend's `/openai/v1/audio/speech` endpoint so the WebView never
+ * touches it directly, which sidesteps a class of "Load failed" CORS/TLS
+ * issues and keeps auth in one place.
+ */
 export async function synthesizeSpeech(text: string, opts: TtsOptions = {}): Promise<TtsResponse> {
-  const body: Record<string, unknown> = { text, with_visemes: true };
-  if (opts.voiceId) body.voice_id = opts.voiceId;
-  if (opts.modelId) body.model_id = opts.modelId;
-  if (opts.outputFormat) body.output_format = opts.outputFormat;
-  return apiClient.post<TtsResponse>('/openai/v1/audio/speech', body);
+  const params: Record<string, unknown> = { text };
+  if (opts.voiceId) params.voice_id = opts.voiceId;
+  if (opts.modelId) params.model_id = opts.modelId;
+  if (opts.outputFormat) params.output_format = opts.outputFormat;
+  ttsLog('synthesize chars=%d voice=%s', text.length, opts.voiceId ?? 'default');
+
+  const result = await callCoreRpc<TtsResponse>({
+    method: 'openhuman.voice_reply_synthesize',
+    params,
+  });
+
+  ttsLog(
+    'synthesize done audio_bytes=%d visemes=%d alignment=%d',
+    result.audio_base64.length,
+    result.visemes.length,
+    result.alignment?.length ?? 0
+  );
+  return result;
+}
+
+/**
+ * Fall back to deriving rough visemes from char-level alignment if the backend
+ * didn't return them. Uses the same heuristic as text-stream pseudo-lipsync —
+ * picks a mouth shape from the last letter in each ~80ms window. Kept on the
+ * client so it can run after the audio arrives without an extra round trip.
+ */
+export function visemesFromAlignment(alignment: AlignmentFrame[]): VisemeFrame[] {
+  if (alignment.length === 0) return [];
+  const WINDOW_MS = 80;
+  const out: VisemeFrame[] = [];
+  let bucketStart = alignment[0].start_ms;
+  let bucketEnd = bucketStart + WINDOW_MS;
+  let bucketChars = '';
+  for (const a of alignment) {
+    if (a.start_ms >= bucketEnd) {
+      if (bucketChars.length > 0) {
+        out.push({
+          viseme: alignmentLetterToCode(bucketChars),
+          start_ms: bucketStart,
+          end_ms: bucketEnd,
+        });
+      }
+      bucketStart = a.start_ms;
+      bucketEnd = bucketStart + WINDOW_MS;
+      bucketChars = '';
+    }
+    bucketChars += a.char;
+  }
+  if (bucketChars.length > 0) {
+    out.push({
+      viseme: alignmentLetterToCode(bucketChars),
+      start_ms: bucketStart,
+      end_ms: bucketEnd,
+    });
+  }
+  return out;
+}
+
+function alignmentLetterToCode(chunk: string): string {
+  const ch = chunk
+    .replace(/[^a-zA-Z]/g, '')
+    .slice(-1)
+    .toLowerCase();
+  switch (ch) {
+    case 'a':
+      return 'aa';
+    case 'e':
+      return 'E';
+    case 'i':
+    case 'y':
+      return 'I';
+    case 'o':
+      return 'O';
+    case 'u':
+    case 'w':
+      return 'U';
+    case 'm':
+    case 'b':
+    case 'p':
+      return 'PP';
+    case 'f':
+    case 'v':
+      return 'FF';
+    case 's':
+    case 'z':
+      return 'SS';
+    case 'r':
+      return 'RR';
+    case 'n':
+      return 'nn';
+    case 'l':
+    case 'd':
+    case 't':
+      return 'DD';
+    case 'k':
+    case 'g':
+      return 'kk';
+    case 'h':
+    case 'c':
+    case 'j':
+      return 'CH';
+    default:
+      return 'sil';
+  }
 }
