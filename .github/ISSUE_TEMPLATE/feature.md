@@ -1,11 +1,13 @@
 ---
 name: Feature
 about: Used for new features or suggestions
-title: "[Feature] "
-labels: enhancement
+title: ""
+type: Feature
 assignees: ''
 
 ---
+
+Use a concise sentence-case title that describes the requested outcome. Do not add `Feature` or bracket prefixes to the title.
 
 ## Summary
 
