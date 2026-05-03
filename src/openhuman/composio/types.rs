@@ -49,7 +49,7 @@ fn de_opt_string_or_object<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Str
         Some(serde_json::Value::String(s)) => Some(s),
         Some(serde_json::Value::Object(map)) => {
             let mut found = None;
-            for key in ["slug", "id", "name", "key", "value", "state"] {
+            for key in ["state", "value", "slug", "id", "name", "key"] {
                 if let Some(serde_json::Value::String(s)) = map.get(key) {
                     found = Some(s.clone());
                     break;
@@ -488,5 +488,92 @@ mod tests {
         assert_eq!(ev.metadata.id, "evt-1");
         assert_eq!(ev.metadata.uuid, "uuid-1");
         assert_eq!(ev.payload["subject"], "hi");
+    }
+
+    #[test]
+    fn active_trigger_accepts_string_fields() {
+        let v = json!({
+            "id": "t1",
+            "slug": "GMAIL_NEW_MAIL",
+            "toolkit": "gmail",
+            "connectionId": "c1",
+            "state": "ACTIVE",
+        });
+        let trig: ComposioActiveTrigger = serde_json::from_value(v).unwrap();
+        assert_eq!(trig.id, "t1");
+        assert_eq!(trig.slug, "GMAIL_NEW_MAIL");
+        assert_eq!(trig.toolkit, "gmail");
+        assert_eq!(trig.connection_id, "c1");
+        assert_eq!(trig.state.as_deref(), Some("ACTIVE"));
+    }
+
+    #[test]
+    fn active_trigger_accepts_object_fields() {
+        // Mirrors upstream API drift where these fields arrive as objects
+        // rather than plain strings.
+        let v = json!({
+            "id": {"id": "t1"},
+            "slug": {"slug": "GMAIL_NEW_MAIL"},
+            "toolkit": {"slug": "gmail", "logo": "https://…"},
+            "connectionId": {"id": "c1"},
+            "state": {"state": "ACTIVE", "slug": "should-be-ignored"},
+        });
+        let trig: ComposioActiveTrigger = serde_json::from_value(v).unwrap();
+        assert_eq!(trig.id, "t1");
+        assert_eq!(trig.slug, "GMAIL_NEW_MAIL");
+        assert_eq!(trig.toolkit, "gmail");
+        assert_eq!(trig.connection_id, "c1");
+        // `state` priority must prefer the literal `state` key over metadata.
+        assert_eq!(trig.state.as_deref(), Some("ACTIVE"));
+    }
+
+    #[test]
+    fn active_trigger_state_falls_back_to_value() {
+        let v = json!({
+            "id": "t1",
+            "slug": "X",
+            "toolkit": "gmail",
+            "connectionId": "c1",
+            "state": {"value": "PENDING"},
+        });
+        let trig: ComposioActiveTrigger = serde_json::from_value(v).unwrap();
+        assert_eq!(trig.state.as_deref(), Some("PENDING"));
+    }
+
+    #[test]
+    fn active_trigger_state_missing_or_unknown_returns_none() {
+        let v = json!({
+            "id": "t1",
+            "slug": "X",
+            "toolkit": "gmail",
+            "connectionId": "c1",
+        });
+        let trig: ComposioActiveTrigger = serde_json::from_value(v).unwrap();
+        assert!(trig.state.is_none());
+
+        let v = json!({
+            "id": "t1",
+            "slug": "X",
+            "toolkit": "gmail",
+            "connectionId": "c1",
+            "state": {"unrelated": 42},
+        });
+        let trig: ComposioActiveTrigger = serde_json::from_value(v).unwrap();
+        assert!(trig.state.is_none());
+    }
+
+    #[test]
+    fn active_trigger_required_field_rejects_unsupported_object() {
+        // Object without any of slug/id/name/key must fail loudly so we
+        // notice further upstream shape drift instead of silently dropping
+        // the trigger.
+        let v = json!({
+            "id": {"unrelated": 42},
+            "slug": "X",
+            "toolkit": "gmail",
+            "connectionId": "c1",
+        });
+        let err = serde_json::from_value::<ComposioActiveTrigger>(v).unwrap_err();
+        assert!(err.to_string().contains("expected string or object"));
     }
 }
