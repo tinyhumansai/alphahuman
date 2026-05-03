@@ -319,9 +319,11 @@ export default function Intelligence() {
                     <div
                       className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700"
                       title={
-                        ingestionStatus.currentTitle
-                          ? `Ingesting: ${ingestionStatus.currentTitle}`
-                          : 'Memory ingestion running'
+                        ingestionStatus.running
+                          ? ingestionStatus.currentTitle
+                            ? `Ingesting: ${ingestionStatus.currentTitle}`
+                            : 'Memory ingestion running'
+                          : 'Memory ingestion queued'
                       }>
                       <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                       <span className="text-[11px] font-medium">

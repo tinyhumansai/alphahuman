@@ -174,15 +174,19 @@ impl MemoryClient {
         let outcome = self.inner.ingest_document(request).await;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         let success = outcome.is_ok();
-        let document_id = match &outcome {
-            Ok(r) => r.document_id.clone(),
-            Err(_) => placeholder_id.clone(),
-        };
 
-        state.mark_completed(&document_id, success, chrono::Utc::now().timestamp_millis());
+        // Use the same placeholder id as the matching MemoryIngestionStarted
+        // event so subscribers can correlate start/complete pairs. The real
+        // upstream-assigned document id is available on `Ok(outcome)` for
+        // callers that need it.
+        state.mark_completed(
+            &placeholder_id,
+            success,
+            chrono::Utc::now().timestamp_millis(),
+        );
         crate::core::event_bus::publish_global(
             crate::core::event_bus::DomainEvent::MemoryIngestionCompleted {
-                document_id,
+                document_id: placeholder_id,
                 namespace,
                 success,
                 elapsed_ms,

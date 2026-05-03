@@ -138,14 +138,12 @@ async fn ingestion_worker(
              doc_id={document_id}, title={title}",
         );
 
-        // The job has left the pending queue and is about to start; flip the
-        // counter before acquiring the singleton lock so the snapshot
-        // reflects "running, no pending" cleanly while we wait for the lock.
-        state.dequeue();
-
         // Acquire the singleton lock so only one ingestion runs at a time
-        // (covers both queue worker and synchronous callers sharing this state).
+        // (covers both queue worker and synchronous callers sharing this
+        // state). Decrement the pending-queue counter only after we hold the
+        // lock — while we're blocked waiting on it the job is still queued.
         let _guard = state.acquire().await;
+        state.dequeue();
 
         let queue_depth = state.snapshot().queue_depth;
         state.mark_running(&document_id, &title, &namespace);
