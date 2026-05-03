@@ -32,13 +32,15 @@ vi.mock('../../hooks/useChannelDefinitions', () => ({
   }),
 }));
 
-vi.mock('../../lib/skills/skillsApi', () => ({
-  installSkill: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('../../lib/skills/hooks', () => ({
-  useAvailableSkills: () => ({ skills: [], loading: false, refresh: vi.fn() }),
-}));
+vi.mock('../../services/api/skillsApi', async () => {
+  const actual = await vi.importActual<typeof import('../../services/api/skillsApi')>(
+    '../../services/api/skillsApi'
+  );
+  return {
+    ...actual,
+    skillsApi: { ...actual.skillsApi, listSkills: vi.fn().mockResolvedValue([]) },
+  };
+});
 
 vi.mock('../../lib/composio/hooks', () => ({
   useComposioIntegrations: () => ({
