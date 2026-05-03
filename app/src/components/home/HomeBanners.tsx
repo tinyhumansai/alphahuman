@@ -103,7 +103,7 @@ export function EarlyBirdyBanner() {
             <span className="rounded-md border border-orange-300 bg-white px-1.5 py-0.5 font-mono text-[12px] font-bold text-orange-700">
               EARLYBIRDY
             </span>{' '}
-            to on your{' '}
+            on your{' '}
             <button
               type="button"
               onClick={() => {
