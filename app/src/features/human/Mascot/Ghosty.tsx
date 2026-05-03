@@ -3,7 +3,7 @@ import React from 'react';
 import { GhostyDefs } from './Defs';
 import { ARM_PATH, BODY_PATH, LEFT_LEG_PATH, RIGHT_LEG_PATH, VIEWBOX } from './paths';
 import { useMascotClock } from './useMascotClock';
-import { type VisemeShape, VISEMES, visemePath } from './visemes';
+import { visemePath, VISEMES, type VisemeShape } from './visemes';
 
 export type MascotFace = 'normal' | 'listening' | 'thinking' | 'speaking';
 

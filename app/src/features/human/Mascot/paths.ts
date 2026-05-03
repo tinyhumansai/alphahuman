@@ -20,9 +20,6 @@ export const RIGHT_LEG_PATH =
   'C800,1020 710,1020 640,990 ' +
   'C580,965 570,915 600,890 Z';
 
-export const ARM_PATH =
-  'M800,560 ' +
-  'C870,485 955,500 955,575 ' +
-  'C955,635 880,650 800,615 Z';
+export const ARM_PATH = 'M800,560 ' + 'C870,485 955,500 955,575 ' + 'C955,635 880,650 800,615 Z';
 
 export const VIEWBOX = 1000;

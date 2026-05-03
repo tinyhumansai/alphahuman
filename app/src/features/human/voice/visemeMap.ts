@@ -2,7 +2,7 @@
  * Map ElevenLabs / Oculus 15-set visemes onto the mascot's mouth shapes.
  * The 15-set: sil, PP, FF, TH, DD, kk, CH, SS, nn, RR, aa, E, I, O, U.
  */
-import { type VisemeShape, VISEMES } from '../Mascot/visemes';
+import { VISEMES, type VisemeShape } from '../Mascot/visemes';
 
 const TABLE: Record<string, VisemeShape> = {
   sil: VISEMES.REST,

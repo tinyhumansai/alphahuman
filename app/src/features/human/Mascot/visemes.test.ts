@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { lerpViseme, REST_SMILE_PATH, VISEMES, visemePath } from './visemes';
+import { lerpViseme, REST_SMILE_PATH, visemePath, VISEMES } from './visemes';
 
 describe('visemes', () => {
   it('resting shape renders the smile path', () => {

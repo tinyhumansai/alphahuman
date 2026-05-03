@@ -18,7 +18,7 @@ export async function playBase64Audio(
   const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: mime });
   const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
+  const audio = new window.Audio(url);
   audio.preload = 'auto';
 
   let stopped = false;

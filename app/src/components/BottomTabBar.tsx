@@ -213,41 +213,41 @@ const BottomTabBar = () => {
           {tabs
             .filter(tab => tab.id !== 'human' || HUMAN_TAB_ENABLED)
             .map(tab => {
-            const active = isActive(tab.path);
-            const showBadge = tab.id === 'notifications' && unreadCount > 0;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => navigate(tab.path)}
-                className={`group relative flex items-center px-2 py-2 rounded-sm text-sm transition-colors duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
-                  active
-                    ? 'bg-white text-stone-900 font-semibold shadow-sm'
-                    : 'bg-transparent text-stone-500 hover:bg-stone-300/50 hover:text-stone-700'
-                }`}
-                aria-label={
-                  tab.id === 'notifications' && unreadCount > 0
-                    ? `${tab.label} (${unreadCount} unread)`
-                    : tab.label
-                }>
-                <span className="relative inline-flex flex-shrink-0">
-                  {tab.icon}
-                  {showBadge && (
-                    <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-coral-500 text-[9px] font-bold text-white flex items-center justify-center leading-none">
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </span>
-                <span
-                  className={`overflow-hidden whitespace-nowrap transition-[max-width,margin-left,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              const active = isActive(tab.path);
+              const showBadge = tab.id === 'notifications' && unreadCount > 0;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => navigate(tab.path)}
+                  className={`group relative flex items-center px-2 py-2 rounded-sm text-sm transition-colors duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                     active
-                      ? 'max-w-[160px] ml-2 opacity-100'
-                      : 'max-w-0 ml-0 opacity-0 group-hover:max-w-[160px] group-hover:ml-2 group-hover:opacity-100 group-focus-visible:max-w-[160px] group-focus-visible:ml-2 group-focus-visible:opacity-100'
-                  }`}>
-                  {tab.label}
-                </span>
-              </button>
-            );
-          })}
+                      ? 'bg-white text-stone-900 font-semibold shadow-sm'
+                      : 'bg-transparent text-stone-500 hover:bg-stone-300/50 hover:text-stone-700'
+                  }`}
+                  aria-label={
+                    tab.id === 'notifications' && unreadCount > 0
+                      ? `${tab.label} (${unreadCount} unread)`
+                      : tab.label
+                  }>
+                  <span className="relative inline-flex flex-shrink-0">
+                    {tab.icon}
+                    {showBadge && (
+                      <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-coral-500 text-[9px] font-bold text-white flex items-center justify-center leading-none">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`overflow-hidden whitespace-nowrap transition-[max-width,margin-left,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                      active
+                        ? 'max-w-[160px] ml-2 opacity-100'
+                        : 'max-w-0 ml-0 opacity-0 group-hover:max-w-[160px] group-hover:ml-2 group-hover:opacity-100 group-focus-visible:max-w-[160px] group-focus-visible:ml-2 group-focus-visible:opacity-100'
+                    }`}>
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
         </nav>
       </div>
     </div>

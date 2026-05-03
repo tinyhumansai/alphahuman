@@ -10,13 +10,13 @@ export function useMascotClock(active = true): number {
   useEffect(() => {
     if (!active) return;
     let raf = 0;
-    const start = performance.now();
+    const start = window.performance.now();
     const tick = (now: number) => {
       setSeconds((now - start) / 1000);
-      raf = requestAnimationFrame(tick);
+      raf = window.requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
   }, [active]);
 
   return seconds;

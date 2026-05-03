@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { subscribeChatEvents } from '../../services/chatService';
 import type { MascotFace } from './Mascot';
-import { lerpViseme, type VisemeShape, VISEMES } from './Mascot/visemes';
+import { lerpViseme, VISEMES, type VisemeShape } from './Mascot/visemes';
 import { type PlaybackHandle, playBase64Audio } from './voice/audioPlayer';
 import { synthesizeSpeech } from './voice/ttsClient';
 import { findActiveFrame, oculusVisemeToShape } from './voice/visemeMap';
@@ -16,7 +16,10 @@ const VISEME_DECAY_MS = 180;
  * the streaming text instead of just opening and closing the same way.
  */
 export function pickViseme(delta: string): VisemeShape {
-  const ch = delta.replace(/[^a-zA-Z]/g, '').slice(-1).toLowerCase();
+  const ch = delta
+    .replace(/[^a-zA-Z]/g, '')
+    .slice(-1)
+    .toLowerCase();
   switch (ch) {
     case 'a':
       return VISEMES.A;
@@ -55,9 +58,10 @@ export interface UseHumanMascotOptions {
  * - chat_done (with `speakReplies`) → speaking, real visemes from TTS audio
  *   for the full response; falls back to neutral when audio ends or fails
  */
-export function useHumanMascot(
-  options: UseHumanMascotOptions = {}
-): { face: MascotFace; viseme: VisemeShape } {
+export function useHumanMascot(options: UseHumanMascotOptions = {}): {
+  face: MascotFace;
+  viseme: VisemeShape;
+} {
   const { speakReplies = false } = options;
   const speakRef = useRef(speakReplies);
   speakRef.current = speakReplies;
@@ -81,7 +85,7 @@ export function useHumanMascot(
         if (playbackRef.current) return;
         setFace('speaking');
         targetRef.current = pickViseme(e.delta);
-        lastDeltaAtRef.current = performance.now();
+        lastDeltaAtRef.current = window.performance.now();
       },
       onDone: e => {
         if (!speakRef.current || !e.full_response?.trim()) {
@@ -137,10 +141,10 @@ export function useHumanMascot(
     let raf = 0;
     const loop = () => {
       force(t => t + 1);
-      raf = requestAnimationFrame(loop);
+      raf = window.requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    raf = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(raf);
   }, [face]);
 
   let viseme: VisemeShape = VISEMES.REST;
@@ -148,12 +152,16 @@ export function useHumanMascot(
   if (playback) {
     const ms = playback.currentMs();
     if (ms >= 0) {
-      const { frame, cursor } = findActiveFrame(visemeFramesRef.current, ms, visemeCursorRef.current);
+      const { frame, cursor } = findActiveFrame(
+        visemeFramesRef.current,
+        ms,
+        visemeCursorRef.current
+      );
       visemeCursorRef.current = cursor;
       viseme = frame ? oculusVisemeToShape(frame.viseme) : VISEMES.REST;
     }
   } else if (face === 'speaking') {
-    const since = performance.now() - lastDeltaAtRef.current;
+    const since = window.performance.now() - lastDeltaAtRef.current;
     const decay = Math.max(0, Math.min(1, since / VISEME_DECAY_MS));
     viseme = lerpViseme(targetRef.current, VISEMES.REST, decay);
   }
