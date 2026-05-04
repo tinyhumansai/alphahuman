@@ -51,6 +51,64 @@ async fn chat_fails_without_key() {
 }
 
 #[test]
+fn native_request_emits_thread_id_when_present() {
+    let req = super::NativeChatRequest {
+        model: "sonnet".to_string(),
+        messages: Vec::new(),
+        temperature: 0.7,
+        stream: Some(false),
+        tools: None,
+        tool_choice: None,
+        thread_id: Some("thread-abc".to_string()),
+    };
+    let json = serde_json::to_value(&req).unwrap();
+    assert_eq!(
+        json.get("thread_id").and_then(|v| v.as_str()),
+        Some("thread-abc"),
+        "thread_id must be forwarded so the backend can group InferenceLog + KV cache by chat thread"
+    );
+
+    let req_no_thread = super::NativeChatRequest {
+        model: "sonnet".to_string(),
+        messages: Vec::new(),
+        temperature: 0.7,
+        stream: Some(false),
+        tools: None,
+        tool_choice: None,
+        thread_id: None,
+    };
+    let json_no_thread = serde_json::to_value(&req_no_thread).unwrap();
+    assert!(
+        json_no_thread.get("thread_id").is_none(),
+        "absent thread_id must not be serialized so non-OpenHuman backends don't reject the field"
+    );
+}
+
+#[tokio::test]
+async fn outbound_thread_id_is_gated_per_provider() {
+    use crate::openhuman::providers::thread_context::with_thread_id;
+
+    let third_party = make_provider("Venice", "https://api.venice.ai", None);
+    let openhuman =
+        make_provider("OpenHuman", "https://api.openhuman.test", None).with_openhuman_thread_id();
+
+    with_thread_id("thread-xyz", async {
+        assert!(
+            third_party.outbound_thread_id().is_none(),
+            "third-party OpenAI-compatible providers must NOT see the OpenHuman thread_id extension \
+             — unknown fields can trip strict input validation on Venice/Moonshot/Groq/etc."
+        );
+        assert_eq!(
+            openhuman.outbound_thread_id().as_deref(),
+            Some("thread-xyz"),
+            "the OpenHuman backend provider opts in via with_openhuman_thread_id() and must \
+             forward the ambient id so InferenceLog grouping + KV cache locality work"
+        );
+    })
+    .await;
+}
+
+#[test]
 fn request_serializes_correctly() {
     let req = ApiChatRequest {
         model: "llama-3.3-70b".to_string(),
@@ -614,19 +672,19 @@ fn request_serializes_with_tools() {
 #[test]
 fn response_with_tool_calls_deserializes() {
     let json = r#"{
-            "choices": [{
-                "message": {
-                    "content": null,
-                    "tool_calls": [{
-                        "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": "{\"location\":\"London\"}"
-                        }
-                    }]
-                }
-            }]
-        }"#;
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"London\"}"
+                    }
+                }]
+            }
+        }]
+    }"#;
 
     let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
     let msg = &resp.choices[0].message;
@@ -648,20 +706,20 @@ fn response_with_tool_calls_deserializes() {
 #[test]
 fn response_with_tool_call_object_arguments_deserializes() {
     let json = r#"{
-            "choices": [{
-                "message": {
-                    "content": null,
-                    "tool_calls": [{
-                        "id": "call_456",
-                        "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": {"location":"London","unit":"c"}
-                        }
-                    }]
-                }
-            }]
-        }"#;
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_456",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": {"location":"London","unit":"c"}
+                    }
+                }]
+            }
+        }]
+    }"#;
 
     let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
     let msg = &resp.choices[0].message;
@@ -743,28 +801,28 @@ fn parse_native_response_supports_legacy_function_call() {
 #[test]
 fn response_with_multiple_tool_calls() {
     let json = r#"{
-            "choices": [{
-                "message": {
-                    "content": "I'll check both.",
-                    "tool_calls": [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "get_weather",
-                                "arguments": "{\"location\":\"London\"}"
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "get_time",
-                                "arguments": "{\"timezone\":\"UTC\"}"
-                            }
+        "choices": [{
+            "message": {
+                "content": "I'll check both.",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"location\":\"London\"}"
                         }
-                    ]
-                }
-            }]
-        }"#;
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_time",
+                            "arguments": "{\"timezone\":\"UTC\"}"
+                        }
+                    }
+                ]
+            }
+        }]
+    }"#;
 
     let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
     let msg = &resp.choices[0].message;
