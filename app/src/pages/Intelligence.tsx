@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
 import IntelligenceDreamsTab from '../components/intelligence/IntelligenceDreamsTab';
 import IntelligenceMemoryTab from '../components/intelligence/IntelligenceMemoryTab';
+import IntelligenceSettingsTab from '../components/intelligence/IntelligenceSettingsTab';
 import IntelligenceSubconsciousTab from '../components/intelligence/IntelligenceSubconsciousTab';
 import { ToastContainer } from '../components/intelligence/Toast';
 import { filterItems, getItemStats, groupItemsByTime } from '../components/intelligence/utils';
@@ -28,7 +29,7 @@ import type {
   ToastNotification,
 } from '../types/intelligence';
 
-type IntelligenceTab = 'memory' | 'subconscious' | 'dreams';
+type IntelligenceTab = 'memory' | 'subconscious' | 'dreams' | 'settings';
 
 export default function Intelligence() {
   const { aiStatus } = useIntelligenceStats();
@@ -265,6 +266,7 @@ export default function Intelligence() {
     { id: 'memory', label: 'Memory' },
     { id: 'subconscious', label: 'Subconscious' },
     { id: 'dreams', label: 'Dreams', comingSoon: true },
+    { id: 'settings', label: 'Settings' },
   ];
 
   return (
@@ -400,6 +402,8 @@ export default function Intelligence() {
             )}
 
             {activeTab === 'dreams' && <IntelligenceDreamsTab />}
+
+            {activeTab === 'settings' && <IntelligenceSettingsTab />}
           </div>
         </div>
       </div>
