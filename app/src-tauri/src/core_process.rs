@@ -2,9 +2,19 @@
 //!
 //! The core's HTTP/JSON-RPC server runs as a tokio task inside the Tauri host
 //! so its lifetime is tied to the GUI process — there is no sidecar to leak
-//! on Cmd+Q. If something is already listening on the configured port (e.g.
-//! a manual `openhuman-core run` harness for debugging), `ensure_running`
-//! attaches to it instead of spawning a duplicate listener.
+//! on Cmd+Q.
+//!
+//! Stale-listener policy (see issue #1130): if something is already listening
+//! on the configured port when `ensure_running` runs, we probe `GET /` to see
+//! whether it is an OpenHuman core. If it is, we treat it as a stale process
+//! left behind by a previous build/dev session and proactively terminate it
+//! before spawning a fresh embedded server — otherwise the new UI would
+//! silently bind to an older RPC implementation. If the listener is something
+//! else (or unreachable), we refuse to attach and surface the conflict so it
+//! can be diagnosed instead of producing 401s and version drift downstream.
+//! Set `OPENHUMAN_CORE_REUSE_EXISTING=1` to opt back into the legacy
+//! attach-to-whatever-is-listening behavior (e.g. a manual `openhuman-core
+//! run` harness for debugging).
 
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -82,27 +92,37 @@ impl CoreProcessHandle {
     }
 
     async fn is_rpc_port_open(&self) -> bool {
-        matches!(
-            timeout(
-                Duration::from_millis(150),
-                TcpStream::connect(("127.0.0.1", self.port)),
-            )
-            .await,
-            Ok(Ok(_))
-        )
+        is_port_open(self.port).await
     }
 
     pub async fn ensure_running(&self) -> Result<(), String> {
         if self.is_rpc_port_open().await {
-            log::info!(
-                "[core] found existing core rpc endpoint at {}",
-                self.rpc_url()
-            );
-            log::warn!(
-                "[core] reusing port {} — another `openhuman-core` instance is already listening; this Tauri host will not spawn an embedded server. Authenticated Tauri-side calls will 401 unless the listener was started with this process's OPENHUMAN_CORE_TOKEN.",
-                self.port
-            );
-            return Ok(());
+            if reuse_existing_listener_enabled() {
+                log::warn!(
+                    "[core] OPENHUMAN_CORE_REUSE_EXISTING=1 — attaching to whatever is listening on port {} without identification (legacy behavior)",
+                    self.port
+                );
+                return Ok(());
+            }
+
+            match identify_listener(self.port).await {
+                ListenerKind::OpenHuman => {
+                    log::warn!(
+                        "[core] found stale OpenHuman listener on port {} — taking over (issue #1130)",
+                        self.port
+                    );
+                    self.takeover_stale_listener().await?;
+                    // Fall through to spawn-and-wait below.
+                }
+                ListenerKind::Unknown { reason } => {
+                    let msg = format!(
+                        "Core RPC port {} is in use by something that is not an OpenHuman core ({reason}). Refusing to attach (set OPENHUMAN_CORE_REUSE_EXISTING=1 to override) — quit the other process or set OPENHUMAN_CORE_PORT to a different port and relaunch.",
+                        self.port
+                    );
+                    log::error!("[core] {msg}");
+                    return Err(msg);
+                }
+            }
         }
 
         {
@@ -158,6 +178,55 @@ impl CoreProcessHandle {
         }
 
         Err("core process did not become ready".to_string())
+    }
+
+    /// Identify the OS pid currently bound to our port and terminate it,
+    /// then wait for the port to free. Used when the listener has been
+    /// fingerprinted as an OpenHuman core (via `GET /`) so killing it is safe.
+    async fn takeover_stale_listener(&self) -> Result<(), String> {
+        let pid = match find_pid_on_port(self.port) {
+            Some(pid) => pid,
+            None => {
+                return Err(format!(
+                    "could not determine pid bound to port {} — refusing to take over",
+                    self.port
+                ));
+            }
+        };
+        let self_pid = std::process::id();
+        if pid == self_pid {
+            // Defensive — `ensure_running` checks the port before spawning,
+            // so this branch should be unreachable. If it ever hits, killing
+            // ourselves would be catastrophic.
+            return Err(format!(
+                "stale-listener pid {pid} matches the Tauri host pid; refusing to self-terminate"
+            ));
+        }
+        log::warn!(
+            "[core] terminating stale OpenHuman process pid={pid} on port {} (issue #1130)",
+            self.port
+        );
+        if let Err(e) = kill_pid(pid) {
+            return Err(format!("failed to kill stale openhuman pid {pid}: {e}"));
+        }
+        const POLL_MS: u64 = 100;
+        const MAX_WAIT_MS: u64 = 5_000;
+        let mut waited_ms: u64 = 0;
+        while is_port_open(self.port).await {
+            if waited_ms >= MAX_WAIT_MS {
+                return Err(format!(
+                    "killed pid {pid} but port {} remained bound after {MAX_WAIT_MS}ms",
+                    self.port
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+            waited_ms += POLL_MS;
+        }
+        log::info!(
+            "[core] stale listener cleared (pid={pid}, port={}) after {waited_ms}ms",
+            self.port
+        );
+        Ok(())
     }
 
     /// Restart the embedded core to pick up updated macOS permission grants.
@@ -242,6 +311,182 @@ pub fn default_core_port() -> u16 {
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(7788)
+}
+
+/// Whether `OPENHUMAN_CORE_REUSE_EXISTING` is set to a truthy value. Opts
+/// back into the pre-#1130 behavior of attaching to whatever is listening
+/// on the port without identification — useful for manual harnesses.
+fn reuse_existing_listener_enabled() -> bool {
+    std::env::var("OPENHUMAN_CORE_REUSE_EXISTING")
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+async fn is_port_open(port: u16) -> bool {
+    matches!(
+        timeout(
+            Duration::from_millis(150),
+            TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+/// What is currently listening on the core RPC port.
+#[derive(Debug)]
+enum ListenerKind {
+    /// `GET /` returned a JSON body with `"name": "openhuman"` — i.e. a
+    /// stale OpenHuman core process from a previous build/session.
+    OpenHuman,
+    /// Either the listener didn't speak HTTP, didn't respond, or returned
+    /// a body that doesn't identify as openhuman.
+    Unknown { reason: String },
+}
+
+/// Probe `GET http://127.0.0.1:<port>/` to fingerprint the listener.
+/// Unauthenticated — the core's root handler does not require a token.
+async fn identify_listener(port: u16) -> ListenerKind {
+    let url = format!("http://127.0.0.1:{port}/");
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(750))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return ListenerKind::Unknown {
+                reason: format!("reqwest client build failed: {e}"),
+            };
+        }
+    };
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return ListenerKind::Unknown {
+                reason: format!("probe GET / failed: {e}"),
+            };
+        }
+    };
+    if !resp.status().is_success() {
+        return ListenerKind::Unknown {
+            reason: format!("probe GET / returned status {}", resp.status()),
+        };
+    }
+    let body = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            return ListenerKind::Unknown {
+                reason: format!("probe GET / body read failed: {e}"),
+            };
+        }
+    };
+    if is_openhuman_root_body(&body) {
+        log::info!("[core] listener on port {port} identified as openhuman core");
+        ListenerKind::OpenHuman
+    } else {
+        let preview: String = body.chars().take(80).collect();
+        ListenerKind::Unknown {
+            reason: format!("probe GET / body did not identify as openhuman ({preview:?})"),
+        }
+    }
+}
+
+/// Pure parse of the root-handler JSON. Public-by-test so the fingerprinting
+/// logic stays unit-testable without standing up an HTTP server.
+fn is_openhuman_root_body(body: &str) -> bool {
+    let value: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    value
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s == "openhuman")
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn find_pid_on_port(port: u16) -> Option<u32> {
+    let output = std::process::Command::new("lsof")
+        .args(["-nP", "-iTCP", &format!("-i:{port}"), "-sTCP:LISTEN", "-t"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_lsof_pid(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(windows)]
+fn find_pid_on_port(port: u16) -> Option<u32> {
+    let output = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "TCP"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_netstat_pid(&String::from_utf8_lossy(&output.stdout), port)
+}
+
+/// Pure parse of `lsof -t` output (one pid per line; first wins).
+fn parse_lsof_pid(stdout: &str) -> Option<u32> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .and_then(|l| l.parse::<u32>().ok())
+}
+
+/// Pure parse of `netstat -ano` output for a LISTENING entry on `port`.
+#[allow(dead_code)] // exercised only on windows builds
+fn parse_netstat_pid(stdout: &str, port: u16) -> Option<u32> {
+    let needle = format!(":{port}");
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if !trimmed.contains("LISTENING") {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        // Expected: ["TCP", "127.0.0.1:7788", "0.0.0.0:0", "LISTENING", "1234"]
+        if parts.len() >= 5 && parts[1].ends_with(&needle) {
+            if let Ok(pid) = parts[parts.len() - 1].parse::<u32>() {
+                return Some(pid);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn kill_pid(pid: u32) -> Result<(), String> {
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+    let target = Pid::from_raw(pid as i32);
+    if let Err(e) = kill(target, Signal::SIGTERM) {
+        // ESRCH means already gone — treat as success.
+        if e != nix::errno::Errno::ESRCH {
+            return Err(format!("SIGTERM pid {pid}: {e}"));
+        }
+    }
+    // Give the process a moment to exit cleanly, then SIGKILL if still alive.
+    // Brief sleep is fine on the tokio thread because takeover only happens
+    // once at startup and the user is staring at a splash screen.
+    std::thread::sleep(Duration::from_millis(750));
+    let _ = kill(target, Signal::SIGKILL);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn kill_pid(pid: u32) -> Result<(), String> {
+    let status = std::process::Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .status()
+        .map_err(|e| format!("taskkill spawn: {e}"))?;
+    if !status.success() {
+        return Err(format!("taskkill exited with {status}"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

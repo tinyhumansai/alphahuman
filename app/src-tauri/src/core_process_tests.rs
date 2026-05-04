@@ -1,4 +1,7 @@
-use super::{current_rpc_token, default_core_port, generate_rpc_token, CoreProcessHandle};
+use super::{
+    current_rpc_token, default_core_port, generate_rpc_token, is_openhuman_root_body,
+    parse_lsof_pid, parse_netstat_pid, CoreProcessHandle,
+};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 fn env_lock() -> MutexGuard<'static, ()> {
@@ -54,8 +57,36 @@ fn core_process_handle_new_creates_instance() {
     assert_eq!(handle.rpc_url(), "http://127.0.0.1:9999/rpc");
 }
 
+/// Issue #1130: a non-OpenHuman listener on the RPC port must NOT be
+/// silently attached to. The test binds a bare `TcpListener` (which never
+/// answers HTTP) so the identification probe sees an unknown listener and
+/// `ensure_running` must surface the conflict instead of returning Ok.
 #[test]
-fn ensure_running_returns_ok_when_rpc_port_already_open() {
+fn ensure_running_refuses_unknown_listener_on_port() {
+    let _env_lock = env_lock();
+    let _unset = EnvGuard::unset("OPENHUMAN_CORE_REUSE_EXISTING");
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let result = rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let port = listener.local_addr().expect("local addr").port();
+        let handle = CoreProcessHandle::new(port);
+        handle.ensure_running().await
+    });
+    let err = result.expect_err("ensure_running must refuse an unidentified listener");
+    assert!(
+        err.contains("not an OpenHuman core") || err.contains("port"),
+        "error should explain the conflict, got: {err}"
+    );
+}
+
+/// Escape hatch: setting `OPENHUMAN_CORE_REUSE_EXISTING=1` opts back into
+/// the legacy attach-to-anything behavior for manual harnesses.
+#[test]
+fn ensure_running_reuses_unknown_listener_when_override_set() {
+    let _env_lock = env_lock();
+    let _override = EnvGuard::set("OPENHUMAN_CORE_REUSE_EXISTING", "1");
     let rt = tokio::runtime::Runtime::new().expect("runtime");
     let result = rt.block_on(async {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -67,8 +98,58 @@ fn ensure_running_returns_ok_when_rpc_port_already_open() {
     });
     assert!(
         result.is_ok(),
-        "ensure_running should fast-path: {result:?}"
+        "override should restore legacy fast-path: {result:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Listener fingerprinting (issue #1130)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_openhuman_root_body_matches_canonical_root_response() {
+    // Mirrors the JSON shape produced by `core/jsonrpc.rs::root_handler`.
+    let body = r#"{
+        "name": "openhuman",
+        "ok": true,
+        "endpoints": {"health": "/health", "rpc": "/rpc"}
+    }"#;
+    assert!(is_openhuman_root_body(body));
+}
+
+#[test]
+fn is_openhuman_root_body_rejects_other_services() {
+    assert!(!is_openhuman_root_body(r#"{"name": "something-else"}"#));
+    assert!(!is_openhuman_root_body(r#"{"ok": true}"#));
+    assert!(!is_openhuman_root_body("not json at all"));
+    assert!(!is_openhuman_root_body(""));
+    // Wrong type for `name`.
+    assert!(!is_openhuman_root_body(r#"{"name": 42}"#));
+}
+
+#[test]
+fn parse_lsof_pid_picks_first_pid() {
+    assert_eq!(parse_lsof_pid("12345\n"), Some(12345));
+    // Multiple pids — pick the first non-empty line. lsof can emit several
+    // when multiple sockets share the port (IPv4/IPv6).
+    assert_eq!(parse_lsof_pid("\n  9876  \n12345\n"), Some(9876));
+    assert_eq!(parse_lsof_pid(""), None);
+    assert_eq!(parse_lsof_pid("not-a-pid\n"), None);
+}
+
+#[test]
+fn parse_netstat_pid_finds_listening_entry() {
+    // Sample shape from `netstat -ano -p TCP` on Windows.
+    let stdout = "\
+Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1024
+  TCP    127.0.0.1:7788         0.0.0.0:0              LISTENING       4242
+  TCP    127.0.0.1:50000        127.0.0.1:7788         ESTABLISHED     5555
+";
+    assert_eq!(parse_netstat_pid(stdout, 7788), Some(4242));
+    assert_eq!(parse_netstat_pid(stdout, 9999), None);
 }
 
 // ---------------------------------------------------------------------------
