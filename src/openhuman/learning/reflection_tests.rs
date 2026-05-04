@@ -236,6 +236,7 @@ async fn store_reflection_persists_all_categories() {
         observations: vec!["Observed failure".into()],
         patterns: vec!["Pattern A".into()],
         user_preferences: vec!["Pref A".into()],
+        user_reflections: vec!["I want shorter answers going forward".into()],
     })
     .await
     .unwrap();
@@ -244,6 +245,95 @@ async fn store_reflection_persists_all_categories() {
     assert!(keys.iter().any(|key| key.starts_with("obs/")));
     assert!(keys.iter().any(|key| key == "pat/pattern_a"));
     assert!(keys.iter().any(|key| key == "pref/pref_a"));
+    assert!(
+        keys.iter().any(|key| key.starts_with("ref/")),
+        "reflection should be persisted under the dedicated namespace"
+    );
+
+    // Verify the persisted entry actually lands in the privileged
+    // namespace + category — that's the contract `fetch_learned_context`
+    // depends on for retrieval.
+    let entries = memory_impl.entries.lock();
+    let reflection = entries
+        .values()
+        .find(|e| e.key.starts_with("ref/"))
+        .expect("reflection entry");
+    assert_eq!(reflection.namespace.as_deref(), Some(REFLECTIONS_NAMESPACE));
+    assert!(matches!(
+        reflection.category,
+        MemoryCategory::Custom(ref tag) if tag == REFLECTIONS_NAMESPACE
+    ));
+    assert_eq!(reflection.content, "I want shorter answers going forward");
+}
+
+#[test]
+fn parse_reflection_extracts_user_reflections_field() {
+    let raw = r#"{"observations":[],"patterns":[],"user_preferences":[],
+        "user_reflections":["I realized I want to focus on Rust this quarter"]}"#;
+    let output = ReflectionHook::parse_reflection(raw);
+    assert_eq!(
+        output.user_reflections,
+        vec!["I realized I want to focus on Rust this quarter"]
+    );
+}
+
+#[test]
+fn parse_reflection_defaults_user_reflections_when_absent() {
+    let raw = r#"{"observations":["x"],"patterns":[],"user_preferences":[]}"#;
+    let output = ReflectionHook::parse_reflection(raw);
+    assert!(output.user_reflections.is_empty());
+}
+
+#[test]
+fn extract_reflection_cues_picks_up_explicit_self_statements() {
+    let msg = "I realized I prefer terse answers. Going forward, please skip the disclaimers.";
+    let cues = extract_reflection_cues(msg);
+    assert_eq!(cues.len(), 2);
+    assert!(cues[0].to_ascii_lowercase().contains("i realized"));
+    assert!(cues[1].to_ascii_lowercase().contains("going forward"));
+}
+
+#[test]
+fn extract_reflection_cues_ignores_messages_without_cues() {
+    let msg = "What is the weather today? Also, can you summarise this PR?";
+    assert!(extract_reflection_cues(msg).is_empty());
+}
+
+#[test]
+fn extract_reflection_cues_dedupes_identical_sentences() {
+    let msg = "Remember that I work in PST. Remember that I work in PST.";
+    let cues = extract_reflection_cues(msg);
+    assert_eq!(cues.len(), 1);
+}
+
+#[tokio::test]
+async fn on_turn_complete_persists_heuristic_reflection_even_when_complexity_low() {
+    let memory_impl = Arc::new(MockMemory::default());
+    let memory: Arc<dyn Memory> = memory_impl.clone();
+    // Pin the source to local + threshold high so the LLM path is
+    // skipped and we observe ONLY the heuristic capture.
+    let mut cfg = reflection_config();
+    cfg.min_turn_complexity = 99;
+    cfg.reflection_source = ReflectionSource::Local;
+    let hook = ReflectionHook::new(cfg, Arc::new(Config::default()), memory, None);
+
+    let turn = TurnContext {
+        user_message: "Going forward I want concise replies only.".into(),
+        assistant_response: "ok".into(),
+        tool_calls: Vec::new(),
+        turn_duration_ms: 10,
+        session_id: Some("s".into()),
+        iteration_count: 1,
+    };
+    // The LLM path is gated off by complexity, so the call returns Ok
+    // even without a provider — only the heuristic should write.
+    hook.on_turn_complete(&turn).await.unwrap();
+
+    let keys: Vec<String> = memory_impl.entries.lock().keys().cloned().collect();
+    assert!(
+        keys.iter().any(|k| k.starts_with("ref/")),
+        "heuristic capture should persist a reflection without LLM round-trip"
+    );
 }
 
 #[tokio::test]

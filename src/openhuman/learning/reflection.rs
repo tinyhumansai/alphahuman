@@ -13,6 +13,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Memory namespace + custom-category tag for explicit user reflections.
+///
+/// Distinct from `learning_observations` (agent-extracted) and
+/// `user_profile` (preference facts) — these are sentences the user
+/// authored about themselves that should steer future agent behaviour.
+pub const REFLECTIONS_NAMESPACE: &str = "learning_reflections";
+
 /// Structured output expected from the reflection LLM call.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ReflectionOutput {
@@ -22,6 +29,12 @@ pub struct ReflectionOutput {
     pub patterns: Vec<String>,
     #[serde(default)]
     pub user_preferences: Vec<String>,
+    /// Explicit user reflections lifted out of the conversation — the
+    /// user's own intentional self-statements ("I realized…", "going
+    /// forward…", "remember that I…"). Stored as a distinct memory
+    /// class and rendered in the prompt above generic tree summaries.
+    #[serde(default)]
+    pub user_reflections: Vec<String>,
 }
 
 /// Post-turn hook that reflects on completed turns and stores observations.
@@ -98,7 +111,12 @@ impl ReflectionHook {
              Return a JSON object with these fields:\n\
              - \"observations\": array of strings — what worked, what failed, notable patterns\n\
              - \"patterns\": array of strings — recurring patterns worth remembering\n\
-             - \"user_preferences\": array of strings — any user preferences detected\n\n\
+             - \"user_preferences\": array of strings — any user preferences detected\n\
+             - \"user_reflections\": array of strings — explicit reflections the user \
+             made about themselves, their goals, what they want to do differently, \
+             or what they want you to remember going forward. Only include statements \
+             the user clearly authored as a reflection (\"I realized…\", \"remember that I…\", \
+             \"going forward I want…\"). Leave empty if none.\n\n\
              Keep each entry concise (one sentence). Return ONLY valid JSON, no markdown.\n\n",
         );
 
@@ -174,6 +192,7 @@ impl ReflectionHook {
                 observations: vec![trimmed.to_string()],
                 patterns: Vec::new(),
                 user_preferences: Vec::new(),
+                user_reflections: Vec::new(),
             }
         })
     }
@@ -230,8 +249,103 @@ impl ReflectionHook {
                 .await?;
         }
 
+        // Explicit user reflections — privileged memory class. Stored in a
+        // dedicated namespace so the orchestrator's `fetch_learned_context`
+        // path can retrieve and rank them above generic tree summaries.
+        for reflection in &output.user_reflections {
+            self.persist_reflection(reflection).await?;
+        }
+
         Ok(())
     }
+
+    /// Persist a single reflection sentence into the dedicated namespace.
+    /// Public to the crate so the heuristic fast-path can reuse the same
+    /// storage shape without going through the LLM round-trip.
+    pub(crate) async fn persist_reflection(&self, reflection: &str) -> anyhow::Result<()> {
+        let trimmed = reflection.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let hash = &uuid::Uuid::new_v4().to_string()[..8];
+        let key = format!("ref/{date}/{hash}");
+        self.memory
+            .store(
+                REFLECTIONS_NAMESPACE,
+                &key,
+                trimmed,
+                MemoryCategory::Custom(REFLECTIONS_NAMESPACE.into()),
+                None,
+            )
+            .await?;
+        log::debug!(
+            "[learning] stored user reflection at {key} ({} chars)",
+            trimmed.chars().count()
+        );
+        Ok(())
+    }
+}
+
+/// Heuristic detector for explicit reflection cues in a user message.
+///
+/// Returns the trimmed sentences from `user_message` that match a known
+/// reflection cue ("I realized", "going forward", "remember that I",
+/// "I learned", "I want to", "I've decided"). Used as a fast-path so
+/// reflections get captured even when the post-turn LLM reflection is
+/// throttled, disabled, or routed to a slow cloud model.
+///
+/// The detector is intentionally conservative — false positives would
+/// flood the privileged reflection namespace and dilute its signal.
+pub fn extract_reflection_cues(user_message: &str) -> Vec<String> {
+    const CUES: &[&str] = &[
+        "i realized",
+        "i realised",
+        "i learned",
+        "i learnt",
+        "i've decided",
+        "i have decided",
+        "going forward",
+        "from now on",
+        "remember that i",
+        "remember i",
+        "please remember",
+        "i want you to remember",
+    ];
+
+    let mut hits: Vec<String> = Vec::new();
+    for sentence in split_sentences(user_message) {
+        let lower = sentence.to_ascii_lowercase();
+        if CUES.iter().any(|cue| lower.contains(cue)) {
+            let trimmed = sentence.trim();
+            if !trimmed.is_empty() && !hits.iter().any(|h| h == trimmed) {
+                hits.push(trimmed.to_string());
+            }
+        }
+    }
+    hits
+}
+
+/// Split free text into sentence-shaped chunks on `.`, `!`, `?`, and
+/// newlines. Cheap and good enough for cue detection — full NLP is
+/// overkill for matching a known short cue list.
+fn split_sentences(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for ch in text.chars() {
+        if matches!(ch, '.' | '!' | '?' | '\n') {
+            if !buf.trim().is_empty() {
+                out.push(buf.trim().to_string());
+            }
+            buf.clear();
+        } else {
+            buf.push(ch);
+        }
+    }
+    if !buf.trim().is_empty() {
+        out.push(buf.trim().to_string());
+    }
+    out
 }
 
 #[async_trait]
@@ -241,6 +355,19 @@ impl PostTurnHook for ReflectionHook {
     }
 
     async fn on_turn_complete(&self, ctx: &TurnContext) -> anyhow::Result<()> {
+        // Fast-path heuristic capture — runs whenever the learning
+        // subsystem is on, regardless of turn complexity, so single-turn
+        // reflections like "remember that I prefer terse answers" are
+        // promoted to the privileged reflection namespace without paying
+        // for a reflection-LLM round-trip.
+        if self.config.enabled {
+            for cue in extract_reflection_cues(&ctx.user_message) {
+                if let Err(e) = self.persist_reflection(&cue).await {
+                    log::warn!("[learning] failed to persist heuristic reflection: {e}");
+                }
+            }
+        }
+
         if !self.should_reflect(ctx) {
             return Ok(());
         }
