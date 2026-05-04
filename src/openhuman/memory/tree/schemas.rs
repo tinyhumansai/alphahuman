@@ -18,6 +18,8 @@ use crate::rpc::RpcOutcome;
 
 const NAMESPACE: &str = "memory_tree";
 
+/// All `memory_tree` controller schemas, used by the registry to advertise
+/// inputs/outputs to CLI + JSON-RPC consumers.
 pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     vec![
         schemas("ingest"),
@@ -27,6 +29,8 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
     ]
 }
 
+/// Registered `memory_tree` controllers (schema + handler pairs) wired into
+/// `core::all`.
 pub fn all_registered_controllers() -> Vec<RegisteredController> {
     vec![
         RegisteredController {
@@ -48,6 +52,7 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
     ]
 }
 
+/// Lookup the [`ControllerSchema`] for a single `memory_tree` function name.
 pub fn schemas(function: &str) -> ControllerSchema {
     match function {
         "ingest" => ControllerSchema {

@@ -1,3 +1,7 @@
+//! Worker pool: claims jobs from `mem_tree_jobs`, dispatches them through
+//! [`handlers::handle_job`], and settles the row. A small global semaphore
+//! caps concurrent LLM-bound work; non-LLM jobs run unrestricted.
+
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -16,6 +20,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 static WORKER_NOTIFY: OnceLock<Arc<Notify>> = OnceLock::new();
 static STARTED: std::sync::Once = std::sync::Once::new();
 
+/// Notify any idle workers so they re-poll immediately instead of waiting
+/// out [`POLL_INTERVAL`]. Cheap no-op before [`start`] has run.
 pub fn wake_workers() {
     if let Some(notify) = WORKER_NOTIFY.get() {
         notify.notify_waiters();
@@ -67,12 +73,28 @@ pub fn start(config: Config) {
     });
 }
 
+/// Claim and run a single job. Returns `true` when work was processed,
+/// `false` when no eligible row was available. Test entry point — the
+/// production worker loop calls [`run_once_with_semaphore`] directly.
 pub async fn run_once(config: &Config) -> Result<bool> {
     let llm_slots = Arc::new(Semaphore::new(1));
     run_once_with_semaphore(config, llm_slots).await
 }
 
 async fn run_once_with_semaphore(config: &Config, llm_slots: Arc<Semaphore>) -> Result<bool> {
+    // Cooperative throttle BEFORE `claim_next()`. Holding the DB claim
+    // across an awaited `wait_for_capacity()` would let `Paused` mode
+    // sit on the row past `DEFAULT_LOCK_DURATION_MS`, after which
+    // `recover_stale_locks()` would requeue it for another worker to
+    // pick up — duplicating side effects. Throttling here means
+    // non-LLM jobs (AppendBuffer/FlushStale) also experience the same
+    // gate delay, but that's fine: in Throttled mode the host is
+    // already overloaded and a 30s breather between any DB-write batch
+    // is welcome; in Paused mode the user has explicitly asked us to
+    // stand down. Returns immediately in Aggressive/Normal so plugged-in
+    // desktops with headroom pay zero cost.
+    crate::openhuman::scheduler_gate::wait_for_capacity().await;
+
     let Some(job) = claim_next(config, DEFAULT_LOCK_DURATION_MS)? else {
         return Ok(false);
     };

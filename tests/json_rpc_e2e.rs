@@ -981,6 +981,10 @@ async fn json_rpc_memory_sync_and_learn() {
         "missing channel_id must return an error, got: {sync_bad}"
     );
 
+    // ── memory.init: explicit one-shot bootstrap (no auto-init fallback) ────
+    let init_resp = post_json_rpc(&rpc_base, 7003, "openhuman.memory_init", json!({})).await;
+    assert_no_jsonrpc_error(&init_resp, "memory_init");
+
     // ── memory_learn_all: no namespaces → zero processed (empty store) ──────
     let learn_all = post_json_rpc(&rpc_base, 7004, "openhuman.memory_learn_all", json!({})).await;
     let learn_result = assert_no_jsonrpc_error(&learn_all, "memory_learn_all");
@@ -1014,6 +1018,26 @@ async fn json_rpc_memory_sync_and_learn() {
             .and_then(Value::as_u64),
         Some(0),
         "non-existent namespace must be filtered out"
+    );
+
+    // ── memory_ingestion_status: idle on a fresh store ──────────────────────
+    let ing_status = post_json_rpc(
+        &rpc_base,
+        7006,
+        "openhuman.memory_ingestion_status",
+        json!({}),
+    )
+    .await;
+    let ing_result = assert_no_jsonrpc_error(&ing_status, "memory_ingestion_status");
+    assert_eq!(
+        ing_result.get("running"),
+        Some(&json!(false)),
+        "ingestion must be idle on a fresh store, got: {ing_result}"
+    );
+    assert_eq!(
+        ing_result.get("queue_depth").and_then(Value::as_u64),
+        Some(0),
+        "queue_depth must be 0 on a fresh store"
     );
 
     mock_join.abort();

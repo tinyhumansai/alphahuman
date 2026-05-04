@@ -517,7 +517,7 @@ impl Tool for ComposioExecuteTool {
         }
 
         let started = std::time::Instant::now();
-        let res = self.client.execute_tool(&tool, arguments.clone()).await;
+        let res = self.client.execute_tool(&tool, arguments).await;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         match res {
             Ok(mut resp) => {
@@ -530,30 +530,25 @@ impl Tool for ComposioExecuteTool {
                         elapsed_ms,
                     },
                 );
-                // Per-toolkit post-processing of the upstream payload
-                // (e.g. gmail HTML → markdown). Only run on successful
-                // responses; errors are passed through verbatim.
-                if resp.successful {
-                    super::providers::init_default_providers();
-                    if let Some(toolkit) = toolkit_from_slug(&tool) {
-                        if let Some(provider) = get_provider(&toolkit) {
-                            tracing::trace!(
-                                toolkit = toolkit.as_str(),
-                                tool = tool.as_str(),
-                                has_args = arguments.is_some(),
-                                "[composio_execute] post-processing action result"
-                            );
-                            provider.post_process_action_result(
-                                &tool,
-                                arguments.as_ref(),
-                                &mut resp.data,
-                            );
-                        }
+                // Prefer the backend-rendered markdown when available
+                // (tinyhumansai/backend#683). The backend handles parsing
+                // for all composio actions; if a tool isn't formatted
+                // server-side `markdown_formatted` is None and we fall
+                // back to the raw JSON envelope.
+                let body = if resp.successful {
+                    match resp
+                        .markdown_formatted
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        Some(md) => md.to_string(),
+                        None => serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
                     }
-                }
-                Ok(ToolResult::success(
-                    serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into()),
-                ))
+                } else {
+                    serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into())
+                };
+                Ok(ToolResult::success(body))
             }
             Err(e) => {
                 crate::core::event_bus::publish_global(

@@ -44,8 +44,6 @@ pub struct MemoryConfig {
     #[serde(default = "default_min_relevance_score")]
     pub min_relevance_score: f64,
     #[serde(default)]
-    pub response_cache_enabled: bool,
-    #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
 }
 
@@ -71,7 +69,6 @@ impl Default for MemoryConfig {
             embedding_model: default_embedding_model(),
             embedding_dimensions: default_embedding_dims(),
             min_relevance_score: default_min_relevance_score(),
-            response_cache_enabled: false,
             sqlite_open_timeout_secs: None,
         }
     }
@@ -138,7 +135,7 @@ pub struct MemoryTreeConfig {
     pub llm_extractor_timeout_ms: Option<u64>,
 
     /// Ollama endpoint for the summariser
-    /// (`memory::tree::source_tree::summariser::llm::LlmSummariser`).
+    /// (`memory::tree::tree_source::summariser::llm::LlmSummariser`).
     /// When unset, bucket-seal cascades use `InertSummariser` — sealed
     /// nodes contain concatenated+truncated child text instead of a
     /// real LLM summary. Soft failures fall back to inert per seal.

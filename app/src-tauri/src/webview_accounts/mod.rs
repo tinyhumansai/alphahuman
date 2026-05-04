@@ -225,6 +225,30 @@ fn popup_should_stay_in_app(provider: &str, url: &Url) -> bool {
     }
 }
 
+/// `true` if `scheme` is a known provider native-desktop-app deep-link
+/// scheme. We suppress these instead of routing them to the system
+/// browser because macOS hands them to the native provider app
+/// (e.g. `slack://magic-login/<token>` signs the native Slack app into
+/// the workspace, breaking embedded-webview isolation: the workspace's
+/// session ends up inside the native client even though the user only
+/// signed in via OpenHuman's embedded webview).
+///
+/// The HTTPS fallback in each provider's web flow handles sign-in
+/// without the deep link, so suppression is safe — the page just
+/// continues on the next link in the sequence.
+///
+/// Caller contract: only suppress when [`rewrite_provider_deep_link`]
+/// has already returned `None` for the URL. Schemes we DO know how to
+/// rewrite into a web-client URL (e.g. `zoomus://`) must take the
+/// rewrite path first; those flows expect to stay in-app, not be
+/// silently dropped.
+fn is_provider_native_deep_link_scheme(scheme: &str) -> bool {
+    matches!(
+        scheme,
+        "slack" | "discord" | "tg" | "msteams" | "zoomus" | "zoommtg"
+    )
+}
+
 /// `true` if a popup request should be denied AND the parent webview
 /// should be navigated to the popup URL instead.
 ///
@@ -300,6 +324,10 @@ fn redact_navigation_url(url: &Url) -> String {
     safe.set_query(None);
     safe.set_fragment(None);
     safe.to_string()
+}
+
+fn redact_native_deep_link_url(url: &Url) -> String {
+    format!("{}://<redacted>", url.scheme())
 }
 /// Unwrap provider-side "link safety" redirects so the system browser
 /// lands on the real destination.
@@ -1554,6 +1582,20 @@ pub async fn webview_account_open<R: Runtime>(
         if url_is_internal(&nav_provider, url) {
             true
         } else {
+            // Suppress provider native-desktop-app deep-link schemes that
+            // we don't know how to rewrite. macOS would otherwise hand
+            // these to the native provider app — `slack://magic-login/…`
+            // signs the native Slack app into the workspace, breaking
+            // embedded-webview isolation (#1074). The web flow's HTTPS
+            // fallback handles sign-in without the deep link.
+            if is_provider_native_deep_link_scheme(url.scheme()) {
+                log::warn!(
+                    "[webview-accounts] suppressing native-app deep-link scheme={} url={} (would breach workspace isolation)",
+                    url.scheme(),
+                    redact_native_deep_link_url(url)
+                );
+                return false;
+            }
             let target = unwrap_provider_redirect(url)
                 .map(|u| u.to_string())
                 .unwrap_or_else(|| url.to_string());
@@ -1638,6 +1680,19 @@ pub async fn webview_account_open<R: Runtime>(
             );
             NewWindowResponse::Allow
         } else {
+            // Suppress provider native-desktop-app deep-link schemes that
+            // we don't know how to rewrite (matches the on_navigation
+            // fallback). Without this, a `slack://...` popup would land
+            // in the native Slack app via macOS's URL handler and
+            // breach embedded-webview workspace isolation (#1074).
+            if is_provider_native_deep_link_scheme(url.scheme()) {
+                log::warn!(
+                    "[webview-accounts] suppressing native-app deep-link scheme={} url={} (would breach workspace isolation)",
+                    url.scheme(),
+                    redact_native_deep_link_url(&url)
+                );
+                return NewWindowResponse::Deny;
+            }
             let target = unwrap_provider_redirect(&url)
                 .map(|u| u.to_string())
                 .unwrap_or_else(|| url.to_string());
@@ -2080,25 +2135,76 @@ pub async fn webview_account_purge<R: Runtime>(
         .remove(&args.account_id);
 
     let data_dir = data_directory_for(&app, &args.account_id)?;
-    if data_dir.exists() {
-        if let Err(err) = std::fs::remove_dir_all(&data_dir) {
-            // WKWebView can keep handles open briefly after `close()` — log
-            // and keep going rather than failing the logout outright.
-            log::warn!(
-                "[webview-accounts] purge remove_dir_all {} failed: {}",
-                data_dir.display(),
-                err
-            );
-        } else {
-            log::info!("[webview-accounts] purged data dir {}", data_dir.display());
-        }
-    }
+    purge_data_dir_with_retry(&data_dir)
+        .await
+        .map_err(|e| format!("purge data dir {}: {e}", data_dir.display()))?;
 
     log::info!(
         "[webview-accounts] purged account={} label={:?}",
         args.account_id,
         label_opt
     );
+    Ok(())
+}
+
+/// CEF / WKWebView holds file handles briefly after `wv.close()` returns,
+/// so a single `remove_dir_all` racing the close call routinely fails on
+/// macOS and leaves the per-account cookie jar on disk. Re-adding the same
+/// account after a logout then lands the user already signed in (#1076).
+///
+/// Retry the deletion a handful of times with exponential backoff so the
+/// subprocess has a chance to drop its handles. Logs every attempt so a
+/// stuck handle is diagnosable from the audit log.
+async fn purge_data_dir_with_retry(data_dir: &std::path::Path) -> std::io::Result<()> {
+    if !data_dir.exists() {
+        return Ok(());
+    }
+    const MAX_ATTEMPTS: u32 = 5;
+    const INITIAL_BACKOFF_MS: u64 = 100;
+    let mut backoff = INITIAL_BACKOFF_MS;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match std::fs::remove_dir_all(data_dir) {
+            Ok(()) => {
+                log::info!(
+                    "[webview-accounts] purged data dir {} (attempt {}/{})",
+                    data_dir.display(),
+                    attempt,
+                    MAX_ATTEMPTS
+                );
+                return Ok(());
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                log::info!(
+                    "[webview-accounts] purge data dir {} already removed before attempt {}/{}",
+                    data_dir.display(),
+                    attempt,
+                    MAX_ATTEMPTS
+                );
+                return Ok(());
+            }
+            Err(err) if attempt < MAX_ATTEMPTS => {
+                log::debug!(
+                    "[webview-accounts] purge remove_dir_all {} attempt {}/{} failed: {} — retrying in {}ms",
+                    data_dir.display(),
+                    attempt,
+                    MAX_ATTEMPTS,
+                    err,
+                    backoff
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
+                backoff *= 2;
+            }
+            Err(err) => {
+                log::warn!(
+                    "[webview-accounts] purge remove_dir_all {} failed after {} attempts: {} — cookies may persist; cross-launch fallback handled by schedule_cef_profile_purge",
+                    data_dir.display(),
+                    MAX_ATTEMPTS,
+                    err
+                );
+                return Err(err);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -2681,6 +2787,87 @@ mod tests {
         .is_none());
     }
 
+    // ── is_provider_native_deep_link_scheme: native-app suppression ───
+    //
+    // These guard the workspace-isolation contract from #1074: provider
+    // native-desktop-app deep-link schemes must NEVER reach the system
+    // browser, because macOS hands them off to the native provider app
+    // which then signs the user into the workspace using session tokens
+    // intended only for the embedded webview (see slack://magic-login
+    // smoking gun in the #1074 trace).
+
+    #[test]
+    fn deep_link_scheme_matches_known_provider_native_apps() {
+        // Slack desktop ("slack://T01.../magic-login/<token>")
+        assert!(is_provider_native_deep_link_scheme("slack"));
+        // Discord desktop
+        assert!(is_provider_native_deep_link_scheme("discord"));
+        // Telegram desktop ("tg://join?invite=…")
+        assert!(is_provider_native_deep_link_scheme("tg"));
+        // Microsoft Teams
+        assert!(is_provider_native_deep_link_scheme("msteams"));
+        // Zoom client (both variants registered by the installer)
+        assert!(is_provider_native_deep_link_scheme("zoomus"));
+        assert!(is_provider_native_deep_link_scheme("zoommtg"));
+    }
+
+    #[test]
+    fn deep_link_scheme_rejects_legitimate_external_schemes() {
+        // HTTP(S) — the bread-and-butter external link.
+        assert!(!is_provider_native_deep_link_scheme("https"));
+        assert!(!is_provider_native_deep_link_scheme("http"));
+        // Mail clients are legit external — must NOT be suppressed.
+        assert!(!is_provider_native_deep_link_scheme("mailto"));
+        // Telephone / sms are legit external too.
+        assert!(!is_provider_native_deep_link_scheme("tel"));
+        assert!(!is_provider_native_deep_link_scheme("sms"));
+        // about: / data: / blob: handled elsewhere; never deep-link.
+        assert!(!is_provider_native_deep_link_scheme("about"));
+        assert!(!is_provider_native_deep_link_scheme("data"));
+        assert!(!is_provider_native_deep_link_scheme("blob"));
+        // Empty / unrelated string.
+        assert!(!is_provider_native_deep_link_scheme(""));
+        assert!(!is_provider_native_deep_link_scheme("file"));
+    }
+
+    #[test]
+    fn deep_link_scheme_matches_real_world_slack_magic_login_url() {
+        // Real slack://-flavoured magic-login URL recorded in the
+        // #1074 CDP trace. The handler must catch it before
+        // open_in_system_browser is reached.
+        let parsed = url("slack://T01CWHNCJ9Z/magic-login/11035712490054-abc");
+        assert!(is_provider_native_deep_link_scheme(parsed.scheme()));
+    }
+
+    #[test]
+    fn deep_link_scheme_does_not_match_https_app_slack_com() {
+        // The web-flow URL stays untouched — only the slack:// scheme is
+        // suppressed; ordinary HTTPS slack navigations route normally.
+        let parsed = url("https://app.slack.com/client/T01CWHNCJ9Z");
+        assert!(!is_provider_native_deep_link_scheme(parsed.scheme()));
+    }
+
+    /// Locks the contract that zoomus:// stays on the rewrite path
+    /// (handled by `rewrite_provider_deep_link` for the "zoom" provider)
+    /// rather than being silently suppressed.
+    ///
+    /// The wiring in on_navigation / on_new_window calls
+    /// `rewrite_provider_deep_link` BEFORE the suppress check, so a
+    /// rewriteable scheme is rewritten and never reaches the suppress
+    /// branch. This test pins both halves of that contract: the rewrite
+    /// still succeeds for zoom, AND the scheme is recognised as a
+    /// native-app deep-link (so if a future provider config dropped the
+    /// rewrite, suppression would be the safe fallback rather than
+    /// leaking to the system browser).
+    #[test]
+    fn zoomus_join_still_rewrites_and_is_recognized_as_native_scheme() {
+        let zoom_url = url("zoomus://zoom.us/join?action=join&confno=9819254358");
+        assert!(is_provider_native_deep_link_scheme(zoom_url.scheme()));
+        let rewritten = rewrite_provider_deep_link("zoom", &zoom_url)
+            .expect("zoom rewrite should still succeed before suppress branch");
+        assert_eq!(rewritten.as_str(), "https://app.zoom.us/wc/join/9819254358");
+    }
+
     #[test]
     fn rewrite_percent_encodes_reserved_chars_in_pwd() {
         // Zoom tokens commonly contain `&` / `=` / `%` / `#` / `+` which
@@ -2877,5 +3064,46 @@ mod tests {
             "https://accounts.google.com/o/oauth2/v2/auth?code=secret#frag",
         ));
         assert_eq!(redacted, "https://accounts.google.com/o/oauth2/v2/auth");
+    }
+
+    // ── purge_data_dir_with_retry ──────────────────────────────────
+
+    #[tokio::test]
+    async fn purge_data_dir_with_retry_noop_when_missing() {
+        let dir = std::env::temp_dir().join(format!("openhuman-purge-noop-{}", std::process::id()));
+        // Sanity: dir must NOT exist
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!dir.exists());
+
+        // Should return without error or panic.
+        purge_data_dir_with_retry(&dir)
+            .await
+            .expect("missing dir should be treated as success");
+
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn purge_data_dir_with_retry_removes_existing_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "openhuman-purge-existing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("nested/dir")).expect("create test dir");
+        std::fs::write(dir.join("cookies.json"), b"{\"sid\":\"abc\"}")
+            .expect("write test cookie file");
+        std::fs::write(dir.join("nested/dir/local.storage"), b"key=value")
+            .expect("write nested file");
+        assert!(dir.exists());
+
+        purge_data_dir_with_retry(&dir)
+            .await
+            .expect("existing dir should be removed");
+
+        assert!(!dir.exists(), "data dir should be removed");
     }
 }

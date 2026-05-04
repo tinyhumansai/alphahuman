@@ -102,6 +102,8 @@ pub struct LlmEntityExtractor {
 }
 
 impl LlmEntityExtractor {
+    /// Build the extractor and its inner HTTP client. Fails only when
+    /// `reqwest` rejects the timeout configuration.
     pub fn new(cfg: LlmExtractorConfig) -> anyhow::Result<Self> {
         let http = Client::builder()
             .timeout(cfg.timeout)
