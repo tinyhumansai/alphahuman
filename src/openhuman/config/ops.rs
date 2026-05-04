@@ -31,7 +31,27 @@ const CONFIG_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// indefinitely if disk I/O is blocked.
 pub async fn load_config_with_timeout() -> Result<Config, String> {
     match tokio::time::timeout(CONFIG_LOAD_TIMEOUT, Config::load_or_init()).await {
-        Ok(Ok(config)) => Ok(config),
+        Ok(Ok(mut config)) => {
+            // [#1123] Normalize legacy configs at load time: existing users who
+            // completed onboarding before the Joyride migration may have
+            // onboarding_completed=true but chat_onboarding_completed=false.
+            // Without this, pick_target_agent_id() still routes them to the
+            // welcome agent on every chat message.
+            if config.onboarding_completed && !config.chat_onboarding_completed {
+                tracing::info!(
+                    "[config] normalizing legacy onboarding state: setting \
+                     chat_onboarding_completed=true (Joyride migration)"
+                );
+                config.chat_onboarding_completed = true;
+                // Best-effort persist — don't fail the load if save errors.
+                if let Err(e) = config.save().await {
+                    tracing::warn!(
+                        "[config] failed to persist onboarding normalization: {e}"
+                    );
+                }
+            }
+            Ok(config)
+        }
         Ok(Err(e)) => Err(e.to_string()),
         Err(_) => Err("Config loading timed out".to_string()),
     }
@@ -618,19 +638,8 @@ pub async fn set_onboarding_completed(value: bool) -> Result<RpcOutcome<bool>, S
         config.chat_onboarding_completed = true;
     }
 
-    // [#1123] Normalize legacy configs: existing users who completed onboarding
-    // before the Joyride migration may have onboarding_completed=true but
-    // chat_onboarding_completed=false (because the welcome-agent never ran or
-    // was never given a chance to call complete_onboarding). Fix them here so
-    // they are not put into the old welcome-lock state on upgrade.
-    if config.onboarding_completed && !config.chat_onboarding_completed {
-        tracing::debug!(
-            "[onboarding] legacy config detected: onboarding_completed=true but \
-             chat_onboarding_completed=false — normalizing to true \
-             (Joyride walkthrough migration)"
-        );
-        config.chat_onboarding_completed = true;
-    }
+    // [#1123] Legacy normalization moved to load_config_with_timeout() so it
+    // catches ALL code paths (routing, snapshots, etc.), not just this function.
 
     config.save().await.map_err(|e| e.to_string())?;
 
