@@ -50,10 +50,15 @@ of how many namespaces a workspace accumulates.
 - **Stepped, not freeform.** The presets are deliberately discrete so the UX
   copy (`Minimal` / `Balanced` / `Extended` / `Maximum`) and the actual
   budgets line up. There is no raw "memory budget" slider in the UI.
-- **Backward-compat raw override.** Existing power-user configs that set the
-  legacy `agent.max_memory_context_chars` to a value larger than the active
-  preset's recall cap still get the larger value (clamped to the global
-  `Maximum` preset cap) — see `resolved_memory_limits`.
+- **Backward-compat raw override (unmigrated configs only).** A config from
+  before this setting existed deserializes with `memory_window = None`. While
+  unmigrated, the resolver falls back to the legacy
+  `agent.max_memory_context_chars` for the recall cap (clamped to the
+  `Maximum` preset's ceiling). The first time a preset is written — by the UI
+  or by any client — `memory_window` becomes `Some(...)` and the preset is
+  authoritative; the legacy raw field is then ignored entirely. This means
+  picking `Minimal` in the UI on a config that previously had a wider raw
+  value really does shrink injection size.
 - **Safety bound.** The `maximum` preset is the absolute ceiling. No code path
   in the harness reads memory caps from anywhere other than
   `resolved_memory_limits`, so this ceiling is the single fact to audit.

@@ -131,19 +131,25 @@ pub struct AgentConfig {
     pub max_parallel_tools: usize,
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
-    /// Maximum characters of memory context to inject per turn.
-    /// Higher values provide richer context but consume more of the context window.
-    ///
-    /// **Note**: prefer [`AgentConfig::memory_window`] for user-facing
-    /// configuration. When `memory_window` is set (the default —
-    /// `Balanced`), it overrides this raw value via
-    /// [`AgentConfig::resolved_memory_limits`].
+    /// **Legacy** — maximum characters of memory context to inject per
+    /// turn. Prefer [`AgentConfig::memory_window`]; this field is only
+    /// honoured for unmigrated configs (those that have never set the
+    /// preset). Once a preset is explicitly chosen, the preset is
+    /// authoritative and this value is ignored.
     #[serde(default = "default_max_memory_context_chars")]
     pub max_memory_context_chars: usize,
     /// Stepped user-facing preset that maps to the actual memory
     /// injection budgets. See [`MemoryContextWindow`].
+    ///
+    /// `None` means "no preset has been chosen yet" (e.g. a config
+    /// upgraded from a build that predates this setting). In that
+    /// case [`AgentConfig::resolved_memory_limits`] honours the legacy
+    /// raw `max_memory_context_chars` field for backward compatibility.
+    /// Once the user picks a preset (or any caller writes one) it
+    /// becomes authoritative — the raw field is then ignored, so the
+    /// UI control is the single source of truth from that point on.
     #[serde(default)]
-    pub memory_window: MemoryContextWindow,
+    pub memory_window: Option<MemoryContextWindow>,
     /// Per-channel maximum permission level for tool execution.
     /// Keys are channel names (e.g., "telegram", "discord", "web", "cli").
     /// Values are permission levels: "none", "readonly", "write", "execute", "dangerous".
@@ -187,24 +193,34 @@ fn default_max_memory_context_chars() -> usize {
 impl AgentConfig {
     /// Resolve the active memory-context budgets for this agent config.
     ///
-    /// The user-facing [`MemoryContextWindow`] preset is the source of
-    /// truth. The legacy raw `max_memory_context_chars` field is kept
-    /// for backward compatibility — when a config file explicitly
-    /// overrides it to a value larger than the preset's recall cap, we
-    /// honour the larger of the two (still within the preset's other
-    /// caps) so existing power-user configs don't silently shrink. We
-    /// never grow above the preset's other caps.
+    /// Two cases:
+    ///
+    /// 1. **Preset chosen** (`memory_window = Some(_)`) — the preset is
+    ///    authoritative. The legacy raw `max_memory_context_chars`
+    ///    field is ignored entirely. This is the steady-state path: the
+    ///    UI control is the single source of truth.
+    ///
+    /// 2. **Unmigrated config** (`memory_window = None`) — fall back to
+    ///    the legacy raw `max_memory_context_chars` for the recall cap
+    ///    so a config upgraded from an older build keeps its previous
+    ///    recall behaviour. The raw value is still bounded by the
+    ///    `Maximum` preset's recall cap so safety limits are preserved.
+    ///    Tree-summary caps come from the `Balanced` baseline because
+    ///    older builds had no notion of a per-namespace tree cap on
+    ///    this code path.
     pub fn resolved_memory_limits(&self) -> MemoryWindowLimits {
-        let mut limits = self.memory_window.limits();
-        if self.max_memory_context_chars > limits.max_memory_context_chars {
-            // Cap raw overrides at the global Maximum preset to keep
-            // safety bounds intact.
-            let hard_cap = MemoryContextWindow::Maximum
-                .limits()
-                .max_memory_context_chars;
-            limits.max_memory_context_chars = self.max_memory_context_chars.min(hard_cap);
+        match self.memory_window {
+            Some(window) => window.limits(),
+            None => {
+                let mut limits = MemoryContextWindow::Balanced.limits();
+                let hard_cap = MemoryContextWindow::Maximum
+                    .limits()
+                    .max_memory_context_chars;
+                limits.max_memory_context_chars =
+                    self.max_memory_context_chars.min(hard_cap);
+                limits
+            }
         }
-        limits
     }
 }
 
@@ -218,7 +234,7 @@ impl Default for AgentConfig {
             max_parallel_tools: default_max_parallel_tools(),
             tool_dispatcher: default_agent_tool_dispatcher(),
             max_memory_context_chars: default_max_memory_context_chars(),
-            memory_window: MemoryContextWindow::default(),
+            memory_window: None,
             channel_permissions: std::collections::HashMap::new(),
             tool_result_budget_bytes: default_tool_result_budget_bytes(),
         }
@@ -264,9 +280,13 @@ mod memory_window_tests {
     }
 
     #[test]
-    fn default_agent_config_uses_balanced_window() {
+    fn default_agent_config_is_unmigrated_and_resolves_to_balanced_caps() {
+        // Default = `memory_window: None` (unmigrated). The recall cap
+        // falls back to the legacy `max_memory_context_chars` default
+        // (2 000), which matches Balanced — so the resolved limits are
+        // byte-identical to the historical behaviour.
         let cfg = AgentConfig::default();
-        assert_eq!(cfg.memory_window, MemoryContextWindow::Balanced);
+        assert_eq!(cfg.memory_window, None);
         assert_eq!(
             cfg.resolved_memory_limits(),
             MemoryContextWindow::Balanced.limits()
@@ -274,36 +294,73 @@ mod memory_window_tests {
     }
 
     #[test]
-    fn raw_override_widens_recall_cap_but_respects_global_ceiling() {
-        // A power-user config that bumps the legacy raw field to 4 000
-        // while leaving the preset at the Minimal default should see
-        // the larger recall cap honoured.
+    fn explicit_preset_is_authoritative_and_ignores_legacy_raw_field() {
+        // Once Minimal is chosen, the preset's recall cap (800) is what
+        // the harness sees — even if the legacy raw field still holds a
+        // wider value from before the user picked a preset. Without
+        // this, switching to `Minimal` in the UI would silently fail to
+        // shrink the recall budget.
         let cfg = AgentConfig {
-            memory_window: MemoryContextWindow::Minimal,
+            memory_window: Some(MemoryContextWindow::Minimal),
+            max_memory_context_chars: 4_000,
+            ..AgentConfig::default()
+        };
+        assert_eq!(
+            cfg.resolved_memory_limits(),
+            MemoryContextWindow::Minimal.limits(),
+            "explicit preset must override legacy raw field"
+        );
+    }
+
+    #[test]
+    fn unmigrated_config_honours_legacy_raw_field_within_safety_ceiling() {
+        // Unmigrated power-user config with a legacy override of 4 000
+        // keeps that recall cap on upgrade so behaviour doesn't shrink
+        // silently. Tree caps come from the Balanced baseline because
+        // older builds had no per-namespace cap on this code path.
+        let cfg = AgentConfig {
+            memory_window: None,
             max_memory_context_chars: 4_000,
             ..AgentConfig::default()
         };
         let limits = cfg.resolved_memory_limits();
         assert_eq!(limits.max_memory_context_chars, 4_000);
-        // Tree caps still come from the preset.
         assert_eq!(
             limits.per_namespace_max_chars,
-            MemoryContextWindow::Minimal
-                .limits()
-                .per_namespace_max_chars
+            MemoryContextWindow::Balanced.limits().per_namespace_max_chars
         );
 
-        // An attempt to set a wildly larger recall cap is clamped to
-        // the Maximum preset's cap so prompts can't be blown up.
+        // An unbounded legacy value is clamped to the Maximum preset's
+        // recall cap so on-disk overrides can't blow up prompts.
         let runaway = AgentConfig {
-            memory_window: MemoryContextWindow::Minimal,
+            memory_window: None,
             max_memory_context_chars: 1_000_000,
             ..AgentConfig::default()
         };
-        let runaway_limits = runaway.resolved_memory_limits();
         assert_eq!(
-            runaway_limits.max_memory_context_chars,
+            runaway.resolved_memory_limits().max_memory_context_chars,
             MemoryContextWindow::Maximum
+                .limits()
+                .max_memory_context_chars
+        );
+    }
+
+    #[test]
+    fn switching_preset_can_shrink_recall_below_legacy_value() {
+        // Regression for the CodeRabbit concern: an unmigrated config
+        // with a wide legacy override that then explicitly picks
+        // `Minimal` in the UI must end up with the Minimal recall cap,
+        // not the legacy value.
+        let mut cfg = AgentConfig {
+            memory_window: None,
+            max_memory_context_chars: 4_000,
+            ..AgentConfig::default()
+        };
+        assert_eq!(cfg.resolved_memory_limits().max_memory_context_chars, 4_000);
+        cfg.memory_window = Some(MemoryContextWindow::Minimal);
+        assert_eq!(
+            cfg.resolved_memory_limits().max_memory_context_chars,
+            MemoryContextWindow::Minimal
                 .limits()
                 .max_memory_context_chars
         );

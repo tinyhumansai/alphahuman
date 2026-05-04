@@ -270,7 +270,7 @@ async fn apply_memory_settings_updates_all_provided_fields() {
     assert_eq!(cfg.memory.embedding_dimensions, 768);
     assert_eq!(
         cfg.agent.memory_window,
-        crate::openhuman::config::schema::MemoryContextWindow::Extended
+        Some(crate::openhuman::config::schema::MemoryContextWindow::Extended)
     );
 }
 
@@ -278,6 +278,8 @@ async fn apply_memory_settings_updates_all_provided_fields() {
 async fn apply_memory_settings_ignores_unknown_memory_window_label() {
     let tmp = tempdir().unwrap();
     let mut cfg = tmp_config(&tmp);
+    cfg.agent.memory_window =
+        Some(crate::openhuman::config::schema::MemoryContextWindow::Balanced);
     let original = cfg.agent.memory_window;
     let patch = MemorySettingsPatch {
         memory_window: Some("ginormous".into()),
@@ -304,7 +306,7 @@ async fn apply_memory_settings_round_trips_all_window_labels() {
             ..MemorySettingsPatch::default()
         };
         apply_memory_settings(&mut cfg, patch).await.expect("apply");
-        assert_eq!(cfg.agent.memory_window, window);
+        assert_eq!(cfg.agent.memory_window, Some(window));
     }
 }
 

@@ -284,7 +284,7 @@ pub async fn apply_memory_settings(
         if let Some(window) =
             crate::openhuman::config::schema::MemoryContextWindow::from_str_opt(window_label)
         {
-            config.agent.memory_window = window;
+            config.agent.memory_window = Some(window);
         } else {
             tracing::warn!(
                 requested = window_label,
