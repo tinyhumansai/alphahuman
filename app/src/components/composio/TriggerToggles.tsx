@@ -187,6 +187,12 @@ export default function TriggerToggles({
               : requiresConfig
                 ? 'Needs configuration'
                 : '';
+          const action = enabled ? 'Disable' : 'Enable';
+          const triggerName = formatTriggerLabel(entry.slug);
+          const ariaLabel =
+            entry.scope === 'github_repo' && entry.repo
+              ? `${action} ${triggerName} for ${entry.repo.owner}/${entry.repo.repo}`
+              : `${action} ${triggerName}`;
 
           return (
             <li
@@ -201,7 +207,7 @@ export default function TriggerToggles({
                 type="button"
                 role="switch"
                 aria-checked={enabled}
-                aria-label={`${enabled ? 'Disable' : 'Enable'} ${formatTriggerLabel(entry.slug)}`}
+                aria-label={ariaLabel}
                 disabled={disabled}
                 onClick={() => void handleToggle(entry)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
