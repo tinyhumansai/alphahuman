@@ -191,11 +191,11 @@ pub async fn composio_execute(
     tracing::debug!(tool = %tool, "[composio] rpc execute");
     let client = resolve_client(config)?;
     let started = std::time::Instant::now();
-    let result = client.execute_tool(tool, arguments.clone()).await;
+    let result = client.execute_tool(tool, arguments).await;
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
     match result {
-        Ok(mut resp) => {
+        Ok(resp) => {
             crate::core::event_bus::publish_global(
                 crate::core::event_bus::DomainEvent::ComposioActionExecuted {
                     tool: tool.to_string(),
@@ -205,34 +205,12 @@ pub async fn composio_execute(
                     elapsed_ms,
                 },
             );
-            // Mirror the agent-tool path (see `tools::ComposioExecuteTool::execute`):
-            // route through the toolkit's native provider so CLI and JSON-RPC
-            // callers see the same envelope the agent sees (e.g. Gmail HTML →
-            // markdown). `raw_html: true` in `arguments` opts out for
-            // `GMAIL_FETCH_EMAILS`.
-            //
-            // Provider registry is populated by `bus::start_composio_bus` on
-            // the server path; the CLI/RPC one-shot path never boots the bus,
-            // so ensure the built-ins are registered before we look up. The
-            // init fn is idempotent.
-            if resp.successful {
-                super::providers::init_default_providers();
-                if let Some(toolkit) = super::providers::toolkit_from_slug(tool) {
-                    if let Some(provider) = super::providers::get_provider(&toolkit) {
-                        tracing::trace!(
-                            toolkit = toolkit.as_str(),
-                            tool = tool,
-                            has_args = arguments.is_some(),
-                            "[composio] post-processing action result"
-                        );
-                        provider.post_process_action_result(
-                            tool,
-                            arguments.as_ref(),
-                            &mut resp.data,
-                        );
-                    }
-                }
-            }
+            // Backend (tinyhumansai/backend#683) now parses all composio
+            // payloads server-side and returns a `markdownFormatted`
+            // string for known tools, so callers should consume that
+            // directly. Core no longer reshapes `resp.data` here. Memory
+            // ingestion paths still call `post_process_action_result`
+            // explicitly when they need the structured slim envelope.
             Ok(RpcOutcome::new(
                 resp,
                 vec![format!("composio: executed {tool} ({elapsed_ms}ms)")],
