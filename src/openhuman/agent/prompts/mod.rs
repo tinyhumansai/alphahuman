@@ -329,12 +329,22 @@ impl PromptSection for UserFilesSection {
             );
         }
         if ctx.include_memory_md {
-            inject_workspace_file_capped(
-                &mut out,
-                ctx.workspace_dir,
-                "MEMORY.md",
-                USER_FILE_MAX_CHARS,
-            );
+            // Prefer the session-frozen curated-memory snapshot when the
+            // session has taken one — that's the runtime-writable store
+            // behind `curated_memory.add/replace/remove`. Fall back to
+            // the workspace file only when no snapshot is attached (pure
+            // prompt-unit tests and older call sites).
+            if let Some(snap) = &ctx.curated_snapshot {
+                inject_snapshot_content(&mut out, "MEMORY.md", &snap.memory, USER_FILE_MAX_CHARS);
+                inject_snapshot_content(&mut out, "USER.md", &snap.user, USER_FILE_MAX_CHARS);
+            } else {
+                inject_workspace_file_capped(
+                    &mut out,
+                    ctx.workspace_dir,
+                    "MEMORY.md",
+                    USER_FILE_MAX_CHARS,
+                );
+            }
         }
         Ok(out)
     }
@@ -1055,6 +1065,39 @@ fn sync_workspace_file(workspace_dir: &Path, filename: &str) {
 /// (`SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`).
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {
     inject_workspace_file_capped(prompt, workspace_dir, filename, BOOTSTRAP_MAX_CHARS);
+}
+
+/// Inject `content` into `prompt` under a header matching
+/// [`inject_workspace_file_capped`]'s format — so a swap from the
+/// file-based loader to a curated-memory snapshot is byte-compatible
+/// for the output header and truncation semantics.
+///
+/// Empty/whitespace content is silently skipped, mirroring the file
+/// loader's "no noisy placeholder" behaviour.
+fn inject_snapshot_content(prompt: &mut String, label: &str, content: &str, max_chars: usize) {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let _ = writeln!(prompt, "### {label}\n");
+    let truncated = if trimmed.chars().count() > max_chars {
+        trimmed
+            .char_indices()
+            .nth(max_chars)
+            .map(|(idx, _)| &trimmed[..idx])
+            .unwrap_or(trimmed)
+    } else {
+        trimmed
+    };
+    prompt.push_str(truncated);
+    if truncated.len() < trimmed.len() {
+        let _ = writeln!(
+            prompt,
+            "\n\n[... truncated at {max_chars} chars — use `read` for full file]\n"
+        );
+    } else {
+        prompt.push_str("\n\n");
+    }
 }
 
 /// Inject `filename` into `prompt` with an explicit character budget.
