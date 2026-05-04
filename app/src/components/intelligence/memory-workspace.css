@@ -40,7 +40,7 @@
   box-shadow: var(--shadow-rest);
   overflow: hidden;
   font-family:
-    'Inter',
+    Inter,
     -apple-system,
     BlinkMacSystemFont,
     system-ui,
@@ -107,7 +107,7 @@
    the Cabinet Grotesk lowercase tracked treatment which read like a
    magazine masthead in a left-rail context. */
 .mw-section-heading {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: Inter, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -325,7 +325,7 @@
   color: var(--ink-whisper);
 }
 .mw-detail-empty {
-  font-family: 'Cabinet Grotesk', 'Inter', system-ui, sans-serif;
+  font-family: 'Cabinet Grotesk', Inter, system-ui, sans-serif;
 }
 .mw-detail-empty .mw-empty-title {
   font-size: 22px;
@@ -347,7 +347,7 @@
   top: 0;
   z-index: 1;
   background: var(--paper);
-  font-family: 'Cabinet Grotesk', 'Inter', sans-serif;
+  font-family: 'Cabinet Grotesk', Inter, sans-serif;
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -483,7 +483,7 @@
 }
 
 .mw-letter-subject {
-  font-family: 'Cabinet Grotesk', 'Inter', system-ui, sans-serif;
+  font-family: 'Cabinet Grotesk', Inter, system-ui, sans-serif;
   font-size: 22px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -508,7 +508,7 @@
 /* Mentioned section */
 .mw-mentioned-heading,
 .mw-whykept-heading {
-  font-family: 'Cabinet Grotesk', 'Inter', sans-serif;
+  font-family: 'Cabinet Grotesk', Inter, sans-serif;
   font-size: 12px;
   letter-spacing: 0.3em;
   color: var(--ink-whisper);

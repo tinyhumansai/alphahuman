@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ConfirmationModal } from '../components/intelligence/ConfirmationModal';
 import IntelligenceDreamsTab from '../components/intelligence/IntelligenceDreamsTab';
@@ -6,7 +6,6 @@ import IntelligenceSettingsTab from '../components/intelligence/IntelligenceSett
 import IntelligenceSubconsciousTab from '../components/intelligence/IntelligenceSubconsciousTab';
 import { MemoryWorkspace } from '../components/intelligence/MemoryWorkspace';
 import { ToastContainer } from '../components/intelligence/Toast';
-import { filterItems, getItemStats } from '../components/intelligence/utils';
 import PillTabBar from '../components/PillTabBar';
 import { useConsciousItems } from '../hooks/useConsciousItems';
 import {
@@ -15,11 +14,8 @@ import {
 } from '../hooks/useIntelligenceSocket';
 import { useIntelligenceStats } from '../hooks/useIntelligenceStats';
 import { useMemoryIngestionStatus } from '../hooks/useMemoryIngestionStatus';
-import { useScreenIntelligenceItems } from '../hooks/useScreenIntelligenceItems';
 import { useSubconscious } from '../hooks/useSubconscious';
 import type {
-  ActionableItem,
-  ActionableItemSource,
   ConfirmationModal as ConfirmationModalType,
   ToastNotification,
 } from '../types/intelligence';
@@ -31,21 +27,14 @@ export default function Intelligence() {
   const { status: ingestionStatus } = useMemoryIngestionStatus();
 
   const [activeTab, setActiveTab] = useState<IntelligenceTab>('memory');
-  // The actionable-card filters (source / priority / search) are inert
-  // now that IntelligenceMemoryTab is gone — the new MemoryWorkspace owns
-  // its own search + lens state. Kept as constants so the legacy
-  // filterItems pipeline that feeds the header count badge still has the
-  // shape it expects, without exposing setters that nothing calls.
-  const sourceFilter: ActionableItemSource | 'all' = 'all';
-  const priorityFilter: 'critical' | 'important' | 'normal' | 'all' = 'all';
-  const searchFilter = '';
 
-  // Conscious memory items (real data from the background analysis loop)
-  const {
-    items: consciousItems,
-    loading: consciousLoading,
-    isRunning,
-  } = useConsciousItems();
+  // `useConsciousItems` is kept solely for the `isRunning` signal that
+  // drives the system-status pill in the Memory-tab header. The items
+  // themselves used to feed the actionable-cards count badge (now hidden,
+  // and the rendering surface — IntelligenceMemoryTab — is gone). When
+  // the status pill is rewired to a memory_tree-native source, drop this
+  // hook entirely.
+  const { isRunning } = useConsciousItems();
 
   // useUpdateActionableItem / useSnoozeActionableItem hooks were the
   // mutations behind handleComplete / Dismiss / Snooze. Removed along
@@ -93,16 +82,6 @@ export default function Intelligence() {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
 
-  const { items: screenIntelligenceItems, loading: screenIntelligenceLoading } =
-    useScreenIntelligenceItems();
-
-  const items: ActionableItem[] = useMemo(
-    () => [...consciousItems, ...screenIntelligenceItems],
-    [consciousItems, screenIntelligenceItems]
-  );
-
-  const itemsLoading = consciousLoading || screenIntelligenceLoading;
-
   // Initialize socket connection
   useEffect(() => {
     if (!socketConnected) {
@@ -110,37 +89,18 @@ export default function Intelligence() {
     }
   }, [socketConnected, socketManager]);
 
-  // Filter and group items
-  const filteredItems = useMemo(() => {
-    const activeItems = items.filter(item => item.status === 'active');
-    return filterItems(activeItems, {
-      source: sourceFilter,
-      priority: priorityFilter,
-      searchTerm: searchFilter,
-    });
-  }, [items, priorityFilter, searchFilter, sourceFilter]);
-
-  const stats = useMemo(() => getItemStats(filteredItems), [filteredItems]);
-
-  // Item-action handlers (handleComplete / Dismiss / Snooze / AnalyzeNow)
-  // were wired to the legacy IntelligenceMemoryTab's actionable cards,
-  // which the Memory tab no longer renders (it now mounts MemoryWorkspace
-  // — a memory_tree-backed browser). The cards' update / snooze flows
-  // live in IntelligenceSubconsciousTab + IntelligenceDreamsTab via
-  // their own hooks, so Intelligence.tsx no longer needs these closures.
-  // Removed to satisfy noUnusedLocals; reintroduce if a future tab
-  // surfaces actionable-card editing again.
-
-  // System status
+  // System status — `itemsLoading` (the actionable-items + screen-items
+  // loading flag) used to feed the "loading" branch here, but both feeds
+  // are gone now. `isRunning` from useConsciousItems still surfaces the
+  // background analysis loop signal until that pill is rewired to
+  // memory_tree.
   const systemStatus = isRunning
     ? 'loading'
     : socketConnected && aiStatus === 'ready'
       ? 'ready'
-      : itemsLoading
-        ? 'loading'
-        : !socketConnected
-          ? 'disconnected'
-          : aiStatus;
+      : !socketConnected
+        ? 'disconnected'
+        : aiStatus;
 
   const systemStatusLabel = isRunning
     ? 'Analyzing…'
@@ -208,11 +168,14 @@ export default function Intelligence() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <h1 className="text-xl font-bold text-stone-900">Intelligence</h1>
-                {activeTab === 'memory' && stats.total > 0 && (
-                  <div className="text-xs bg-stone-100 text-stone-900 px-2 py-1 rounded-full">
-                    {stats.total}
-                  </div>
-                )}
+                {/* Header count badge was sourced from `stats.total` which
+                    in turn came from the legacy actionable-items pipeline
+                    (`filterItems(items, ...)`). The Memory tab now mounts
+                    `MemoryWorkspace`, which renders chunks from
+                    `memory_tree` and has nothing to do with that pipeline,
+                    so the badge would have shown a count that no longer
+                    matches anything visible. Hidden until a memory_tree
+                    -native count signal is exposed. */}
               </div>
               <div className="flex items-center gap-3">
                 {activeTab === 'memory' && (

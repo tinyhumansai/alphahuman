@@ -40,7 +40,6 @@ import { MemoryNavigator, type NavigatorSelection } from './MemoryNavigator';
 import { MemoryResultList } from './MemoryResultList';
 
 interface MemoryWorkspaceProps {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onToast?: (toast: Omit<ToastNotification, 'id'>) => void;
 }
 
@@ -50,10 +49,7 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
   const [topPeople, setTopPeople] = useState<EntityRef[]>([]);
   const [topTopics, setTopTopics] = useState<EntityRef[]>([]);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
-  const [selection, setSelection] = useState<NavigatorSelection>({
-    sourceIds: [],
-    entityIds: [],
-  });
+  const [selection, setSelection] = useState<NavigatorSelection>({ sourceIds: [], entityIds: [] });
   const [searchQuery, setSearchQuery] = useState('');
 
   // Initial data load.
@@ -98,22 +94,20 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
       return;
     }
     let cancelled = false;
-    void Promise.all(selection.entityIds.map(id => memoryTreeChunksForEntity(id))).then(
-      results => {
-        if (cancelled) {
-          console.debug('[ui-flow][memory-workspace] entity-effect cancelled before commit');
-          return;
-        }
-        const union = new Set<string>();
-        for (const ids of results) for (const id of ids) union.add(id);
-        console.debug(
-          '[ui-flow][memory-workspace] entity-effect commit set_size=%d sample=%o',
-          union.size,
-          [...union].slice(0, 3)
-        );
-        setEntityChunkIds(union);
+    void Promise.all(selection.entityIds.map(id => memoryTreeChunksForEntity(id))).then(results => {
+      if (cancelled) {
+        console.debug('[ui-flow][memory-workspace] entity-effect cancelled before commit');
+        return;
       }
-    );
+      const union = new Set<string>();
+      for (const ids of results) for (const id of ids) union.add(id);
+      console.debug(
+        '[ui-flow][memory-workspace] entity-effect commit set_size=%d sample=%o',
+        union.size,
+        [...union].slice(0, 3)
+      );
+      setEntityChunkIds(union);
+    });
     return () => {
       cancelled = true;
     };
@@ -167,10 +161,7 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
   }, []);
 
   const handleSelectEntity = useCallback((entity: EntityRef) => {
-    console.debug(
-      '[ui-flow][memory-workspace] entity click → activate lens',
-      entity.entity_id
-    );
+    console.debug('[ui-flow][memory-workspace] entity click → activate lens', entity.entity_id);
     setSelection(prev => {
       if (prev.entityIds.includes(entity.entity_id)) return prev;
       return { ...prev, entityIds: [...prev.entityIds, entity.entity_id] };
@@ -274,10 +265,7 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
 
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-4xl px-8 py-6">
-              <MemoryChunkDetail
-                chunk={selectedChunk}
-                onSelectEntity={handleSelectEntity}
-              />
+              <MemoryChunkDetail chunk={selectedChunk} onSelectEntity={handleSelectEntity} />
             </div>
           </div>
         </div>
