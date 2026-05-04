@@ -367,7 +367,9 @@ impl AgentBuilder {
             skills: self.skills.unwrap_or_default(),
             auto_save: self.auto_save.unwrap_or(false),
             last_memory_context: None,
+            last_turn_citations: Vec::new(),
             history: Vec::new(),
+            last_tree_prefetch_at: None,
             post_turn_hooks: self.post_turn_hooks,
             learning_enabled: self.learning_enabled,
             event_session_id: self
@@ -622,6 +624,7 @@ impl Agent {
 
         let provider: Box<dyn Provider> = providers::create_intelligent_routing_provider(
             config.api_url.as_deref(),
+            config.api_key.as_deref(),
             config,
             &provider_runtime_options,
         )?;
@@ -733,6 +736,7 @@ impl Agent {
                     {
                         Some(Arc::from(providers::create_routed_provider(
                             config.api_url.as_deref(),
+                            config.api_key.as_deref(),
                             &config.reliability,
                             &config.model_routes,
                             &model_name,
@@ -1024,8 +1028,12 @@ impl Agent {
             .memory(memory)
             .tool_dispatcher(tool_dispatcher)
             .memory_loader(Box::new(
-                DefaultMemoryLoader::new(5, config.memory.min_relevance_score)
-                    .with_max_chars(config.agent.max_memory_context_chars),
+                DefaultMemoryLoader::new(5, config.memory.min_relevance_score).with_max_chars(
+                    config
+                        .agent
+                        .resolved_memory_limits()
+                        .max_memory_context_chars,
+                ),
             ))
             .prompt_builder(prompt_builder)
             .config(config.agent.clone())

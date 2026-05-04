@@ -69,6 +69,69 @@ pub struct WebChannelEvent {
     /// `tool_result` events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Optional citations attached to `chat_done` payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub citations: Option<serde_json::Value>,
+    /// Sub-agent specific progress detail. Populated on
+    /// `subagent_spawned`, `subagent_completed`, `subagent_iteration_start`,
+    /// `subagent_tool_call`, and `subagent_tool_result` events so the UI
+    /// can attribute child activity to the parent's live subagent row
+    /// without overloading the flat top-level fields. `None` for any
+    /// non-subagent event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<SubagentProgressDetail>,
+}
+
+/// Per-event subagent progress detail attached to `WebChannelEvent`.
+///
+/// Carries the fields the parent thread's UI needs to render a live
+/// subagent block — child iteration counters, mode, child task/agent
+/// ids when distinct from the flat `tool_name` (which already carries
+/// the agent id on top-level subagent events but not on nested
+/// `subagent_tool_*` events where `tool_name` is the *child's* tool),
+/// and final-run statistics on `subagent_completed`.
+///
+/// Every field is optional and skipped from the JSON payload when
+/// absent — this keeps the wire format compact for non-subagent events
+/// (where the whole struct is `None`) and lets new fields land
+/// non-breakingly behind older clients.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SubagentProgressDetail {
+    /// Resolved spawn mode — `"typed"` or `"fork"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Whether the spawn requested a dedicated worker thread.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedicated_thread: Option<bool>,
+    /// Character length of the delegation prompt (on `subagent_spawned`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_chars: Option<u64>,
+    /// Sub-agent's child iteration counter (on `subagent_iteration_start`,
+    /// `subagent_tool_call`, `subagent_tool_result`). 1-based.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_iteration: Option<u32>,
+    /// Sub-agent's configured iteration cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_max_iterations: Option<u32>,
+    /// Child agent id (on nested `subagent_tool_*` events where the flat
+    /// `tool_name` is the child's tool, not the agent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Spawn task id (on nested `subagent_tool_*` events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// Elapsed wall-clock for the call/run in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+    /// Total iterations the sub-agent used (on `subagent_completed`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<u32>,
+    /// Character length of the sub-agent's final assistant text
+    /// (on `subagent_completed`) or the tool result
+    /// (on `subagent_tool_result`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_chars: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,11 +301,12 @@ pub fn attach_socketio() -> (socketioxide::layer::SocketIoLayer, SocketIo) {
 
 /// Spawns background bridges to forward various system events to Socket.IO clients.
 ///
-/// This function sets up four bridges:
+/// This function sets up five bridges:
 /// 1. **Web Channel Bridge**: Forwards chat-related events (messages, tool calls) to specific clients.
 /// 2. **Dictation Bridge**: Forwards hotkey events to all clients.
 /// 3. **Overlay Bridge**: Forwards attention bubble events to all clients.
-/// 4. **Transcription Bridge**: Forwards real-time speech-to-text results to all clients.
+/// 4. **Core Notification Bridge**: Forwards core notification events to all clients.
+/// 5. **Transcription Bridge**: Forwards real-time speech-to-text results to all clients.
 pub fn spawn_web_channel_bridge(io: SocketIo) {
     // 1. Web channel events → per-client rooms.
     let io_web = io.clone();
@@ -266,8 +330,9 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
         log::debug!("[socketio] web_channel bridge stopped");
     });
 
-    let io_transcription = io.clone();
     let io_overlay = io.clone();
+    let io_notify = io.clone();
+    let io_transcription = io.clone();
 
     // 2. Dictation hotkey events → broadcast to all connected clients.
     tokio::spawn(async move {
@@ -323,7 +388,39 @@ pub fn spawn_web_channel_bridge(io: SocketIo) {
         log::debug!("[socketio] overlay attention bridge stopped");
     });
 
-    // 4. Transcription results → broadcast to all connected clients.
+    // 4. Core notification events → broadcast to all connected clients so
+    //    the in-app notification center picks them up regardless of which
+    //    chat session is active. Pattern mirrors the overlay attention
+    //    bridge above — fire-and-forget, no per-client routing.
+    tokio::spawn(async move {
+        let mut rx = crate::openhuman::notifications::subscribe_core_notifications();
+        loop {
+            let event = match rx.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    log::warn!(
+                        "[socketio] dropped {} core_notification events due to lag",
+                        skipped
+                    );
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
+
+            if let Ok(payload) = serde_json::to_value(&event) {
+                log::debug!(
+                    "[socketio] broadcast core_notification id={} category={:?}",
+                    event.id,
+                    event.category
+                );
+                let _ = io_notify.emit("core_notification", &payload);
+                let _ = io_notify.emit("core:notification", &payload);
+            }
+        }
+        log::debug!("[socketio] core_notification bridge stopped");
+    });
+
+    // 5. Transcription results → broadcast to all connected clients.
     tokio::spawn(async move {
         let mut rx = crate::openhuman::voice::dictation_listener::subscribe_transcription_results();
         loop {

@@ -5,7 +5,8 @@ use super::super::context::{
 use super::super::runtime::process_channel_message;
 use super::super::{traits, Channel};
 use super::common::{HistoryCaptureProvider, NoopMemory, RecordingChannel};
-use crate::openhuman::memory::{embeddings::NoopEmbedding, Memory, MemoryCategory, UnifiedMemory};
+use crate::openhuman::embeddings::NoopEmbedding;
+use crate::openhuman::memory::{Memory, MemoryCategory, UnifiedMemory};
 use crate::openhuman::providers;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -77,6 +78,7 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
     };
 
     mem.store(
+        "",
         &conversation_memory_key(&msg1),
         &msg1.content,
         MemoryCategory::Conversation,
@@ -85,6 +87,7 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
     .await
     .unwrap();
     mem.store(
+        "",
         &conversation_memory_key(&msg2),
         &msg2.content,
         MemoryCategory::Conversation,
@@ -95,7 +98,10 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
 
     assert_eq!(mem.count().await.unwrap(), 2);
 
-    let recalled = mem.recall("45", 5, None).await.unwrap();
+    let recalled = mem
+        .recall("45", 5, crate::openhuman::memory::RecallOpts::default())
+        .await
+        .unwrap();
     assert!(recalled.iter().any(|entry| entry.content.contains("45")));
 }
 
@@ -103,9 +109,15 @@ async fn autosave_keys_preserve_multiple_conversation_facts() {
 async fn build_memory_context_includes_recalled_entries() {
     let tmp = TempDir::new().unwrap();
     let mem = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
-    mem.store("age_fact", "Age is 45", MemoryCategory::Conversation, None)
-        .await
-        .unwrap();
+    mem.store(
+        "",
+        "age_fact",
+        "Age is 45",
+        MemoryCategory::Conversation,
+        None,
+    )
+    .await
+    .unwrap();
 
     let context = build_memory_context(&mem, "age", 0.0).await;
     assert!(context.contains("[Memory context]"));
