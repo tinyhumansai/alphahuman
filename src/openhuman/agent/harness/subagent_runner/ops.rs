@@ -36,6 +36,37 @@ use crate::openhuman::context::prompt::{
 use crate::openhuman::providers::{ChatMessage, ChatRequest, Provider, ToolCall};
 use crate::openhuman::tools::{Tool, ToolCategory, ToolSpec};
 
+/// Lazy resolver that lets `integrations_agent` recover when the model
+/// calls a Composio action slug that exists in the bound toolkit's full
+/// catalogue but was filtered out of the up-front fuzzy top-K. On a
+/// match we build the [`ComposioActionTool`] on demand so the call
+/// dispatches normally instead of dead-ending in
+/// `Error: tool '...' is not available`.
+struct LazyToolkitResolver {
+    client: crate::openhuman::composio::ComposioClient,
+    actions: Vec<crate::openhuman::context::prompt::ConnectedIntegrationTool>,
+}
+
+impl LazyToolkitResolver {
+    fn resolve(&self, name: &str) -> Option<Box<dyn Tool>> {
+        let action = self.actions.iter().find(|a| a.name == name)?;
+        Some(Box::new(
+            crate::openhuman::composio::ComposioActionTool::new(
+                self.client.clone(),
+                action.name.clone(),
+                action.description.clone(),
+                action.parameters.clone(),
+            ),
+        ))
+    }
+
+    /// Slugs from the bound toolkit, for inclusion in unknown-tool
+    /// errors so the model can self-correct without burning a turn.
+    fn known_slugs(&self) -> Vec<&str> {
+        self.actions.iter().map(|a| a.name.as_str()).collect()
+    }
+}
+
 /// Run a sub-agent based on its definition and a task prompt.
 ///
 /// This is the primary entry point for agent delegation. It performs the following:
@@ -206,6 +237,7 @@ async fn run_typed_mode(
     // are stripped from the parent-filtered indices in this path so
     // the model only sees one way to call each action.
     let mut dynamic_tools: Vec<Box<dyn Tool>> = Vec::new();
+    let mut lazy_resolver: Option<LazyToolkitResolver> = None;
     let is_integrations_agent_with_toolkit =
         definition.id == "integrations_agent" && toolkit_filter.is_some();
 
@@ -345,6 +377,15 @@ async fn run_typed_mode(
                     action_count = dynamic_tools.len(),
                     "[subagent_runner:typed] dynamically registered per-action composio tools"
                 );
+                // Stash the full catalogue so the inner loop can lazily
+                // register actions that the fuzzy top-K dropped — the
+                // model often picks the right slug anyway and the
+                // existing fuzzy filter exists only to keep schemas out
+                // of the system prompt, not to gate execution.
+                lazy_resolver = Some(LazyToolkitResolver {
+                    client: client.clone(),
+                    actions: integration.tools.clone(),
+                });
             } else {
                 tracing::warn!(
                     agent_id = %definition.id,
@@ -613,9 +654,10 @@ async fn run_typed_mode(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
-        &dynamic_tools,
+        dynamic_tools,
         &filtered_specs,
-        &allowed_names,
+        allowed_names,
+        lazy_resolver,
         &model,
         temperature,
         definition.max_iterations,
@@ -717,9 +759,10 @@ async fn run_fork_mode(
         parent.provider.as_ref(),
         &mut history,
         &parent.all_tools,
-        &fork_extra_tools,
+        fork_extra_tools,
         fork.tool_specs.as_slice(),
-        &allowed_names,
+        allowed_names,
+        None,
         &model,
         temperature,
         max_iterations,
@@ -768,9 +811,10 @@ async fn run_inner_loop(
     provider: &dyn Provider,
     history: &mut Vec<ChatMessage>,
     parent_tools: &[Box<dyn Tool>],
-    extra_tools: &[Box<dyn Tool>],
+    mut extra_tools: Vec<Box<dyn Tool>>,
     tool_specs: &[ToolSpec],
-    allowed_names: &HashSet<String>,
+    mut allowed_names: HashSet<String>,
+    lazy_resolver: Option<LazyToolkitResolver>,
     model: &str,
     temperature: f64,
     max_iterations: usize,
@@ -1027,6 +1071,28 @@ async fn run_inner_loop(
         // XmlToolDispatcher's `format_results`.
         let mut text_mode_result_block = String::new();
         for call in &native_calls {
+            // Lazy registration: if the call is for an unknown tool but
+            // matches a real action slug in the bound toolkit's full
+            // catalogue, build the [`ComposioActionTool`] on the spot and
+            // admit it to the allowlist for this and subsequent turns.
+            // The fuzzy top-K filter exists to keep schemas out of the
+            // system prompt, not to gate execution — when the model
+            // names the slug correctly we should just dispatch.
+            if !allowed_names.contains(&call.name) {
+                if let Some(resolver) = lazy_resolver.as_ref() {
+                    if let Some(tool) = resolver.resolve(&call.name) {
+                        tracing::info!(
+                            task_id = %task_id,
+                            agent_id = %agent_id,
+                            tool = %call.name,
+                            "[subagent_runner] lazily registered toolkit action outside fuzzy top-K"
+                        );
+                        allowed_names.insert(tool.name().to_string());
+                        extra_tools.push(tool);
+                    }
+                }
+            }
+
             let result_text = if !allowed_names.contains(&call.name) {
                 tracing::warn!(
                     task_id = %task_id,
@@ -1034,9 +1100,17 @@ async fn run_inner_loop(
                     tool = %call.name,
                     "[subagent_runner] tool not in allowlist for this sub-agent"
                 );
+                let mut available: Vec<&str> = allowed_names.iter().map(|s| s.as_str()).collect();
+                if let Some(resolver) = lazy_resolver.as_ref() {
+                    available.extend(resolver.known_slugs());
+                }
+                available.sort_unstable();
+                available.dedup();
                 format!(
-                    "Error: tool '{}' is not available to the {} sub-agent",
-                    call.name, agent_id
+                    "Error: tool '{}' is not available to the {} sub-agent. Available tools: {}",
+                    call.name,
+                    agent_id,
+                    available.join(", ")
                 )
             } else if let Some(tool) = extra_tools
                 .iter()
