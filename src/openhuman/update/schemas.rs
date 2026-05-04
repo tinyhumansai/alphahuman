@@ -51,8 +51,7 @@ pub fn schemas(function: &str) -> ControllerSchema {
         "run" => ControllerSchema {
             namespace: "update",
             function: "run",
-            description:
-                "Orchestrated update: check GitHub, stage a newer binary if available, \
+            description: "Orchestrated update: check GitHub, stage a newer binary if available, \
                  then publish a self-restart. The process exits shortly after returning.",
             inputs: vec![],
             outputs: vec![FieldSchema {

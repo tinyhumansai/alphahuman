@@ -143,9 +143,7 @@ pub async fn update_run() -> RpcOutcome<Value> {
     {
         Ok(_) => true,
         Err(e) => {
-            log::warn!(
-                "[update:rpc] update_run staged update but restart publish failed: {e}"
-            );
+            log::warn!("[update:rpc] update_run staged update but restart publish failed: {e}");
             false
         }
     };

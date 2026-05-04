@@ -420,7 +420,11 @@ fn retain_connected_tools_drops_unconnected_toolkits_case_insensitively() {
     let dropped = retain_connected_tools(&mut resp, &connected);
 
     assert_eq!(dropped, 1, "should drop the notion tool");
-    let names: Vec<&str> = resp.tools.iter().map(|t| t.function.name.as_str()).collect();
+    let names: Vec<&str> = resp
+        .tools
+        .iter()
+        .map(|t| t.function.name.as_str())
+        .collect();
     assert!(names.contains(&"GMAIL_SEND_EMAIL"));
     assert!(names.contains(&"GMAIL_LIST_THREADS"));
     assert!(!names.contains(&"NOTION_CREATE_PAGE"));

@@ -50,9 +50,7 @@ pub fn register_shutdown_subscriber() {
             let _ = SHUTDOWN_HANDLE.set(handle);
         }
         None => {
-            log::warn!(
-                "[event_bus] failed to register shutdown subscriber — bus not initialized"
-            );
+            log::warn!("[event_bus] failed to register shutdown subscriber — bus not initialized");
         }
     }
 }
