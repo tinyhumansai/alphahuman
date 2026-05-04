@@ -286,11 +286,11 @@ fn large_html_uses_fast_strip_fallback() {
 
 #[test]
 fn oversized_html_is_truncated_before_processing() {
-    const CAP: usize = 512 * 1024;
+    let cap = super::MAX_GMAIL_HTML_BODY_BYTES;
     let filler = "x".repeat(600 * 1024);
     let html =
         format!("<html><body><p>HEAD_MARKER</p>{filler}<p>TAIL_NEVER_SEEN</p></body></html>");
-    assert!(html.len() > CAP);
+    assert!(html.len() > cap);
     let md = html_email_to_markdown(&html);
     assert!(md.contains("HEAD_MARKER"), "{md:?}");
     assert!(
@@ -300,6 +300,18 @@ fn oversized_html_is_truncated_before_processing() {
     assert!(
         md.contains("[Email HTML body truncated for processing]"),
         "expected truncation note: {md:?}"
+    );
+}
+
+#[test]
+fn truncated_all_whitespace_html_still_emits_truncation_note() {
+    let cap = super::MAX_GMAIL_HTML_BODY_BYTES;
+    let html = " ".repeat(cap + 10_000);
+    assert!(html.len() > cap);
+    let md = html_email_to_markdown(&html);
+    assert_eq!(
+        md, "[Email HTML body truncated for processing]",
+        "empty body after strip must still signal truncation: {md:?}"
     );
 }
 

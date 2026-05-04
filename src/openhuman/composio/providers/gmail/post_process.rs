@@ -254,7 +254,7 @@ fn extract_markdown_body(msg: &Map<String, Value>) -> String {
 /// before this function is reached, so this path only runs for
 /// HTML-only emails (rare).
 // UTF-8 cap: multi‑MB HTML MIME would otherwise amplify memory in strip passes.
-const MAX_GMAIL_HTML_BODY_BYTES: usize = 512 * 1024;
+pub(super) const MAX_GMAIL_HTML_BODY_BYTES: usize = 512 * 1024;
 
 fn truncate_utf8_to_bytes(s: &str, max_bytes: usize) -> (&str, bool) {
     if s.len() <= max_bytes {
@@ -281,7 +281,11 @@ fn html_email_to_markdown(html: &str) -> String {
     let cleaned = strip_html_noise_blocks(html);
     let cleaned = cleaned.trim();
     if cleaned.is_empty() {
-        return String::new();
+        return if truncated {
+            "[Email HTML body truncated for processing]".to_string()
+        } else {
+            String::new()
+        };
     }
     let mut out = normalize_markdownish_text(&fast_html_to_text(cleaned));
     if truncated {
