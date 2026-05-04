@@ -1282,7 +1282,7 @@ pub fn run() {
 
             // Expose the shared CEF cookies SQLite path to the core sidecar
             // so `check_onboarding_status` can detect which webview
-            // providers (gmail, whatsapp, slack, …) already have a live
+            // providers (whatsapp, slack, telegram, …) already have a live
             // session cookie. Best-effort — if we can't resolve the path
             // the core treats every provider as logged_out.
             if let Some(cache_dir) = cef_profile::configured_cache_path_from_env() {
@@ -1580,63 +1580,6 @@ pub fn run() {
                     });
                 }
             }
-            // OPENHUMAN_DEV_AUTO_GMAIL=<account-id> opens the Gmail account
-            // webview at startup so the webview_apis bridge has a live CDP
-            // target to attach to. Pair with:
-            //   curl -sS http://127.0.0.1:7788/rpc \
-            //     -H 'Content-Type: application/json' \
-            //     -d '{"jsonrpc":"2.0","id":1,"method":"openhuman.webview_apis_gmail_list_labels","params":{"account_id":"<account-id>"}}'
-            if let Ok(account_id) = std::env::var("OPENHUMAN_DEV_AUTO_GMAIL") {
-                let account_id = account_id.trim().to_string();
-                if !account_id.is_empty() {
-                    let app_handle = app.handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        let state = app_handle.state::<webview_accounts::WebviewAccountsState>();
-                        // Size the Gmail child webview to the parent window
-                        // so the inbox is usable without manual resizing.
-                        let (w, h) = app_handle
-                            .get_webview_window("main")
-                            .and_then(|main| {
-                                let scale = main.scale_factor().unwrap_or(1.0);
-                                main.inner_size()
-                                    .ok()
-                                    .map(|s| ((s.width as f64) / scale, (s.height as f64) / scale))
-                            })
-                            .unwrap_or((1100.0, 780.0));
-                        let args = webview_accounts::OpenArgs {
-                            account_id: account_id.clone(),
-                            provider: "gmail".to_string(),
-                            url: None,
-                            bounds: Some(webview_accounts::Bounds {
-                                x: 0.0,
-                                y: 0.0,
-                                width: w,
-                                height: h,
-                            }),
-                        };
-                        match webview_accounts::webview_account_open(
-                            app_handle.clone(),
-                            state,
-                            args,
-                        )
-                        .await
-                        {
-                            Ok(label) => log::info!(
-                                "[dev-auto-gmail] spawned label={} account={}",
-                                label,
-                                account_id
-                            ),
-                            Err(e) => log::error!(
-                                "[dev-auto-gmail] failed: {} (account={})",
-                                e,
-                                account_id
-                            ),
-                        }
-                    });
-                }
-            }
-
             #[cfg(target_os = "macos")]
             {
                 use std::sync::Arc;
