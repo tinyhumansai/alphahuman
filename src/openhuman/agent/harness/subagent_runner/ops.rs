@@ -30,6 +30,7 @@ use super::tool_prep::{
 use super::types::{SubagentMode, SubagentRunError, SubagentRunOptions, SubagentRunOutcome};
 use crate::openhuman::agent::harness::definition::{AgentDefinition, PromptSource};
 use crate::openhuman::agent::harness::with_current_sandbox_mode;
+use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::context::prompt::{
     render_subagent_system_prompt, PromptContext, PromptTool, SubagentRenderOptions,
 };
@@ -968,6 +969,11 @@ async fn run_inner_loop(
         }
     };
 
+    // Per-turn progress sink shared with the parent — `None` for runs
+    // that don't have a subscriber (CLI / triage / tests). Cloned upfront
+    // so the inner loop body doesn't repeatedly re-resolve `parent.on_progress`.
+    let progress_sink = parent.on_progress.clone();
+
     for iteration in 0..max_iterations {
         tracing::debug!(
             task_id = %task_id,
@@ -976,6 +982,17 @@ async fn run_inner_loop(
             history_len = history.len(),
             "[subagent_runner] iteration start"
         );
+
+        if let Some(ref tx) = progress_sink {
+            let _ = tx
+                .send(AgentProgress::SubagentIterationStarted {
+                    agent_id: agent_id.to_string(),
+                    task_id: task_id.to_string(),
+                    iteration: (iteration + 1) as u32,
+                    max_iterations: max_iterations as u32,
+                })
+                .await;
+        }
 
         let resp = provider
             .chat(
@@ -1071,6 +1088,19 @@ async fn run_inner_loop(
         // XmlToolDispatcher's `format_results`.
         let mut text_mode_result_block = String::new();
         for call in &native_calls {
+            let call_started = Instant::now();
+            if let Some(ref tx) = progress_sink {
+                let _ = tx
+                    .send(AgentProgress::SubagentToolCallStarted {
+                        agent_id: agent_id.to_string(),
+                        task_id: task_id.to_string(),
+                        call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        iteration: (iteration + 1) as u32,
+                    })
+                    .await;
+            }
+
             // Lazy registration: if the call is for an unknown tool but
             // matches a real action slug in the bound toolkit's full
             // catalogue, build the [`ComposioActionTool`] on the spot and
@@ -1192,12 +1222,12 @@ async fn run_inner_loop(
                 result_text
             };
 
+            let call_success = !result_text.starts_with("Error");
+            let call_output_chars = result_text.chars().count();
+            let call_elapsed_ms = call_started.elapsed().as_millis() as u64;
+
             if force_text_mode {
-                let status = if result_text.starts_with("Error") {
-                    "error"
-                } else {
-                    "ok"
-                };
+                let status = if call_success { "ok" } else { "error" };
                 let _ = std::fmt::Write::write_fmt(
                     &mut text_mode_result_block,
                     format_args!(
@@ -1211,6 +1241,21 @@ async fn run_inner_loop(
                     "content": result_text,
                 });
                 history.push(ChatMessage::tool(tool_msg.to_string()));
+            }
+
+            if let Some(ref tx) = progress_sink {
+                let _ = tx
+                    .send(AgentProgress::SubagentToolCallCompleted {
+                        agent_id: agent_id.to_string(),
+                        task_id: task_id.to_string(),
+                        call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        success: call_success,
+                        output_chars: call_output_chars,
+                        elapsed_ms: call_elapsed_ms,
+                        iteration: (iteration + 1) as u32,
+                    })
+                    .await;
             }
         }
 

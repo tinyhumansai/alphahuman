@@ -1,11 +1,13 @@
 ---
 name: Bug
 about: Used for bug reports
-title: "[Bug] "
-labels: bug, enhancement
+title: ""
+type: Bug
 assignees: ''
 
 ---
+
+Use a concise sentence-case title that describes the broken behavior. Do not add `Bug` or bracket prefixes to the title.
 
 ## Summary
 

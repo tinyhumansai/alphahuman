@@ -24,6 +24,7 @@ use crate::openhuman::agent::harness::fork_context::current_parent;
 use crate::openhuman::agent::harness::subagent_runner::{
     run_subagent, SubagentRunOptions, SubagentRunOutcome,
 };
+use crate::openhuman::agent::progress::AgentProgress;
 use crate::openhuman::memory::conversations::{
     self, ConversationMessage, CreateConversationThread,
 };
@@ -326,6 +327,23 @@ impl Tool for SpawnSubagentTool {
             prompt_chars: prompt.chars().count(),
         });
 
+        // Mirror the spawn onto the parent's per-turn progress sink so the
+        // web-channel bridge can stream a live subagent row into the
+        // parent thread's UI. Best-effort: a closed/missing sink is
+        // silently ignored — the global DomainEvent above is the
+        // authoritative record.
+        if let Some(progress) = current_parent().and_then(|p| p.on_progress.clone()) {
+            let _ = progress
+                .send(AgentProgress::SubagentSpawned {
+                    agent_id: definition.id.clone(),
+                    task_id: task_id.clone(),
+                    mode: mode.to_string(),
+                    dedicated_thread,
+                    prompt_chars: prompt.chars().count(),
+                })
+                .await;
+        }
+
         // ── Run the sub-agent ──────────────────────────────────────────
         let options = SubagentRunOptions {
             skill_filter_override: None,
@@ -333,6 +351,8 @@ impl Tool for SpawnSubagentTool {
             context,
             task_id: Some(task_id.clone()),
         };
+
+        let progress_sink = current_parent().and_then(|p| p.on_progress.clone());
 
         match run_subagent(definition, &prompt, options).await {
             Ok(outcome) => {
@@ -344,6 +364,18 @@ impl Tool for SpawnSubagentTool {
                     output_chars: outcome.output.chars().count(),
                     iterations: outcome.iterations,
                 });
+
+                if let Some(ref tx) = progress_sink {
+                    let _ = tx
+                        .send(AgentProgress::SubagentCompleted {
+                            agent_id: outcome.agent_id.clone(),
+                            task_id: outcome.task_id.clone(),
+                            elapsed_ms: outcome.elapsed.as_millis() as u64,
+                            iterations: outcome.iterations as u32,
+                            output_chars: outcome.output.chars().count(),
+                        })
+                        .await;
+                }
 
                 if dedicated_thread {
                     let workspace_dir = current_parent()
@@ -403,10 +435,20 @@ impl Tool for SpawnSubagentTool {
                 );
                 publish_global(DomainEvent::SubagentFailed {
                     parent_session,
-                    task_id,
+                    task_id: task_id.clone(),
                     agent_id: definition.id.clone(),
                     error: message.clone(),
                 });
+
+                if let Some(ref tx) = progress_sink {
+                    let _ = tx
+                        .send(AgentProgress::SubagentFailed {
+                            agent_id: definition.id.clone(),
+                            task_id: task_id.clone(),
+                            error: message.clone(),
+                        })
+                        .await;
+                }
                 // Surface as a non-fatal tool error so the parent model
                 // can react and (e.g.) retry with different params.
                 Ok(ToolResult::error(parent_visible_error))

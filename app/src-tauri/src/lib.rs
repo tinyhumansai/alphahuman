@@ -261,7 +261,14 @@ async fn restart_app(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
             log::warn!("[app] hide main window before restart failed: {err}");
         }
     }
+
+    log::info!("[app] restart_app — starting early teardown before restart");
+    perform_early_teardown_async(&app).await;
+    log::info!("[app] restart_app — early teardown complete, restarting");
+
     app.restart();
+    // restart() does not return, but we must satisfy the signature
+    Ok(())
 }
 
 /// Read the authoritative active user id from `active_user.toml` so the
@@ -429,6 +436,10 @@ async fn apply_app_update(
 
     log::info!("[app-update] install complete — relaunching");
     let _ = app.emit("app-update:status", "restarting");
+
+    log::info!("[app-update] starting early teardown before restart");
+    perform_early_teardown_async(&app).await;
+
     // Note: app.restart() never returns. Anything after this is unreachable.
     app.restart();
 }
@@ -606,6 +617,10 @@ async fn install_app_update(
 
     log::info!("[app-update] install complete — relaunching");
     let _ = app.emit("app-update:status", "restarting");
+
+    log::info!("[app-update] starting early teardown before restart");
+    perform_early_teardown_async(&app).await;
+
     // Note: app.restart() never returns. Anything after this is unreachable.
     app.restart();
 }
@@ -916,7 +931,7 @@ fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
             }
             "tray_quit" => {
                 log::info!("[tray] action=quit source=menu");
-                app.exit(0);
+                shutdown_app_sync(app, 0);
             }
             _ => {}
         })
@@ -980,6 +995,68 @@ fn teardown_cef_prewarm<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(), Str
     wv.close().map_err(|e| e.to_string())?;
     log::info!("[cef-prewarm] teardown ok");
     Ok(())
+}
+
+/// Shared early teardown logic before CEF's shutdown to prevent races and zombie processes.
+/// Synchronous version to be called from the main thread (e.g. `RunEvent::ExitRequested` or tray menu events).
+fn perform_early_teardown_sync(app_handle: &AppHandle<AppRuntime>) {
+    log::info!("[app] perform_early_teardown_sync — early teardown");
+
+    let _ = teardown_cef_prewarm(app_handle);
+
+    if let Some(state) = app_handle.try_state::<webview_accounts::WebviewAccountsState>() {
+        state.shutdown_all(app_handle);
+    }
+
+    webview_apis::server::stop();
+
+    if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
+        let core = core.inner().clone();
+        // Aborts the embedded server task. Synchronous and safe on
+        // the UI thread — `JoinHandle::abort` returns immediately.
+        tauri::async_runtime::block_on(async move {
+            core.send_terminate_signal().await;
+        });
+    }
+
+    // Give CEF's UI message loop a brief window to process the
+    // queued browser close messages before the runtime calls `cef::shutdown()`.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    log::info!("[app] perform_early_teardown_sync — early teardown complete");
+}
+
+/// Shared early teardown logic before CEF's shutdown to prevent races and zombie processes.
+/// Asynchronous version to be called from async Tauri commands (e.g. `restart_app`, updates).
+async fn perform_early_teardown_async(app_handle: &AppHandle<AppRuntime>) {
+    log::info!("[app] perform_early_teardown_async — early teardown");
+
+    let _ = teardown_cef_prewarm(app_handle);
+
+    if let Some(state) = app_handle.try_state::<webview_accounts::WebviewAccountsState>() {
+        state.shutdown_all(app_handle);
+    }
+
+    webview_apis::server::stop();
+
+    if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
+        let core = core.inner().clone();
+        core.send_terminate_signal().await;
+    }
+
+    // Give CEF's UI message loop a brief window to process the
+    // queued browser close messages before the runtime calls `cef::shutdown()`.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    log::info!("[app] perform_early_teardown_async — early teardown complete");
+}
+
+/// Explicitly winds down CEF and Tauri before an app.exit(0)
+fn shutdown_app_sync(app_handle: &AppHandle<AppRuntime>, exit_code: i32) {
+    log::info!("[app] shutdown_app_sync — starting early teardown");
+    perform_early_teardown_sync(app_handle);
+    log::info!("[app] shutdown_app_sync — early teardown complete, exiting");
+    app_handle.exit(exit_code);
 }
 
 pub fn run() {
@@ -1675,35 +1752,7 @@ pub fn run() {
                 //      do not wait — that would block the main thread
                 //      and starve CEF's UI loop. The kernel reaps the
                 //      child after Tauri exits.
-                log::info!("[app] RunEvent::ExitRequested — early teardown");
-
-                let _ = teardown_cef_prewarm(app_handle);
-
-                if let Some(state) =
-                    app_handle.try_state::<webview_accounts::WebviewAccountsState>()
-                {
-                    state.shutdown_all(app_handle);
-                }
-
-                webview_apis::server::stop();
-
-                if let Some(core) = app_handle.try_state::<core_process::CoreProcessHandle>() {
-                    let core = core.inner().clone();
-                    // Aborts the embedded server task. Synchronous and safe on
-                    // the UI thread — `JoinHandle::abort` returns immediately.
-                    tauri::async_runtime::block_on(async move {
-                        core.send_terminate_signal().await;
-                    });
-                }
-
-                // Give CEF's UI message loop a brief window to process the
-                // queued browser close messages before the runtime calls
-                // `cef::shutdown()`. Without this, a webview that was mid-load
-                // when the user quit can race the shutdown and leave its
-                // renderer helper orphaned (re-parented to launchd on macOS).
-                std::thread::sleep(std::time::Duration::from_millis(50));
-
-                log::info!("[app] RunEvent::ExitRequested — early teardown complete");
+                perform_early_teardown_sync(app_handle);
             }
             RunEvent::Exit => {
                 log::info!("[app] RunEvent::Exit — cef::shutdown follows");

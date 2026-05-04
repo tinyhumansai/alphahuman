@@ -18,18 +18,20 @@ const HumanPage = () => {
 
   const { face, viseme } = useHumanMascot({ speakReplies });
 
+  // Sidebar reserves ~436px (420px panel + 16px gutter) on the right; the
+  // mascot stage takes the remaining width so the two never overlap.
   return (
     <div className="absolute inset-0 bg-stone-100 overflow-hidden">
-      {/* Mascot stage — full bleed under the floating sidebar. */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(ellipse at 50% 40%, rgba(74,131,221,0.10), transparent 60%)',
-          }}
-        />
-        <div className="relative w-[min(80vh,80vw)] aspect-square">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: 'radial-gradient(ellipse at 35% 40%, rgba(74,131,221,0.10), transparent 60%)',
+        }}
+      />
+
+      {/* Mascot stage — fills the area to the left of the reserved sidebar column. */}
+      <div className="absolute inset-y-0 left-0 right-[436px] flex items-center justify-center">
+        <div className="relative w-[min(80vh,90%)] aspect-square">
           <Ghosty face={face} viseme={viseme} />
         </div>
       </div>
@@ -44,9 +46,9 @@ const HumanPage = () => {
         Speak replies
       </label>
 
-      {/* Floating chat sidebar — vertically centered above the BottomTabBar (~80px). */}
-      <div className="pointer-events-none absolute right-4 top-0 bottom-20 z-10 flex items-center">
-        <aside className="pointer-events-auto w-[420px] h-[min(720px,calc(100vh-160px))] rounded-2xl border border-stone-300 bg-white shadow-soft flex flex-col overflow-hidden">
+      {/* Chat sidebar — vertically centered above the BottomTabBar (~80px). */}
+      <div className="absolute right-4 top-0 bottom-20 z-10 flex items-center">
+        <aside className="w-[420px] h-[min(720px,calc(100vh-160px))] rounded-2xl border border-stone-300 bg-white shadow-soft flex flex-col overflow-hidden">
           <Conversations variant="sidebar" />
         </aside>
       </div>

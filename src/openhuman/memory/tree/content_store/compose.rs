@@ -238,24 +238,33 @@ fn replace_tags_in_front_matter(fm: &str, new_tags: &[String]) -> Result<String,
 
 /// Input data required to compose a summary `.md` file.
 pub struct SummaryComposeInput<'a> {
+    /// Stable id of the summary node (also used to derive the filename).
     pub summary_id: &'a str,
+    /// Which tree (source / global / topic) this summary belongs to.
     pub tree_kind: SummaryTreeKind,
+    /// Owning tree id (FK into `mem_tree_trees`).
     pub tree_id: &'a str,
     /// Raw tree scope string, e.g. `"gmail:alice@x.com|bob@y.com"` or `"global"`.
     pub tree_scope: &'a str,
+    /// Level in the tree (L0 = leaves, L1+ = summaries).
     pub level: u32,
     /// Child ids (chunk_ids at L0 → L1, summary_ids for cascades).
     pub child_ids: &'a [String],
     /// Total child count (== child_ids.len() unless truncated).
     pub child_count: usize,
+    /// Start of the time range covered by this summary's children.
     pub time_range_start: DateTime<Utc>,
+    /// End of the time range covered by this summary's children.
     pub time_range_end: DateTime<Utc>,
+    /// When the buffer was sealed into this summary node.
     pub sealed_at: DateTime<Utc>,
     /// Raw summariser output text — the body written to disk.
     pub body: &'a str,
 }
 
 /// The composed front-matter, body, and full file content for a summary.
+///
+/// `body` is what the SHA-256 integrity hash is computed over.
 pub struct ComposedSummary {
     /// The YAML front-matter block (including `---` delimiters), UTF-8 string.
     pub front_matter: String,
