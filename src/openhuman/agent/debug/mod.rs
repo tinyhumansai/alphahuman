@@ -394,7 +394,6 @@ async fn render_integrations_agent(config: &Config, toolkit: &str) -> Result<Dum
         include_memory_md: !definition.omit_memory_md,
         curated_snapshot: None,
         user_identity: None,
-        curated_snapshot: None,
     };
 
     let mut text = build(&ctx)

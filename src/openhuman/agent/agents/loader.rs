@@ -268,7 +268,6 @@ mod tests {
                         include_memory_md: false,
                         curated_snapshot: None,
                         user_identity: None,
-                        curated_snapshot: None,
                     };
                     let body = build(&ctx)
                         .unwrap_or_else(|e| panic!("{} prompt build failed: {e}", def.id));

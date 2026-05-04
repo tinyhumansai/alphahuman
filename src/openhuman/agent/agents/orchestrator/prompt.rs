@@ -120,7 +120,6 @@ mod tests {
             include_memory_md: false,
             curated_snapshot: None,
             user_identity: None,
-            curated_snapshot: None,
         }
     }
 

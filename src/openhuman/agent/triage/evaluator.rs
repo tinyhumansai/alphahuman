@@ -345,7 +345,6 @@ fn extract_inline_prompt(def: &AgentDefinition) -> Option<String> {
                 include_memory_md: false,
                 curated_snapshot: None,
                 user_identity: None,
-                curated_snapshot: None,
             };
             match build(&ctx) {
                 Ok(body) if !body.is_empty() => Some(body),

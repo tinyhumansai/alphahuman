@@ -125,7 +125,9 @@ pub struct ParentExecutionContext {
     /// byte-identical `MEMORY.md` / `USER.md` blocks within a turn.
     /// `None` when the parent built without a snapshot (unit tests,
     /// curated-memory runtime not initialised).
-    pub curated_snapshot: Option<std::sync::Arc<crate::openhuman::curated_memory::MemorySnapshot>>,
+    pub curated_snapshot: Option<
+        std::sync::Arc<crate::openhuman::agent::prompts::types::CuratedMemoryPromptSnapshot>,
+    >,
 
     /// Parent's progress sink. When set, the sub-agent runner emits
     /// `AgentProgress::Subagent*` lifecycle events through this channel

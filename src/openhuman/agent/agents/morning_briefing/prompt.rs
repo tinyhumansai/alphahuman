@@ -78,7 +78,6 @@ mod tests {
             include_memory_md: false,
             curated_snapshot: None,
             user_identity: identity,
-            curated_snapshot: None,
         }
     }
 

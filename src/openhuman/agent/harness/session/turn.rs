@@ -1299,7 +1299,12 @@ impl Agent {
                             snap.memory.chars().count(),
                             snap.user.chars().count()
                         );
-                        self.curated_snapshot = Some(std::sync::Arc::new(snap));
+                        self.curated_snapshot = Some(std::sync::Arc::new(
+                            crate::openhuman::context::prompt::CuratedMemoryPromptSnapshot {
+                                memory: snap.memory,
+                                user: snap.user,
+                            },
+                        ));
                     }
                     Err(e) => {
                         log::debug!(
@@ -1339,9 +1344,8 @@ impl Agent {
             ),
             include_profile: !self.omit_profile,
             include_memory_md: !self.omit_memory_md,
-            curated_snapshot: None,
+            curated_snapshot: self.curated_snapshot.clone(),
             user_identity: crate::openhuman::app_state::peek_cached_current_user_identity(),
-            curated_snapshot: self.curated_snapshot.as_deref(),
         };
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,

@@ -69,7 +69,6 @@ mod tests {
             include_memory_md: false,
             curated_snapshot: None,
             user_identity: None,
-            curated_snapshot: None,
         };
         let body = build(&ctx).unwrap();
         assert!(!body.is_empty());
