@@ -82,3 +82,13 @@ Capture the meeting's incoming audio track inside the agent webview, stream raw 
 ### Stage 5 — LLM loop
 
 Wire the transcript stream into the OpenHuman agent loop: inbound speech → STT → context window → LLM → TTS → outbound audio. The agent becomes a full participant that can answer questions, summarise, and take notes.
+
+## Known limitations
+
+- **Multi-session**: this stage assumes the user is NOT already in the same meeting from another device or tab. When they are, Meet shows a "Switch here" button instead of "Join now" — this PR does not handle that. Tracked for a follow-up; see the discussion on PR #1163.
+
+## References
+
+Selector hardening in this module is ported from [Vexa-ai/vexa](https://github.com/Vexa-ai/vexa)'s `services/vexa-bot/core/src/platforms/googlemeet/selectors.ts`, which has been maintained against live Google Meet for some time. Their selector arrays cover the lobby / waiting-room / admitted / rejected lifecycle states and were translated from Playwright's selector syntax (`:has-text(...)`, `text="..."`, XPath) to plain DOM queries by the helpers in `agent.js`.
+
+Stages 4 (incoming audio capture for STT) and 5 (LLM loop with VAD + hallucination filtering) will likely also lift directly from Vexa's `services/vexa-bot/core/src/services/{audio,vad,hallucination-filter}.ts`.
