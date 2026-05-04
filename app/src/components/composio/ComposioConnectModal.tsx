@@ -33,7 +33,11 @@ import type { ComposioToolkitMeta } from './toolkitMeta';
 import TriggerToggles from './TriggerToggles';
 
 function deriveConnectionLabel(c: ComposioConnection): string | null {
-  return c.accountEmail ?? c.workspace ?? c.username ?? null;
+  for (const value of [c.accountEmail, c.workspace, c.username]) {
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 type Phase = 'idle' | 'authorizing' | 'waiting' | 'connected' | 'disconnecting' | 'error';
