@@ -8,10 +8,13 @@
 //! on the configured port when `ensure_running` runs, we probe `GET /` to see
 //! whether it is an OpenHuman core. If it is, we treat it as a stale process
 //! left behind by a previous build/dev session and proactively terminate it
-//! before spawning a fresh embedded server — otherwise the new UI would
-//! silently bind to an older RPC implementation. If the listener is something
-//! else (or unreachable), we refuse to attach and surface the conflict so it
-//! can be diagnosed instead of producing 401s and version drift downstream.
+//! (graceful signal, then a force-kill that *revalidates* the pid is still
+//! the same listener — guards against PID reuse if the original exits inside
+//! the grace window) before spawning a fresh embedded server — otherwise the
+//! new UI would silently bind to an older RPC implementation. If the listener
+//! is something else (or unreachable), we refuse to attach and surface the
+//! conflict so it can be diagnosed instead of producing 401s and version
+//! drift downstream.
 //! Set `OPENHUMAN_CORE_REUSE_EXISTING=1` to opt back into the legacy
 //! attach-to-whatever-is-listening behavior (e.g. a manual `openhuman-core
 //! run` harness for debugging).
@@ -206,16 +209,53 @@ impl CoreProcessHandle {
             "[core] terminating stale OpenHuman process pid={pid} on port {} (issue #1130)",
             self.port
         );
-        if let Err(e) = kill_pid(pid) {
-            return Err(format!("failed to kill stale openhuman pid {pid}: {e}"));
+        if let Err(e) = kill_pid_term(pid) {
+            return Err(format!("failed to signal stale openhuman pid {pid}: {e}"));
         }
+
+        // Wait for the graceful exit, then revalidate ownership before any
+        // force-kill — between the SIGTERM and a delayed SIGKILL the original
+        // pid could have exited and been reused by an unrelated process. If
+        // the port is now bound to a different pid (or to nothing), we do
+        // NOT escalate to a force-kill against the originally-resolved pid.
+        // (CodeRabbit feedback on #1166.)
+        const GRACE_MS: u64 = 750;
+        tokio::time::sleep(Duration::from_millis(GRACE_MS)).await;
+
+        if is_port_open(self.port).await {
+            match find_pid_on_port(self.port) {
+                Some(current) if current == pid => {
+                    log::warn!(
+                        "[core] pid {pid} still bound to port {} after SIGTERM — escalating to SIGKILL",
+                        self.port
+                    );
+                    if let Err(e) = kill_pid_force(pid) {
+                        return Err(format!(
+                            "failed to force-kill stale openhuman pid {pid}: {e}"
+                        ));
+                    }
+                }
+                Some(current) => {
+                    return Err(format!(
+                        "port {} rebounded to pid {current} after terminating pid {pid}; refusing to kill a different process",
+                        self.port
+                    ));
+                }
+                None => {
+                    // Port still showed open in `is_port_open` but pid lookup
+                    // returned nothing — likely a transient race with the
+                    // listener tearing down. Fall through to the poll loop.
+                }
+            }
+        }
+
         const POLL_MS: u64 = 100;
         const MAX_WAIT_MS: u64 = 5_000;
-        let mut waited_ms: u64 = 0;
+        let mut waited_ms: u64 = GRACE_MS;
         while is_port_open(self.port).await {
             if waited_ms >= MAX_WAIT_MS {
                 return Err(format!(
-                    "killed pid {pid} but port {} remained bound after {MAX_WAIT_MS}ms",
+                    "signaled pid {pid} but port {} remained bound after {MAX_WAIT_MS}ms",
                     self.port
                 ));
             }
@@ -458,8 +498,13 @@ fn parse_netstat_pid(stdout: &str, port: u16) -> Option<u32> {
     None
 }
 
+/// Send the graceful-shutdown signal to `pid`. Returns `Ok` if the process
+/// exited cleanly, was already gone, or accepted the signal. Callers must
+/// re-check ownership of the resource (e.g. that the same pid is still bound
+/// to the port) before escalating to `kill_pid_force` — see the PID-reuse
+/// hazard discussed on #1166.
 #[cfg(unix)]
-fn kill_pid(pid: u32) -> Result<(), String> {
+fn kill_pid_term(pid: u32) -> Result<(), String> {
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
     let target = Pid::from_raw(pid as i32);
@@ -469,16 +514,44 @@ fn kill_pid(pid: u32) -> Result<(), String> {
             return Err(format!("SIGTERM pid {pid}: {e}"));
         }
     }
-    // Give the process a moment to exit cleanly, then SIGKILL if still alive.
-    // Brief sleep is fine on the tokio thread because takeover only happens
-    // once at startup and the user is staring at a splash screen.
-    std::thread::sleep(Duration::from_millis(750));
-    let _ = kill(target, Signal::SIGKILL);
+    Ok(())
+}
+
+/// Force-kill `pid` after `kill_pid_term` failed to free the resource. Caller
+/// is responsible for revalidating that `pid` still owns the resource we're
+/// trying to free — see `takeover_stale_listener` for the revalidation step.
+#[cfg(unix)]
+fn kill_pid_force(pid: u32) -> Result<(), String> {
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+    let target = Pid::from_raw(pid as i32);
+    match kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+        Ok(()) => Ok(()),
+        // ESRCH means the process exited between our re-validation and the
+        // SIGKILL — the resource is freeing on its own, treat as success.
+        Err(e) if e == nix::errno::Errno::ESRCH => {
+            let _ = target;
+            Ok(())
+        }
+        Err(e) => Err(format!("SIGKILL pid {pid}: {e}")),
+    }
+}
+
+/// Windows has no graceful equivalent for a windowless RPC server — `taskkill`
+/// without `/F` only delivers `WM_CLOSE` to GUI apps. Send the WM_CLOSE first
+/// (best-effort) so console subprocesses can run shutdown handlers; the
+/// follow-up `kill_pid_force` does the actual termination.
+#[cfg(windows)]
+fn kill_pid_term(pid: u32) -> Result<(), String> {
+    // Best-effort — ignore non-zero exit (e.g. process is windowless).
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string()])
+        .status();
     Ok(())
 }
 
 #[cfg(windows)]
-fn kill_pid(pid: u32) -> Result<(), String> {
+fn kill_pid_force(pid: u32) -> Result<(), String> {
     let status = std::process::Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
         .status()
