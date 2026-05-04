@@ -43,7 +43,8 @@ function makeFakePlayback(durationMs = 100) {
   return {
     handle: {
       currentMs: () => (stopped ? -1 : 0),
-      durationMs,
+      durationMs: () => durationMs,
+      metadataReady: Promise.resolve(),
       stop: () => {
         stopped = true;
         rejectEnded(new Error('stopped'));

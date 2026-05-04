@@ -216,10 +216,10 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
       } else {
         mascotLog('tts got %d viseme frames from backend', frames.length);
       }
-      // Stay on `thinking` while the audio decoder is loading metadata so the
-      // mouth doesn't sit at REST under a `speaking` face — once the handle is
-      // ready we publish frames + handle + face atomically and the RAF render
-      // loop picks them up on the same tick.
+      // Start audio first — `playBase64Audio` calls `audio.play()` directly so
+      // the user-gesture chain that authorized speech stays intact. If we
+      // awaited anything else between the user click and play(), CEF would
+      // reject playback under its autoplay policy.
       const handle = await playBase64Audio(tts.audio_base64, tts.audio_mime ?? 'audio/mpeg');
       if (!isStillCurrent()) {
         handle.stop();
@@ -228,14 +228,16 @@ export function useHumanMascot(options: UseHumanMascotOptions = {}): UseHumanMas
       if (frames.length === 0) {
         // Last-resort fallback: backend shipped neither viseme cues nor
         // alignment (e.g. the new public `tts-v1` model on the hosted
-        // backend). Derive a procedural timeline from the reply text spread
-        // across the actual audio duration so the mouth never freezes.
-        frames = proceduralVisemes(text, handle.durationMs);
-        mascotLog(
-          'tts derived %d procedural viseme frames over %dms',
-          frames.length,
-          handle.durationMs
-        );
+        // backend). Wait briefly for metadata so the procedural timeline
+        // can be sized to the real audio duration, then derive frames.
+        await handle.metadataReady;
+        if (!isStillCurrent()) {
+          handle.stop();
+          return;
+        }
+        const dur = handle.durationMs();
+        frames = proceduralVisemes(text, dur);
+        mascotLog('tts derived %d procedural viseme frames over %dms', frames.length, dur);
       }
       visemeFramesRef.current = frames;
       visemeCursorRef.current = 0;

@@ -58,58 +58,76 @@ function installAudio(makeAudio: (url: string) => FakeAudio): FakeAudio[] {
 }
 
 describe('playBase64Audio', () => {
-  it('waits for loadedmetadata and exposes audio.duration in ms', async () => {
+  it('returns a handle whose durationMs reflects audio.duration once metadata loads', async () => {
     const created = installAudio(url => {
       const a = new FakeAudio(url);
-      // Defer metadata so the wrapper's readyState branch must wait.
+      // loadedmetadata fires asynchronously — handle returns before then.
       queueMicrotask(() => {
-        a.readyState = 1;
-        a.duration = 2.5; // 2500ms
+        a.duration = 2.5;
         a.emit('loadedmetadata');
       });
       return a;
     });
     const handle = await playBase64Audio('AAA=');
     expect(created).toHaveLength(1);
-    expect(handle.durationMs).toBe(2500);
     expect(handle.currentMs()).toBe(0);
+    await handle.metadataReady;
+    expect(handle.durationMs()).toBe(2500);
   });
 
-  it('falls back to durationMs=0 when audio.duration is not finite', async () => {
+  it('reports durationMs=0 when audio.duration is not finite', async () => {
     installAudio(url => {
       const a = new FakeAudio(url);
-      // Skip the wait branch entirely so we exercise the !isFinite path.
-      a.readyState = 4;
       a.duration = NaN;
       return a;
     });
     const handle = await playBase64Audio('AAA=');
-    expect(handle.durationMs).toBe(0);
+    expect(handle.durationMs()).toBe(0);
   });
 
-  it('does not block forever when loadedmetadata never fires (timeout race)', async () => {
+  it('metadataReady still resolves on the safety timeout when loadedmetadata never fires', async () => {
     vi.useFakeTimers();
     try {
       installAudio(url => {
         const a = new FakeAudio(url);
-        a.readyState = 0;
         // duration stays NaN; never emits loadedmetadata.
         return a;
       });
-      const promise = playBase64Audio('AAA=');
-      // Advance past the 250ms safety timeout in audioPlayer.ts.
-      await vi.advanceTimersByTimeAsync(260);
-      const handle = await promise;
-      expect(handle.durationMs).toBe(0);
+      const handle = await playBase64Audio('AAA=');
+      let resolved = false;
+      void handle.metadataReady.then(() => {
+        resolved = true;
+      });
+      // Before the safety timeout fires, metadata is not ready.
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(510);
+      expect(resolved).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 
+  it('does not await anything before audio.play() so the user-gesture chain is preserved', async () => {
+    let playedSynchronously = false;
+    installAudio(url => {
+      const a = new FakeAudio(url);
+      a.play = async () => {
+        // The wrapper must call play() in the same microtask sequence as
+        // construction — no awaits in between — or CEF/Chromium autoplay
+        // policy will reject playback. Detect by asserting nothing has
+        // resolved between `new Audio()` and `play()`.
+        playedSynchronously = true;
+      };
+      return a;
+    });
+    await playBase64Audio('AAA=');
+    expect(playedSynchronously).toBe(true);
+  });
+
   it('stop() pauses, cleans up the blob URL, and rejects ended', async () => {
     installAudio(url => {
       const a = new FakeAudio(url);
-      a.readyState = 1;
       a.duration = 1;
       return a;
     });

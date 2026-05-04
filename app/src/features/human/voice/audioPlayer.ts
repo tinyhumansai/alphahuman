@@ -5,8 +5,15 @@
 export interface PlaybackHandle {
   /** ms elapsed since audio started. Returns -1 after playback ends. */
   currentMs(): number;
-  /** Total audio duration in ms; 0 if metadata could not be read. */
-  durationMs: number;
+  /**
+   * Total audio duration in ms. Returns 0 if `loadedmetadata` has not fired
+   * yet — call again after a tick or wait on `metadataReady`. A function (not
+   * a static field) so callers always read the latest value rather than a
+   * stale snapshot taken before the decoder finished probing.
+   */
+  durationMs(): number;
+  /** Resolves once the decoder reports duration (or the safety timeout fires). */
+  metadataReady: Promise<void>;
   /** Stop playback and release the blob URL. Idempotent. */
   stop(): void;
   /** Resolves when the audio finishes naturally. Rejects if `stop()` is called. */
@@ -46,17 +53,27 @@ export async function playBase64Audio(
     rejectEnded(new Error('audio playback error'));
   });
 
-  // Wait for metadata so the procedural-viseme fallback in useHumanMascot can
-  // distribute frames across the real audio duration. Bounded with a short
-  // race so a missing `loadedmetadata` event never blocks playback start.
-  if (audio.readyState < 1) {
-    await new Promise<void>(res => {
-      const done = () => res();
-      audio.addEventListener('loadedmetadata', done, { once: true });
-      audio.addEventListener('error', done, { once: true });
-      window.setTimeout(done, 250);
-    });
-  }
+  // Track metadata readiness without awaiting before `play()`: CEF/Chromium's
+  // autoplay policy keys off the synchronous gesture chain, and any `await`
+  // between the originating user click and `audio.play()` invalidates it,
+  // causing play() to reject with "the user didn't interact with the document
+  // first." We capture duration in a side listener and let the caller wait
+  // on `metadataReady` separately if it needs it.
+  let resolveMetadata!: () => void;
+  const metadataReady = new Promise<void>(res => {
+    resolveMetadata = res;
+  });
+  audio.addEventListener(
+    'loadedmetadata',
+    () => {
+      resolveMetadata();
+    },
+    { once: true }
+  );
+  // Safety timeout so the procedural-viseme fallback never blocks forever if
+  // the decoder skips `loadedmetadata` (some MP3 streams) — fall through to
+  // the text-length estimate path in that case.
+  window.setTimeout(() => resolveMetadata(), 500);
 
   try {
     await audio.play();
@@ -66,11 +83,10 @@ export async function playBase64Audio(
     throw err;
   }
 
-  const durationMs = Number.isFinite(audio.duration) ? audio.duration * 1000 : 0;
-
   return {
     currentMs: () => (endedNaturally || stopped ? -1 : audio.currentTime * 1000),
-    durationMs,
+    durationMs: () => (Number.isFinite(audio.duration) ? audio.duration * 1000 : 0),
+    metadataReady,
     stop: () => {
       if (stopped) return;
       stopped = true;
