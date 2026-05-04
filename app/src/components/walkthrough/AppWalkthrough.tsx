@@ -107,7 +107,7 @@ const AppWalkthrough = ({ onboarded = false }: { onboarded?: boolean }) => {
         zIndex: 1200,
         overlayColor: 'rgba(0, 0, 0, 0.4)',
         buttons: ['back', 'primary', 'skip'],
-        spotlightBorderRadius: 16,
+        spotlightRadius: 16,
         spotlightPadding: 8,
       }}
     />
