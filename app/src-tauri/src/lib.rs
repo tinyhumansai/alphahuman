@@ -8,7 +8,6 @@ mod cef_profile;
 mod core_process;
 mod core_rpc;
 mod discord_scanner;
-mod gmail;
 mod gmessages_scanner;
 mod imessage_scanner;
 mod notification_settings;
@@ -1632,14 +1631,6 @@ pub fn run() {
             screen_capture::screen_share_begin_session,
             screen_capture::screen_share_thumbnail,
             screen_capture::screen_share_finalize_session,
-            gmail::gmail_list_labels,
-            gmail::gmail_list_messages,
-            gmail::gmail_search,
-            gmail::gmail_get_message,
-            gmail::gmail_send,
-            gmail::gmail_trash,
-            gmail::gmail_add_label,
-            gmail::gmail_find_linkedin_profile_url,
             notification_permission_state,
             notification_permission_request,
             activate_main_window,
