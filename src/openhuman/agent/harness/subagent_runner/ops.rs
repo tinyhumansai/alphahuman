@@ -178,23 +178,34 @@ async fn run_typed_mode(
         } else {
             match crate::openhuman::config::Config::load_or_init().await {
                 Ok(config) => {
-                    // `fetch_connected_integrations` is best-effort and
-                    // returns `Vec` rather than `Result`. An empty Vec
-                    // here is authoritative — it means "the user has no
-                    // ACTIVE composio connections right now" — so we
-                    // adopt it as truth, including the case where the
-                    // user just disconnected their last integration
-                    // mid-thread. Falling back to the frozen parent
-                    // list here would silently re-introduce a toolkit
-                    // the user has revoked.
-                    let fresh =
-                        crate::openhuman::composio::fetch_connected_integrations(&config).await;
-                    tracing::debug!(
-                        count = fresh.len(),
-                        parent_count = parent.connected_integrations.len(),
-                        "[subagent_runner] refreshed connected_integrations at spawn time"
-                    );
-                    fresh
+                    use crate::openhuman::composio::FetchConnectedIntegrationsStatus;
+                    // `fetch_connected_integrations_status` distinguishes
+                    // an authoritative empty list (user disconnected
+                    // their last integration mid-thread) from
+                    // backend-unavailable (no client / transient error).
+                    // Adopt the authoritative case as truth — even when
+                    // empty — so a revoked toolkit really disappears
+                    // from the spawn pre-flight; only fall back to the
+                    // parent's frozen list when the backend explicitly
+                    // can't answer.
+                    match crate::openhuman::composio::fetch_connected_integrations_status(&config)
+                        .await
+                    {
+                        FetchConnectedIntegrationsStatus::Authoritative(fresh) => {
+                            tracing::debug!(
+                                count = fresh.len(),
+                                parent_count = parent.connected_integrations.len(),
+                                "[subagent_runner] refreshed connected_integrations at spawn time"
+                            );
+                            fresh
+                        }
+                        FetchConnectedIntegrationsStatus::Unavailable => {
+                            tracing::debug!(
+                                "[subagent_runner] integrations backend unavailable; falling back to parent's frozen list"
+                            );
+                            parent.connected_integrations.clone()
+                        }
+                    }
                 }
                 Err(e) => {
                     // Real failure — config couldn't be read, so the

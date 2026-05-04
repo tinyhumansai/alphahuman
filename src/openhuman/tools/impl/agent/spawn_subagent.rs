@@ -244,23 +244,37 @@ impl Tool for SpawnSubagentTool {
             let live_integrations: Vec<crate::openhuman::context::prompt::ConnectedIntegration> = {
                 match crate::openhuman::config::Config::load_or_init().await {
                     Ok(config) => {
-                        // `fetch_connected_integrations` is best-effort
-                        // and returns a `Vec` (not `Result`). An empty
-                        // Vec is authoritative ("no ACTIVE composio
-                        // connections") — adopt it as truth so a user
-                        // who just disconnected their last integration
-                        // mid-thread sees the toolkit removed from the
-                        // pre-flight allowlist. Only fall back to the
-                        // parent's frozen list when the config load
-                        // itself fails (Err arm below).
-                        let fresh =
-                            crate::openhuman::composio::fetch_connected_integrations(&config).await;
-                        tracing::debug!(
-                            target: "spawn_subagent",
-                            count = fresh.len(),
-                            "[spawn_subagent] refreshed connected_integrations for pre-flight"
-                        );
-                        fresh
+                        use crate::openhuman::composio::FetchConnectedIntegrationsStatus;
+                        // Use the status-discriminating fetch so we can
+                        // tell "user has zero active integrations" (truth
+                        // — adopt it) apart from "backend unavailable"
+                        // (preserve the parent's frozen snapshot so the
+                        // pre-flight doesn't reject every toolkit during
+                        // a transient 5xx).
+                        match crate::openhuman::composio::fetch_connected_integrations_status(
+                            &config,
+                        )
+                        .await
+                        {
+                            FetchConnectedIntegrationsStatus::Authoritative(fresh) => {
+                                tracing::debug!(
+                                    target: "spawn_subagent",
+                                    count = fresh.len(),
+                                    "[spawn_subagent] refreshed connected_integrations for pre-flight"
+                                );
+                                fresh
+                            }
+                            FetchConnectedIntegrationsStatus::Unavailable => {
+                                tracing::debug!(
+                                    target: "spawn_subagent",
+                                    "[spawn_subagent] integrations backend unavailable; falling back to parent's frozen list"
+                                );
+                                parent_ctx
+                                    .as_ref()
+                                    .map(|p| p.connected_integrations.clone())
+                                    .unwrap_or_default()
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::debug!(
