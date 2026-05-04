@@ -32,6 +32,10 @@ import { openUrl } from '../../utils/openUrl';
 import type { ComposioToolkitMeta } from './toolkitMeta';
 import TriggerToggles from './TriggerToggles';
 
+function deriveConnectionLabel(c: ComposioConnection): string | null {
+  return c.accountEmail ?? c.workspace ?? c.username ?? null;
+}
+
 type Phase = 'idle' | 'authorizing' | 'waiting' | 'connected' | 'disconnecting' | 'error';
 
 interface ComposioConnectModalProps {
@@ -392,9 +396,9 @@ export default function ComposioConnectModal({
                 <div className="w-2 h-2 rounded-full bg-sage-500" />
                 <div>
                   {toolkit.name} is connected. &nbsp;
-                  {activeConnection && (
+                  {activeConnection && deriveConnectionLabel(activeConnection) && (
                     <span className="text-[11px] text-stone-400 font-mono">
-                      (id: {activeConnection.id})
+                      ({deriveConnectionLabel(activeConnection)})
                     </span>
                   )}
                 </div>
