@@ -1257,6 +1257,42 @@ fn render_user_reflections_helper_matches_section_output() {
 }
 
 #[test]
+fn insert_section_before_places_section_ahead_of_named_target() {
+    // Reflections must rank ahead of generic memory in builders that
+    // already include `UserMemorySection` (the `with_defaults` chain).
+    // Verify the helper inserts at the correct index instead of
+    // tail-appending.
+    let builder = SystemPromptBuilder::with_defaults()
+        .insert_section_before("user_memory", Box::new(UserReflectionsSection));
+    let names: Vec<&str> = builder.sections.iter().map(|s| s.name()).collect();
+    let r_idx = names
+        .iter()
+        .position(|n| *n == "user_reflections")
+        .expect("user_reflections section");
+    let m_idx = names
+        .iter()
+        .position(|n| *n == "user_memory")
+        .expect("user_memory section");
+    assert!(
+        r_idx < m_idx,
+        "insert_section_before should place the new section ahead of its target, got order {names:?}"
+    );
+}
+
+#[test]
+fn insert_section_before_falls_back_to_append_when_target_missing() {
+    // Dynamic / sub-agent builders do not include a `user_memory`
+    // section. The helper should still land the new section so the
+    // caller's wiring stays loop-free, just at the tail.
+    let builder = SystemPromptBuilder::default()
+        .add_section(Box::new(SafetySection))
+        .insert_section_before("user_memory", Box::new(UserReflectionsSection));
+    let names: Vec<&str> = builder.sections.iter().map(|s| s.name()).collect();
+    assert_eq!(names.last(), Some(&"user_reflections"));
+    assert_eq!(names.len(), 2);
+}
+
+#[test]
 fn user_reflections_render_above_user_memory_when_both_present() {
     // Acceptance criterion: reflections rank above generic
     // tree summaries — verify by composing the same way the runtime

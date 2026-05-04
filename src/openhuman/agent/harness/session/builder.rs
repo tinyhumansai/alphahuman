@@ -704,16 +704,19 @@ impl Agent {
             None => SystemPromptBuilder::with_defaults(),
         };
         if config.learning.enabled {
+            // Insert the privileged reflection block ahead of the
+            // generic `user_memory` section when one is already
+            // present (the `with_defaults` chain includes it). For
+            // builders that do not contain `user_memory` (dynamic /
+            // sub-agent prompts), the helper falls back to appending,
+            // which still keeps reflections ahead of the
+            // learned-context / user-profile blocks added immediately
+            // after.
             prompt_builder = prompt_builder
-                // Privileged user-reflection block. Added
-                // FIRST so it renders ahead of the broader
-                // `LearnedContextSection` / `UserProfileSection` blocks
-                // and ahead of any later agent-specific user-memory
-                // material — reflection-derived memory is intentionally
-                // ranked above generic learned context.
-                .add_section(Box::new(
-                    crate::openhuman::context::prompt::UserReflectionsSection,
-                ))
+                .insert_section_before(
+                    "user_memory",
+                    Box::new(crate::openhuman::context::prompt::UserReflectionsSection),
+                )
                 .add_section(Box::new(
                     crate::openhuman::learning::LearnedContextSection::new(memory.clone()),
                 ))

@@ -147,6 +147,29 @@ impl SystemPromptBuilder {
         self
     }
 
+    /// Insert `section` immediately before the first existing section
+    /// whose [`PromptSection::name`] matches `target_name`. When no
+    /// matching section is present (most dynamic / sub-agent builders
+    /// do not include `user_memory`, for example), the new section is
+    /// appended at the end instead.
+    ///
+    /// Used by the session builder to guarantee that the privileged
+    /// reflection block ranks ahead of broader memory sections like
+    /// `user_memory`, even when the surrounding builder was assembled
+    /// via [`Self::with_defaults`] which already contains them.
+    pub fn insert_section_before(
+        mut self,
+        target_name: &str,
+        section: Box<dyn PromptSection>,
+    ) -> Self {
+        let position = self.sections.iter().position(|s| s.name() == target_name);
+        match position {
+            Some(idx) => self.sections.insert(idx, section),
+            None => self.sections.push(section),
+        }
+        self
+    }
+
     /// Render every section in order into a single prompt string.
     ///
     /// The rendered bytes are intended to be **frozen for the whole
