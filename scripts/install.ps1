@@ -203,7 +203,11 @@ Examples:
     if ($assetName -like "*.msi") {
       $dryMsiArgs = Get-OpenHumanMsiexecInstallArgumentList -MsiPath $tmpFile
       Write-Output "DRY RUN: msiexec ArgumentList = $($dryMsiArgs | ConvertTo-Json -Compress)"
-      Write-Output "DRY RUN: (non-admin) Start-Process msiexec -Verb RunAs -Wait -ArgumentList <above>"
+      if (Test-OpenHumanWindowsProcessElevated) {
+        Write-Output "DRY RUN: (already elevated) Start-Process msiexec -Wait -ArgumentList <above>"
+      } else {
+        Write-Output "DRY RUN: (non-admin) Start-Process msiexec -Verb RunAs -Wait -ArgumentList <above>"
+      }
     } else {
       Write-Output "DRY RUN: Start-Process `"$tmpFile`" -Wait"
     }
