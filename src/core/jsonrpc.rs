@@ -868,6 +868,9 @@ fn register_domain_subscribers(
         // Restart requests go through a subscriber so every trigger path shares
         // the same respawn logic.
         crate::openhuman::service::bus::register_restart_subscriber();
+        // Shutdown requests use the same pattern; the subscriber exits the
+        // current process after a short grace period.
+        crate::openhuman::service::bus::register_shutdown_subscriber();
 
         // Proactive message subscriber (web-only in the desktop runtime —
         // no external channel instances are registered here). Uses a

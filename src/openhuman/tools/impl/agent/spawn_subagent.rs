@@ -297,7 +297,7 @@ impl Tool for SpawnSubagentTool {
                                 "Integration '{tk}' is available but the user has not \
                                  authorized it yet. Do NOT retry this spawn. Tell the user \
                                  the integration is available and ask them to authorize \
-                                 '{tk}' in Settings → Integrations before retrying the \
+                                 '{tk}' in Connections → Integrations before retrying the \
                                  original request."
                             )));
                         }
