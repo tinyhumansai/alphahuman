@@ -62,8 +62,13 @@ export function initSentry(): void {
       const isSmokeTest = event.message === 'react-sentry-smoke-test';
       // Manual staging test events fired from the Developer Options button
       // (#1072) bypass the consent gate so QA can validate the pipeline
-      // without needing to flip user-facing analytics first.
-      const isManualTest = event.tags?.test === 'manual-staging';
+      // without needing to flip user-facing analytics first. The bypass is
+      // *also* gated on APP_ENVIRONMENT so a stray `manual-staging` tag in
+      // production (whether accidental or malicious) cannot exfiltrate an
+      // event past the consent gate — the only legitimate caller in this
+      // codebase is `triggerSentryTestEvent` and it itself refuses to fire
+      // outside staging.
+      const isManualTest = APP_ENVIRONMENT === 'staging' && event.tags?.test === 'manual-staging';
       // Drop events when the user hasn't opted into analytics.
       if (!isSmokeTest && !isManualTest && !isAnalyticsEnabled()) return null;
 
@@ -150,6 +155,18 @@ export function syncAnalyticsConsent(enabled: boolean): void {
  * Sentry is disabled in this build).
  */
 export async function triggerSentryTestEvent(): Promise<string | undefined> {
+  // Fail-fast outside staging. The UI button is only rendered when
+  // `APP_ENVIRONMENT === 'staging'`, but this guard exists as defense in
+  // depth so a programmatic caller (a stray import, a future refactor)
+  // cannot fire diagnostic events from production. `beforeSend` already
+  // re-checks the same gate before applying the consent bypass.
+  if (APP_ENVIRONMENT !== 'staging') {
+    console.warn(
+      `[sentry-test] refusing to fire test event outside staging (APP_ENVIRONMENT=${APP_ENVIRONMENT})`
+    );
+    return undefined;
+  }
+
   const client = Sentry.getClient();
   if (!client) {
     console.warn('[sentry-test] Sentry client not initialized — DSN missing or dev build');

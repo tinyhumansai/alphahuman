@@ -15,6 +15,7 @@ const hoisted = vi.hoisted(() => ({
   browserApiErrorsIntegration: vi.fn(() => ({})),
   globalHandlersIntegration: vi.fn(() => ({})),
   analyticsEnabled: false,
+  appEnvironment: 'staging' as 'staging' | 'production' | 'development',
 }));
 
 vi.mock('@sentry/react', () => ({
@@ -40,9 +41,13 @@ vi.mock('../../lib/coreState/store', () => ({
 }));
 
 // `initSentry()` only does anything when SENTRY_DSN is truthy and IS_DEV is
-// false. Mock the whole config module so we control both gates.
+// false. Mock the whole config module so we control both gates. Use a
+// getter for APP_ENVIRONMENT so tests can flip staging/production per-case
+// to exercise the defense-in-depth gates added for the consent bypass.
 vi.mock('../../utils/config', () => ({
-  APP_ENVIRONMENT: 'staging',
+  get APP_ENVIRONMENT() {
+    return hoisted.appEnvironment;
+  },
   IS_DEV: false,
   SENTRY_DSN: 'https://abc@example.ingest.sentry.io/1',
   SENTRY_RELEASE: 'openhuman@test+abc',
@@ -56,6 +61,19 @@ describe('triggerSentryTestEvent', () => {
     hoisted.flush.mockReset();
     hoisted.flush.mockReturnValue(Promise.resolve(true));
     hoisted.init.mockReset();
+    hoisted.appEnvironment = 'staging';
+  });
+
+  test('refuses to fire outside staging (defense in depth)', async () => {
+    hoisted.appEnvironment = 'production';
+    hoisted.getClient.mockReturnValue({});
+    const { triggerSentryTestEvent } = await import('../analytics');
+
+    const result = await triggerSentryTestEvent();
+
+    expect(result).toBeUndefined();
+    expect(hoisted.captureException).not.toHaveBeenCalled();
+    expect(hoisted.flush).not.toHaveBeenCalled();
   });
 
   test('returns undefined when Sentry client is not initialized', async () => {
@@ -124,6 +142,7 @@ describe('initSentry beforeSend manual-staging bypass', () => {
 
   beforeEach(() => {
     hoisted.analyticsEnabled = false;
+    hoisted.appEnvironment = 'staging';
   });
 
   test('drops events when consent is off and event is not test-tagged', async () => {
@@ -162,5 +181,21 @@ describe('initSentry beforeSend manual-staging bypass', () => {
     const beforeSend = await captureBeforeSend();
     const result = beforeSend({ message: 'react-sentry-smoke-test', tags: {}, contexts: {} });
     expect(result).not.toBeNull();
+  });
+
+  test('drops manual-staging tagged events in production even with the tag', async () => {
+    // Defense in depth: a stray `tags.test = 'manual-staging'` in production
+    // must NOT bypass the consent gate. Capture beforeSend in staging, then
+    // flip APP_ENVIRONMENT to production *before* invoking it, so the
+    // `isManualTest` check inside beforeSend re-reads the live value via the
+    // mocked getter.
+    const beforeSend = await captureBeforeSend();
+    hoisted.appEnvironment = 'production';
+    const result = beforeSend({
+      message: 'pretending to be a test event',
+      tags: { test: 'manual-staging' },
+      contexts: {},
+    });
+    expect(result).toBeNull();
   });
 });
