@@ -417,7 +417,10 @@ mod tests {
         let text = format!("see {placeholder} and https://openhm.xyz/abc");
 
         let result = rewrite_outbound_for_user(&cfg, &text, Some("nikhil")).unwrap();
-        assert!(result.text.contains(LONG), "placeholder must expand back to LONG");
+        assert!(
+            result.text.contains(LONG),
+            "placeholder must expand back to LONG"
+        );
         assert!(
             result.text.contains("https://openhm.xyz/abc?u=nikhil"),
             "openhm.xyz URL must carry ?u= tag"
