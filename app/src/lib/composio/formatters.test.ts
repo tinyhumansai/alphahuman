@@ -36,7 +36,11 @@ describe('formatTriggerLabel', () => {
     expect(formatTriggerLabel('GITHUB_PUSH_trigger')).toBe('GitHub Push');
   });
 
-  it('handles tokens with multiple underscores correctly', () => {
-    expect(formatTriggerLabel('LINEAR_ISSUE_CREATED')).toBe('Linear Issue Created');
+  it('handles tokens with multiple consecutive underscores correctly', () => {
+    expect(formatTriggerLabel('LINEAR__ISSUE___CREATED')).toBe('Linear Issue Created');
+  });
+
+  it('honors explicit empty-string override (hasOwnProperty path)', () => {
+    expect(formatTriggerLabel('NOOP', { overrides: { NOOP: '' } })).toBe('');
   });
 });
