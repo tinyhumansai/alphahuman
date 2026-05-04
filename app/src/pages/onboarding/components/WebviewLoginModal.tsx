@@ -18,7 +18,7 @@ interface WebviewLoginModalProps {
    * itself but does NOT purge the underlying webview. The parent owns
    * the lifecycle — typically because it wants to keep driving the
    * webview via CDP from the next onboarding step (e.g. running
-   * Gmail search for the LinkedIn-enrichment pipeline). On cancel we
+   * provider-side scrape after sign-in). On cancel we
    * still purge regardless, so abandoned sessions don't leak.
    */
   keepAliveOnConnected?: boolean;
@@ -28,11 +28,12 @@ interface WebviewLoginModalProps {
  * URL prefix that signals the user reached the post-login surface for a
  * given provider. Login flows (e.g. accounts.google.com) load *before*
  * we land here, so a `webview-account:load` whose URL starts with this
- * prefix is treated as "logged in".
+ * prefix is treated as "logged in". Currently empty — the only entry
+ * was for the embedded Gmail webview, which has been retired. Future
+ * providers that want auto-detection slot in here; absent providers
+ * fall back to the manual "I'm signed in" confirm button.
  */
-const LOGGED_IN_URL_PREFIX: Partial<Record<AccountProvider, string>> = {
-  gmail: 'https://mail.google.com/',
-};
+const LOGGED_IN_URL_PREFIX: Partial<Record<AccountProvider, string>> = {};
 
 interface LoadPayload {
   account_id: string;
@@ -144,8 +145,8 @@ const WebviewLoginModal = ({
     (async () => {
       try {
         // `webview-account:load` only fires once per cold open (the Rust
-        // side dedups), so it catches the case where Gmail loads
-        // straight into the inbox (already logged in).
+        // side dedups), so it catches the case where the provider loads
+        // straight into the post-login surface (already logged in).
         const onLoad = await listen<LoadPayload>('webview-account:load', evt => {
           const payload = evt.payload;
           if (!payload || payload.account_id !== accountId) return;
@@ -158,7 +159,7 @@ const WebviewLoginModal = ({
         });
         // `webview-account:navigate` fires for every committed
         // navigation, so it catches the post-login redirect
-        // (accounts.google.com → mail.google.com).
+        // (e.g. accounts.google.com → meet.google.com for Meet).
         const onNavigate = await listen<NavigatePayload>('webview-account:navigate', evt => {
           const payload = evt.payload;
           if (!payload || payload.account_id !== accountId) return;
