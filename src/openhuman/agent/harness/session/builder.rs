@@ -705,13 +705,24 @@ impl Agent {
         };
         if config.learning.enabled {
             prompt_builder = prompt_builder
+                // Privileged user-reflection block. Added
+                // FIRST so it renders ahead of the broader
+                // `LearnedContextSection` / `UserProfileSection` blocks
+                // and ahead of any later agent-specific user-memory
+                // material — reflection-derived memory is intentionally
+                // ranked above generic learned context.
+                .add_section(Box::new(
+                    crate::openhuman::context::prompt::UserReflectionsSection,
+                ))
                 .add_section(Box::new(
                     crate::openhuman::learning::LearnedContextSection::new(memory.clone()),
                 ))
                 .add_section(Box::new(
                     crate::openhuman::learning::UserProfileSection::new(memory.clone()),
                 ));
-            log::info!("[learning] prompt sections registered (learned_context, user_profile)");
+            log::info!(
+                "[learning] prompt sections registered (user_reflections, learned_context, user_profile)"
+            );
         }
 
         // Build post-turn hooks when learning is enabled
