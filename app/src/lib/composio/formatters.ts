@@ -16,12 +16,14 @@ export function formatTriggerLabel(
   opts?: { overrides?: Record<string, string> }
 ): string {
   if (!slug) return '';
-  if (opts?.overrides?.[slug]) return opts.overrides[slug];
+  if (opts?.overrides && Object.prototype.hasOwnProperty.call(opts.overrides, slug)) {
+    return opts.overrides[slug] ?? '';
+  }
 
   // Strip trailing _TRIGGER (case-insensitive)
   const workingSlug = slug.replace(/_TRIGGER$/i, '');
 
-  const tokens = workingSlug.split('_');
+  const tokens = workingSlug.split('_').filter(t => t.length > 0);
 
   // Dedupe leading provider prefix
   // e.g. GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CREATED -> drop GOOGLECALENDAR
@@ -41,7 +43,6 @@ export function formatTriggerLabel(
 
   return tokens
     .map(token => {
-      if (!token) return '';
       if (token.toUpperCase() === 'GITHUB') return 'GitHub';
       return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
     })
