@@ -56,20 +56,31 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
   useEffect(() => {
     console.debug('[ui-flow][memory-workspace] initial load (2-pane + overlay)');
     let cancelled = false;
-    void Promise.all([
-      memoryTreeListChunks({ limit: 500 }),
-      memoryTreeListSources(),
-      memoryTreeTopEntities('person', 12),
-      memoryTreeTopEntities(undefined, 40),
-    ]).then(([chunkResult, srcs, people, anyEntities]) => {
-      if (cancelled) return;
-      const topicKinds = new Set(['technology', 'product', 'event']);
-      const topics = anyEntities.filter(e => topicKinds.has(e.kind)).slice(0, 12);
-      setAllChunks(chunkResult.chunks);
-      setSources(srcs);
-      setTopPeople(people);
-      setTopTopics(topics);
-    });
+    const run = async () => {
+      try {
+        const [chunkResult, srcs, people, anyEntities] = await Promise.all([
+          memoryTreeListChunks({ limit: 500 }),
+          memoryTreeListSources(),
+          memoryTreeTopEntities('person', 12),
+          memoryTreeTopEntities(undefined, 40),
+        ]);
+        if (cancelled) return;
+        const topicKinds = new Set(['technology', 'product', 'event']);
+        const topics = anyEntities.filter(e => topicKinds.has(e.kind)).slice(0, 12);
+        setAllChunks(chunkResult.chunks);
+        setSources(srcs);
+        setTopPeople(people);
+        setTopTopics(topics);
+      } catch (err) {
+        if (cancelled) return;
+        // Initial-load failure leaves the panes empty rather than
+        // half-populated with stale state. The console line lets us
+        // diagnose without blocking the user behind a modal — they can
+        // still navigate the tab and retry by reloading.
+        console.error('[ui-flow][memory-workspace] initial load failed', err);
+      }
+    };
+    void run();
     return () => {
       cancelled = true;
     };
@@ -89,25 +100,41 @@ export function MemoryWorkspace({ onToast: _onToast }: MemoryWorkspaceProps) {
       '[ui-flow][memory-workspace] entity-effect fire entityIds=%o',
       selection.entityIds
     );
-    if (selection.entityIds.length === 0) {
-      setEntityChunkIds(null);
-      return;
-    }
     let cancelled = false;
-    void Promise.all(selection.entityIds.map(id => memoryTreeChunksForEntity(id))).then(results => {
-      if (cancelled) {
-        console.debug('[ui-flow][memory-workspace] entity-effect cancelled before commit');
+    const run = async () => {
+      if (selection.entityIds.length === 0) {
+        setEntityChunkIds(null);
         return;
       }
-      const union = new Set<string>();
-      for (const ids of results) for (const id of ids) union.add(id);
-      console.debug(
-        '[ui-flow][memory-workspace] entity-effect commit set_size=%d sample=%o',
-        union.size,
-        [...union].slice(0, 3)
-      );
-      setEntityChunkIds(union);
-    });
+      try {
+        const results = await Promise.all(
+          selection.entityIds.map(id => memoryTreeChunksForEntity(id))
+        );
+        if (cancelled) {
+          console.debug('[ui-flow][memory-workspace] entity-effect cancelled before commit');
+          return;
+        }
+        const union = new Set<string>();
+        for (const ids of results) for (const id of ids) union.add(id);
+        console.debug(
+          '[ui-flow][memory-workspace] entity-effect commit set_size=%d sample=%o',
+          union.size,
+          [...union].slice(0, 3)
+        );
+        setEntityChunkIds(union);
+      } catch (err) {
+        if (cancelled) return;
+        // If the inverse-index lookup rejects, do NOT keep filtering by
+        // the previously-resolved set — that would leave the result list
+        // showing chunks tied to the old selection while the user thinks
+        // they've moved on. Reset to "no entity filter" so they at least
+        // see the unfiltered timeline; the navigator selection is left
+        // alone so they can retry by reselecting.
+        console.error('[ui-flow][memory-workspace] entity-effect lookup failed', err);
+        setEntityChunkIds(null);
+      }
+    };
+    void run();
     return () => {
       cancelled = true;
     };
