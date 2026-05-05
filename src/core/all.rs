@@ -186,6 +186,8 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     );
     // Integration notification ingest, triage, and per-provider settings
     controllers.extend(crate::openhuman::notifications::all_notifications_registered_controllers());
+    // EventKit bridge — Calendar read + Reminders write (macOS; stubs on other platforms)
+    controllers.extend(crate::openhuman::eventkit::all_eventkit_registered_controllers());
     controllers
 }
 
@@ -246,6 +248,8 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     );
     // Integration notification ingest, triage, and per-provider settings
     schemas.extend(crate::openhuman::notifications::all_notifications_controller_schemas());
+    // EventKit bridge — Calendar read + Reminders write (macOS; stubs on other platforms)
+    schemas.extend(crate::openhuman::eventkit::all_eventkit_controller_schemas());
     schemas
 }
 
@@ -321,9 +325,15 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "learning" => Some(
             "User context enrichment — LinkedIn profile scraping and onboarding intelligence.",
         ),
+        "people" => Some(
+            "Contact resolution and recency × frequency × reciprocity × depth scoring.",
+        ),
         "notification" => Some(
             "Integration notification ingest, triage scoring, listing, read-state, \
              and per-provider routing settings.",
+        ),
+        "eventkit" => Some(
+            "EventKit bridge — read Calendar events and write Reminders on macOS.",
         ),
         _ => None,
     }
