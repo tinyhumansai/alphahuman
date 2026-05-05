@@ -275,6 +275,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "auth" => Some("Manage app session and provider credentials."),
         "autocomplete" => Some("Inline autocomplete engine controls and style settings."),
         "channels" => Some("Channel definitions, connections, and lifecycle management."),
+        "chronicle" => Some(
+            "S0 dedup/debounce + S1 parsed focus events, with resumable per-source watermarks.",
+        ),
         "composio" => Some(
             "Composio OAuth integrations proxied via the backend — toolkits, connections, tools, and actions."
         ),

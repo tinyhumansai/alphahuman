@@ -190,6 +190,17 @@ impl UserIdentity {
     }
 }
 
+/// Frozen `MEMORY.md` + `USER.md` bodies for prompt injection.
+///
+/// Lives in the prompt layer (not `openhuman::curated_memory`) so agent
+/// prompt plumbing compiles in builds where the curated-memory domain
+/// module is not present.
+#[derive(Debug, Clone)]
+pub struct CuratedMemoryPromptSnapshot {
+    pub memory: String,
+    pub user: String,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompt context (everything a section needs)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -219,6 +230,13 @@ pub struct PromptContext<'a> {
     /// When `true`, inject `MEMORY.md` (archivist-curated long-term
     /// memory). Capped at [`USER_FILE_MAX_CHARS`] and frozen per session.
     pub include_memory_md: bool,
+    /// Session-scoped curated-memory snapshot (`MEMORY.md` + `USER.md`)
+    /// captured once at turn start and reused by every delegated
+    /// sub-agent to keep prompt context byte-identical within the turn.
+    /// `None` when no snapshot is attached (unit tests, curated-memory
+    /// runtime unavailable) — [`UserFilesSection`] falls back to workspace
+    /// files.
+    pub curated_snapshot: Option<std::sync::Arc<CuratedMemoryPromptSnapshot>>,
     /// Authenticated user identity (id/name/email) when available — see
     /// [`UserIdentity`]. `None` for unauthenticated paths (CLI without a
     /// session, tests). Pre-fetched by the caller from the
