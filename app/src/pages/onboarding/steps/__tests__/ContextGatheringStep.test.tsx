@@ -27,14 +27,19 @@ describe('ContextGatheringStep', () => {
   });
 
   it('no-Gmail branch: pipeline finishes immediately and auto-navigates without any RPC', async () => {
+    vi.useFakeTimers();
     const onNext = vi.fn().mockResolvedValue(undefined);
     renderWithProviders(<ContextGatheringStep connectedSources={['notion']} onNext={onNext} />);
 
     expect(screen.getByText(/haven't connected Gmail/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    await waitFor(() => expect(onNext).toHaveBeenCalled(), { timeout: 2000 });
+    await act(async () => {
+      vi.advanceTimersByTime(850);
+    });
+    expect(onNext).toHaveBeenCalled();
     expect(callCoreRpc).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('Skip for now invokes onNext without starting the pipeline', () => {

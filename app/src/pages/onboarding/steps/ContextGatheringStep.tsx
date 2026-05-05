@@ -166,7 +166,12 @@ const ContextGatheringStep = ({
   // Auto-navigate on successful completion
   useEffect(() => {
     if (finished && !hasError) {
-      const t = setTimeout(() => void onNext(), 800);
+      const t = setTimeout(() => {
+        void Promise.resolve(onNext()).catch(e => {
+          console.warn('[onboarding:context] auto-advance failed', e);
+          setHasError(true);
+        });
+      }, 800);
       return () => clearTimeout(t);
     }
   }, [finished, hasError, onNext]);
