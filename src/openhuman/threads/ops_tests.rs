@@ -158,6 +158,31 @@ fn sanitize_generated_title_truncation_is_char_safe_for_multibyte() {
     assert_eq!(out.chars().count(), 80);
 }
 
+// ── title_from_user_message ───────────────────────────────────
+
+#[test]
+fn title_from_user_message_builds_meaningful_fallback_title() {
+    assert_eq!(
+        title_from_user_message("Please summarize the latest five email threads for me.")
+            .as_deref(),
+        Some("Please summarize the latest five email threads for")
+    );
+}
+
+#[test]
+fn title_from_user_message_uses_first_sentence_and_drops_trailing_punct() {
+    assert_eq!(
+        title_from_user_message("Telegram connection help? Then inspect logs.").as_deref(),
+        Some("Telegram connection help")
+    );
+}
+
+#[test]
+fn title_from_user_message_returns_none_without_context() {
+    assert!(title_from_user_message("  ").is_none());
+    assert!(title_from_user_message("///").is_none());
+}
+
 // ── is_auto_generated_thread_title ────────────────────────────
 
 #[test]

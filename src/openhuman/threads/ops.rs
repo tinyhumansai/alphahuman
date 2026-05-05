@@ -17,8 +17,8 @@ use crate::openhuman::memory::{
 };
 use crate::openhuman::providers::{self, ProviderRuntimeOptions};
 use crate::openhuman::threads::title::{
-    build_title_prompt, collapse_whitespace, is_auto_generated_thread_title,
-    sanitize_generated_title, title_log_fingerprint, THREAD_TITLE_LOG_PREFIX,
+    build_title_prompt, is_auto_generated_thread_title, sanitize_generated_title,
+    title_from_user_message, title_log_fingerprint, THREAD_TITLE_LOG_PREFIX,
     THREAD_TITLE_MODEL_HINT, THREAD_TITLE_SYSTEM_PROMPT,
 };
 use crate::openhuman::threads::turn_state::{
@@ -102,6 +102,38 @@ fn record_to_message(record: ConversationMessageRecord) -> ConversationMessage {
         sender: record.sender,
         created_at: record.created_at,
     }
+}
+
+fn fallback_title_from_user_message(thread_id: &str, user_message: &str) -> Option<String> {
+    let title = title_from_user_message(user_message);
+    if let Some(title) = &title {
+        tracing::debug!(
+            thread_id = %thread_id,
+            title_len = title.chars().count(),
+            title_hash = %title_log_fingerprint(title),
+            "{THREAD_TITLE_LOG_PREFIX} derived fallback title from user message"
+        );
+    } else {
+        tracing::debug!(
+            thread_id = %thread_id,
+            "{THREAD_TITLE_LOG_PREFIX} user message did not yield fallback title"
+        );
+    }
+    title
+}
+
+fn update_thread_with_fallback_title(
+    dir: PathBuf,
+    thread: ConversationThread,
+    user_message: &str,
+) -> Result<ConversationThread, String> {
+    let Some(title) = fallback_title_from_user_message(&thread.id, user_message) else {
+        return Ok(thread);
+    };
+    if title == thread.title {
+        return Ok(thread);
+    }
+    conversations::update_thread_title(dir, &thread.id, &title, &chrono::Utc::now().to_rfc3339())
 }
 
 /// Lists all conversation threads.
@@ -268,10 +300,11 @@ pub async fn thread_generate_title(
     let Some(assistant_message) = assistant_message else {
         tracing::debug!(
             thread_id = %request.thread_id,
-            "{THREAD_TITLE_LOG_PREFIX} no assistant message yet; skipping"
+            "{THREAD_TITLE_LOG_PREFIX} no assistant message yet; applying fallback title"
         );
+        let updated = update_thread_with_fallback_title(dir, thread, &first_user_message)?;
         return Ok(envelope(
-            thread_to_summary(thread),
+            thread_to_summary(updated),
             Some(counts([("num_threads", 1)])),
             None,
         ));
@@ -295,10 +328,11 @@ pub async fn thread_generate_title(
             tracing::warn!(
                 thread_id = %request.thread_id,
                 error = %error,
-                "{THREAD_TITLE_LOG_PREFIX} provider init failed; leaving placeholder title"
+                "{THREAD_TITLE_LOG_PREFIX} provider init failed; applying fallback title"
             );
+            let updated = update_thread_with_fallback_title(dir, thread, &first_user_message)?;
             return Ok(envelope(
-                thread_to_summary(thread),
+                thread_to_summary(updated),
                 Some(counts([("num_threads", 1)])),
                 None,
             ));
@@ -327,10 +361,11 @@ pub async fn thread_generate_title(
             tracing::warn!(
                 thread_id = %request.thread_id,
                 error = %error,
-                "{THREAD_TITLE_LOG_PREFIX} title generation failed; leaving placeholder title"
+                "{THREAD_TITLE_LOG_PREFIX} title generation failed; applying fallback title"
             );
+            let updated = update_thread_with_fallback_title(dir, thread, &first_user_message)?;
             return Ok(envelope(
-                thread_to_summary(thread),
+                thread_to_summary(updated),
                 Some(counts([("num_threads", 1)])),
                 None,
             ));
@@ -342,10 +377,11 @@ pub async fn thread_generate_title(
             thread_id = %request.thread_id,
             raw_title_len = raw_title.chars().count(),
             raw_title_hash = %title_log_fingerprint(&raw_title),
-            "{THREAD_TITLE_LOG_PREFIX} generated empty title after sanitization"
+            "{THREAD_TITLE_LOG_PREFIX} generated empty title after sanitization; applying fallback title"
         );
+        let updated = update_thread_with_fallback_title(dir, thread, &first_user_message)?;
         return Ok(envelope(
-            thread_to_summary(thread),
+            thread_to_summary(updated),
             Some(counts([("num_threads", 1)])),
             None,
         ));
