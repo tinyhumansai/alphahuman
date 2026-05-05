@@ -19,22 +19,14 @@ import { waitForApp, waitForAppReady } from '../helpers/app-helpers';
 import { callOpenhumanRpc } from '../helpers/core-rpc';
 import { triggerAuthDeepLinkBypass } from '../helpers/deep-link-helpers';
 import {
-  textExists,
   clickNativeButton,
+  textExists,
   waitForText,
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
-import {
-  completeOnboardingIfVisible,
-  navigateToSkills,
-} from '../helpers/shared-flows';
-import {
-  clearRequestLog,
-  setMockBehavior,
-  startMockServer,
-  stopMockServer,
-} from '../mock-server';
+import { completeOnboardingIfVisible, navigateToSkills } from '../helpers/shared-flows';
+import { clearRequestLog, setMockBehavior, startMockServer, stopMockServer } from '../mock-server';
 
 const LOG = '[ComposioTriggersE2E]';
 
