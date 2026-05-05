@@ -280,34 +280,35 @@ const ContextGatheringStep = ({
 
   if (finished && hasError) {
     return (
-      <div className="flex flex-col items-center justify-center gap-6 py-16 animate-fade-up">
-        <p className="text-lg font-medium text-stone-700 dark:text-stone-200">Almost there!</p>
-        <p className="text-sm text-stone-500 dark:text-stone-400 text-center max-w-xs">
-          We couldn't build your full profile right now, but that's okay — you can always update it
-          later.
-        </p>
-        <Button onClick={() => void onNext()} variant="primary">
-          Continue
-        </Button>
+      <div className="rounded-2xl border border-stone-200 bg-white p-8 shadow-soft animate-fade-up">
+        <div className="flex flex-col items-center justify-center gap-5">
+          <h1 className="text-xl font-bold text-stone-900">Almost there!</h1>
+          <p className="text-sm text-stone-600 text-center max-w-xs leading-relaxed">
+            We couldn&apos;t build your full profile right now, but that&apos;s okay — you can
+            always update it later.
+          </p>
+          <OnboardingNextButton label="Continue" onClick={() => void onNext()} />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-8 py-16 animate-fade-up">
-      {/* Pulsing avatar silhouette */}
-      <div className="w-20 h-20 rounded-full bg-gradient-to-r from-stone-200 via-stone-100 to-stone-200 dark:from-stone-700 dark:via-stone-600 dark:to-stone-700 bg-[length:200%_100%] animate-shimmer" />
+    <div className="rounded-2xl border border-stone-200 bg-white p-8 shadow-soft animate-fade-up">
+      <div className="flex flex-col items-center justify-center gap-6 py-8">
+        {/* Pulsing avatar silhouette */}
+        <div className="w-20 h-20 rounded-full bg-gradient-to-r from-stone-300 via-stone-100 to-stone-300 bg-[length:200%_100%] animate-shimmer" />
 
-      {/* Title */}
-      <p className="text-lg font-medium text-stone-700 dark:text-stone-200 animate-pulse">
-        Building your profile...
-      </p>
+        {/* Title */}
+        <h1 className="text-xl font-bold text-stone-900 animate-pulse">Building your profile...</h1>
+        <p className="text-sm text-stone-500 leading-relaxed">This will only take a moment.</p>
 
-      {/* Skeleton bars */}
-      <div className="w-64 flex flex-col gap-3">
-        <div className="h-3 rounded-full bg-gradient-to-r from-stone-200 via-stone-100 to-stone-200 dark:from-stone-700 dark:via-stone-600 dark:to-stone-700 bg-[length:200%_100%] animate-shimmer" />
-        <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-stone-200 via-stone-100 to-stone-200 dark:from-stone-700 dark:via-stone-600 dark:to-stone-700 bg-[length:200%_100%] animate-shimmer [animation-delay:150ms]" />
-        <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-stone-200 via-stone-100 to-stone-200 dark:from-stone-700 dark:via-stone-600 dark:to-stone-700 bg-[length:200%_100%] animate-shimmer [animation-delay:300ms]" />
+        {/* Skeleton bars */}
+        <div className="w-64 flex flex-col gap-3 mt-2">
+          <div className="h-3 rounded-full bg-gradient-to-r from-stone-300 via-stone-100 to-stone-300 bg-[length:200%_100%] animate-shimmer" />
+          <div className="h-3 w-3/4 rounded-full bg-gradient-to-r from-stone-300 via-stone-100 to-stone-300 bg-[length:200%_100%] animate-shimmer [animation-delay:150ms]" />
+          <div className="h-3 w-1/2 rounded-full bg-gradient-to-r from-stone-300 via-stone-100 to-stone-300 bg-[length:200%_100%] animate-shimmer [animation-delay:300ms]" />
+        </div>
       </div>
     </div>
   );
