@@ -1,5 +1,5 @@
 import { Player, type PlayerRef } from '@remotion/player';
-import React, { useEffect, useMemo, useRef } from 'react';
+import { type ComponentType, type FC, useEffect, useMemo, useRef } from 'react';
 
 import type { MascotFace } from './Ghosty';
 import type { MascotProps as YellowMascotInnerProps } from './yellow/MascotCharacter';
@@ -22,10 +22,10 @@ const CANVAS = 1080;
 // Loop length per state. The Thinking variant we authored loops cleanly at 6s.
 const DURATION_FRAMES = FPS * 6;
 
-type Variant = {
-  component: React.ComponentType<YellowMascotInnerProps>;
+interface Variant {
+  component: ComponentType<YellowMascotInnerProps>;
   inputProps: YellowMascotInnerProps;
-};
+}
 
 function variantForFace(face: MascotFace, arm: 'wave' | 'none'): Variant {
   const base: Pick<
@@ -63,7 +63,7 @@ function variantForFace(face: MascotFace, arm: 'wave' | 'none'): Variant {
   }
 }
 
-export const YellowMascot: React.FC<YellowMascotProps> = ({
+export const YellowMascot: FC<YellowMascotProps> = ({
   face = 'idle',
   arm = 'none',
   size = '100%',
@@ -91,7 +91,7 @@ export const YellowMascot: React.FC<YellowMascotProps> = ({
       data-face={face}>
       <Player
         ref={playerRef}
-        component={component as React.ComponentType<Record<string, unknown>>}
+        component={component as ComponentType<Record<string, unknown>>}
         inputProps={inputProps as unknown as Record<string, unknown>}
         durationInFrames={DURATION_FRAMES}
         fps={FPS}

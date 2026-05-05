@@ -1,4 +1,4 @@
-import React from 'react';
+import type { FC } from 'react';
 import { useVideoConfig } from 'remotion';
 import { z } from 'zod';
 
@@ -12,7 +12,7 @@ export type YellowMascotThinkingProps = z.infer<typeof yellowMascotThinkingSchem
 // Variant: starts idle, ramps into a thinking pose, holds, then ramps back to idle —
 // so the first and last frames match and the composition loops cleanly.
 // Ramp-in starts almost immediately so the action reads quickly.
-export const YellowMascotThinking: React.FC<YellowMascotThinkingProps> = props => {
+export const YellowMascotThinking: FC<YellowMascotThinkingProps> = props => {
   const { fps, durationInFrames } = useVideoConfig();
   const totalSec = durationInFrames / fps;
 
