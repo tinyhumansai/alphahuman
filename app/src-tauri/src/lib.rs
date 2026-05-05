@@ -1019,9 +1019,9 @@ pub fn run() {
         // build time with `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`); see
         // docs/AUTO_UPDATE.md for the full pipeline.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(dictation_hotkeys::DictationHotkeyState(std::sync::Mutex::new(
-            Vec::new(),
-        )))
+        .manage(dictation_hotkeys::DictationHotkeyState(
+            std::sync::Mutex::new(Vec::new()),
+        ))
         .manage(webview_accounts::WebviewAccountsState::default())
         .manage(notification_settings::NotificationSettingsState::new());
     let builder = builder.manage(std::sync::Arc::new(imessage_scanner::ScannerRegistry::new()));
@@ -1664,7 +1664,6 @@ mod tests {
         let _result = is_daemon_mode();
     }
 
-
     /// Test core_rpc_url returns expected format
     #[test]
     fn core_rpc_url_returns_expected_format() {
@@ -1759,5 +1758,4 @@ mod tests {
         //
         // This test passes if the code compiles with these log messages.
     }
-
 }
