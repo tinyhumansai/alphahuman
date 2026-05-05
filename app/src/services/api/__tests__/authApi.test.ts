@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { sendEmailMagicLink } from '../authApi';
+import { isEmailAuthAvailable, sendEmailMagicLink } from '../authApi';
 
 describe('sendEmailMagicLink', () => {
   afterEach(() => {
@@ -41,5 +41,43 @@ describe('sendEmailMagicLink', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     await rejection;
+  });
+
+  it('masks email-infra details when backend reports email auth unavailable', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'SMTP credentials not configured' }), { status: 503 })
+    );
+
+    await expect(sendEmailMagicLink('user@example.com', 'openhuman://')).rejects.toThrow(
+      'Email sign-in is currently unavailable. Please use a social login option.'
+    );
+  });
+});
+
+describe('isEmailAuthAvailable', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns true when backend reports enabled=true', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { enabled: true } }), { status: 200 })
+    );
+
+    await expect(isEmailAuthAvailable()).resolves.toBe(true);
+  });
+
+  it('returns false when backend reports enabled=false', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { enabled: false } }), { status: 200 })
+    );
+
+    await expect(isEmailAuthAvailable()).resolves.toBe(false);
+  });
+
+  it('returns false when endpoint is unavailable', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }));
+
+    await expect(isEmailAuthAvailable()).resolves.toBe(false);
   });
 });

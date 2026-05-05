@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { isEmailAuthAvailable, sendEmailMagicLink } from '../../services/api/authApi';
 import { useDeepLinkAuthState } from '../../store/deepLinkAuthState';
 import Welcome from '../Welcome';
 
@@ -43,16 +44,24 @@ vi.mock('../../components/oauth/providerConfigs', () => ({
 }));
 
 vi.mock('../../store/deepLinkAuthState', () => ({ useDeepLinkAuthState: vi.fn() }));
+vi.mock('../../services/api/authApi', () => ({
+  isEmailAuthAvailable: vi.fn(),
+  sendEmailMagicLink: vi.fn(),
+}));
 
 describe('Welcome auth entrypoint', () => {
   beforeEach(() => {
     oauthButtonSpy.mockReset();
     oauthOverrideSpy.mockReset();
     vi.mocked(useDeepLinkAuthState).mockReturnValue({ isProcessing: false, errorMessage: null });
+    vi.mocked(isEmailAuthAvailable).mockResolvedValue(false);
+    vi.mocked(sendEmailMagicLink).mockResolvedValue();
   });
 
-  it('renders only the OAuth buttons when auth is idle', () => {
+  it('renders OAuth buttons and hides email option when email auth is unavailable', async () => {
     render(<Welcome />);
+
+    await screen.findByRole('button', { name: 'google' });
 
     expect(screen.queryByLabelText('Email address')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continue with email' })).not.toBeInTheDocument();
@@ -60,6 +69,14 @@ describe('Welcome auth entrypoint', () => {
     expect(screen.getByRole('button', { name: 'github' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'twitter' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'discord' })).not.toBeInTheDocument();
+  });
+
+  it('shows email login controls when email auth is available', async () => {
+    vi.mocked(isEmailAuthAvailable).mockResolvedValue(true);
+    render(<Welcome />);
+
+    expect(await screen.findByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with email' })).toBeInTheDocument();
   });
 
   it('delegates OAuth clicks to OAuthProviderButton without an override', () => {
@@ -73,6 +90,18 @@ describe('Welcome auth entrypoint', () => {
     expect(oauthButtonSpy).toHaveBeenNthCalledWith(2, 'github');
     expect(oauthButtonSpy).toHaveBeenNthCalledWith(3, 'twitter');
     expect(oauthOverrideSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends magic link when email auth is available and user submits email', async () => {
+    vi.mocked(isEmailAuthAvailable).mockResolvedValue(true);
+    render(<Welcome />);
+
+    fireEvent.change(await screen.findByLabelText('Email address'), {
+      target: { value: 'user@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
+
+    expect(sendEmailMagicLink).toHaveBeenCalledWith('user@example.com', window.location.origin);
   });
 
   it('shows the deep-link processing state when auth is already in progress', () => {

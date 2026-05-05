@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import OAuthProviderButton from '../components/oauth/OAuthProviderButton';
 import { oauthProviderConfigs } from '../components/oauth/providerConfigs';
 import RotatingTetrahedronCanvas from '../components/RotatingTetrahedronCanvas';
+import { isEmailAuthAvailable, sendEmailMagicLink } from '../services/api/authApi';
 import { clearCoreRpcUrlCache } from '../services/coreRpcClient';
 import { useDeepLinkAuthState } from '../store/deepLinkAuthState';
 import {
@@ -13,6 +14,7 @@ import {
   normalizeRpcUrl,
   storeRpcUrl,
 } from '../utils/configPersistence';
+import { isTauri } from '../utils/tauriCommands';
 
 const Welcome = () => {
   const { isProcessing, errorMessage } = useDeepLinkAuthState();
@@ -22,6 +24,35 @@ const Welcome = () => {
   const [rpcUrlError, setRpcUrlError] = useState<string | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [emailAuthAvailable, setEmailAuthAvailable] = useState<boolean | null>(null);
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveEmailAuthAvailability = async () => {
+      try {
+        const available = await isEmailAuthAvailable();
+        if (!cancelled) {
+          setEmailAuthAvailable(available);
+        }
+      } catch (error) {
+        console.debug('[welcome][email-auth] failed to resolve availability', error);
+        if (!cancelled) {
+          setEmailAuthAvailable(false);
+        }
+      }
+    };
+
+    resolveEmailAuthAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRpcUrlChange = (value: string) => {
     setRpcUrl(value);
@@ -83,6 +114,29 @@ const Welcome = () => {
       setRpcUrlError(`Connection failed: ${message}`);
     } finally {
       setIsTestingConnection(false);
+    }
+  };
+
+  const handleSendMagicLink = async () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setEmailError('Please enter your email address.');
+      setEmailSuccess(null);
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailError(null);
+    setEmailSuccess(null);
+
+    try {
+      const frontendRedirectUri = isTauri() ? 'openhuman://' : window.location.origin;
+      await sendEmailMagicLink(trimmed, frontendRedirectUri);
+      setEmailSuccess('Magic link sent. Check your inbox to continue.');
+    } catch (error) {
+      setEmailError(error instanceof Error ? error.message : 'Failed to send magic link.');
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -202,6 +256,75 @@ const Welcome = () => {
                     />
                   ))}
               </div>
+              {emailAuthAvailable === true ? (
+                <div className="mt-6">
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-stone-200" />
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-stone-400">
+                      Or continue with email
+                    </p>
+                    <div className="h-px flex-1 bg-stone-200" />
+                  </div>
+
+                  <form
+                    onSubmit={event => {
+                      event.preventDefault();
+                      void handleSendMagicLink();
+                    }}
+                    className="space-y-2">
+                    <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+                      <label htmlFor="email-login-input" className="sr-only">
+                        Email address
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 transition-colors focus-within:border-stone-500 focus-within:ring-1 focus-within:ring-stone-300">
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4 text-stone-400"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4 6.75h16A1.25 1.25 0 0 1 21.25 8v8A1.25 1.25 0 0 1 20 17.25H4A1.25 1.25 0 0 1 2.75 16V8A1.25 1.25 0 0 1 4 6.75Z"
+                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m4 8 8 6 8-6" />
+                        </svg>
+                        <input
+                          id="email-login-input"
+                          type="email"
+                          autoComplete="email"
+                          value={email}
+                          onChange={e => {
+                            setEmail(e.target.value);
+                            setEmailError(null);
+                            setEmailSuccess(null);
+                          }}
+                          placeholder="you@example.com"
+                          className="w-full appearance-none border-0 bg-transparent p-0 text-sm text-stone-900 placeholder:text-stone-400 focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
+                        />
+                      </div>
+
+                      <p className="mt-2 text-xs text-stone-500">
+                        We will send a secure magic link. No password required.
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSendingEmail}
+                      className="w-full rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-60">
+                      {isSendingEmail ? 'Sending...' : 'Continue with email'}
+                    </button>
+                  </form>
+
+                  {emailError ? <p className="mt-2 text-xs text-red-600">{emailError}</p> : null}
+                  {emailSuccess ? (
+                    <p className="mt-2 text-xs text-green-600">{emailSuccess}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )}
         </div>

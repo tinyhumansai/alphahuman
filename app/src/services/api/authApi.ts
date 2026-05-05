@@ -2,6 +2,42 @@ import { getBackendUrl } from '../backendUrl';
 import { callCoreRpc } from '../coreRpcClient';
 
 const EMAIL_MAGIC_LINK_TIMEOUT_MS = 15_000;
+const EMAIL_SIGN_IN_UNAVAILABLE_MESSAGE =
+  'Email sign-in is currently unavailable. Please use a social login option.';
+
+type EmailAuthStatusResponse = { success?: boolean; data?: { enabled?: boolean } };
+
+function normalizeEmailAuthError(status: number, backendError?: string): string {
+  const message = (backendError ?? '').trim();
+  const lower = message.toLowerCase();
+  const revealsEmailInfra =
+    lower.includes('smtp') ||
+    lower.includes('loops') ||
+    lower.includes('transactional') ||
+    lower.includes('mail server') ||
+    lower.includes('email config');
+
+  if (status === 503 || revealsEmailInfra) {
+    return EMAIL_SIGN_IN_UNAVAILABLE_MESSAGE;
+  }
+
+  return message || `Failed to send magic link (${status})`;
+}
+
+/**
+ * Check whether backend email sign-in is available.
+ * GET /auth/email/status
+ */
+export async function isEmailAuthAvailable(): Promise<boolean> {
+  const backendUrl = await getBackendUrl();
+  const response = await fetch(`${backendUrl}/auth/email/status`, { method: 'GET' });
+  if (!response.ok) {
+    return false;
+  }
+
+  const body = (await response.json().catch(() => ({}))) as EmailAuthStatusResponse;
+  return Boolean(body?.success && body?.data?.enabled);
+}
 
 /**
  * Send a magic-link email for email-based login.
@@ -28,7 +64,7 @@ export async function sendEmailMagicLink(
     });
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? `Failed to send magic link (${response.status})`);
+      throw new Error(normalizeEmailAuthError(response.status, body.error));
     }
   } catch (error) {
     if (
