@@ -72,8 +72,8 @@ The legacy `recipe.js` polls the call DOM for caption rows. A future epic should
 ## Sign-off
 
 - Tester: oxoxDev
-- Result: 11 ✅ / 0 ⚠️ / 2 ❌ (one blocked on #1046, one deferred to #1053) / 1 ⏭️ deferred to #1052 / 1 ❌ blocked on #1046
-- Date: 2026-04-30
+- Result: 12 ✅ / 1 ⚠️ partial (#1053 row 15 — CEF codec gap, not a runtime gap) / 1 ❌ blocked on #1046 (row 1) / 1 ⏭️ deferred to #1052 (row 13)
+- Date: 2026-04-30 (row 15 reclassified 2026-05-05 after Phase A diagnostic)
 - Action items:
   - Land #1046 (gmail PR) → rebase this branch → row #1 Auth flips ✅
   - Track #1052 (caption ingest feature) and #1053 (background effects CEF gap) as follow-up issues
