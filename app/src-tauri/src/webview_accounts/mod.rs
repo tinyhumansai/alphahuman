@@ -631,6 +631,17 @@ pub(crate) enum GmeetRewriteAction {
 }
 
 impl WebviewAccountsState {
+    /// Drop the gmeet marketing-rewrite counter for `label`. Called after
+    /// the post-auth handoff so a future workspace-marketing bounce (which
+    /// shouldn't occur post-auth, but could on session expiry) gets a fresh
+    /// counter window instead of inheriting half-saturated state from the
+    /// pre-auth loop.
+    pub(crate) fn clear_gmeet_marketing_rewrite(&self, label: &str) {
+        if let Ok(mut g) = self.gmeet_marketing_rewrites.lock() {
+            g.remove(label);
+        }
+    }
+
     /// Increment the per-label gmeet marketing-rewrite counter for `now` and
     /// decide whether to rewrite or bail. Resets the counter when the last
     /// attempt was outside `GMEET_REWRITE_WINDOW` so a future genuine
@@ -1645,6 +1656,42 @@ pub async fn webview_account_open<R: Runtime>(
         // symptom) and `track_gmeet_marketing_rewrite` for the policy.
         if nav_provider == "google-meet" {
             if let Some(host) = url.host_str() {
+                // Post-auth handoff: when the bail's `ServiceLogin?continue=`
+                // chain completes, Google sometimes drops the continue param
+                // (URL ends in `?utm_source=sign_in_no_continue`) and dumps
+                // the user on `myaccount.google.com` instead of Meet. The
+                // session cookie is now valid, so a direct navigation to
+                // `meet.google.com` will paint Meet without bouncing back
+                // through the workspace marketing redirect (which was the
+                // unauthenticated branch). Force the hop here so the user
+                // doesn't have to click through the apps grid manually.
+                if host == "myaccount.google.com" {
+                    log::info!(
+                        "[webview-accounts] gmeet post-auth handoff detected on myaccount.google.com; navigating parent to https://meet.google.com/"
+                    );
+                    let app = nav_app.clone();
+                    let label = nav_label.clone();
+                    // Reset the marketing-rewrite counter so the next
+                    // workspace bounce (if any) gets a fresh window — the
+                    // user is now authenticated and shouldn't loop again.
+                    if let Some(s) = nav_app.try_state::<WebviewAccountsState>() {
+                        s.clear_gmeet_marketing_rewrite(&nav_label);
+                    }
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(wv) = app.get_webview(&label) {
+                            if let Ok(target) = Url::parse("https://meet.google.com/") {
+                                if let Err(e) = wv.navigate(target) {
+                                    log::warn!(
+                                        "[webview-accounts] gmeet post-auth navigate failed label={} err={}",
+                                        label,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    });
+                    return false;
+                }
                 if host == "workspace.google.com" || host.ends_with(".workspace.google.com") {
                     let action = nav_app
                         .try_state::<WebviewAccountsState>()
@@ -3370,6 +3417,26 @@ mod tests {
         // Label B must still be allowed independently.
         assert_eq!(
             state.track_gmeet_marketing_rewrite("acct_b", now),
+            GmeetRewriteAction::Rewrite
+        );
+    }
+
+    #[test]
+    fn gmeet_clear_marketing_rewrite_drops_counter() {
+        let state = WebviewAccountsState::default();
+        let now = Instant::now();
+        for _ in 0..=GMEET_REWRITE_MAX_ATTEMPTS {
+            let _ = state.track_gmeet_marketing_rewrite("acct_test", now);
+        }
+        // Counter saturated — next call would bail.
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite("acct_test", now),
+            GmeetRewriteAction::Bail
+        );
+        // Clear it — next call within the window starts fresh.
+        state.clear_gmeet_marketing_rewrite("acct_test");
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite("acct_test", now),
             GmeetRewriteAction::Rewrite
         );
     }
