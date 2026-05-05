@@ -16,11 +16,7 @@ const DEFAULT_FACE: MascotFace = 'idle';
 const MascotWindowApp = () => {
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'transparent',
-      }}
+      style={{ position: 'fixed', inset: 0, background: 'transparent' }}
       data-face={DEFAULT_FACE}>
       <YellowMascot face={DEFAULT_FACE} />
     </div>

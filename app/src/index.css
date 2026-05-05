@@ -52,7 +52,6 @@
     user-select: none;
   }
 
-
   @keyframes overlay-bubble-in {
     from {
       opacity: 0;

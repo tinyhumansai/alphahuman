@@ -31,9 +31,7 @@ use objc2_app_kit::{
     NSBackingStoreType, NSColor, NSEvent, NSPanel, NSScreen, NSWindowCollectionBehavior,
     NSWindowStyleMask,
 };
-use objc2_foundation::{
-    NSNumber, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURL, NSURLRequest,
-};
+use objc2_foundation::{NSNumber, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest, NSURL};
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
 use tauri::AppHandle;
 
@@ -143,7 +141,10 @@ fn resolve_page_url(app: &AppHandle<AppRuntime>) -> Result<String, String> {
     // Append `?window=mascot` so main.tsx can branch on URL params (the
     // panel is not part of Tauri's runtime, so `getCurrentWindow().label`
     // doesn't apply here).
-    let query = url.query().map(|q| format!("{q}&window=mascot")).unwrap_or_else(|| "window=mascot".into());
+    let query = url
+        .query()
+        .map(|q| format!("{q}&window=mascot"))
+        .unwrap_or_else(|| "window=mascot".into());
     url.set_query(Some(&query));
     Ok(url.to_string())
 }
@@ -226,15 +227,6 @@ enum Slot {
     HopUp,
 }
 
-impl Slot {
-    fn other(self) -> Slot {
-        match self {
-            Slot::Home => Slot::HopUp,
-            Slot::HopUp => Slot::Home,
-        }
-    }
-}
-
 fn slot_frame(mtm: MainThreadMarker, slot: Slot) -> NSRect {
     let screen = NSScreen::mainScreen(mtm)
         .map(|s| s.frame())
@@ -305,20 +297,13 @@ unsafe fn spawn_hover_timer(
     }
 }
 
-unsafe fn build_webview(
-    mtm: MainThreadMarker,
-    panel: &NSPanel,
-    url: &str,
-) -> Retained<WKWebView> {
+unsafe fn build_webview(mtm: MainThreadMarker, panel: &NSPanel, url: &str) -> Retained<WKWebView> {
     let config: Retained<WKWebViewConfiguration> = unsafe {
         let alloc = WKWebViewConfiguration::alloc(mtm);
         msg_send![alloc, init]
     };
 
-    let frame = NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(PANEL_SIZE, PANEL_SIZE),
-    );
+    let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(PANEL_SIZE, PANEL_SIZE));
     let webview: Retained<WKWebView> =
         unsafe { WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &config) };
 
@@ -355,4 +340,3 @@ unsafe fn build_webview(
 
     webview
 }
-
