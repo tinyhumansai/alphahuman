@@ -554,6 +554,7 @@ mod tests {
         bridge
             .handle(&DomainEvent::CronJobTriggered {
                 job_id: "j".into(),
+                job_name: "test cron job".into(),
                 job_type: "shell".into(),
             })
             .await;
