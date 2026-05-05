@@ -10,6 +10,8 @@ mod core_rpc;
 mod discord_scanner;
 mod gmessages_scanner;
 mod imessage_scanner;
+#[cfg(target_os = "macos")]
+mod mascot_native_window;
 mod notification_settings;
 mod screen_capture;
 mod slack_scanner;
@@ -753,6 +755,52 @@ fn activate_main_window(app: AppHandle<AppRuntime>) -> Result<(), String> {
     show_main_window(&app)
 }
 
+const MASCOT_WINDOW_LABEL: &str = "mascot";
+
+/// Show the floating mascot. macOS: native NSPanel + WKWebView (so the
+/// window is actually transparent — vendored tauri-cef can't render
+/// transparent windowed-mode browsers). Other OSes: not yet wired up.
+#[tauri::command]
+fn mascot_window_show(app: AppHandle<AppRuntime>) -> Result<(), String> {
+    log::info!("[mascot-window] show requested");
+    #[cfg(target_os = "macos")]
+    {
+        return mascot_native_window::show(&app);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("floating mascot window is macOS-only for now".into())
+    }
+}
+
+/// Hide the floating mascot.
+#[tauri::command]
+fn mascot_window_hide(app: AppHandle<AppRuntime>) -> Result<(), String> {
+    log::info!("[mascot-window] hide requested");
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        mascot_native_window::hide();
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn mascot_native_window_is_open() -> bool {
+    mascot_native_window::is_open()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn mascot_native_window_is_open() -> bool {
+    false
+}
+
 /// Tauri command: fire a native OS notification from the frontend. Used by
 /// the in-app notification center to banner events (agent completions,
 /// connection drops, etc.) when the window is not focused.
@@ -910,8 +958,15 @@ fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let mascot_item = MenuItem::with_id(
+        app,
+        "tray_toggle_mascot",
+        "Toggle floating mascot",
+        true,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    let menu = Menu::with_items(app, &[&show_item, &mascot_item, &quit_item])?;
 
     let icon = app
         .default_window_icon()
@@ -926,6 +981,16 @@ fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
                 log::info!("[tray] action=show_window source=menu");
                 if let Err(err) = show_main_window(app) {
                     log::error!("[tray] failed to show main window from menu: {err}");
+                }
+            }
+            "tray_toggle_mascot" => {
+                log::info!("[tray] action=toggle_mascot source=menu");
+                if mascot_native_window_is_open() {
+                    if let Err(err) = mascot_window_hide(app.clone()) {
+                        log::error!("[tray] failed to hide mascot window: {err}");
+                    }
+                } else if let Err(err) = mascot_window_show(app.clone()) {
+                    log::error!("[tray] failed to show mascot window: {err}");
                 }
             }
             "tray_quit" => {
@@ -1702,7 +1767,9 @@ pub fn run() {
             notification_permission_state,
             notification_permission_request,
             activate_main_window,
-            show_native_notification
+            show_native_notification,
+            mascot_window_show,
+            mascot_window_hide
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

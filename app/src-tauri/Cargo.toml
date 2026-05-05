@@ -124,7 +124,10 @@ mac-notification-sys = "0.6"
 rusqlite = { version = "0.37", features = ["bundled"] }
 objc2-user-notifications = "0.3.2"
 block2 = "0.6.2"
-objc2-foundation = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["NSTimer", "block2"] }
+# Native WKWebView host for the floating mascot window — bypasses CEF
+# (which can't render transparent windowed-mode browsers).
+objc2-web-kit = { version = "0.3.2", features = ["block2"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = { version = "4", default-features = false, features = ["dbus"] }

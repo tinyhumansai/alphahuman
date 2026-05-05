@@ -1,0 +1,314 @@
+//! Native macOS NSPanel + WKWebView host for the floating mascot.
+//!
+//! The vendored tauri-cef runtime cannot render transparent windowed-mode
+//! browsers (CEF clamps `BrowserSettings.background_color` alpha to 0xFF for
+//! windowed browsers; only off-screen rendering supports transparency, which
+//! the runtime does not enable). This module bypasses Tauri's runtime
+//! entirely for the mascot: it spawns a free-floating `NSPanel`, embeds a
+//! `WKWebView`, and points it at the same Vite dev URL the main window loads
+//! — but with `?window=mascot` so the React entry can branch on it.
+//!
+//! Trade-offs:
+//!
+//! - macOS-only. Linux/Windows would need a parallel native webview path.
+//! - No Tauri IPC bridge. The mascot window uses `WKScriptMessageHandler`
+//!   for the few host calls it needs (close, future: drag/clickthrough).
+//!   For now we keep the page passive — toggle via the tray menu.
+//! - Production bundle support is **not yet implemented**: we resolve the
+//!   page URL from `app.config().build.dev_url`, so this only works when
+//!   the Vite dev server is running. A bundle path would need to serve the
+//!   built HTML over a localhost HTTP server (or load via `file://` and
+//!   accept the ESM/CORS friction).
+
+use std::cell::{Cell, RefCell};
+use std::ptr::NonNull;
+use std::rc::Rc;
+
+use block2::RcBlock;
+use objc2::rc::Retained;
+use objc2::{msg_send, MainThreadMarker, MainThreadOnly};
+use objc2_app_kit::{
+    NSBackingStoreType, NSColor, NSEvent, NSPanel, NSScreen, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
+};
+use objc2_foundation::{
+    NSNumber, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURL, NSURLRequest,
+};
+use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
+use tauri::AppHandle;
+
+use crate::AppRuntime;
+
+/// Logical width / height of the mascot panel. The `<YellowMascot>` SVG
+/// canvas is square so we keep the host square too. 25% smaller than the
+/// original 140pt so it sits unobtrusively in the corner.
+const PANEL_SIZE: f64 = 105.0;
+/// Distance from the bottom-right monitor corner on first show.
+const PANEL_MARGIN: f64 = 0.0;
+/// How often we poll the cursor position to detect hover over the mascot.
+const HOVER_POLL_SECONDS: f64 = 0.05;
+
+/// Holds the panel + webview together so we keep both alive (and drop them
+/// together) for the lifetime of one show/hide cycle. The hover timer is
+/// stored so we can `invalidate()` it on hide and stop firing into a
+/// dropped webview.
+struct MascotPanel {
+    panel: Retained<NSPanel>,
+    _webview: Retained<WKWebView>,
+    hover_timer: Retained<NSTimer>,
+}
+
+impl MascotPanel {
+    fn order_out(&self) {
+        self.hover_timer.invalidate();
+        self.panel.orderOut(None);
+    }
+}
+
+thread_local! {
+    /// Accessed only from the main thread (Tauri IPC commands and the tray
+    /// menu callback both run on it). NSPanel/WKWebView are not Send/Sync,
+    /// so a thread-local is the simplest safe storage.
+    static MASCOT: RefCell<Option<MascotPanel>> = const { RefCell::new(None) };
+}
+
+/// True if a mascot panel is currently alive on this thread.
+pub(crate) fn is_open() -> bool {
+    MASCOT.with(|cell| cell.borrow().is_some())
+}
+
+/// Tear down the panel + webview if present.
+pub(crate) fn hide() {
+    MASCOT.with(|cell| {
+        if let Some(existing) = cell.borrow_mut().take() {
+            log::info!("[mascot-native] dropping panel");
+            existing.order_out();
+        }
+    });
+}
+
+/// Build (or focus) the floating mascot panel.
+pub(crate) fn show(app: &AppHandle<AppRuntime>) -> Result<(), String> {
+    if let Some(()) = MASCOT.with(|cell| {
+        cell.borrow().as_ref().map(|existing| {
+            log::debug!("[mascot-native] panel already open — bringing to front");
+            existing.panel.orderFrontRegardless();
+        })
+    }) {
+        return Ok(());
+    }
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| "mascot show called off the main thread".to_string())?;
+
+    let url = resolve_page_url(app)?;
+    log::info!("[mascot-native] loading url={url}");
+
+    let frame = bottom_right_frame(mtm);
+    log::debug!(
+        "[mascot-native] frame origin=({},{}) size=({},{})",
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height
+    );
+
+    let panel = unsafe { build_panel(mtm, frame) };
+    let webview = unsafe { build_webview(mtm, &panel, &url) };
+
+    panel.makeKeyAndOrderFront(None);
+    panel.orderFrontRegardless();
+
+    let hover_timer = unsafe { spawn_hover_timer(panel.clone(), webview.clone()) };
+
+    MASCOT.with(|cell| {
+        *cell.borrow_mut() = Some(MascotPanel {
+            panel,
+            _webview: webview,
+            hover_timer,
+        });
+    });
+    log::info!("[mascot-native] panel shown");
+    Ok(())
+}
+
+fn resolve_page_url(app: &AppHandle<AppRuntime>) -> Result<String, String> {
+    let dev_url = app.config().build.dev_url.as_ref().cloned();
+    let Some(mut url) = dev_url else {
+        return Err(
+            "mascot native window requires a dev URL — production bundle path not implemented yet"
+                .into(),
+        );
+    };
+    // Append `?window=mascot` so main.tsx can branch on URL params (the
+    // panel is not part of Tauri's runtime, so `getCurrentWindow().label`
+    // doesn't apply here).
+    let query = url.query().map(|q| format!("{q}&window=mascot")).unwrap_or_else(|| "window=mascot".into());
+    url.set_query(Some(&query));
+    Ok(url.to_string())
+}
+
+/// Anchor the panel to the bottom-right of the primary screen using
+/// AppKit's bottom-left origin convention.
+fn bottom_right_frame(mtm: MainThreadMarker) -> NSRect {
+    // `frame()` is the full screen including the menu bar / Dock zones, so
+    // bottom-right(0,0) lands at the absolute pixel corner — that's what
+    // "extreme bottom right" wants. `visibleFrame()` would inset by Dock
+    // height which leaves a gap.
+    let frame = NSScreen::mainScreen(mtm)
+        .map(|s| s.frame())
+        .unwrap_or_else(|| NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1440.0, 900.0)));
+    let x = frame.origin.x + frame.size.width - PANEL_SIZE - PANEL_MARGIN;
+    let y = frame.origin.y + PANEL_MARGIN;
+    NSRect::new(NSPoint::new(x, y), NSSize::new(PANEL_SIZE, PANEL_SIZE))
+}
+
+unsafe fn build_panel(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSPanel> {
+    // Borderless + NonactivatingPanel: no chrome, doesn't steal focus from
+    // the user's frontmost app on click.
+    let style: NSWindowStyleMask =
+        NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
+    let backing = NSBackingStoreType::Buffered;
+
+    let panel: Retained<NSPanel> = unsafe {
+        let allocated = NSPanel::alloc(mtm);
+        msg_send![
+            allocated,
+            initWithContentRect: frame,
+            styleMask: style,
+            backing: backing,
+            defer: false,
+        ]
+    };
+
+    unsafe {
+        // Transparency
+        panel.setOpaque(false);
+        let clear = NSColor::clearColor();
+        panel.setBackgroundColor(Some(&clear));
+        panel.setHasShadow(false);
+
+        // Float above normal windows AND fullscreen apps. Status-bar level
+        // (25) plus canJoinAllSpaces+transient is the same recipe used by
+        // the existing `configure_overlay_window_macos` helper.
+        panel.setLevel(25);
+        panel.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::Transient
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        panel.setFloatingPanel(true);
+        panel.setHidesOnDeactivate(false);
+        panel.setBecomesKeyOnlyIfNeeded(true);
+        panel.setWorksWhenModal(true);
+
+        // Always click-through. The panel never receives mouse events; the
+        // cursor passes straight to whatever's behind it. Hover is detected
+        // by polling `NSEvent::mouseLocation()` against the panel frame in
+        // a Foundation timer (see `spawn_hover_timer`), and the page CSS
+        // animates the mascot out of the way when the cursor is over it.
+        panel.setIgnoresMouseEvents(true);
+
+        // Don't show in the Dock / Cmd+Tab.
+        let _: () = msg_send![&*panel, setExcludedFromWindowsMenu: true];
+    }
+
+    panel
+}
+
+/// Schedule a repeating Foundation timer on the main run loop that polls
+/// the global cursor position and toggles a `flee` attribute on the
+/// document so the page CSS can animate the mascot out from under the
+/// cursor. We poll because the panel is `ignoresMouseEvents=true` (so it
+/// can't receive `mouseEntered:` / `mouseExited:` events itself), and a
+/// transparent passthrough overlay would defeat the click-through goal.
+unsafe fn spawn_hover_timer(
+    panel: Retained<NSPanel>,
+    webview: Retained<WKWebView>,
+) -> Retained<NSTimer> {
+    // `Rc<Cell<bool>>` is fine — the block fires only on the main run loop,
+    // so single-threaded interior mutability is sufficient.
+    let was_hovering: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
+    let block = RcBlock::new(move |_timer: NonNull<NSTimer>| {
+        let cursor = unsafe { NSEvent::mouseLocation() };
+        let frame = panel.frame();
+        let inside = cursor.x >= frame.origin.x
+            && cursor.x <= frame.origin.x + frame.size.width
+            && cursor.y >= frame.origin.y
+            && cursor.y <= frame.origin.y + frame.size.height;
+
+        if inside == was_hovering.get() {
+            return;
+        }
+        was_hovering.set(inside);
+
+        // Toggle `data-flee` on <html> so CSS in the page can react.
+        let js = if inside {
+            "document.documentElement.setAttribute('data-flee','1')"
+        } else {
+            "document.documentElement.removeAttribute('data-flee')"
+        };
+        let js_str = NSString::from_str(js);
+        unsafe {
+            webview.evaluateJavaScript_completionHandler(&js_str, None);
+        }
+    });
+
+    unsafe {
+        NSTimer::scheduledTimerWithTimeInterval_repeats_block(HOVER_POLL_SECONDS, true, &block)
+    }
+}
+
+unsafe fn build_webview(
+    mtm: MainThreadMarker,
+    panel: &NSPanel,
+    url: &str,
+) -> Retained<WKWebView> {
+    let config: Retained<WKWebViewConfiguration> = unsafe {
+        let alloc = WKWebViewConfiguration::alloc(mtm);
+        msg_send![alloc, init]
+    };
+
+    let frame = NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(PANEL_SIZE, PANEL_SIZE),
+    );
+    let webview: Retained<WKWebView> =
+        unsafe { WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &config) };
+
+    unsafe {
+        // Critical: turn off WKWebView's own background painting. Without
+        // this, the webview paints the system background color underneath
+        // the page even when both the panel and the page CSS are
+        // transparent. There is no public Swift/ObjC API for this on
+        // macOS — KVC against the private `drawsBackground` property is
+        // the canonical workaround (used by wry, wkwebview-rs, Electron).
+        let no = NSNumber::numberWithBool(false);
+        let key = NSString::from_str("drawsBackground");
+        let _: () = msg_send![&*webview, setValue: &*no, forKey: &*key];
+
+        // Auto-resize to fill the panel content view.
+        let _: () = msg_send![&*webview, setAutoresizingMask: 18u64]; // width|height
+
+        // Make the webview the panel's content view so it fills the frame.
+        let webview_ref: &objc2::runtime::AnyObject = &*webview;
+        let webview_view: *mut objc2::runtime::AnyObject =
+            webview_ref as *const _ as *mut objc2::runtime::AnyObject;
+        let _: () = msg_send![panel, setContentView: webview_view];
+
+        // Kick off the load.
+        let ns_url_str = NSString::from_str(url);
+        let ns_url: Option<Retained<NSURL>> = NSURL::URLWithString(&ns_url_str);
+        if let Some(ns_url) = ns_url {
+            let request = NSURLRequest::requestWithURL(&ns_url);
+            let _ = webview.loadRequest(&request);
+        } else {
+            log::warn!("[mascot-native] could not parse url={url}");
+        }
+    }
+
+    webview
+}
+
