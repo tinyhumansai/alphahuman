@@ -1,7 +1,7 @@
 import React from "react";
 import { useVideoConfig } from "remotion";
 import { z } from "zod";
-import { MascotCharacter, mascotSchema } from "./lib";
+import { MascotCharacter, mascotSchema } from "./MascotCharacter";
 
 export const yellowMascotThinkingSchema = mascotSchema.extend({
   thinking: z.boolean().default(true),

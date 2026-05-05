@@ -2,8 +2,8 @@ import React from "react";
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { z } from "zod";
 import { zColor } from "@remotion/zod-types";
-import { RecordingFace } from "../../Ghosty/lib/RecordingFace";
-import { LoadingFace } from "../../Ghosty/lib/LoadingFace";
+import { RecordingFace } from "./RecordingFace";
+import { LoadingFace } from "./LoadingFace";
 
 export const mascotSchema = z.object({
   arm: z.enum(["wave", "none", "steady"]).default("wave"),
