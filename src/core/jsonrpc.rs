@@ -125,7 +125,7 @@ async fn invoke_method_inner(
 ) -> Result<Value, String> {
     // Phase 1: Check static controller registry.
     if let Some(schema) = all::schema_for_rpc_method(method) {
-        let params_obj = params_to_object(params)?;
+        let params_obj = params_to_object(params.clone())?;
         // Validate inputs against the schema before calling the handler.
         all::validate_params(&schema, &params_obj)?;
         if let Some(result) = all::try_invoke_registered_rpc(method, params_obj).await {
