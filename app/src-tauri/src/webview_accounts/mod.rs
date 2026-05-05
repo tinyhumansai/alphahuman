@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 #[cfg(target_os = "linux")]
 use std::sync::{mpsc::sync_channel, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
@@ -162,6 +162,17 @@ fn url_is_internal(provider: &str, url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return true;
     };
+    // Google services route the post-2FA `SetSID` cookie-setting hop
+    // through `accounts.youtube.com` and ccTLD `accounts.google.<rest>`
+    // hosts that aren't covered by the suffix-based allowlist. Without
+    // this, the auth chain breaks mid-flight and leaks to the system
+    // browser (#1053 sign-in leak surfaced in dev:app log line:
+    // "external navigation https://accounts.youtube.com/accounts/SetSID?...
+    // → system browser"). Whitelist the full Google SSO host family for
+    // any provider that uses Google identity.
+    if matches!(provider, "gmail" | "google-meet") && is_google_sso_host(host) {
+        return true;
+    }
     let allowed = provider_allowed_hosts(provider);
     if allowed.is_empty() {
         return true;
@@ -276,13 +287,55 @@ fn popup_should_navigate_parent(provider: &str, url: &Url) -> Option<Url> {
     None
 }
 
+/// `true` if `host` is a Google SSO / account-handoff host that may
+/// participate in the OAuth flow for any Google service (Meet, Gmail,
+/// Drive, etc.). Google rotates the post-2FA `SetSID` cookie-setting hop
+/// across `accounts.google.<cctld>` and `accounts.youtube.com` (sic — the
+/// YouTube subdomain is part of the Google identity infra), so a literal
+/// `accounts.google.com` match misses real auth popups and leaks them to
+/// the system browser.
+///
+/// Match family:
+/// - `accounts.google.com`
+/// - `accounts.google.<cctld>` — e.g. `accounts.google.co.in`, `accounts.google.co.uk`,
+///   `accounts.google.de`
+/// - `accounts.googleusercontent.com`
+/// - `accounts.youtube.com` (post-2FA `SetSID` hop)
+/// - `myaccount.google.com`
+fn is_google_sso_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    if host == "accounts.google.com"
+        || host == "accounts.googleusercontent.com"
+        || host == "accounts.youtube.com"
+        || host == "myaccount.google.com"
+    {
+        return true;
+    }
+    // ccTLD variants: `accounts.google.<cctld>`. We must reject phishing
+    // shapes like `accounts.google.com.evil` and `accounts.google.co.attacker`
+    // — the dots-only check we used previously accepted both because
+    // `com.evil` and `co.attacker` each have one dot. Anchor the suffix
+    // against a real ccTLD shape: either a single 2-letter cc tld
+    // (`accounts.google.de`, `accounts.google.fr`) OR a 2-label form
+    // `<sld>.<cc>` where sld ∈ {co, com, net, org} (`accounts.google.co.in`,
+    // `accounts.google.com.au`).
+    if let Some(rest) = host.strip_prefix("accounts.google.") {
+        let labels: Vec<&str> = rest.split('.').collect();
+        let is_cc = |s: &str| s.len() == 2 && s.chars().all(|c| c.is_ascii_alphabetic());
+        return match labels.as_slice() {
+            [tld] => is_cc(tld),
+            [sld, tld] => matches!(*sld, "co" | "com" | "net" | "org") && is_cc(tld),
+            _ => false,
+        };
+    }
+    false
+}
+
 fn is_google_auth_popup(url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
-    let is_google_auth_host =
-        host == "accounts.google.com" || host == "accounts.googleusercontent.com";
-    if !is_google_auth_host {
+    if !is_google_sso_host(host) {
         return false;
     }
 
@@ -291,6 +344,7 @@ fn is_google_auth_popup(url: &Url) -> bool {
         || path.contains("servicelogin")
         || path.contains("accountchooser")
         || path.contains("chooseaccount")
+        || path.contains("setsid")
     {
         return true;
     }
@@ -302,7 +356,9 @@ fn is_google_auth_popup(url: &Url) -> bool {
             && (v.contains("signin")
                 || v.contains("servicelogin")
                 || v.contains("accountchooser")
-                || v.contains("chooseaccount"))
+                || v.contains("chooseaccount")
+                || v.contains("meet.google.com")
+                || v.contains("mail.google.com"))
     })
 }
 
@@ -538,9 +594,73 @@ pub struct WebviewAccountsState {
     requested_bounds: Mutex<HashMap<String, Bounds>>,
     /// Runtime notification-bypass controls used by the settings UI.
     notification_bypass: Mutex<NotificationBypassPrefs>,
+    /// Per-label rewrite counter for the gmeet `workspace.google.com`
+    /// marketing intercept. Google's edge SSR-redirects unauthenticated
+    /// `meet.google.com` GETs back to `workspace.google.com/products/meet/`,
+    /// so an unguarded rewrite (see `:1534-1559`) ping-pongs forever and
+    /// the page never lands. We track `(last_attempt, attempts_in_window)`
+    /// per webview label and bail to the Google sign-in flow after a
+    /// threshold so the user breaks out of the loop.
+    gmeet_marketing_rewrites: Mutex<HashMap<String, (Instant, u32)>>,
+}
+
+/// Threshold and window for the gmeet workspace-marketing rewrite loop
+/// breaker. After `GMEET_REWRITE_MAX_ATTEMPTS` rewrites within
+/// `GMEET_REWRITE_WINDOW`, we bail to the Google sign-in URL instead of
+/// rewriting again.
+pub(crate) const GMEET_REWRITE_MAX_ATTEMPTS: u32 = 3;
+pub(crate) const GMEET_REWRITE_WINDOW: Duration = Duration::from_secs(5);
+
+/// Result of consulting the gmeet marketing-redirect counter.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum GmeetRewriteAction {
+    /// Allow the rewrite — fewer than `GMEET_REWRITE_MAX_ATTEMPTS` attempts in
+    /// the current window.
+    Rewrite,
+    /// Loop detected — caller should navigate to the Google sign-in URL
+    /// instead of rewriting back to `meet.google.com`.
+    Bail,
 }
 
 impl WebviewAccountsState {
+    /// Drop the gmeet marketing-rewrite counter for `label`. Called after
+    /// the post-auth handoff so a future workspace-marketing bounce (which
+    /// shouldn't occur post-auth, but could on session expiry) gets a fresh
+    /// counter window instead of inheriting half-saturated state from the
+    /// pre-auth loop.
+    pub(crate) fn clear_gmeet_marketing_rewrite(&self, label: &str) {
+        if let Ok(mut g) = self.gmeet_marketing_rewrites.lock() {
+            g.remove(label);
+        }
+    }
+
+    /// Increment the per-label gmeet marketing-rewrite counter for `now` and
+    /// decide whether to rewrite or bail. Resets the counter when the last
+    /// attempt was outside `GMEET_REWRITE_WINDOW` so a future genuine
+    /// `workspace.google.com` navigation (e.g. user clicks a link inside Meet
+    /// after sign-in) gets intercepted normally.
+    pub(crate) fn track_gmeet_marketing_rewrite(
+        &self,
+        label: &str,
+        now: Instant,
+    ) -> GmeetRewriteAction {
+        let mut map = match self.gmeet_marketing_rewrites.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let entry = map.entry(label.to_string()).or_insert((now, 0));
+        if now.duration_since(entry.0) > GMEET_REWRITE_WINDOW {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        entry.0 = now;
+        if entry.1 > GMEET_REWRITE_MAX_ATTEMPTS {
+            GmeetRewriteAction::Bail
+        } else {
+            GmeetRewriteAction::Rewrite
+        }
+    }
+
     /// Drain every per-account resource owned by this state and abort the
     /// associated background tasks. Returns the `(account_id, label)`
     /// pairs of webviews that still need closing — the caller does the
@@ -1558,22 +1678,91 @@ pub async fn webview_account_open<R: Runtime>(
         // would land on the Workspace marketing page instead of Meet.
         // Catch this here and replace the parent URL with the canonical
         // Meet entry point so the embedded view stays on the app.
+        //
+        // BUT: unauthenticated users get bounced right back to
+        // `workspace.google.com/products/meet/` by Google's edge, so an
+        // unguarded rewrite ping-pongs forever (`navigate` → Google
+        // redirect → `on_navigation` → `navigate` → …). We track per-label
+        // attempts in `WebviewAccountsState::gmeet_marketing_rewrites` and
+        // bail to a Google sign-in URL after a small threshold so the user
+        // can break out of the loop. See #1213 (downstream watchdog
+        // symptom) and `track_gmeet_marketing_rewrite` for the policy.
         if nav_provider == "google-meet" {
             if let Some(host) = url.host_str() {
-                if host == "workspace.google.com" || host.ends_with(".workspace.google.com") {
+                // Post-auth handoff: when the bail's `ServiceLogin?continue=`
+                // chain completes, Google sometimes drops the continue param
+                // (URL ends in `?utm_source=sign_in_no_continue`) and dumps
+                // the user on `myaccount.google.com` instead of Meet. The
+                // session cookie is now valid, so a direct navigation to
+                // `meet.google.com` will paint Meet without bouncing back
+                // through the workspace marketing redirect (which was the
+                // unauthenticated branch). Force the hop here so the user
+                // doesn't have to click through the apps grid manually.
+                if host == "myaccount.google.com" {
                     log::info!(
-                        "[webview-accounts] gmeet workspace marketing redirect intercepted ({}); rewriting parent to https://meet.google.com/",
-                        url
+                        "[webview-accounts] gmeet post-auth handoff detected on myaccount.google.com; navigating parent to https://meet.google.com/"
                     );
                     let app = nav_app.clone();
                     let label = nav_label.clone();
+                    // Reset the marketing-rewrite counter so the next
+                    // workspace bounce (if any) gets a fresh window — the
+                    // user is now authenticated and shouldn't loop again.
+                    if let Some(s) = nav_app.try_state::<WebviewAccountsState>() {
+                        s.clear_gmeet_marketing_rewrite(&nav_label);
+                    }
                     tauri::async_runtime::spawn(async move {
                         if let Some(wv) = app.get_webview(&label) {
                             if let Ok(target) = Url::parse("https://meet.google.com/") {
                                 if let Err(e) = wv.navigate(target) {
                                     log::warn!(
-                                        "[webview-accounts] gmeet workspace rewrite navigate failed label={} err={}",
+                                        "[webview-accounts] gmeet post-auth navigate failed label={} err={}",
                                         label,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    });
+                    return false;
+                }
+                if host == "workspace.google.com" || host.ends_with(".workspace.google.com") {
+                    let action = nav_app
+                        .try_state::<WebviewAccountsState>()
+                        .map(|s| s.track_gmeet_marketing_rewrite(&nav_label, Instant::now()))
+                        .unwrap_or(GmeetRewriteAction::Rewrite);
+                    let app = nav_app.clone();
+                    let label = nav_label.clone();
+                    let target_url = match action {
+                        GmeetRewriteAction::Rewrite => {
+                            log::info!(
+                                "[webview-accounts] gmeet workspace marketing redirect intercepted ({}); rewriting parent to https://meet.google.com/",
+                                url
+                            );
+                            "https://meet.google.com/"
+                        }
+                        GmeetRewriteAction::Bail => {
+                            log::warn!(
+                                "[webview-accounts] gmeet workspace rewrite loop detected on label={} (>{} attempts in {}s); falling through to Google sign-in",
+                                nav_label,
+                                GMEET_REWRITE_MAX_ATTEMPTS,
+                                GMEET_REWRITE_WINDOW.as_secs()
+                            );
+                            // `service=meet` is rejected by Google (`400
+                            // malformed`); the continue param must be
+                            // URL-encoded since `&` would split it. Drop
+                            // `service=` and encode `continue=` so the
+                            // sign-in landing actually loads.
+                            "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmeet.google.com%2F"
+                        }
+                    };
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(wv) = app.get_webview(&label) {
+                            if let Ok(target) = Url::parse(target_url) {
+                                if let Err(e) = wv.navigate(target) {
+                                    log::warn!(
+                                        "[webview-accounts] gmeet workspace rewrite navigate failed label={} target={} err={}",
+                                        label,
+                                        target_url,
                                         e
                                     );
                                 }
@@ -3106,5 +3295,165 @@ mod tests {
             .expect("existing dir should be removed");
 
         assert!(!dir.exists(), "data dir should be removed");
+    }
+
+    // ── track_gmeet_marketing_rewrite ──────────────────────────────
+
+    #[test]
+    fn gmeet_rewrite_allowed_under_threshold() {
+        let state = WebviewAccountsState::default();
+        let label = "acct_test";
+        let now = Instant::now();
+        for i in 1..=GMEET_REWRITE_MAX_ATTEMPTS {
+            assert_eq!(
+                state.track_gmeet_marketing_rewrite(label, now),
+                GmeetRewriteAction::Rewrite,
+                "attempt {} should still rewrite",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn gmeet_rewrite_bails_after_threshold() {
+        let state = WebviewAccountsState::default();
+        let label = "acct_test";
+        let now = Instant::now();
+        for _ in 0..GMEET_REWRITE_MAX_ATTEMPTS {
+            let _ = state.track_gmeet_marketing_rewrite(label, now);
+        }
+        // Next call exceeds the threshold within the window — must bail.
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite(label, now),
+            GmeetRewriteAction::Bail
+        );
+    }
+
+    #[test]
+    fn gmeet_rewrite_resets_after_window() {
+        let state = WebviewAccountsState::default();
+        let label = "acct_test";
+        let start = Instant::now();
+        // Saturate the counter at start.
+        for _ in 0..=GMEET_REWRITE_MAX_ATTEMPTS {
+            let _ = state.track_gmeet_marketing_rewrite(label, start);
+        }
+        // After the window expires, a fresh attempt must rewrite again.
+        let later = start + GMEET_REWRITE_WINDOW + Duration::from_secs(1);
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite(label, later),
+            GmeetRewriteAction::Rewrite
+        );
+    }
+
+    // ── is_google_sso_host ────────────────────────────────────────
+
+    #[test]
+    fn google_sso_host_matches_canonical_accounts() {
+        assert!(is_google_sso_host("accounts.google.com"));
+        assert!(is_google_sso_host("accounts.googleusercontent.com"));
+        assert!(is_google_sso_host("accounts.youtube.com"));
+        assert!(is_google_sso_host("myaccount.google.com"));
+    }
+
+    #[test]
+    fn google_sso_host_matches_cctld_variants() {
+        assert!(is_google_sso_host("accounts.google.co.in"));
+        assert!(is_google_sso_host("accounts.google.co.uk"));
+        assert!(is_google_sso_host("accounts.google.de"));
+        assert!(is_google_sso_host("accounts.google.fr"));
+        assert!(is_google_sso_host("accounts.google.com.au"));
+    }
+
+    #[test]
+    fn google_sso_host_rejects_phishing_alikes() {
+        // Spoofed hosts that hijack the full domain by prefixing `accounts.google.`.
+        assert!(!is_google_sso_host("accounts.google.com.evil.tld"));
+        assert!(!is_google_sso_host("accounts.google."));
+        assert!(!is_google_sso_host("accounts.google.com.evil.example.com"));
+        // Two-label suffix where the second label is NOT a real cctld
+        // (the dots-only predicate accepted these — CR caught it).
+        assert!(!is_google_sso_host("accounts.google.com.evil"));
+        assert!(!is_google_sso_host("accounts.google.co.attacker"));
+        assert!(!is_google_sso_host("accounts.google.com.attackerlong"));
+        // Single label that's not a real cctld (3+ chars).
+        assert!(!is_google_sso_host("accounts.google.evil"));
+        assert!(!is_google_sso_host("accounts.google.attackerlong"));
+        // Unknown sld in the 2-label shape — only co/com/net/org allowed.
+        assert!(!is_google_sso_host("accounts.google.xyz.uk"));
+        // Unrelated google sub-services that aren't sso surfaces.
+        assert!(!is_google_sso_host("mail.google.com"));
+        assert!(!is_google_sso_host("meet.google.com"));
+        assert!(!is_google_sso_host("workspace.google.com"));
+        assert!(!is_google_sso_host("evil.com"));
+    }
+
+    #[test]
+    fn google_sso_host_case_insensitive() {
+        assert!(is_google_sso_host("ACCOUNTS.GOOGLE.COM"));
+        assert!(is_google_sso_host("Accounts.Google.Co.Uk"));
+    }
+
+    // ── url_is_internal: gmeet SSO coverage ───────────────────────
+
+    #[test]
+    fn url_is_internal_allows_youtube_setsid_for_gmeet() {
+        assert!(url_is_internal(
+            "google-meet",
+            &url("https://accounts.youtube.com/accounts/SetSID?ssdc=1&continue=https://meet.google.com/"),
+        ));
+    }
+
+    #[test]
+    fn url_is_internal_allows_cctld_accounts_google_for_gmail() {
+        assert!(url_is_internal(
+            "gmail",
+            &url("https://accounts.google.co.in/signin/v2/identifier"),
+        ));
+    }
+
+    #[test]
+    fn url_is_internal_blocks_unrelated_youtube_for_gmeet() {
+        // Plain youtube.com (e.g. video play) MUST stay external for
+        // gmeet — the SSO bypass only covers `accounts.youtube.com`.
+        assert!(!url_is_internal(
+            "google-meet",
+            &url("https://www.youtube.com/watch?v=abc"),
+        ));
+    }
+
+    #[test]
+    fn gmeet_rewrite_per_label_independent() {
+        let state = WebviewAccountsState::default();
+        let now = Instant::now();
+        // Saturate label A — bails next time.
+        for _ in 0..=GMEET_REWRITE_MAX_ATTEMPTS {
+            let _ = state.track_gmeet_marketing_rewrite("acct_a", now);
+        }
+        // Label B must still be allowed independently.
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite("acct_b", now),
+            GmeetRewriteAction::Rewrite
+        );
+    }
+
+    #[test]
+    fn gmeet_clear_marketing_rewrite_drops_counter() {
+        let state = WebviewAccountsState::default();
+        let now = Instant::now();
+        for _ in 0..=GMEET_REWRITE_MAX_ATTEMPTS {
+            let _ = state.track_gmeet_marketing_rewrite("acct_test", now);
+        }
+        // Counter saturated — next call would bail.
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite("acct_test", now),
+            GmeetRewriteAction::Bail
+        );
+        // Clear it — next call within the window starts fresh.
+        state.clear_gmeet_marketing_rewrite("acct_test");
+        assert_eq!(
+            state.track_gmeet_marketing_rewrite("acct_test", now),
+            GmeetRewriteAction::Rewrite
+        );
     }
 }
