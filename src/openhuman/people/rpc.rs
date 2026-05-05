@@ -17,13 +17,15 @@ pub async fn handle_list(store: &PeopleStore, limit: usize) -> Result<RpcOutcome
     let limit = limit.clamp(1, 500);
     let people = store.list().await.map_err(|e| format!("list: {e}"))?;
     let now = Utc::now();
+    let person_ids: Vec<PersonId> = people.iter().map(|p| p.id).collect();
+    let interactions_by_person = store
+        .batch_interactions_for(&person_ids)
+        .await
+        .map_err(|e| format!("batch_interactions_for: {e}"))?;
 
     let mut ranked: Vec<(Value, f32)> = Vec::with_capacity(people.len());
     for p in people {
-        let interactions = store
-            .interactions_for(p.id)
-            .await
-            .map_err(|e| format!("interactions_for: {e}"))?;
+        let interactions = interactions_by_person.get(&p.id).cloned().unwrap_or_default();
         let s = score(&interactions, now);
         let handles: Vec<Value> = p
             .handles
@@ -65,15 +67,16 @@ pub async fn handle_resolve(
     create_if_missing: bool,
 ) -> Result<RpcOutcome<Value>, String> {
     let resolver = HandleResolver::new(store);
-    let result = if create_if_missing {
-        Some(resolver.resolve_or_create(&handle).await?)
-    } else {
-        resolver.resolve(&handle).await?
+    let existing = resolver.resolve(&handle).await?;
+    let (result, created) = match (existing, create_if_missing) {
+        (Some(id), _) => (Some(id), false),
+        (None, true) => (Some(resolver.resolve_or_create(&handle).await?), true),
+        (None, false) => (None, false),
     };
     Ok(RpcOutcome::new(
         json!({
             "person_id": result.map(|p| p.to_string()),
-            "created": create_if_missing && result.is_some(),
+            "created": created,
         }),
         vec![],
     ))
@@ -121,6 +124,14 @@ pub async fn handle_score(
     store: &PeopleStore,
     person_id: PersonId,
 ) -> Result<RpcOutcome<Value>, String> {
+    if store
+        .get(person_id)
+        .await
+        .map_err(|e| format!("get_person: {e}"))?
+        .is_none()
+    {
+        return Err(format!("person not found: {person_id}"));
+    }
     let interactions = store
         .interactions_for(person_id)
         .await

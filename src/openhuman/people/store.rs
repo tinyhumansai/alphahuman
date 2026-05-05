@@ -4,6 +4,7 @@
 //! can share ownership across tokio tasks; operations are synchronous and
 //! fast (all single-row CRUD or small aggregates).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -295,6 +296,63 @@ impl PeopleStore {
             for r in rows {
                 let (ts, is_out, length) = r?;
                 out.push(Interaction {
+                    person_id,
+                    ts: ts_to_dt(ts),
+                    is_outbound: is_out != 0,
+                    length: length.max(0) as u32,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ffi::ErrorCode::SystemIoFailure,
+                    extended_code: 0,
+                },
+                Some(e.to_string()),
+            )
+        })?
+    }
+
+    /// Fetch interactions for several people in one query, keyed by person id.
+    pub async fn batch_interactions_for(
+        &self,
+        person_ids: &[PersonId],
+    ) -> SqlResult<HashMap<PersonId, Vec<Interaction>>> {
+        if person_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self.conn.clone();
+        let ids: Vec<PersonId> = person_ids.to_vec();
+        tokio::task::spawn_blocking(move || -> SqlResult<HashMap<PersonId, Vec<Interaction>>> {
+            let guard = conn.blocking_lock();
+            let placeholders = std::iter::repeat("?")
+                .take(ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT person_id, ts, is_outbound, length FROM interactions \
+                 WHERE person_id IN ({placeholders}) ORDER BY person_id, ts DESC"
+            );
+            let id_strings: Vec<String> = ids.iter().map(ToString::to_string).collect();
+            let mut stmt = guard.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(id_strings.iter()), |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?;
+            let mut out: HashMap<PersonId, Vec<Interaction>> = HashMap::new();
+            for r in rows {
+                let (id_str, ts, is_out, length) = r?;
+                let person_id = uuid::Uuid::parse_str(&id_str)
+                    .map(PersonId)
+                    .map_err(|e| rusqlite::Error::InvalidColumnName(e.to_string()))?;
+                out.entry(person_id).or_default().push(Interaction {
                     person_id,
                     ts: ts_to_dt(ts),
                     is_outbound: is_out != 0,
