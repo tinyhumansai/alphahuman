@@ -96,6 +96,8 @@ impl Tool for SpawnWorkerThreadTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let started = std::time::Instant::now();
+
         let agent_id = args
             .get("agent_id")
             .and_then(|v| v.as_str())
@@ -121,6 +123,11 @@ impl Tool for SpawnWorkerThreadTool {
             .map(|s| s.to_string());
 
         if agent_id.is_empty() || prompt.is_empty() {
+            tracing::warn!(
+                agent_id = %agent_id,
+                prompt_empty = prompt.is_empty(),
+                "[spawn_worker_thread] rejected: agent_id and prompt are required"
+            );
             return Ok(ToolResult::error("agent_id and prompt are required"));
         }
 
@@ -131,12 +138,29 @@ impl Tool for SpawnWorkerThreadTool {
         let current_thread_id = crate::openhuman::providers::thread_context::current_thread_id()
             .unwrap_or_else(|| "unknown".to_string());
 
+        tracing::info!(
+            agent_id = %agent_id,
+            task_title = %task_title,
+            current_thread_id = %current_thread_id,
+            toolkit_override = ?toolkit_override,
+            has_context = context.is_some(),
+            "[spawn_worker_thread] invoked"
+        );
+
         let threads = conversations::list_threads(parent.workspace_dir.clone())
             .map_err(|e| anyhow::anyhow!(e))?;
         if let Some(current_thread) = threads.iter().find(|t| t.id == current_thread_id) {
             if current_thread.labels.contains(&"worker".to_string())
                 || current_thread.parent_thread_id.is_some()
             {
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    current_thread_id = %current_thread_id,
+                    is_worker_label = current_thread.labels.contains(&"worker".to_string()),
+                    has_parent_thread_id = current_thread.parent_thread_id.is_some(),
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "[spawn_worker_thread] depth guard blocked spawn from worker thread"
+                );
                 return Ok(ToolResult::error("Worker threads cannot spawn other worker threads. Depth is capped at 1. Use spawn_subagent for inline delegation instead."));
             }
         }
@@ -163,6 +187,15 @@ impl Tool for SpawnWorkerThreadTool {
             },
         )
         .map_err(|e| anyhow::anyhow!(e))?;
+
+        tracing::info!(
+            agent_id = %agent_id,
+            worker_thread_id = %worker_thread_id,
+            parent_thread_id = %current_thread_id,
+            task_title = %task_title,
+            created_at = %now,
+            "[spawn_worker_thread] created worker thread"
+        );
 
         // Append initial user message to the worker thread
         conversations::append_message(
@@ -195,8 +228,21 @@ impl Tool for SpawnWorkerThreadTool {
             worker_thread_id: Some(worker_thread_id.clone()),
         };
 
+        tracing::debug!(
+            agent_id = %agent_id,
+            worker_thread_id = %worker_thread_id,
+            "[spawn_worker_thread] dispatching run_subagent"
+        );
+
         match run_subagent(definition, &prompt, options).await {
             Ok(outcome) => {
+                tracing::info!(
+                    agent_id = %agent_id,
+                    worker_thread_id = %worker_thread_id,
+                    task_id = %outcome.task_id,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "[spawn_worker_thread] completed successfully"
+                );
                 let parent_visible = format!(
                     "Spawned worker thread `{worker_thread_id}` for the task: {task_title}. \
                      The sub-agent has completed its work. You can find the full transcript \
@@ -212,9 +258,18 @@ impl Tool for SpawnWorkerThreadTool {
                 );
                 Ok(ToolResult::success(parent_visible))
             }
-            Err(err) => Ok(ToolResult::error(format!(
-                "Worker thread execution failed: {err}"
-            ))),
+            Err(err) => {
+                tracing::error!(
+                    agent_id = %agent_id,
+                    worker_thread_id = %worker_thread_id,
+                    error = %err,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "[spawn_worker_thread] execution failed"
+                );
+                Ok(ToolResult::error(format!(
+                    "Worker thread execution failed: {err}"
+                )))
+            }
         }
     }
 }
