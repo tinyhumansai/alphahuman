@@ -235,7 +235,7 @@ const Accounts = () => {
       </aside>
 
       {/* Main pane */}
-      <main className="flex min-w-0 flex-1 flex-col" data-walkthrough="chat-agent-panel">
+      <main className="flex min-w-0 flex-1 flex-col">
         {isAgentSelected ? (
           <div className="flex h-full min-w-0">
             <div className="min-w-0 flex-1">

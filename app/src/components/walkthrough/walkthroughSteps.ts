@@ -74,7 +74,7 @@ export function createWalkthroughSteps(navigate: NavigateFunction): Step[] {
       title: 'Meet your AI',
       content:
         'This is where conversations happen. Ask questions, get summaries, or brainstorm. Everything stays searchable.',
-      placement: 'right',
+      placement: 'bottom',
       skipBeacon: true,
       before: async () => {
         navigate('/chat');

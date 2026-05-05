@@ -299,9 +299,11 @@ const SettingsHome = () => {
 
   return (
     <div className="z-10 relative">
-      <SettingsHeader />
-
       <div data-walkthrough="settings-menu">
+        <SettingsHeader />
+      </div>
+
+      <div>
         {/* Grouped Settings */}
         {groupedMenuItems.map((item, index) => (
           <SettingsMenuItem

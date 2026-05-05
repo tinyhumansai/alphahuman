@@ -735,7 +735,7 @@ export default function Skills() {
     <div className="min-h-full">
       <div className="min-h-full flex flex-col">
         <div className="flex-1 flex items-start justify-center p-4 pt-6">
-          <div className="w-full max-w-3xl space-y-4" data-walkthrough="skills-grid">
+          <div className="w-full max-w-3xl space-y-4">
             {/* <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <h1 className="text-base font-semibold text-stone-900">Skills</h1>
@@ -817,7 +817,11 @@ export default function Skills() {
 
                 <div className="rounded-2xl border border-stone-200 bg-white p-3 shadow-soft animate-fade-up">
                   <div className="px-1 pb-3 pt-1">
-                    <h2 className="text-sm font-semibold text-stone-900">Integrations</h2>
+                    <h2
+                      className="text-sm font-semibold text-stone-900"
+                      data-walkthrough="skills-grid">
+                      Integrations
+                    </h2>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-stone-500">
                       Connect external apps. Connected services give your agent access to the tools
                       it needs to perform tasks.
