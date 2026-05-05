@@ -14,13 +14,13 @@
 //! - No Tauri IPC bridge. The mascot window uses `WKScriptMessageHandler`
 //!   for the few host calls it needs (close, future: drag/clickthrough).
 //!   For now we keep the page passive — toggle via the tray menu.
-//! - Production bundle support is **not yet implemented**: we resolve the
-//!   page URL from `app.config().build.dev_url`, so this only works when
-//!   the Vite dev server is running. A bundle path would need to serve the
-//!   built HTML over a localhost HTTP server (or load via `file://` and
-//!   accept the ESM/CORS friction).
+//! - Page source is dev-server in development, bundled `file://` in
+//!   production. The bundled path uses `loadFileURL:allowingReadAccessToURL:`
+//!   with the resource directory as the read-access root so ESM imports
+//!   from the Vite build resolve correctly.
 
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -33,7 +33,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNumber, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest, NSURL};
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::AppRuntime;
 
@@ -99,8 +99,8 @@ pub(crate) fn show(app: &AppHandle<AppRuntime>) -> Result<(), String> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| "mascot show called off the main thread".to_string())?;
 
-    let url = resolve_page_url(app)?;
-    log::info!("[mascot-native] loading url={url}");
+    let source = resolve_page_source(app)?;
+    log::info!("[mascot-native] loading source={source:?}");
 
     let frame = bottom_right_frame(mtm);
     log::debug!(
@@ -112,7 +112,7 @@ pub(crate) fn show(app: &AppHandle<AppRuntime>) -> Result<(), String> {
     );
 
     let panel = unsafe { build_panel(mtm, frame) };
-    let webview = unsafe { build_webview(mtm, &panel, &url) };
+    let webview = unsafe { build_webview(mtm, &panel, &source) };
 
     panel.makeKeyAndOrderFront(None);
     panel.orderFrontRegardless();
@@ -130,23 +130,59 @@ pub(crate) fn show(app: &AppHandle<AppRuntime>) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_page_url(app: &AppHandle<AppRuntime>) -> Result<String, String> {
-    let dev_url = app.config().build.dev_url.as_ref().cloned();
-    let Some(mut url) = dev_url else {
-        return Err(
-            "mascot native window requires a dev URL — production bundle path not implemented yet"
-                .into(),
-        );
-    };
-    // Append `?window=mascot` so main.tsx can branch on URL params (the
-    // panel is not part of Tauri's runtime, so `getCurrentWindow().label`
-    // doesn't apply here).
-    let query = url
-        .query()
-        .map(|q| format!("{q}&window=mascot"))
-        .unwrap_or_else(|| "window=mascot".into());
-    url.set_query(Some(&query));
-    Ok(url.to_string())
+/// Where the mascot's HTML lives. In dev we point WKWebView at the Vite
+/// dev server; in production we point it at the bundled `index.html` on
+/// disk and grant read access to its resource directory so ESM imports
+/// from the Vite output resolve correctly.
+#[derive(Debug)]
+enum PageSource {
+    Dev { url: String },
+    Bundled { index_html: PathBuf, root: PathBuf },
+}
+
+fn resolve_page_source(app: &AppHandle<AppRuntime>) -> Result<PageSource, String> {
+    if let Some(mut url) = app.config().build.dev_url.as_ref().cloned() {
+        // Append `?window=mascot` so main.tsx can branch on URL params
+        // (the panel is not part of Tauri's runtime, so
+        // `getCurrentWindow().label` doesn't apply here).
+        let query = url
+            .query()
+            .map(|q| format!("{q}&window=mascot"))
+            .unwrap_or_else(|| "window=mascot".into());
+        url.set_query(Some(&query));
+        return Ok(PageSource::Dev {
+            url: url.to_string(),
+        });
+    }
+
+    // Production: walk up from `resource_dir()` looking for `index.html`.
+    // The packaged layout typically puts the Vite output directly under
+    // the resource dir, but tauri-bundler can nest it (e.g. under a
+    // `dist/` subfolder), so we search a couple of likely spots before
+    // giving up.
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resolve resource_dir: {e}"))?;
+    for candidate in [
+        resource_dir.join("index.html"),
+        resource_dir.join("dist").join("index.html"),
+    ] {
+        if candidate.is_file() {
+            let root = candidate
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| resource_dir.clone());
+            return Ok(PageSource::Bundled {
+                index_html: candidate,
+                root,
+            });
+        }
+    }
+    Err(format!(
+        "mascot bundled index.html not found under resource_dir={}",
+        resource_dir.display()
+    ))
 }
 
 /// Anchor the panel to the bottom-right of the primary screen using
@@ -297,7 +333,11 @@ unsafe fn spawn_hover_timer(
     }
 }
 
-unsafe fn build_webview(mtm: MainThreadMarker, panel: &NSPanel, url: &str) -> Retained<WKWebView> {
+unsafe fn build_webview(
+    mtm: MainThreadMarker,
+    panel: &NSPanel,
+    source: &PageSource,
+) -> Retained<WKWebView> {
     let config: Retained<WKWebViewConfiguration> = unsafe {
         let alloc = WKWebViewConfiguration::alloc(mtm);
         msg_send![alloc, init]
@@ -328,13 +368,61 @@ unsafe fn build_webview(mtm: MainThreadMarker, panel: &NSPanel, url: &str) -> Re
         let _: () = msg_send![panel, setContentView: webview_view];
 
         // Kick off the load.
-        let ns_url_str = NSString::from_str(url);
-        let ns_url: Option<Retained<NSURL>> = NSURL::URLWithString(&ns_url_str);
-        if let Some(ns_url) = ns_url {
-            let request = NSURLRequest::requestWithURL(&ns_url);
-            let _ = webview.loadRequest(&request);
-        } else {
-            log::warn!("[mascot-native] could not parse url={url}");
+        match source {
+            PageSource::Dev { url } => {
+                let ns_url_str = NSString::from_str(url);
+                let ns_url: Option<Retained<NSURL>> = NSURL::URLWithString(&ns_url_str);
+                if let Some(ns_url) = ns_url {
+                    let request = NSURLRequest::requestWithURL(&ns_url);
+                    let _ = webview.loadRequest(&request);
+                } else {
+                    log::warn!("[mascot-native] could not parse dev url={url}");
+                }
+            }
+            PageSource::Bundled { index_html, root } => {
+                // `loadFileURL:allowingReadAccessToURL:` is the only path
+                // that lets a WKWebView resolve ESM imports from a local
+                // build — `loadRequest` with a `file://` URL forbids
+                // cross-origin sub-resource loads, which Vite's chunk
+                // graph triggers immediately.
+                let Ok(mut file_url) = url::Url::from_file_path(index_html) else {
+                    log::warn!(
+                        "[mascot-native] index_html is not absolute: {}",
+                        index_html.display()
+                    );
+                    return webview;
+                };
+                // Same `?window=mascot` branching trick as the dev path —
+                // `window.location.search` will see it on the file URL.
+                file_url.set_query(Some("window=mascot"));
+                let Ok(read_access_url) = url::Url::from_file_path(root) else {
+                    log::warn!(
+                        "[mascot-native] resource root is not absolute: {}",
+                        root.display()
+                    );
+                    return webview;
+                };
+                let ns_url_str = NSString::from_str(file_url.as_str());
+                let read_access_str = NSString::from_str(read_access_url.as_str());
+                let ns_url = NSURL::URLWithString(&ns_url_str);
+                let read_access_ns = NSURL::URLWithString(&read_access_str);
+                match (ns_url, read_access_ns) {
+                    (Some(ns_url), Some(read_access_ns)) => {
+                        let _ =
+                            webview.loadFileURL_allowingReadAccessToURL(&ns_url, &read_access_ns);
+                        log::info!(
+                            "[mascot-native] loaded bundled index={} root={}",
+                            index_html.display(),
+                            root.display()
+                        );
+                    }
+                    _ => log::warn!(
+                        "[mascot-native] could not parse bundled file URLs index={} root={}",
+                        file_url,
+                        read_access_url
+                    ),
+                }
+            }
         }
     }
 

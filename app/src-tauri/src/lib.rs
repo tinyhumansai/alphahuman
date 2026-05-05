@@ -755,11 +755,11 @@ fn activate_main_window(app: AppHandle<AppRuntime>) -> Result<(), String> {
     show_main_window(&app)
 }
 
-const MASCOT_WINDOW_LABEL: &str = "mascot";
-
 /// Show the floating mascot. macOS: native NSPanel + WKWebView (so the
 /// window is actually transparent — vendored tauri-cef can't render
-/// transparent windowed-mode browsers). Other OSes: not yet wired up.
+/// transparent windowed-mode browsers). Loads the Vite dev URL in
+/// development and the bundled `index.html` in production. Other OSes:
+/// not yet wired up.
 #[tauri::command]
 fn mascot_window_show(app: AppHandle<AppRuntime>) -> Result<(), String> {
     log::info!("[mascot-window] show requested");

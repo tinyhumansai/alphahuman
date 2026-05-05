@@ -69,6 +69,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "process", "sync", "time
 #   JSON-RPC frames from the core sidecar so core-side handlers can
 #   reach the live-webview connectors via CDP.
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake"] }
+url = "2"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
