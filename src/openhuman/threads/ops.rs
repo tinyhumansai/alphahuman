@@ -434,6 +434,12 @@ pub async fn thread_delete(
     let dir = workspace_dir().await?;
     let deleted = conversations::ConversationStore::new(dir.clone())
         .delete_thread(&request.thread_id, &request.deleted_at)?;
+    // Invalidate the in-process web-channel session BEFORE the
+    // turn-state cleanup. The snapshot deletion is fallible and
+    // returns early on error; if invalidation ran after, an active
+    // session for the now-deleted thread could linger and try to
+    // append to a thread index row that no longer exists.
+    web_channel::invalidate_thread_sessions(&request.thread_id).await;
     // Drop any persisted in-flight turn snapshot for this thread —
     // otherwise `threads_turn_state_list` keeps surfacing it (as
     // `Interrupted` on next restart) for a thread that no longer
@@ -448,7 +454,6 @@ pub async fn thread_delete(
             request.thread_id
         )
     })?;
-    web_channel::invalidate_thread_sessions(&request.thread_id).await;
     Ok(envelope(
         DeleteConversationThreadResponse { deleted },
         None,
