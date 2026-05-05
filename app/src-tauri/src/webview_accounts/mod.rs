@@ -324,16 +324,22 @@ fn is_google_sso_host(host: &str) -> bool {
     {
         return true;
     }
-    // ccTLD variants: `accounts.google.<rest>` where rest is some country
-    // suffix. Tighten by requiring `accounts.google.` prefix; we don't
-    // care about deep validation of the cctld portion since the prefix
-    // alone is uniquely Google-owned.
+    // ccTLD variants: `accounts.google.<cctld>`. We must reject phishing
+    // shapes like `accounts.google.com.evil` and `accounts.google.co.attacker`
+    // — the dots-only check we used previously accepted both because
+    // `com.evil` and `co.attacker` each have one dot. Anchor the suffix
+    // against a real ccTLD shape: either a single 2-letter cc tld
+    // (`accounts.google.de`, `accounts.google.fr`) OR a 2-label form
+    // `<sld>.<cc>` where sld ∈ {co, com, net, org} (`accounts.google.co.in`,
+    // `accounts.google.com.au`).
     if let Some(rest) = host.strip_prefix("accounts.google.") {
-        // Avoid matching `accounts.google.com.evil.com` — `rest` must not
-        // contain a dot beyond what a cctld would have. Allow up to two
-        // dot-separated segments (e.g. `co.in`, `com.au`).
-        let dots = rest.matches('.').count();
-        return !rest.is_empty() && dots <= 1;
+        let labels: Vec<&str> = rest.split('.').collect();
+        let is_cc = |s: &str| s.len() == 2 && s.chars().all(|c| c.is_ascii_alphabetic());
+        return match labels.as_slice() {
+            [tld] => is_cc(tld),
+            [sld, tld] => matches!(*sld, "co" | "com" | "net" | "org") && is_cc(tld),
+            _ => false,
+        };
     }
     false
 }
@@ -3360,11 +3366,20 @@ mod tests {
 
     #[test]
     fn google_sso_host_rejects_phishing_alikes() {
-        // A spoofed host that prefixes accounts.google. shouldn't match
-        // because the rest contains too many dots (full domain hijack).
+        // Spoofed hosts that hijack the full domain by prefixing `accounts.google.`.
         assert!(!is_google_sso_host("accounts.google.com.evil.tld"));
         assert!(!is_google_sso_host("accounts.google."));
         assert!(!is_google_sso_host("accounts.google.com.evil.example.com"));
+        // Two-label suffix where the second label is NOT a real cctld
+        // (the dots-only predicate accepted these — CR caught it).
+        assert!(!is_google_sso_host("accounts.google.com.evil"));
+        assert!(!is_google_sso_host("accounts.google.co.attacker"));
+        assert!(!is_google_sso_host("accounts.google.com.attackerlong"));
+        // Single label that's not a real cctld (3+ chars).
+        assert!(!is_google_sso_host("accounts.google.evil"));
+        assert!(!is_google_sso_host("accounts.google.attackerlong"));
+        // Unknown sld in the 2-label shape — only co/com/net/org allowed.
+        assert!(!is_google_sso_host("accounts.google.xyz.uk"));
         // Unrelated google sub-services that aren't sso surfaces.
         assert!(!is_google_sso_host("mail.google.com"));
         assert!(!is_google_sso_host("meet.google.com"));
