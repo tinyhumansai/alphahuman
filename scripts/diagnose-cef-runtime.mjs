@@ -138,6 +138,14 @@ async function modeWatch() {
   await new Promise(() => {}); // hang
 }
 
+// URL matchers for `headers` mode. Includes gstatic asset path so the dump
+// captures `www.gstatic.com/video_effects/assets/*.mp4` — the requests
+// implicated in the dynamic-background failure (#1053 Phase A).
+const HEADERS_URL_MATCHERS = [
+  (u) => u.includes('meet.google.com'),
+  (u) => u.includes('gstatic.com/video_effects/assets/'),
+];
+
 async function modeHeaders() {
   const target = await pickGmeetTarget();
   console.log(`[diagnose] headers :: ${target.url}`);
@@ -154,7 +162,7 @@ async function modeHeaders() {
     for (const ev of cdp.events.splice(0)) {
       if (ev.method === 'Network.responseReceived') {
         const r = ev.params.response;
-        if (r.url.includes('meet.google.com')) {
+        if (HEADERS_URL_MATCHERS.some((matches) => matches(r.url))) {
           seen.push({
             url: r.url,
             status: r.status,
@@ -168,7 +176,7 @@ async function modeHeaders() {
       }
     }
   }, 500);
-  console.log('[diagnose] capturing meet.google.com responses (Ctrl-C to dump).');
+  console.log('[diagnose] capturing meet.google.com + gstatic video_effects responses (Ctrl-C to dump).');
   await new Promise(() => {});
 }
 
