@@ -139,8 +139,9 @@ describe('capabilityForModel', () => {
   const make = (roles: ModelDescriptor['roles']): ModelDescriptor => ({
     id: 'x',
     size: '0',
+    approxBytes: 0,
     ramHint: '0',
-    category: 'small',
+    category: 'fast',
     note: '',
     roles,
   });
