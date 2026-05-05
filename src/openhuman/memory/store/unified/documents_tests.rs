@@ -291,7 +291,7 @@ async fn upsert_document_redacts_secret_like_content_before_persisting() {
     assert!(!doc.content.contains("BEGIN PRIVATE KEY"));
     assert!(doc.content.contains("[REDACTED_PRIVATE_KEY]"));
     assert_eq!(doc.metadata["token"], json!("[REDACTED_SECRET]"));
-    assert_eq!(doc.metadata["notes"], json!("[REDACTED]"));
+    assert_eq!(doc.metadata["notes"], json!("api_key=[REDACTED]"));
     assert_eq!(doc.tags[0], "[REDACTED]");
 
     let markdown = std::fs::read_to_string(tmp.path().join(&doc.markdown_rel_path)).unwrap();
@@ -340,6 +340,37 @@ async fn kv_set_namespace_rejects_secret_like_key() {
 }
 
 #[tokio::test]
+async fn kv_set_namespace_rejects_secret_like_namespace() {
+    let tmp = TempDir::new().unwrap();
+    let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
+
+    let err = memory
+        .kv_set_namespace(
+            "Bearer abcdefghijklmnop",
+            "safe-key",
+            &json!({"value": "ok"}),
+        )
+        .await
+        .expect_err("secret-like namespace should be rejected");
+    assert!(err.contains("cannot contain secrets"));
+}
+
+#[tokio::test]
+async fn kv_set_global_rejects_secret_like_key() {
+    let tmp = TempDir::new().unwrap();
+    let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
+
+    let err = memory
+        .kv_set_global(
+            "authorization=Bearer abcdefghijklmnop",
+            &json!({"value": "ok"}),
+        )
+        .await
+        .expect_err("secret-like global key should be rejected");
+    assert!(err.contains("cannot contain secrets"));
+}
+
+#[tokio::test]
 async fn upsert_document_rejects_secret_like_key() {
     let tmp = TempDir::new().unwrap();
     let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
@@ -348,6 +379,54 @@ async fn upsert_document_rejects_secret_like_key() {
         .upsert_document(NamespaceDocumentInput {
             namespace: "safe".to_string(),
             key: "api_key=sk-1234567890123456789012345".to_string(),
+            title: "Title".to_string(),
+            content: "Body".to_string(),
+            source_type: "doc".to_string(),
+            priority: "medium".to_string(),
+            tags: vec![],
+            metadata: json!({}),
+            category: "core".to_string(),
+            session_id: None,
+            document_id: None,
+        })
+        .await
+        .expect_err("secret-like key should be rejected");
+    assert!(err.contains("cannot contain secrets"));
+}
+
+#[tokio::test]
+async fn upsert_document_rejects_secret_like_namespace() {
+    let tmp = TempDir::new().unwrap();
+    let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
+
+    let err = memory
+        .upsert_document(NamespaceDocumentInput {
+            namespace: "Bearer abcdefghijklmnop".to_string(),
+            key: "k1".to_string(),
+            title: "Title".to_string(),
+            content: "Body".to_string(),
+            source_type: "doc".to_string(),
+            priority: "medium".to_string(),
+            tags: vec![],
+            metadata: json!({}),
+            category: "core".to_string(),
+            session_id: None,
+            document_id: None,
+        })
+        .await
+        .expect_err("secret-like namespace should be rejected");
+    assert!(err.contains("cannot contain secrets"));
+}
+
+#[tokio::test]
+async fn upsert_document_metadata_only_rejects_secret_like_key() {
+    let tmp = TempDir::new().unwrap();
+    let memory = UnifiedMemory::new(tmp.path(), Arc::new(NoopEmbedding), None).unwrap();
+
+    let err = memory
+        .upsert_document_metadata_only(NamespaceDocumentInput {
+            namespace: "safe".to_string(),
+            key: "refresh_token=abcdef".to_string(),
             title: "Title".to_string(),
             content: "Body".to_string(),
             source_type: "doc".to_string(),

@@ -385,4 +385,23 @@ mod tests {
         assert!(sanitized.value.contains("[REDACTED]"));
         assert!(sanitized.report.text_redactions >= 2);
     }
+
+    #[test]
+    fn sanitize_text_redacts_oauth_url_style_params() {
+        let input = "https://example.com/callback?access_token=abcd1234&refresh_token=efgh5678&id_token=jwt";
+        let sanitized = sanitize_text(input);
+        assert!(!sanitized.value.contains("abcd1234"));
+        assert!(!sanitized.value.contains("efgh5678"));
+        assert!(!sanitized.value.contains("id_token=jwt"));
+        assert!(sanitized.report.text_redactions >= 3);
+    }
+
+    #[test]
+    fn sanitize_text_redacts_multiline_private_key_blocks() {
+        let input = "BEGIN\n-----BEGIN OPENSSH PRIVATE KEY-----\nline1\nline2\n-----END OPENSSH PRIVATE KEY-----\nEND";
+        let sanitized = sanitize_text(input);
+        assert!(!sanitized.value.contains("OPENSSH PRIVATE KEY"));
+        assert!(sanitized.value.contains(REDACTED_PRIVATE_KEY));
+        assert!(sanitized.report.blocked_secret_hits >= 1);
+    }
 }

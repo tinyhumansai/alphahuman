@@ -302,4 +302,24 @@ mod tests {
             Some("{\"api_key\":\"[REDACTED_SECRET]\"}")
         );
     }
+
+    #[test]
+    fn insert_rejects_secret_like_session_id() {
+        let conn = setup_db();
+        let err = episodic_insert(
+            &conn,
+            &EpisodicEntry {
+                id: None,
+                session_id: "Bearer abcdefghijklmnop".into(),
+                timestamp: 1000.0,
+                role: "user".into(),
+                content: "hello".into(),
+                lesson: None,
+                tool_calls_json: None,
+                cost_microdollars: 0,
+            },
+        )
+        .expect_err("secret-like session_id should be rejected");
+        assert!(err.to_string().contains("cannot contain secrets"));
+    }
 }
