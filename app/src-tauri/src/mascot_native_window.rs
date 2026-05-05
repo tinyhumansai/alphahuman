@@ -185,6 +185,21 @@ fn resolve_page_source(app: &AppHandle<AppRuntime>) -> Result<PageSource, String
     ))
 }
 
+/// Frame of the primary screen — the one hosting the menu bar at index
+/// 0 of `NSScreen.screens`. Note that `NSScreen.mainScreen` would be
+/// wrong here: it returns whichever screen has the active key window, so
+/// it changes when the user moves focus between displays and would
+/// reposition the panel under the cursor instead of pinning it to the
+/// menu-bar host.
+fn primary_screen_frame(mtm: MainThreadMarker) -> NSRect {
+    let screens = NSScreen::screens(mtm);
+    if let Some(primary) = screens.firstObject() {
+        return primary.frame();
+    }
+    log::warn!("[mascot-native] NSScreen::screens returned empty — falling back to 1440x900");
+    NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1440.0, 900.0))
+}
+
 /// Anchor the panel to the bottom-right of the primary screen using
 /// AppKit's bottom-left origin convention.
 fn bottom_right_frame(mtm: MainThreadMarker) -> NSRect {
@@ -192,9 +207,7 @@ fn bottom_right_frame(mtm: MainThreadMarker) -> NSRect {
     // bottom-right(0,0) lands at the absolute pixel corner — that's what
     // "extreme bottom right" wants. `visibleFrame()` would inset by Dock
     // height which leaves a gap.
-    let frame = NSScreen::mainScreen(mtm)
-        .map(|s| s.frame())
-        .unwrap_or_else(|| NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1440.0, 900.0)));
+    let frame = primary_screen_frame(mtm);
     let x = frame.origin.x + frame.size.width - PANEL_SIZE - PANEL_MARGIN;
     let y = frame.origin.y + PANEL_MARGIN;
     NSRect::new(NSPoint::new(x, y), NSSize::new(PANEL_SIZE, PANEL_SIZE))
@@ -264,9 +277,7 @@ enum Slot {
 }
 
 fn slot_frame(mtm: MainThreadMarker, slot: Slot) -> NSRect {
-    let screen = NSScreen::mainScreen(mtm)
-        .map(|s| s.frame())
-        .unwrap_or_else(|| NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1440.0, 900.0)));
+    let screen = primary_screen_frame(mtm);
     let x = screen.origin.x + screen.size.width - PANEL_SIZE - PANEL_MARGIN;
     // AppKit origin is bottom-left. `Home` sits at the bottom; `HopUp`
     // is one full panel-height above it so the mascot completely clears

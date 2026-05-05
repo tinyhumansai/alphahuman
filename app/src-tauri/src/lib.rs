@@ -958,15 +958,24 @@ fn setup_tray(app: &AppHandle<AppRuntime>) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let mascot_item = MenuItem::with_id(
-        app,
-        "tray_toggle_mascot",
-        "Toggle floating mascot",
-        true,
-        None::<&str>,
-    )?;
     let quit_item = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_item, &mascot_item, &quit_item])?;
+    // The floating mascot has a native NSPanel + WKWebView host, so the
+    // tray entry only does anything on macOS. Don't surface a menu item
+    // on Windows that's guaranteed to error — gate it to the platform
+    // where `mascot_window_show` actually works.
+    #[cfg(target_os = "macos")]
+    let menu = {
+        let mascot_item = MenuItem::with_id(
+            app,
+            "tray_toggle_mascot",
+            "Toggle floating mascot",
+            true,
+            None::<&str>,
+        )?;
+        Menu::with_items(app, &[&show_item, &mascot_item, &quit_item])?
+    };
+    #[cfg(not(target_os = "macos"))]
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
     let icon = app
         .default_window_icon()

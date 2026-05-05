@@ -76,7 +76,15 @@ function bootRender() {
   root.render(<React.StrictMode>{tree}</React.StrictMode>);
 }
 
-getActiveUserIdFromCore()
+// The mascot lives in a native WKWebView (no Tauri IPC), so
+// `getActiveUserIdFromCore()` would just reject after a roundtrip and
+// delay first paint for nothing. Skip the bootstrap entirely in that
+// path — the mascot UI doesn't read user-scoped storage anyway.
+const activeUserBootstrap = isMascotWindow
+  ? Promise.resolve<string | null>(null)
+  : getActiveUserIdFromCore();
+
+activeUserBootstrap
   .then(id => primeActiveUserId(id))
   .catch(() => primeActiveUserId(null))
   .finally(bootRender);
