@@ -4,6 +4,14 @@ Use this checklist for Codex web sessions, Linear-launched implementation agents
 
 ## Required Preflight
 
+Run the scriptable preflight wrapper (recommended):
+
+```bash
+node scripts/codex-pr-preflight.mjs --strict-path --lightweight
+```
+
+Use `--lightweight` when you only need environment/repo checks plus changed-surface validation recommendations (it skips heavier runtime validations).
+
 Run this before editing files:
 
 ```bash
