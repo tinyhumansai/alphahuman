@@ -58,6 +58,10 @@ import { CitationChips, type MessageCitation } from './conversations/components/
 import { LimitPill } from './conversations/components/LimitPill';
 import { ToolTimelineBlock } from './conversations/components/ToolTimelineBlock';
 import {
+  evaluateComposerSend,
+  handleComposerSlashCommand,
+} from './conversations/composerSendDecision';
+import {
   type AgentBubblePosition,
   buildAcceptedInlineCompletion,
   formatRelativeTime,
@@ -480,28 +484,32 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   }, [inputMode, rustChat]);
 
   const handleSlashCommand = (command: string): boolean => {
-    const cmd = command.toLowerCase();
-    if (cmd === '/new' || cmd === '/clear') {
-      // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
-      // Welcome lockdown (#883) — consume the command so it is not sent
-      // to the agent, but skip thread creation/reset so the user cannot
-      // escape the welcome conversation via `/new` or `/clear`.
-      // if (welcomeLocked) {
-      //   setInputValue('');
-      //   return true;
-      // }
-      setInputValue('');
-      void handleCreateNewThread();
-      return true;
-    }
-    return false;
+    const decision = handleComposerSlashCommand(command, false);
+    if (decision.kind === 'not_handled') return false;
+
+    setInputValue('');
+    void handleCreateNewThread();
+    return true;
   };
 
   const handleSendMessage = async (text?: string) => {
     const normalized = text ?? inputValue;
-    const trimmed = normalized.trim();
+    const sendDecision = evaluateComposerSend({
+      rawText: normalized,
+      selectedThreadId,
+      composerInteractionBlocked,
+      isAtLimit,
+      socketStatus,
+    });
+    const trimmed = sendDecision.trimmedText;
 
-    if (!trimmed || !selectedThreadId || composerInteractionBlocked) return;
+    if (
+      sendDecision.blockReason === 'empty_input' ||
+      sendDecision.blockReason === 'missing_thread' ||
+      sendDecision.blockReason === 'composer_blocked'
+    ) {
+      return;
+    }
 
     if (handleSlashCommand(trimmed)) return;
 
@@ -512,24 +520,25 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
       setSendAdvisory(null);
     }
 
-    if (isAtLimit) {
-      setShowLimitModal(true);
-      setSendError(
-        chatSendError('usage_limit_reached', 'Usage limit reached. Upgrade or wait for reset.')
-      );
-      return;
-    }
-    if (socketStatus !== 'connected') {
-      setSendError(
-        chatSendError(
-          'socket_disconnected',
-          'Realtime socket is not connected — responses cannot be delivered without a client ID.'
-        )
-      );
+    if (!sendDecision.shouldSend) {
+      if (sendDecision.blockReason === 'usage_limit_reached') {
+        setShowLimitModal(true);
+        setSendError(
+          chatSendError('usage_limit_reached', 'Usage limit reached. Upgrade or wait for reset.')
+        );
+      } else if (sendDecision.blockReason === 'socket_disconnected') {
+        setSendError(
+          chatSendError(
+            'socket_disconnected',
+            'Realtime socket is not connected — responses cannot be delivered without a client ID.'
+          )
+        );
+      }
       return;
     }
 
     const sendingThreadId = selectedThreadId;
+    if (!sendingThreadId) return;
     const userMessage: ThreadMessage = {
       id: `msg_${globalThis.crypto.randomUUID()}`,
       content: trimmed,
