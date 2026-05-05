@@ -24,7 +24,8 @@ export const LEGACY_METHOD_ALIASES: Record<string, CoreRpcMethod> = {
   'openhuman.update_runtime_settings': CORE_RPC_METHODS.configUpdateRuntimeSettings,
   'openhuman.update_screen_intelligence_settings':
     CORE_RPC_METHODS.configUpdateScreenIntelligenceSettings,
-  'openhuman.workspace_onboarding_flag_exists': CORE_RPC_METHODS.configWorkspaceOnboardingFlagExists,
+  'openhuman.workspace_onboarding_flag_exists':
+    CORE_RPC_METHODS.configWorkspaceOnboardingFlagExists,
   'openhuman.workspace_onboarding_flag_set': CORE_RPC_METHODS.configWorkspaceOnboardingFlagSet,
 };
 
