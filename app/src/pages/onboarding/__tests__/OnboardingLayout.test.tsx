@@ -14,7 +14,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import socketReducer from '../../../store/socketSlice';
-import threadReducer from '../../../store/threadSlice';
 import { useOnboardingContext } from '../OnboardingContext';
 
 // ── Module-level mocks ─────────────────────────────────────────────────────
@@ -79,22 +78,7 @@ function TriggerComplete() {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildStore() {
-  return configureStore({
-    reducer: { thread: threadReducer, socket: socketReducer },
-    preloadedState: {
-      thread: {
-        threads: [],
-        selectedThreadId: null,
-        welcomeThreadId: null,
-        activeThreadId: null,
-        messagesByThreadId: {},
-        messages: [],
-        isLoadingThreads: false,
-        isLoadingMessages: false,
-        messagesError: null,
-      },
-    } as unknown as Parameters<typeof configureStore>[0]['preloadedState'],
-  });
+  return configureStore({ reducer: { socket: socketReducer } });
 }
 
 async function setupLayout() {
@@ -187,17 +171,16 @@ describe('OnboardingLayout — Joyride walkthrough integration (#1123)', () => {
   });
 
   // [#1123] Old test — welcome thread in Redux state — replaced:
-  // it('records the welcome thread id in the Redux store after thread creation', ...)
-  // The welcome thread is no longer stored in Redux.
-  it('does NOT set welcomeThreadId in Redux store on completeAndExit', async () => {
-    const { store } = await setupLayout();
+  // The welcome thread is no longer stored in Redux (threadSlice removed).
+  it('does NOT call threadApi.createNewThread on completeAndExit (Joyride flow has no welcome thread)', async () => {
+    await setupLayout();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('complete-btn'));
     });
 
-    const { thread } = store.getState() as { thread: { welcomeThreadId: string | null } };
-    expect(thread.welcomeThreadId).toBeNull();
+    // threadApi.createNewThread is not called — welcome agent flow is gone.
+    expect(mockCreateNewThreadArg).not.toHaveBeenCalled();
   });
 
   // [#1123] Explicit guard: chatSend must never be called in the Joyride flow

@@ -3,6 +3,10 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { requestUsageRefresh } from '../hooks/usageRefresh';
 import { useRefetchSnapshotOnTurnEnd } from '../hooks/useRefetchSnapshotOnTurnEnd';
+import { notifyThreadMessagesRefresh } from '../lib/threads/messagesRefreshBus';
+import { useThreads } from '../lib/threads/ThreadsContext';
+import { useActiveThread } from '../lib/threads/useActiveThread';
+import { threadApi } from '../services/api/threadApi';
 import {
   type ChatInferenceStartEvent,
   type ChatIterationStartEvent,
@@ -11,7 +15,6 @@ import {
   type ChatToolCallEvent,
   type ChatToolResultEvent,
   type ProactiveMessageEvent,
-  segmentText,
   subscribeChatEvents,
 } from '../services/chatService';
 import { store } from '../store';
@@ -30,13 +33,6 @@ import {
 } from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
-import {
-  addInferenceResponse,
-  createNewThread,
-  generateThreadTitleIfNeeded,
-  setActiveThread,
-  setSelectedThread,
-} from '../store/threadSlice';
 import { IS_PROD } from '../utils/config';
 import { formatTimelineEntry, promptFromArgsBuffer } from '../utils/toolTimelineFormatting';
 
@@ -65,6 +61,24 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
   const streamingAssistantByThread = useAppSelector(
     state => state.chatRuntime.streamingAssistantByThread
   );
+
+  // Threads context: used to resolve the visible thread for proactive messages
+  // and to trigger title generation + list refresh after a turn ends.
+  const { threads, create: createThread, generateTitleIfNeeded } = useThreads();
+  const { activeThreadId, setActiveThreadId } = useActiveThread();
+
+  // Keep refs so event handlers (closures captured at subscribe-time) can
+  // read the latest value without stale-closure bugs.
+  const threadsRef = useRef(threads);
+  const activeThreadIdRef = useRef(activeThreadId);
+
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
 
   const seenChatEventsRef = useRef<Map<string, number>>(new Map());
   const proactiveThreadCreationPromiseRef = useRef<Promise<string | null> | null>(null);
@@ -134,17 +148,21 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
         return incomingThreadId;
       }
 
-      const state = store.getState().thread;
-      // Resolution priority: selected > active (in-flight inference) > welcome
-      // (onboarding lockdown) > first thread in list. `activeThreadId` tracks
-      // the currently running inference thread — during single-threaded onboarding
-      // this will typically be the welcome thread itself, so the ordering is safe.
-      const targetFromState =
-        state.selectedThreadId ??
-        state.activeThreadId ??
-        state.welcomeThreadId ??
-        state.threads[0]?.id ??
-        null;
+      // Resolution priority: selected (URL) > active (in-flight inference) > first in list.
+      // Read from refs so we don't capture stale state in the closure.
+      const currentActiveId = activeThreadIdRef.current;
+      const currentThreads = threadsRef.current;
+
+      // Try to get selected thread from URL.
+      const urlHash = typeof window !== 'undefined' ? window.location.hash : '';
+      const qIdx = urlHash.indexOf('?');
+      let selectedFromUrl: string | null = null;
+      if (qIdx >= 0) {
+        selectedFromUrl = new URLSearchParams(urlHash.slice(qIdx + 1)).get('t');
+      }
+
+      const targetFromState = selectedFromUrl ?? currentActiveId ?? currentThreads[0]?.id ?? null;
+
       if (targetFromState) {
         return targetFromState;
       }
@@ -155,8 +173,8 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
 
       const createPromise: Promise<string | null> = (async () => {
         try {
-          const newThread = await dispatch(createNewThread()).unwrap();
-          dispatch(setSelectedThread(newThread.id));
+          const newThread = await createThread();
+          rtLog('proactive_thread_created', { id: newThread.id });
           return newThread.id;
         } catch (error) {
           rtLog('proactive_thread_create_failed', {
@@ -175,7 +193,7 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
         // no-op: cleared in createPromise.finally
       }
     },
-    [dispatch]
+    [createThread]
   );
 
   useEffect(() => {
@@ -478,19 +496,17 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
         next[idx] = { ...entry, subagent: { ...entry.subagent, toolCalls: updatedCalls } };
         dispatch(setToolTimelineForThread({ threadId: event.thread_id, entries: next }));
       },
+      // onSegment: streaming text segments arrive during a turn and are
+      // accumulated into the streaming-preview state (chatRuntimeSlice). The
+      // agent already writes each segment to JSONL on the Rust side, so we
+      // do NOT call threadApi.appendMessage here — that would duplicate rows.
+      // After chat_done we refresh from JSONL to show the canonical content.
       onSegment: (event: ChatSegmentEvent) => {
+        // Segments are tracked by chatRuntimeSlice for streaming preview;
+        // we only need to dedupe so no double-counting on reconnect.
         const eventKey = `segment:${event.thread_id}:${event.request_id}:${event.segment_index}`;
-        if (
-          !markChatEventSeen(eventKey, { threadId: event.thread_id, requestId: event.request_id })
-        )
-          return;
-        void dispatch(
-          addInferenceResponse({
-            content: segmentText(event),
-            threadId: event.thread_id,
-            extraMetadata: event.citations?.length ? { citations: event.citations } : undefined,
-          })
-        );
+        markChatEventSeen(eventKey, { threadId: event.thread_id, requestId: event.request_id });
+        // Streaming preview content is driven by onTextDelta below.
       },
       onTextDelta: event => {
         const cr = store.getState().chatRuntime;
@@ -580,9 +596,23 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
               to: targetThreadId,
               request: event.request_id,
             });
-            await dispatch(
-              addInferenceResponse({ content: event.full_response, threadId: targetThreadId })
-            );
+            // Append the proactive message to the core (JSONL) directly — the
+            // agent side may not have written it if it came via the proactive path.
+            const proactiveMsg = {
+              id: `msg_${globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
+              content: event.full_response,
+              type: 'text' as const,
+              extraMetadata: {},
+              sender: 'agent' as const,
+              createdAt: new Date().toISOString(),
+            };
+            await threadApi.appendMessage(targetThreadId, proactiveMsg);
+            rtLog('messages_refresh_notify', {
+              thread: targetThreadId,
+              request: event.request_id,
+              reason: 'proactive',
+            });
+            notifyThreadMessagesRefresh(targetThreadId);
           } catch (error) {
             rtLog('proactive_dispatch_failed', {
               from: event.thread_id,
@@ -623,56 +653,17 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
           );
           dispatch(setToolTimelineForThread({ threadId: event.thread_id, entries }));
         }
-        if (!event.segment_total) {
-          void (async () => {
-            try {
-              await dispatch(
-                addInferenceResponse({
-                  content: event.full_response,
-                  threadId: event.thread_id,
-                  extraMetadata: event.citations?.length
-                    ? { citations: event.citations }
-                    : undefined,
-                })
-              ).unwrap();
-              void dispatch(
-                generateThreadTitleIfNeeded({
-                  threadId: event.thread_id,
-                  assistantMessage: event.full_response,
-                })
-              );
-            } catch (error) {
-              rtLog('chat_done_append_failed', {
-                thread: event.thread_id,
-                request: event.request_id,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-            rtLog('refresh_usage_counter', {
-              thread: event.thread_id,
-              request: event.request_id,
-              reason: 'chat_done',
-            });
-            requestUsageRefresh();
-            rtLog('snapshot_refetch_queued', {
-              thread: event.thread_id,
-              request: event.request_id,
-              reason: 'chat_done',
-              path: 'proactive',
-            });
-            refetchSnapshot();
-            dispatch(endInferenceTurn({ threadId: event.thread_id }));
-            dispatch(setActiveThread(null));
-          })();
-          return;
-        }
 
-        void dispatch(
-          generateThreadTitleIfNeeded({
-            threadId: event.thread_id,
-            assistantMessage: event.full_response,
-          })
-        );
+        // The Rust core has already written the full assistant turn to JSONL.
+        // Trigger title generation (which also refreshes the thread list) and
+        // fire usage/snapshot refresh. No local message append needed.
+        void generateTitleIfNeeded(event.thread_id, event.full_response).catch(err => {
+          rtLog('chat_done_title_failed', {
+            thread: event.thread_id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+
         rtLog('refresh_usage_counter', {
           thread: event.thread_id,
           request: event.request_id,
@@ -683,11 +674,16 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
           thread: event.thread_id,
           request: event.request_id,
           reason: 'chat_done',
-          path: 'ordinary',
         });
         refetchSnapshot();
+        rtLog('messages_refresh_notify', {
+          thread: event.thread_id,
+          request: event.request_id,
+          reason: 'chat_done',
+        });
+        notifyThreadMessagesRefresh(event.thread_id);
         dispatch(endInferenceTurn({ threadId: event.thread_id }));
-        dispatch(setActiveThread(null));
+        setActiveThreadId(null);
       },
       onError: event => {
         const eventKey = `error:${event.thread_id}:${event.request_id ?? 'none'}:${event.error_type}:${event.message}`;
@@ -714,22 +710,32 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         if (event.error_type !== 'cancelled') {
-          const currentState = store.getState();
-          const threadMessages = currentState.thread.messagesByThreadId[event.thread_id] ?? [];
-          const lastMsg = threadMessages[threadMessages.length - 1];
-          if (
-            !(
-              lastMsg?.sender === 'agent' &&
-              lastMsg?.content === 'Something went wrong — please try again.'
-            )
-          ) {
-            void dispatch(
-              addInferenceResponse({
+          // For non-cancelled errors, append an error message to core JSONL so
+          // the user sees it on rejoin. Then fire usage/snapshot refresh.
+          void (async () => {
+            try {
+              const errorMsg = {
+                id: `msg_${globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
                 content: 'Something went wrong — please try again.',
-                threadId: event.thread_id,
-              })
-            );
-          }
+                type: 'text' as const,
+                extraMetadata: {},
+                sender: 'agent' as const,
+                createdAt: new Date().toISOString(),
+              };
+              await threadApi.appendMessage(event.thread_id, errorMsg);
+              rtLog('messages_refresh_notify', {
+                thread: event.thread_id,
+                request: event.request_id,
+                reason: 'chat_error',
+              });
+              notifyThreadMessagesRefresh(event.thread_id);
+            } catch (appendErr) {
+              rtLog('chat_error_append_failed', {
+                thread: event.thread_id,
+                error: appendErr instanceof Error ? appendErr.message : String(appendErr),
+              });
+            }
+          })();
 
           rtLog('refresh_usage_counter', {
             thread: event.thread_id,
@@ -740,7 +746,7 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         dispatch(endInferenceTurn({ threadId: event.thread_id }));
-        dispatch(setActiveThread(null));
+        setActiveThreadId(null);
       },
     });
 
@@ -748,7 +754,14 @@ const ChatRuntimeProvider = ({ children }: { children: React.ReactNode }) => {
       rtLog('unsubscribe_chat_events');
       cleanup();
     };
-  }, [dispatch, resolveVisibleThreadForProactive, socketStatus, refetchSnapshot]);
+  }, [
+    dispatch,
+    resolveVisibleThreadForProactive,
+    socketStatus,
+    refetchSnapshot,
+    generateTitleIfNeeded,
+    setActiveThreadId,
+  ]);
 
   return <>{children}</>;
 };

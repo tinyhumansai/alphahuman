@@ -464,6 +464,30 @@ impl Agent {
     /// The welcome agent uses this entry point when routed from the
     /// Tauri web channel (see `channels::providers::web::build_session_agent`).
     pub fn from_config_for_agent(config: &Config, agent_id: &str) -> Result<Self> {
+        Self::from_config_for_agent_with_name(config, agent_id, agent_id)
+    }
+
+    /// Like [`Agent::from_config_for_agent`] but lets the caller stamp a
+    /// distinct `definition_name` onto the built agent.
+    ///
+    /// `agent_id` still selects the registry definition (system prompt,
+    /// tool scope, omit flags). `definition_name` is the identifier
+    /// recorded as `agent_definition_name` and folded into `session_key`
+    /// at build time, which in turn drives the on-disk transcript filename
+    /// and the resume-lookup prefix.
+    ///
+    /// The web channel uses this to scope transcripts per thread
+    /// (`{agent_id}_{short_thread}`) so each conversation gets its own
+    /// resumable transcript instead of all threads sharing
+    /// `_{agent_id}` and racing for the most-recent file. Calling the
+    /// post-build `set_agent_definition_name` setter does *not* achieve
+    /// this — `session_key` is frozen during `.build()`, so the override
+    /// must arrive before then.
+    pub fn from_config_for_agent_with_name(
+        config: &Config,
+        agent_id: &str,
+        definition_name: &str,
+    ) -> Result<Self> {
         // Look up the target definition up front so we can fail fast
         // with a clear error instead of building half an agent and then
         // discovering the id is unknown. The registry is a singleton
@@ -534,7 +558,7 @@ impl Agent {
                 .unwrap_or(config.default_temperature)
         );
 
-        Self::build_session_agent_inner(config, agent_id, target_def.as_ref())
+        Self::build_session_agent_inner(config, agent_id, definition_name, target_def.as_ref())
     }
 
     /// Internal constructor that consumes the optionally-resolved agent
@@ -544,6 +568,7 @@ impl Agent {
     fn build_session_agent_inner(
         config: &Config,
         agent_id: &str,
+        definition_name: &str,
         target_def: Option<&crate::openhuman::agent::harness::definition::AgentDefinition>,
     ) -> Result<Self> {
         let runtime: Arc<dyn host_runtime::RuntimeAdapter> =
@@ -1041,7 +1066,7 @@ impl Agent {
             .auto_save(config.memory.auto_save)
             .post_turn_hooks(post_turn_hooks)
             .learning_enabled(config.learning.enabled)
-            .agent_definition_name(agent_id.to_string())
+            .agent_definition_name(definition_name.to_string())
             .omit_profile(effective_omit_profile)
             .omit_memory_md(effective_omit_memory_md);
         if let Some(ps) = payload_summarizer {

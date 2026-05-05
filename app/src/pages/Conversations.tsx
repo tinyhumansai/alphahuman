@@ -14,12 +14,15 @@ import UsageLimitModal from '../components/upsell/UsageLimitModal';
 // import { ONBOARDING_WELCOME_THREAD_LABEL } from '../constants/onboardingChat';
 import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useUsageState } from '../hooks/useUsageState';
+import { useThreads } from '../lib/threads/ThreadsContext';
 // [#1123] getCoreStateSnapshot and isWelcomeLocked commented out — welcome-agent onboarding replaced by Joyride walkthrough
 // import { getCoreStateSnapshot, isWelcomeLocked } from '../lib/coreState/store';
 // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
 // import { useCoreState } from '../providers/CoreStateProvider';
+import { useActiveThread } from '../lib/threads/useActiveThread';
+import { useSelectedThread } from '../lib/threads/useSelectedThread';
+import { useThreadMessages } from '../lib/threads/useThreadMessages';
 import { chatCancel, chatSend, useRustChat } from '../services/chatService';
-import { store } from '../store';
 import {
   beginInferenceTurn,
   clearRuntimeForThread,
@@ -27,16 +30,6 @@ import {
 } from '../store/chatRuntimeSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { selectSocketStatus } from '../store/socketSelectors';
-import {
-  addMessageLocal,
-  createNewThread,
-  deleteThread,
-  loadThreadMessages,
-  loadThreads,
-  persistReaction,
-  setActiveThread,
-  setSelectedThread,
-} from '../store/threadSlice';
 import type { ConfirmationModal as ConfirmationModalType } from '../types/intelligence';
 import type { ThreadMessage } from '../types/thread';
 import { splitAgentMessageIntoBubbles } from '../utils/agentMessageBubbles';
@@ -124,16 +117,18 @@ export function isComposerInteractionBlocked(args: {
 const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+
+  // Threads data layer — backed by Rust core (JSONL), not Redux.
+  const { threads, create: createThread, remove: removeThread } = useThreads();
+  const { selectedThreadId, setSelectedThreadId } = useSelectedThread();
+  const { activeThreadId, setActiveThreadId } = useActiveThread();
   const {
-    threads,
-    selectedThreadId,
     messages,
-    isLoadingMessages,
-    messagesError,
-    activeThreadId,
-    // [#1123] welcomeThreadId commented out — welcome-agent onboarding replaced by Joyride walkthrough
-    // welcomeThreadId,
-  } = useAppSelector(state => state.thread);
+    isLoading: isLoadingMessages,
+    error: messagesError,
+    persistUserMessage,
+    persistReaction: persistReactionHook,
+  } = useThreadMessages(selectedThreadId);
 
   // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
   // const { snapshot } = useCoreState();
@@ -231,61 +226,32 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     typeof navigator.mediaDevices.getUserMedia === 'function';
 
   const handleCreateNewThread = async () => {
-    const thread = await dispatch(createNewThread()).unwrap();
-    dispatch(setSelectedThread(thread.id));
-    void dispatch(loadThreadMessages(thread.id));
+    const thread = await createThread();
+    setSelectedThreadId(thread.id);
+    // useThreadMessages auto-fetches when selectedThreadId changes.
   };
 
+  // Cold-boot resume: once the thread list is loaded, ensure a thread is selected.
+  // Priority: URL param `t=` (already read by useSelectedThread) > most-recent thread.
+  // If the URL has a valid t= that exists in the list, keep it. Otherwise fall back
+  // to the first thread (most recent after sort). If list is empty, create a new thread.
+  // useThreadMessages auto-fetches whenever selectedThreadId changes.
+  //
+  // NOTE: We only run this once when `threads` first becomes non-empty.
+  // Subsequent thread list refreshes (e.g. after delete) should not override
+  // a user's explicit selection — those are handled inline in the delete handler.
+  const threadListSettledRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-
-    void dispatch(loadThreads())
-      .unwrap()
-      .then(data => {
-        // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
-        // if (cancelled || skipInitialThreadSelectionRef.current) return;
-        if (cancelled) return;
-        // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
-        // Always prefer the welcome thread during lockdown regardless of
-        // whether the server list is empty or not. Without this guard the
-        // stale `.then` could select a pre-existing thread from a prior
-        // session and pull the user out of the welcome conversation.
-        // const snapForSelect = getCoreStateSnapshot().snapshot;
-        // const threadStateForSelect = store.getState().thread;
-        // if (isWelcomeLocked(snapForSelect) && threadStateForSelect.welcomeThreadId) {
-        //   dispatch(setSelectedThread(threadStateForSelect.welcomeThreadId));
-        //   void dispatch(loadThreadMessages(threadStateForSelect.welcomeThreadId));
-        //   return;
-        // }
-        const threadStateForSelect = store.getState().thread;
-        if (data.threads.length > 0) {
-          // Prefer the thread the user was last viewing (persisted across
-          // reloads via redux-persist on the `thread` slice). Only fall
-          // through to "most recent" if that thread no longer exists
-          // server-side (deleted, purged, or different user).
-          const persistedId = threadStateForSelect.selectedThreadId;
-          const resumeId =
-            persistedId && data.threads.some(t => t.id === persistedId)
-              ? persistedId
-              : data.threads[0].id;
-          dispatch(setSelectedThread(resumeId));
-          void dispatch(loadThreadMessages(resumeId));
-        } else {
-          void handleCreateNewThread();
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (selectedThreadId) {
-      void dispatch(loadThreadMessages(selectedThreadId));
+    if (threadListSettledRef.current) return;
+    if (threads.length > 0) {
+      threadListSettledRef.current = true;
+      // selectedThreadId from URL is already restored on cold boot — validate it still exists.
+      if (selectedThreadId && threads.some(t => t.id === selectedThreadId)) return;
+      // URL param missing or points to a deleted/purged thread — pick the first available.
+      setSelectedThreadId(threads[0].id);
     }
-  }, [selectedThreadId, dispatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads]);
 
   // [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
   // Welcome lockdown unlock (#883) — when `chatOnboardingCompleted`
@@ -362,7 +328,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         )
       );
       dispatch(clearRuntimeForThread({ threadId }));
-      dispatch(setActiveThread(null));
+      setActiveThreadId(null);
       sendingTimeoutRef.current = null;
       sendingThreadIdRef.current = null;
     }, 600_000);
@@ -538,7 +504,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     };
 
     try {
-      await dispatch(addMessageLocal({ threadId: sendingThreadId, message: userMessage })).unwrap();
+      await persistUserMessage(userMessage);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       setSendError(chatSendError('cloud_send_failed', msg));
@@ -555,7 +521,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
     armSilenceTimer(sendingThreadId);
     dispatch(setToolTimelineForThread({ threadId: sendingThreadId, entries: [] }));
     dispatch(beginInferenceTurn({ threadId: sendingThreadId }));
-    dispatch(setActiveThread(sendingThreadId));
+    setActiveThreadId(sendingThreadId);
 
     // ── Cloud socket path ─────────────────────────────────────────────────────
     // Always route primary chat through the cloud backend via socket.
@@ -585,7 +551,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
         setSendError(chatSendError('cloud_send_failed', msg));
       }
       dispatch(clearRuntimeForThread({ threadId: sendingThreadId }));
-      dispatch(setActiveThread(null));
+      setActiveThreadId(null);
     }
   };
 
@@ -972,15 +938,14 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                   role="button"
                   tabIndex={0}
                   onClick={() => {
-                    dispatch(setSelectedThread(thread.id));
-                    void dispatch(loadThreadMessages(thread.id));
+                    setSelectedThreadId(thread.id);
+                    // useThreadMessages auto-fetches on selectedThreadId change.
                   }}
                   onKeyDown={e => {
                     if (e.target !== e.currentTarget) return;
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      dispatch(setSelectedThread(thread.id));
-                      void dispatch(loadThreadMessages(thread.id));
+                      setSelectedThreadId(thread.id);
                     }
                   }}
                   className={`w-full text-left px-4 py-3 border-b border-stone-50 transition-colors group cursor-pointer ${
@@ -1009,7 +974,18 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                           cancelText: 'Cancel',
                           destructive: true,
                           onConfirm: () => {
-                            void dispatch(deleteThread(thread.id));
+                            void (async () => {
+                              await removeThread(thread.id);
+                              // If we deleted the selected thread, move to the first remaining one.
+                              if (selectedThreadId === thread.id) {
+                                const remaining = threads.filter(t => t.id !== thread.id);
+                                if (remaining.length > 0) {
+                                  setSelectedThreadId(remaining[0].id);
+                                } else {
+                                  setSelectedThreadId(null);
+                                }
+                              }
+                            })();
                           },
                           onCancel: () => {},
                         });
@@ -1232,14 +1208,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                               <button
                                 key={emoji}
                                 onClick={() =>
-                                  selectedThreadId &&
-                                  void dispatch(
-                                    persistReaction({
-                                      threadId: selectedThreadId,
-                                      messageId: msg.id,
-                                      emoji,
-                                    })
-                                  )
+                                  selectedThreadId && void persistReactionHook(msg.id, emoji)
                                 }
                                 className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary-100 border border-primary-200 text-xs transition-colors hover:bg-primary-200"
                                 title={`Remove ${emoji}`}>
@@ -1254,13 +1223,7 @@ const Conversations = ({ variant = 'page' }: ConversationsProps = {}) => {
                                       key={emoji}
                                       onClick={() => {
                                         if (selectedThreadId) {
-                                          void dispatch(
-                                            persistReaction({
-                                              threadId: selectedThreadId,
-                                              messageId: msg.id,
-                                              emoji,
-                                            })
-                                          );
+                                          void persistReactionHook(msg.id, emoji);
                                         }
                                         setReactionPickerMsgId(null);
                                       }}

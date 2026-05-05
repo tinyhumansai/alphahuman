@@ -307,6 +307,58 @@ async fn transcript_roundtrip_work() {
 }
 
 #[tokio::test]
+async fn transcript_resume_is_scoped_by_definition_name() {
+    // Per-thread transcript isolation: two agents sharing a workspace
+    // but with distinct `agent_definition_name` values must not see
+    // each other's transcripts on resume. Regression for the
+    // web-channel bug where `set_agent_definition_name` ran AFTER
+    // `.build()`, so `session_key` (which drives the on-disk filename)
+    // was frozen to the un-suffixed agent id and every thread wrote to
+    // and resumed from the same file.
+    let mut thread_a = make_agent(None);
+    thread_a.agent_definition_name = "orchestrator_thread_a".to_string();
+    thread_a.session_key = format!(
+        "{}_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        thread_a.agent_definition_name
+    );
+    let messages_a = vec![
+        ChatMessage::system("sys-a"),
+        ChatMessage::user("hello from a"),
+        ChatMessage::assistant("reply to a"),
+    ];
+    thread_a.persist_session_transcript(&messages_a, 1, 1, 0, 0.0, None);
+
+    // A different thread in the same workspace must NOT pick up
+    // thread_a's transcript.
+    let mut thread_b = make_agent(None);
+    thread_b.workspace_dir = thread_a.workspace_dir.clone();
+    thread_b.agent_definition_name = "orchestrator_thread_b".to_string();
+    thread_b.try_load_session_transcript();
+    assert!(
+        thread_b.cached_transcript_messages.is_none(),
+        "thread_b must not resume from thread_a's transcript"
+    );
+
+    // The same thread (matching definition_name) MUST resume.
+    let mut thread_a_resume = make_agent(None);
+    thread_a_resume.workspace_dir = thread_a.workspace_dir.clone();
+    thread_a_resume.agent_definition_name = "orchestrator_thread_a".to_string();
+    thread_a_resume.try_load_session_transcript();
+    assert_eq!(
+        thread_a_resume
+            .cached_transcript_messages
+            .as_ref()
+            .map(|m| m.len()),
+        Some(3),
+        "thread_a must resume its own transcript"
+    );
+}
+
+#[tokio::test]
 async fn execute_tool_call_blocks_invisible_tool_and_emits_events() {
     let _ = init_global(64);
     let events = Arc::new(AsyncMutex::new(Vec::<DomainEvent>::new()));

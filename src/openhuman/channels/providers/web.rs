@@ -1006,19 +1006,24 @@ fn build_session_agent(
         thread_id
     );
 
-    Agent::from_config_for_agent(&effective, target_agent_id)
+    // Scope the session transcript per thread so each conversation has
+    // its own resumable transcript file. The per-thread name MUST arrive
+    // before `.build()` because `session_key` (which drives the on-disk
+    // filename) is frozen at that point — calling the post-build
+    // `set_agent_definition_name` setter renames the agent but leaves
+    // session_key pointing at the un-scoped name, which (a) collides
+    // with every other thread of the same agent type and (b) breaks
+    // transcript resume on cache miss.
+    let short_thread = if thread_id.len() > 12 {
+        &thread_id[..12]
+    } else {
+        thread_id
+    };
+    let definition_name = format!("{target_agent_id}_{short_thread}");
+
+    Agent::from_config_for_agent_with_name(&effective, target_agent_id, &definition_name)
         .map(|mut agent| {
             agent.set_event_context(event_session_id_for(client_id, thread_id), "web_channel");
-            // Scope session transcripts per thread so each conversation
-            // gets its own transcript file instead of sharing one by
-            // agent type. Without this, new threads load the latest
-            // transcript for the agent name and inherit prior messages.
-            let short_thread = if thread_id.len() > 12 {
-                &thread_id[..12]
-            } else {
-                thread_id
-            };
-            agent.set_agent_definition_name(format!("{target_agent_id}_{short_thread}"));
             agent
         })
         .map_err(|e| e.to_string())

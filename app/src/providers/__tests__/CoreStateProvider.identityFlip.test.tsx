@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as coreStateApi from '../../services/coreStateApi';
-import * as threadSlice from '../../store/threadSlice';
 import * as userScopedStorage from '../../store/userScopedStorage';
 import * as tauriCommands from '../../utils/tauriCommands';
 import { setCoreStateSnapshot } from '../../lib/coreState/store';
@@ -153,15 +152,17 @@ describe('CoreStateProvider — identity flip cleanup (#900)', () => {
     setActiveSpy.mockRestore();
   });
 
-  it('seed matches next user (no restart) but identity hydrates null→B: resets thread caches (preserving selection) and reloads (#1157, #1168)', async () => {
+  it('seed matches next user (no restart) but identity hydrates null→B: dispatches openhuman:threads-refresh event and selection (URL) is preserved (#1157, #1168)', async () => {
     userScopedStorage.setActiveUserId('B');
     fetchSnapshot.mockResolvedValue(makeSnapshot({ userId: 'B', sessionToken: 'tokB' }));
-    // Seed a persisted selection that should survive the boot-time reset so
-    // the user resumes their last-viewed thread instead of falling through
-    // to "most recent".
-    store.dispatch(threadSlice.setSelectedThread('thr-persisted'));
-    const dispatchSpy = vi.spyOn(store, 'dispatch');
-    const loadThreadsSpy = vi.spyOn(threadSlice, 'loadThreads');
+
+    // Set selected thread in URL (the new mechanism).
+    window.location.hash = '#/conversations?t=thr-persisted';
+
+    // Track whether the threads-refresh event fires.
+    const threadsRefreshEvents: Event[] = [];
+    const onThreadsRefresh = (e: Event) => threadsRefreshEvents.push(e);
+    window.addEventListener('openhuman:threads-refresh', onThreadsRefresh);
 
     let ctx: CoreStateContextValue | undefined;
     render(
@@ -174,28 +175,12 @@ describe('CoreStateProvider — identity flip cleanup (#900)', () => {
     });
 
     expect(restartApp).not.toHaveBeenCalled();
-    expect(
-      dispatchSpy.mock.calls.some(([action]) => {
-        if (!action || typeof action !== 'object' || !('type' in action)) return false;
-        return (
-          (action as { type: string }).type ===
-          threadSlice.resetThreadCachesPreservingSelection().type
-        );
-      })
-    ).toBe(true);
-    // The legacy `clearAllThreads` (which nulls selectedThreadId) must NOT
-    // be dispatched on this boot path — that was the #1168 regression.
-    expect(
-      dispatchSpy.mock.calls.some(([action]) => {
-        if (!action || typeof action !== 'object' || !('type' in action)) return false;
-        return (action as { type: string }).type === threadSlice.clearAllThreads().type;
-      })
-    ).toBe(false);
-    expect(loadThreadsSpy).toHaveBeenCalled();
-    expect(store.getState().thread.selectedThreadId).toBe('thr-persisted');
+    // The threads-refresh event should have been dispatched.
+    expect(threadsRefreshEvents.length).toBeGreaterThanOrEqual(1);
+    // URL param (selection) must be preserved — the event mechanism doesn't touch it.
+    expect(window.location.hash).toContain('thr-persisted');
 
-    dispatchSpy.mockRestore();
-    loadThreadsSpy.mockRestore();
+    window.removeEventListener('openhuman:threads-refresh', onThreadsRefresh);
   });
 
   it('auth-to-auth flip (A→B without intermediate logout): restart, re-points to B', async () => {

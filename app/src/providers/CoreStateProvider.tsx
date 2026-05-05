@@ -28,7 +28,6 @@ import {
 import { socketService } from '../services/socketService';
 import { store } from '../store';
 import { resetUserScopedState } from '../store/resetActions';
-import { loadThreads, resetThreadCachesPreservingSelection } from '../store/threadSlice';
 import { getActiveUserId, setActiveUserId } from '../store/userScopedStorage';
 import {
   openhumanUpdateAnalyticsSettings,
@@ -256,22 +255,13 @@ export default function CoreStateProvider({ children }: { children: ReactNode })
       nextIdentity &&
       !isLogout
     ) {
-      const threadReloadRequestId = requestId;
-      // Reset the in-memory thread caches (rows from a pre-auth bucket — see
-      // #1157) but preserve the redux-persisted `selectedThreadId` so a
-      // reload of an already-authed user resumes the user's last-viewed
-      // thread (#1168). The Conversations mount effect falls back to "most
-      // recent" if the persisted id is no longer in the reloaded list.
-      store.dispatch(resetThreadCachesPreservingSelection());
-      void store
-        .dispatch(loadThreads())
-        .unwrap()
-        .catch(err => {
-          if (threadReloadRequestId !== snapshotRequestIdRef.current) {
-            return;
-          }
-          log('post-identity thread reload failed: %O', sanitizeError(err));
-        });
+      // Notify ThreadsProvider to refresh its list. The selectedThreadId lives
+      // in the URL (not Redux), so "preserving selection" is automatic —
+      // ThreadsProvider.refresh() re-fetches from core without touching the URL.
+      // This replaces the previous resetThreadCachesPreservingSelection + loadThreads
+      // dispatch pair (#1157, #1168).
+      log('identity-change: dispatching threads-refresh event requestId=%d', requestId);
+      window.dispatchEvent(new CustomEvent('openhuman:threads-refresh'));
     }
 
     if (isFlip && nextIdentity) {

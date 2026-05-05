@@ -13,9 +13,10 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ThreadsProvider } from '../../lib/threads/ThreadsContext';
+import { ActiveThreadProvider } from '../../lib/threads/useActiveThread';
 import chatRuntimeReducer from '../../store/chatRuntimeSlice';
 import socketReducer from '../../store/socketSlice';
-import threadReducer from '../../store/threadSlice';
 import type { Thread } from '../../types/thread';
 
 // ── Hoisted mock state ─────────────────────────────────────────────────────
@@ -109,14 +110,9 @@ vi.mock('../../lib/coreState/store', () => ({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function buildStore(preload: Record<string, unknown> = {}) {
+function buildStore() {
   return configureStore({
-    reducer: combineReducers({
-      thread: threadReducer,
-      socket: socketReducer,
-      chatRuntime: chatRuntimeReducer,
-    }),
-    preloadedState: preload as never,
+    reducer: combineReducers({ socket: socketReducer, chatRuntime: chatRuntimeReducer }),
   });
 }
 
@@ -134,33 +130,24 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   };
 }
 
-async function renderConversations(preload: Record<string, unknown> = {}) {
-  const store = buildStore(preload);
+async function renderConversations() {
+  const store = buildStore();
   const { default: Conversations } = await import('../Conversations');
 
   render(
     <Provider store={store}>
       <MemoryRouter initialEntries={['/conversations']}>
-        <Conversations />
+        <ThreadsProvider>
+          <ActiveThreadProvider>
+            <Conversations />
+          </ActiveThreadProvider>
+        </ThreadsProvider>
       </MemoryRouter>
     </Provider>
   );
 
   return store;
 }
-
-// Default empty state
-const emptyThreadState = {
-  threads: [],
-  selectedThreadId: null,
-  activeThreadId: null,
-  welcomeThreadId: null,
-  messagesByThreadId: {},
-  messages: [],
-  isLoadingThreads: false,
-  isLoadingMessages: false,
-  messagesError: null,
-};
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
@@ -191,7 +178,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
   // Covers line 941: <div className="flex-1 overflow-y-auto"> (always rendered in page mode)
   it('renders the Threads sidebar header in page mode', async () => {
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // The "Threads" header is always rendered in page mode (sidebar guard removed)
@@ -201,7 +188,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
   // Covers line 941 empty branch
   it('shows "No threads yet" when thread list is empty', async () => {
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     expect(screen.getByText('No threads yet')).toBeInTheDocument();
@@ -218,7 +205,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     mockGetThreads.mockResolvedValue({ threads, count: 2 });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // Wait for loadThreads to complete and the thread list to render.
@@ -240,7 +227,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     mockGetThreads.mockResolvedValue({ threads: [thread], count: 1 });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // After the failed load, messagesError is set in state — the error branch renders.
@@ -270,7 +257,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     expect(screen.getByText('loading…')).toBeInTheDocument();
@@ -306,7 +293,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // Budget-exceeded banner (lines 1417-1439) — cycleBudgetUsd=0 gives "included budget" message
@@ -316,21 +303,19 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     expect(screen.getByText('7d')).toBeInTheDocument();
   });
 
-  // Covers line 247: if (cancelled) return — the non-cancelled path through loadThreads callback
-  it('selects first thread after loadThreads resolves (non-cancelled path)', async () => {
+  // Covers cold-boot resume: when threads load, selects first thread and loads messages.
+  it('selects first thread and loads messages when threads load on mount', async () => {
     const threads = [makeThread({ id: 't-1', title: 'First Thread' })];
     mockGetThreads.mockResolvedValue({ threads, count: 1 });
+    mockGetThreadMessages.mockResolvedValue({ messages: [], count: 0 });
 
-    let resolvedStore: ReturnType<typeof buildStore> | undefined;
     await act(async () => {
-      resolvedStore = await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
-    // After loadThreads resolves and cancelled=false, the first thread is selected.
-    // This exercises line 247 (the if (cancelled) return check runs and is false).
+    // After threads load, getThreadMessages is called for the selected thread.
     await waitFor(() => {
-      const state = resolvedStore?.getState() as { thread: { selectedThreadId: string | null } };
-      expect(state.thread.selectedThreadId).toBe('t-1');
+      expect(mockGetThreadMessages).toHaveBeenCalledWith('t-1');
     });
   });
 
@@ -338,7 +323,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
   // Covers line 1061: onClick={() => void handleCreateNewThread()} — header "+ New" button
   it('clicking "New thread" sidebar button calls handleCreateNewThread', async () => {
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // The sidebar "New thread" button has title="New thread"
@@ -358,7 +343,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     mockGetThreads.mockResolvedValue({ threads, count: 1 });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // Wait for thread to be selected so the header with "+ New" button renders
@@ -382,7 +367,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     mockGetThreads.mockResolvedValue({ threads, count: 1 });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // Wait for the thread to appear in the sidebar
@@ -422,7 +407,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // UpsellBanner renders with "Approaching usage limit" (line 1399 branch)
@@ -456,7 +441,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // UpsellBanner renders
@@ -503,7 +488,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // Budget banner renders — cycleBudgetUsd: 10 > 0 → "You've hit your weekly limit"
@@ -547,7 +532,7 @@ describe('Conversations — smoke render (#1123 welcome-lock removal)', () => {
     });
 
     await act(async () => {
-      await renderConversations({ thread: emptyThreadState });
+      await renderConversations();
     });
 
     // isRateLimited=true, shouldShowBudgetCompletedMessage=false → rate-limit branch (line 1437)

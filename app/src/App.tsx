@@ -17,19 +17,16 @@ import OpenhumanLinkModal from './components/OpenhumanLinkModal';
 import PersistRehydrationScreen from './components/PersistRehydrationScreen';
 import GlobalUpsellBanner from './components/upsell/GlobalUpsellBanner';
 import AppWalkthrough from './components/walkthrough/AppWalkthrough';
-// [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
-// import { isWelcomeLocked } from './lib/coreState/store';
 import { startNativeNotificationsService } from './lib/nativeNotifications';
+import { ThreadsProvider } from './lib/threads/ThreadsContext';
+import { ActiveThreadProvider } from './lib/threads/useActiveThread';
 import { startWebviewNotificationsService } from './lib/webviewNotifications';
 import ChatRuntimeProvider from './providers/ChatRuntimeProvider';
 import CoreStateProvider, { useCoreState } from './providers/CoreStateProvider';
 import SocketProvider from './providers/SocketProvider';
 import { startWebviewAccountService } from './services/webviewAccountService';
 import { persistor, store } from './store';
-// [#1123] useAppDispatch commented out — welcome-agent onboarding replaced by Joyride walkthrough
 import { useAppSelector } from './store/hooks';
-// [#1123] Commented out — welcome-agent onboarding replaced by Joyride walkthrough
-// import { clearSelectedThread, deleteThread, setWelcomeThreadId } from './store/threadSlice';
 import { isAccountsFullscreen } from './utils/accountsFullscreen';
 import { DEV_FORCE_ONBOARDING } from './utils/config';
 
@@ -50,20 +47,24 @@ function App() {
       <Provider store={store}>
         <PersistGate loading={<PersistRehydrationScreen />} persistor={persistor}>
           <CoreStateProvider>
-            <SocketProvider>
-              <ChatRuntimeProvider>
-                <Router>
-                  <CommandProvider>
-                    <ServiceBlockingGate>
-                      <AppShell />
-                      <DictationHotkeyManager />
-                      <LocalAIDownloadSnackbar />
-                      <AppUpdatePrompt />
-                    </ServiceBlockingGate>
-                  </CommandProvider>
-                </Router>
-              </ChatRuntimeProvider>
-            </SocketProvider>
+            <ThreadsProvider>
+              <ActiveThreadProvider>
+                <SocketProvider>
+                  <ChatRuntimeProvider>
+                    <Router>
+                      <CommandProvider>
+                        <ServiceBlockingGate>
+                          <AppShell />
+                          <DictationHotkeyManager />
+                          <LocalAIDownloadSnackbar />
+                          <AppUpdatePrompt />
+                        </ServiceBlockingGate>
+                      </CommandProvider>
+                    </Router>
+                  </ChatRuntimeProvider>
+                </SocketProvider>
+              </ActiveThreadProvider>
+            </ThreadsProvider>
           </CoreStateProvider>
         </PersistGate>
       </Provider>
