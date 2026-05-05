@@ -25,8 +25,16 @@ import {
   waitForWebView,
   waitForWindowVisible,
 } from '../helpers/element-helpers';
-import { completeOnboardingIfVisible, navigateToSkills } from '../helpers/shared-flows';
-import { clearRequestLog, setMockBehavior, startMockServer, stopMockServer } from '../mock-server';
+import {
+  completeOnboardingIfVisible,
+  navigateToSkills,
+} from '../helpers/shared-flows';
+import {
+  clearRequestLog,
+  setMockBehavior,
+  startMockServer,
+  stopMockServer,
+} from '../mock-server';
 
 const LOG = '[ComposioTriggersE2E]';
 
