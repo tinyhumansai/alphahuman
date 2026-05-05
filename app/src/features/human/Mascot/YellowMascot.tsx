@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
+import React, { useEffect, useMemo, useRef } from 'react';
+
 import type { MascotFace } from './Ghosty';
-import { YellowMascotIdle } from './yellow/MascotIdle';
-import { YellowMascotThinking } from './yellow/MascotThinking';
-import { YellowMascotTalking } from './yellow/MascotTalking';
 import type { MascotProps as YellowMascotInnerProps } from './yellow/MascotCharacter';
+import { YellowMascotIdle } from './yellow/MascotIdle';
+import { YellowMascotTalking } from './yellow/MascotTalking';
+import { YellowMascotThinking } from './yellow/MascotThinking';
 
 export interface YellowMascotProps {
   /** High-level state from the agent/voice lifecycle. Mapped to a composition. */

@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 // Spinning circular loading indicator that replaces the face.
 // Centered on the face area (cx=520, cy=545 in the body's local viewBox).
@@ -7,7 +7,7 @@ export const LoadingFace: React.FC<{
   fps: number;
   color: string;
   trackColor?: string;
-}> = ({ frame, fps, color, trackColor = "#ffffff" }) => {
+}> = ({ frame, fps, color, trackColor = '#ffffff' }) => {
   // One full rotation every 1.4 seconds.
   const rotation = ((frame / fps) * 360) / 1.4;
 
