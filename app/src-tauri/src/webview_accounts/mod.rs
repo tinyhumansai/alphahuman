@@ -1617,7 +1617,12 @@ pub async fn webview_account_open<R: Runtime>(
                                 GMEET_REWRITE_MAX_ATTEMPTS,
                                 GMEET_REWRITE_WINDOW.as_secs()
                             );
-                            "https://accounts.google.com/ServiceLogin?service=meet&continue=https://meet.google.com/"
+                            // `service=meet` is rejected by Google (`400
+                            // malformed`); the continue param must be
+                            // URL-encoded since `&` would split it. Drop
+                            // `service=` and encode `continue=` so the
+                            // sign-in landing actually loads.
+                            "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmeet.google.com%2F"
                         }
                     };
                     tauri::async_runtime::spawn(async move {
