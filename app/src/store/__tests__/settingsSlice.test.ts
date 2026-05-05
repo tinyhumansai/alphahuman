@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
+
 import reducer, {
-  setChannelConnectionStatus,
   disconnectChannelConnection,
   resetChannelConnectionsState,
+  setChannelConnectionStatus,
 } from '../channelConnectionsSlice';
-import notificationReducer, {
-  setPreference,
-  clearAll,
-} from '../notificationSlice';
+import notificationReducer, { clearAll, setPreference } from '../notificationSlice';
 
 describe('Settings Reducers', () => {
   describe('channelConnectionsSlice (Settings)', () => {
@@ -28,10 +26,7 @@ describe('Settings Reducers', () => {
     it('disconnects a channel connection', () => {
       const state = reducer(
         undefined,
-        disconnectChannelConnection({
-          channel: 'telegram',
-          authMode: 'managed_dm',
-        })
+        disconnectChannelConnection({ channel: 'telegram', authMode: 'managed_dm' })
       );
       expect(state.connections.telegram.managed_dm?.status).toBe('disconnected');
       expect(state.connections.telegram.managed_dm?.lastError).toBeUndefined();
@@ -39,11 +34,10 @@ describe('Settings Reducers', () => {
 
     it('resets the entire channel connections state', () => {
       const initialState = reducer(undefined, { type: '@@INIT' });
-      const modified = reducer(initialState, setChannelConnectionStatus({
-        channel: 'discord',
-        authMode: 'oauth',
-        status: 'connected',
-      }));
+      const modified = reducer(
+        initialState,
+        setChannelConnectionStatus({ channel: 'discord', authMode: 'oauth', status: 'connected' })
+      );
       expect(modified).not.toEqual(initialState);
 
       const reset = reducer(modified, resetChannelConnectionsState());
@@ -66,7 +60,16 @@ describe('Settings Reducers', () => {
 
     it('clears all notifications', () => {
       const stateWithNotifications = {
-        items: [{ id: '1', category: 'system', title: 'Test', body: 'Test', timestamp: Date.now(), read: false }],
+        items: [
+          {
+            id: '1',
+            category: 'system',
+            title: 'Test',
+            body: 'Test',
+            timestamp: Date.now(),
+            read: false,
+          },
+        ],
         preferences: { messages: true, agents: true, skills: true, system: true },
         integrationItems: [],
         integrationUnreadCount: 0,

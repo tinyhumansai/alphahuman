@@ -69,7 +69,9 @@ describe('Settings - Data Management', () => {
     await clickText('Cancel');
 
     // Confirm dialog is gone and we are still in settings
-    expect(await textExists('This will sign you out and permanently delete local app data')).toBe(false);
+    expect(await textExists('This will sign you out and permanently delete local app data')).toBe(
+      false
+    );
     expect(await textExists('Clear App Data')).toBe(true);
   });
 
