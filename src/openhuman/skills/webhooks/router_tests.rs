@@ -186,6 +186,23 @@ fn list_logs_respects_limit() {
 }
 
 #[test]
+fn list_logs_zero_limit_returns_nothing() {
+    let router = WebhookRouter::new(None);
+    for i in 0..3 {
+        router.record_parse_error(
+            format!("corr-{i}"),
+            None,
+            None,
+            None,
+            json!({}),
+            "error".into(),
+        );
+    }
+    // `limit` is a maximum, so an explicit 0 asks for nothing.
+    assert!(router.list_logs(Some(0)).is_empty());
+}
+
+#[test]
 fn list_logs_default_limit() {
     let router = WebhookRouter::new(None);
     for i in 0..5 {

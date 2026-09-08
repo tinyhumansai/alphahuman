@@ -456,7 +456,7 @@ impl WebhookRouter {
 
     /// List recent webhook logs, newest first.
     pub fn list_logs(&self, limit: Option<usize>) -> Vec<WebhookDebugLogEntry> {
-        let limit = limit.unwrap_or(100).max(1);
+        let limit = limit.unwrap_or(100);
         self.debug_logs
             .read()
             .map(|logs| logs.iter().take(limit).cloned().collect())

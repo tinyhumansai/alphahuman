@@ -678,8 +678,24 @@ async fn webhooks_debug_log_ring_records_and_clears() {
         "no response recorded yet ⇒ status_code must still be null: {entry}"
     );
 
+    // `limit` is a maximum, so an explicit 0 asks for nothing — and it must survive
+    // the wire as `Some(0)` rather than being read as an absent limit.
+    let none = post_json_rpc(
+        &rpc_base,
+        7104,
+        "openhuman.webhooks_list_logs",
+        json!({ "limit": 0 }),
+    )
+    .await;
+    let result = peel(assert_no_jsonrpc_error(&none, "webhooks_list_logs (limit 0)"));
+    assert_eq!(
+        result.get("logs").and_then(Value::as_array).map(Vec::len),
+        Some(0),
+        "limit: 0 must return no entries even with one recorded: {result}"
+    );
+
     // clear_logs reports the count it removed, and the ring is empty afterwards.
-    let cleared = post_json_rpc(&rpc_base, 7104, "openhuman.webhooks_clear_logs", json!({})).await;
+    let cleared = post_json_rpc(&rpc_base, 7105, "openhuman.webhooks_clear_logs", json!({})).await;
     let result = peel(assert_no_jsonrpc_error(&cleared, "webhooks_clear_logs"));
     assert_eq!(
         result.get("cleared").and_then(Value::as_u64),
@@ -687,7 +703,7 @@ async fn webhooks_debug_log_ring_records_and_clears() {
         "clear_logs must report the number of entries it removed: {result}"
     );
 
-    let after = post_json_rpc(&rpc_base, 7105, "openhuman.webhooks_list_logs", json!({})).await;
+    let after = post_json_rpc(&rpc_base, 7106, "openhuman.webhooks_list_logs", json!({})).await;
     let result = peel(assert_no_jsonrpc_error(&after, "webhooks_list_logs (after)"));
     assert_eq!(
         result.get("logs").and_then(Value::as_array).map(Vec::len),
