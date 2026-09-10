@@ -1,4 +1,3 @@
-
 async fn persist_job_result(
     config: &Config,
     job: &CronJob,
@@ -68,26 +67,43 @@ fn is_one_shot_auto_delete(job: &CronJob) -> bool {
     job.delete_after_run && matches!(job.schedule, Schedule::At { .. })
 }
 
-fn warn_if_high_frequency_agent_job(job: &CronJob) {
+/// Whether an agent job runs oftener than every 5 minutes.
+///
+/// Returns the verdict rather than only logging it, because the verdict is the
+/// part worth testing: the `Schedule::Cron` arm below was wrong, and no test
+/// could see it, because a function that only warns has nothing to assert.
+///
+/// The gap is measured between two *consecutive* runs. It used to be measured
+/// between the next run after now and the next run after now plus one second,
+/// which are the same instant unless a run happens to fall inside that second:
+/// `num_minutes()` of nothing is 0, 0 is under 5, so **every** cron-scheduled
+/// agent job warned, whatever its expression.
+fn is_high_frequency_agent_job(job: &CronJob) -> bool {
     if !matches!(job.job_type, JobType::Agent) {
-        return;
+        return false;
     }
-    let too_frequent = match &job.schedule {
+    match &job.schedule {
         Schedule::Every { every_ms } => *every_ms < 5 * 60 * 1000,
         Schedule::Cron { .. } => {
             let now = Utc::now();
-            match (
-                next_run_for_schedule(&job.schedule, now),
-                next_run_for_schedule(&job.schedule, now + chrono::Duration::seconds(1)),
-            ) {
-                (Ok(a), Ok(b)) => (b - a).num_minutes() < 5,
-                _ => false,
+            match next_run_for_schedule(&job.schedule, now) {
+                Ok(first) => match next_run_for_schedule(&job.schedule, first) {
+                    // Truncating division is what makes the boundary read the
+                    // way the message does: a gap of exactly 5 minutes is 5,
+                    // and not "more frequently than every 5 minutes".
+                    Ok(second) => (second - first).num_minutes() < 5,
+                    // An expression with no second occurrence is not frequent.
+                    Err(_) => false,
+                },
+                Err(_) => false,
             }
         }
         Schedule::At { .. } => false,
-    };
+    }
+}
 
-    if too_frequent {
+fn warn_if_high_frequency_agent_job(job: &CronJob) {
+    if is_high_frequency_agent_job(job) {
         tracing::warn!(
             "Cron agent job '{}' is scheduled more frequently than every 5 minutes",
             job.id

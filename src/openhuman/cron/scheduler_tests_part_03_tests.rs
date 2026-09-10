@@ -7,27 +7,90 @@ fn forbidden_path_argument_skips_flags_and_urls() {
     assert!(forbidden_path_argument(&policy, "ls -la").is_none());
 }
 
+fn agent_job_on(schedule: Schedule) -> CronJob {
+    let mut job = test_job("echo hi");
+    job.job_type = JobType::Agent;
+    job.schedule = schedule;
+    job
+}
+
+fn cron_agent_job(expr: &str) -> CronJob {
+    agent_job_on(Schedule::Cron {
+        expr: expr.into(),
+        tz: None,
+        active_hours: None,
+    })
+}
+
 #[test]
 fn warn_if_high_frequency_agent_job_does_not_panic_on_non_agent() {
     let mut job = test_job("echo hi");
     job.job_type = JobType::Shell;
     warn_if_high_frequency_agent_job(&job); // should not panic
+    assert!(!is_high_frequency_agent_job(&job));
 }
 
 #[test]
 fn warn_if_high_frequency_agent_job_does_not_panic_on_at_schedule() {
-    let mut job = test_job("echo hi");
-    job.job_type = JobType::Agent;
-    job.schedule = Schedule::At { at: Utc::now() };
+    let job = agent_job_on(Schedule::At { at: Utc::now() });
     warn_if_high_frequency_agent_job(&job); // should not panic
+    assert!(!is_high_frequency_agent_job(&job));
 }
 
 #[test]
 fn warn_if_high_frequency_agent_job_handles_every_ms() {
-    let mut job = test_job("echo hi");
-    job.job_type = JobType::Agent;
-    job.schedule = Schedule::Every { every_ms: 60_000 }; // 1 minute — too frequent
+    let job = agent_job_on(Schedule::Every { every_ms: 60_000 }); // 1 minute — too frequent
     warn_if_high_frequency_agent_job(&job); // should warn but not panic
+    assert!(is_high_frequency_agent_job(&job));
+}
+
+/// **The warning fired for every cron-scheduled agent job.**
+///
+/// The gap was measured between the next run after now and the next run after
+/// now plus one second, which are the same instant unless a run falls inside
+/// that second. Zero minutes is under five, so an hourly job was reported as
+/// running oftener than every five minutes, and the operator had no way to tell
+/// a real misconfiguration from the noise.
+#[test]
+fn an_ordinary_cron_agent_job_is_not_called_high_frequency() {
+    for expr in ["*/10 * * * *", "0 * * * *", "0 9 * * *", "*/6 * * * *"] {
+        assert!(
+            !is_high_frequency_agent_job(&cron_agent_job(expr)),
+            "{expr} runs at most every 6 minutes and must not warn"
+        );
+    }
+}
+
+#[test]
+fn a_cron_agent_job_under_five_minutes_is_still_caught() {
+    for expr in ["*/3 * * * *", "*/1 * * * *", "*/4 * * * *"] {
+        assert!(
+            is_high_frequency_agent_job(&cron_agent_job(expr)),
+            "{expr} runs oftener than every 5 minutes and must warn"
+        );
+    }
+}
+
+/// Exactly five minutes is the boundary the message names, and it is not over
+/// it. `*/5` is also the expression the codebase's own tests reach for, so
+/// warning on it would train an operator to ignore the warning.
+#[test]
+fn a_cron_agent_job_at_exactly_five_minutes_is_not_high_frequency() {
+    assert!(!is_high_frequency_agent_job(&cron_agent_job("*/5 * * * *")));
+    assert!(!is_high_frequency_agent_job(&agent_job_on(
+        Schedule::Every {
+            every_ms: 5 * 60 * 1000
+        }
+    )));
+}
+
+/// A schedule the arm cannot read is not evidence of anything, least of all of
+/// running too often.
+#[test]
+fn an_unparseable_cron_expression_is_not_called_high_frequency() {
+    assert!(!is_high_frequency_agent_job(&cron_agent_job(
+        "not a cron expression"
+    )));
 }
 
 #[tokio::test]
