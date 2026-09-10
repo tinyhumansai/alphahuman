@@ -163,3 +163,151 @@ fn composio_rows_dispatch_to_the_connector_and_everything_else_to_the_driver() {
         "the refusal must name the row and say what to do about it, got: {error}"
     );
 }
+
+// ── what `add_rpc` owns ─────────────────────────────────────────────────────
+//
+// The handler generates the source id, maps the request into a
+// `MemorySourceEntry`, and applies conservative per-kind caps before the
+// registry sees it. Only the first two are its own code; the third is
+// `tinymemory-sources`' `apply_kind_defaults`, and what belongs here is that
+// this handler *calls* it — an add whose caps the user left unset must not
+// reach the registry uncapped.
+//
+// Covered only by `tests/raw_coverage/memory_threads_raw_coverage_e2e.rs`
+// before now, which went with the engine (#6161) although none of this is the
+// engine's (#6172).
+
+/// Pins `OPENHUMAN_WORKSPACE` for the duration, holding the crate's env lock so
+/// concurrent tests cannot observe the change. `add_rpc` writes through
+/// `registry::add_source`, which resolves its config with
+/// `load_config_with_timeout` — process-global, so the workspace has to be
+/// pinned rather than passed.
+struct WorkspaceEnvGuard {
+    _env_lock: std::sync::MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl WorkspaceEnvGuard {
+    fn pin(workspace: &std::path::Path) -> Self {
+        let env_lock = crate::openhuman::config::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var_os("OPENHUMAN_WORKSPACE");
+        std::env::set_var("OPENHUMAN_WORKSPACE", workspace);
+        Self {
+            _env_lock: env_lock,
+            previous,
+        }
+    }
+}
+
+impl Drop for WorkspaceEnvGuard {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(value) => std::env::set_var("OPENHUMAN_WORKSPACE", value),
+            None => std::env::remove_var("OPENHUMAN_WORKSPACE"),
+        }
+    }
+}
+
+fn github_add_request() -> AddRequest {
+    AddRequest {
+        kind: tinymemory_sources::types::SourceKind::GithubRepo,
+        label: "A repository".into(),
+        enabled: true,
+        toolkit: None,
+        connection_id: None,
+        path: None,
+        glob: None,
+        url: Some("https://github.invalid/owner/repo".into()),
+        branch: None,
+        paths: Vec::new(),
+        // The three the caller left unset, which is the whole point.
+        max_commits: None,
+        max_issues: None,
+        max_prs: None,
+        query: None,
+        since_days: None,
+        max_items: None,
+        selector: None,
+        max_tokens_per_sync: None,
+        max_cost_per_sync_usd: None,
+        sync_depth_days: None,
+    }
+}
+
+#[tokio::test]
+async fn add_generates_an_id_and_caps_a_request_that_left_its_limits_unset() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let workspace = tmp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("workspace dir");
+    let _env = WorkspaceEnvGuard::pin(&workspace);
+
+    let added = add_rpc(github_add_request())
+        .await
+        .expect("add_rpc")
+        .value
+        .source;
+
+    // ── the id is the handler's ─────────────────────────────────────────────
+    //
+    // The caller never supplies one; a request that could name its own id would
+    // let two sources collide by construction.
+    let minted = added.id.strip_prefix("src_").unwrap_or_else(|| {
+        panic!(
+            "the handler must mint a `src_`-prefixed id, got {:?}",
+            added.id
+        )
+    });
+    assert!(
+        minted.len() == 32
+            && minted
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "the suffix must be a uuid-simple — 32 lowercase hex digits — and not \
+         merely 32 characters, got {minted:?}"
+    );
+
+    // ── the caps came from somewhere ────────────────────────────────────────
+    //
+    // Asserted as "no longer None" plus the concrete GitHub values, because the
+    // two say different things: the first is that this handler applies defaults
+    // at all, the second that it applied *these* — a handler that filled them
+    // with zeros would satisfy the first and cap every sync at nothing.
+    assert_eq!(added.max_prs, Some(10), "per-kind PR cap");
+    assert_eq!(added.max_issues, Some(10), "per-kind issue cap");
+    assert_eq!(added.max_commits, Some(50), "per-kind commit cap");
+
+    // ── and it reached the registry ─────────────────────────────────────────
+    //
+    // The response alone would be satisfied by a handler that shaped an entry
+    // and dropped it.
+    let fetched = get_rpc(GetRequest {
+        id: added.id.clone(),
+    })
+    .await
+    .expect("get_rpc")
+    .value
+    .source;
+    let fetched = fetched.expect("the added source is not readable back from the registry");
+    assert_eq!(
+        fetched.id, added.id,
+        "the registry read back a different source"
+    );
+
+    // The id alone would be satisfied by a registry that persisted an entry
+    // with every other field defaulted. These four are the request's
+    // non-default fields, so each one is a mapping the handler had to carry.
+    assert_eq!(
+        fetched.kind,
+        tinymemory_sources::types::SourceKind::GithubRepo,
+        "the request's kind must survive the round trip"
+    );
+    assert_eq!(fetched.label, "A repository", "the request's label");
+    assert!(fetched.enabled, "the request asked for an enabled source");
+    assert_eq!(
+        fetched.url.as_deref(),
+        Some("https://github.invalid/owner/repo"),
+        "the request's url"
+    );
+}

@@ -8,7 +8,7 @@ use tinymemory_api::capabilities::{Capabilities, Capability};
 /// Checked against the registry pin by `the_capability_list_matches_the_pinned_release`,
 /// so bumping the pin without re-reading the list is a red test rather than a
 /// silent over-claim.
-pub(crate) const ARTIFACT_CAPABILITIES_PIN: &str = "1.15.2";
+pub(crate) const ARTIFACT_CAPABILITIES_PIN: &str = "1.15.3";
 
 /// The capability families the **pinned artifact** actually serves.
 ///

@@ -1115,6 +1115,10 @@ async fn subagent_runner_parent_context_filters_tools_caps_output_and_reports_er
         ),
         all_tools: Arc::new(all_tools),
         all_tool_specs: Arc::new(all_specs),
+        // #6145: empty means "same surface as `all_tool_specs`" — the
+        // catalogue falls back to it, so these stubs keep the behaviour
+        // they had before the parent's visible set became its own field.
+        visible_tool_specs: Arc::new(Vec::new()),
         visible_tool_names: std::collections::HashSet::new(),
         subagent_tool_ceiling_names: std::collections::HashSet::new(),
         model_name: "parent-model".to_string(),

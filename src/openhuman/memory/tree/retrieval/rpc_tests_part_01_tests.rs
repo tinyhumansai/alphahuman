@@ -268,6 +268,10 @@ async fn search_entities_rpc_parses_valid_kinds_list() {
 /// index instead.
 #[tokio::test]
 async fn search_entities_rpc_rejects_unknown_entity_kind() {
+    // The handler reaches the bound driver, which refuses with "memory is
+    // still starting" for as long as the module is loading — a process-wide
+    // transient this assertion would otherwise race (openhuman#6172).
+    crate::openhuman::memory::test_support::settle_memory_module().await;
     let (_tmp, cfg) = test_config();
     let req = SearchEntitiesRequest {
         query: "x".into(),

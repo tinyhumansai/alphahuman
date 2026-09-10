@@ -256,3 +256,53 @@ impl tinymemory_api::traits::Memory for RetainingMemory {
 pub(crate) fn retaining_memory() -> Arc<dyn tinymemory_api::traits::Memory> {
     Arc::new(RetainingMemory::default())
 }
+
+/// Wait out any in-flight load of the memory module.
+///
+/// A module is loaded once per process, by whichever caller asks first, and
+/// `modules::ops::state_of` reports `Loading` for the whole of it. Two correct
+/// answers to that transient are indistinguishable from a regression:
+/// `MemoryProvider::health` returns `degraded("the memory module is loading")`,
+/// and a handler that reaches the driver answers "memory is still starting".
+/// A test asserting a settled value therefore races whichever sibling triggered
+/// the load — invisible when it runs alone, and lost about as often as not when
+/// `cargo test --lib -- openhuman::memory` runs nine hundred of them in one
+/// process (openhuman#6172).
+///
+/// Awaiting the resolution is what makes this race-free, where polling
+/// `state_of` would only narrow the window: `Ready` and `Failed` are both
+/// terminal — tinybus keeps a refused library mapped, so a resolution is never
+/// retried — which means the state cannot return to `Loading` after this
+/// returns. The wait is bounded because a caller that gives up leaves the
+/// resolution running rather than cancelling it.
+///
+/// `Failed` is ignored: a host with no artifact for its platform resolves to
+/// it, that is settled too, and what the caller asserts about a driver that
+/// could not load is the caller's business. `StillLoading` is not ignored —
+/// it is the one outcome that leaves the caller in exactly the state this
+/// function exists to rule out, so it panics rather than handing back an
+/// unsettled module and letting the caller fail on the transient it was
+/// supposed to have waited out.
+#[cfg(feature = "modules")]
+pub(crate) async fn settle_memory_module() {
+    use crate::openhuman::modules::ops::LoadError;
+
+    match crate::openhuman::modules::ops::ensure_loaded_within(
+        &crate::openhuman::memory::binding::test_module_config(),
+        crate::openhuman::memory::binding::MODULE_ID,
+        Some(std::time::Duration::from_secs(30)),
+    )
+    .await
+    {
+        Ok(()) | Err(LoadError::Failed(_)) => {}
+        Err(LoadError::StillLoading) => panic!(
+            "the memory module did not settle within 30s; every assertion after \
+             this point would race its load"
+        ),
+    }
+}
+
+/// Without the `modules` feature nothing loads a module, so nothing can be
+/// caught mid-load.
+#[cfg(not(feature = "modules"))]
+pub(crate) async fn settle_memory_module() {}

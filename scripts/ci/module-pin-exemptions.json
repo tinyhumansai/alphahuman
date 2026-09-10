@@ -29,12 +29,6 @@
       "submodule": "vendor/tinymcp",
       "expect": "v0.3.2-2-g8b0627d",
       "reason": "The host compiles the MCP contract against tinyhumansai/tinymcp#13 (Supervisor::tick returns a TickReport; needed by openhuman#5931), merged to tinymcp main but not yet in a tagged release, while the registry keeps the published v0.3.2 artifact. The drift is compile-only: the tinymcp module is registry-entered but not wired (AGENTS.md, 'step two of the extraction'), so no build downloads or loads that artifact. Delete this entry when tinymcp cuts its next release and the registry pin moves onto it."
-    },
-    {
-      "id": "tinymemory",
-      "submodule": "vendor/tinymemory",
-      "expect": "v1.15.2-15-g5c55431",
-      "reason": "The host compiles the memory contract against tinymemory main (tinyhumansai/tinymemory#148, #150 and #151 \u2014 the engine-free conformance driver openhuman#6161 binds in place of an in-process engine), merged upstream but not yet in a tagged release, while the registry keeps the published v1.15.2 artifact. The drift cannot reach a runtime mismatch, and that was checked rather than assumed: the entire v1.15.2..5c55431 delta to the crates this build ships is (a) one additive re-export, `pub use tinymemory_bus::chrono` in tinymemory-api, so a driver crate depending on the contract alone can name the `DateTime<Utc>` two MemoryTree methods already take, (b) a `#[cfg(test)] mod summarise_tests;` line in tinymemory-core, and (c) 31 lines of doc comment on MemoryDocuments::list_documents and delete_document. Zero removals, no method added or changed, no wire slot moved, CONTRACT_VERSION untouched \u2014 so the v1.15.2 artifact serves exactly the contract compiled here. Everything else in the range is tinymemory-conformance, a test-only crate that is a dev-dependency here and is not in the module artifact at all. Delete this entry when tinymemory cuts its next release and the registry pin moves onto it."
     }
   ]
 }
